@@ -1,0 +1,136 @@
+-- Search-A-Card
+-- made by:         Chr1Z
+-- description:     spawns the card with the specified name
+information = {
+    version = "1.1",
+    last_updated = "10.10.2022"
+}
+
+local BUTTON_PARAMETERS          = {}
+BUTTON_PARAMETERS.function_owner = self
+BUTTON_PARAMETERS.height         = 200
+BUTTON_PARAMETERS.width          = 1200
+BUTTON_PARAMETERS.font_size      = 75
+
+-- save selected options
+function onSave() return JSON.encode({ spawnAll, searchExact }) end
+
+function onLoad(saved_data)
+    -- loading saved data
+    local loaded_data = JSON.decode(saved_data)
+    spawnAll          = loaded_data[1] or false
+    searchExact       = loaded_data[2] or false
+
+    allCardsBag = getObjectFromGUID("15bb07")
+    INPUT_BOX   = ""
+
+    self.createInput({
+        input_function = "input_func",
+        function_owner = self,
+        label          = "Click to enter card name",
+        alignment      = 2,
+        position       = { x = 0, y = 0.05, z = -1.6 },
+        width          = 1200,
+        height         = 130,
+        font_size      = 107
+    })
+
+    -- index 0: button for spawn mode
+    BUTTON_PARAMETERS.click_function = "search"
+    BUTTON_PARAMETERS.label          = "Spawn matching card(s)!"
+    BUTTON_PARAMETERS.position       = { x = 0, y = 0.05, z = 1.15 }
+    self.createButton(BUTTON_PARAMETERS)
+
+    -- index 1: button for spawn mode
+    if spawnAll then
+        BUTTON_PARAMETERS.label = "Mode: Spawn all matching cards "
+    else
+        BUTTON_PARAMETERS.label = "Mode: Spawn first matching card"
+    end
+
+    BUTTON_PARAMETERS.click_function = "spawnMode"
+    BUTTON_PARAMETERS.position.z     = 1.55
+    self.createButton(BUTTON_PARAMETERS)
+
+    -- index 2: button for search mode
+    if searchExact then
+        BUTTON_PARAMETERS.label = "Mode: Name matches search term"
+    else
+        BUTTON_PARAMETERS.label = "Mode: Name contains search term"
+    end
+
+    BUTTON_PARAMETERS.click_function = "searchMode"
+    BUTTON_PARAMETERS.position.z     = 1.95
+    self.createButton(BUTTON_PARAMETERS)
+
+    self.addContextMenuItem("More Information", function()
+        printToAll("------------------------------", "White")
+        printToAll("Search-A-Card v" .. information["version"] .. " by Chr1Z", "Orange")
+        printToAll("last updated: " .. information["last_updated"], "White")
+    end)
+end
+
+-- main function
+function search()
+    if INPUT_BOX == nil or string.len(INPUT_BOX) == 0 then
+        printToAll("Please enter a search string.", "Yellow")
+        return
+    end
+
+    if string.len(INPUT_BOX) < 4 then
+        printToAll("Please enter a longer search string.", "Yellow")
+        return
+    end
+
+    if allCardsBag == nil then
+        printToAll("Player card bag couldn't be found.", "Red")
+        return
+    end
+
+    local cardList = allCardsBag.call("getCardsByName", { name = INPUT_BOX, exact = searchExact })
+    if cardList == nil or #cardList == 0 then
+        printToAll("No match found.", "Red")
+        return
+    end
+
+    -- search all objects in bag
+    local spawnCount = 0
+    for i, card in ipairs(cardList) do
+      local pos = self.positionToWorld(Vector(0, 0.5 + spawnCount * 0.15, -0.225))
+      local rot = self.getRotation()
+      spawnObjectData({
+        data = card.data,
+        position = pos,
+        rotation = rot,
+      })
+      if not spawnAll then
+        return
+      end
+    end
+end
+
+function input_func(_, _, input, stillEditing)
+    if not stillEditing then INPUT_BOX = input end
+end
+
+-- toggle spawn mode
+function spawnMode()
+    spawnAll = not spawnAll
+
+    if spawnAll then
+        self.editButton({ index = 1, label = "Mode: Spawn all matching cards " })
+    else
+        self.editButton({ index = 1, label = "Mode: Spawn first matching card" })
+    end
+end
+
+-- toggle search mode
+function searchMode()
+    searchExact = not searchExact
+
+    if searchExact then
+        self.editButton({ index = 2, label = "Mode: Name matches search term" })
+    else
+        self.editButton({ index = 2, label = "Mode: Name contains search term" })
+    end
+end

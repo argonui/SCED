@@ -37,7 +37,9 @@ function onload()
   TOKEN_DATA = {
     clue = {image = tokenplayerone.clue, scale = {0.15, 0.15, 0.15}},
     resource = {image = tokenplayerone.resource, scale = {0.17, 0.17, 0.17}},
-    doom = {image = tokenplayerone.doom, scale = {0.17, 0.17, 0.17}}
+    doom = {image = tokenplayerone.doom, scale = {0.17, 0.17, 0.17}},
+    damage = {image = tokenplayerone.damageone, scale = {0.17, 0.17, 0.17}},
+    horror = {image = tokenplayerone.horrorone, scale = {0.17, 0.17, 0.17}}
   }
 
   getObjectFromGUID("6161b4").interactable=false
@@ -49,6 +51,7 @@ function onload()
   getObjectFromGUID("9487a4").interactable=false
   getObjectFromGUID("91dd9b").interactable=false
   getObjectFromGUID("f182ee").interactable=false
+  getObjectFromGUID("7bff34").interactable=false
 
 end
 
@@ -134,6 +137,8 @@ PULLS = {
   ["http://cloud-3.steamusercontent.com/ugc/1655601092778627699/339FB716CB25CA6025C338F13AFDFD9AC6FA8356/"] = 0,
   -- elder sign
   ["https://i.imgur.com/nEmqjmj.png"] = 0,
+  -- frost
+  ["http://cloud-3.steamusercontent.com/ugc/1858293462583104677/195F93C063A8881B805CE2FD4767A9718B27B6AE/"] = 0,
 }
 
 IMAGE_TOKEN_MAP = {
@@ -172,7 +177,9 @@ IMAGE_TOKEN_MAP = {
     -- bless
     ["http://cloud-3.steamusercontent.com/ugc/1655601092778627699/339FB716CB25CA6025C338F13AFDFD9AC6FA8356/"] = "Bless",
     -- curse
-    ["http://cloud-3.steamusercontent.com/ugc/1655601092778636039/2A25BD38E8C44701D80DD96BF0121DA21843672E/"] = "Curse"
+    ["http://cloud-3.steamusercontent.com/ugc/1655601092778636039/2A25BD38E8C44701D80DD96BF0121DA21843672E/"] = "Curse",
+	-- frost
+	["http://cloud-3.steamusercontent.com/ugc/1858293462583104677/195F93C063A8881B805CE2FD4767A9718B27B6AE/"] = "Frost"
 }
 
 function resetStats()
@@ -686,6 +693,7 @@ function getImageUrl(id)
     if id == 'elder' then return 'https://i.imgur.com/ttnspKt.png' end
     if id == 'red' then return 'https://i.imgur.com/lns4fhz.png' end
     if id == 'blue' then return 'https://i.imgur.com/nEmqjmj.png' end
+	if id == 'frost' then return 'http://cloud-3.steamusercontent.com/ugc/1858293462583104677/195F93C063A8881B805CE2FD4767A9718B27B6AE/' end
     return ''
 end
 
@@ -765,4 +773,200 @@ function updateRandomSeed()
     if chance == 1 then
         math.randomseed(os.time())
     end
+end
+
+
+-- Content Importing
+
+
+--- Loadable Items test
+
+local source_repo = 'https://raw.githubusercontent.com/seth-sced/loadable-objects/main'
+local list_url = 'library.json'
+local library = nil
+
+local request_obj
+
+---
+
+function get_source_repo()
+  return source_repo
+end
+
+---
+
+function onClick_toggleUi(player, window)
+  toggle_ui(window)
+end
+
+function onClick_refreshList()
+  local request = WebRequest.get(get_source_repo() .. '/' .. list_url, completed_list_update)
+  request_obj = request
+  startLuaCoroutine(Global, 'my_coroutine')
+end
+
+function onClick_select(player, params)
+  params = JSON.decode(urldecode(params))
+  local url = get_source_repo() .. '/' .. params.url
+  local request = WebRequest.get(url, function (request) complete_obj_download(request, params) end )
+  request_obj = request
+  startLuaCoroutine(Global, 'my_coroutine')
+end
+
+function onClick_load()
+  UI.show('progress_display')
+  UI.hide('load_button')
+end
+
+function onClick_cancel()
+end
+
+---
+
+function toggle_ui(title)
+  UI.hide('load_ui')
+  if UI.getValue('title') == title or title == 'Hidden' then
+    UI.setValue('title', 'Hidden')
+  else
+    UI.setValue('title', title)
+    update_window_content(title)
+    UI.show('load_ui')
+  end
+end
+
+function my_coroutine()
+  while request_obj do
+    UI.setAttribute('download_progress', 'percentage', request_obj.download_progress * 100)
+    coroutine.yield(0)
+  end
+  return 1
+end
+
+
+function update_list(objects)
+  local ui = UI.getXmlTable()
+  local update_height = find_tag_with_id(ui, 'ui_update_height')
+  local update_children = find_tag_with_id(update_height.children, 'ui_update_point')
+
+  update_children.children = {}
+
+  for i,v in ipairs(objects) do
+    local s = JSON.encode(v);
+    --print(s)
+    table.insert(update_children.children,
+      {
+        tag = 'Text',
+        value = v.name,
+        attributes = { onClick = 'onClick_select('.. urlencode(JSON.encode(v)) ..')',
+                       alignment = 'MiddleLeft' }
+      }
+    )
+  end
+
+  update_height.attributes.height = #(update_children.children) * 24
+  UI.setXmlTable(ui)
+end
+
+function update_window_content(new_title)
+  if not library then
+    return
+  end
+
+  if new_title == 'Campaigns' then
+    update_list(library.campaigns)
+  elseif new_title == 'Standalone Scenarios' then
+    update_list(library.scenarios)
+  elseif new_title == 'Investigators' then
+    update_list(library.investigators)
+  elseif new_title == 'Community Content' then
+    update_list(library.community)
+  elseif new_title == 'Extras' then
+    update_list(library.extras)
+  else
+    update_list({})
+  end
+end
+
+function complete_obj_download(request, params)
+  assert(request.is_done)
+  if request.is_error or request.response_code ~= 200 then
+    print('error: ' .. request.error)
+  else
+    if pcall(function ()
+               local replaced_object
+               pcall(function ()
+                       if params.replace then
+                         replaced_object = getObjectFromGUID(params.replace)
+                       end
+                     end)
+               local json = request.text
+               if replaced_object then
+                 local pos = replaced_object.getPosition()
+                 local rot = replaced_object.getRotation()
+                 destroyObject(replaced_object)
+                 Wait.frames(function () spawnObjectJSON({json = json, position = pos, rotation = rot}) end, 1)
+               else
+                 spawnObjectJSON({json = json})
+               end
+             end) then
+      print('Object loaded.')
+    else
+      print('Error loading object.')
+    end
+  end
+
+  request_obj = nil
+  UI.setAttribute('download_progress', 'percentage', 100)
+
+end
+
+-- the download button on the placeholder objects calls this to directly initiate a download
+function placeholder_download(params)
+  -- params is a table with url and guid of replacement object, which happens to match what onClick_select wants
+  onClick_select(nil, JSON.encode(params))
+end
+
+function completed_list_update(request)
+  assert(request.is_done)
+  if request.is_error or request.response_code ~= 200 then
+    print('error: ' .. request.error)
+  else
+    local json_response = nil
+    if pcall(function () json_response = JSON.decode(request.text) end) then
+      library = json_response
+      update_window_content(UI.getValue('title'))
+    else
+      print('error parsing downloaded library')
+    end
+  end
+
+  request_obj = nil
+  UI.setAttribute('download_progress', 'percentage', 100)
+end
+
+---
+
+function find_tag_with_id(ui, id)
+  for i,obj in ipairs(ui) do
+    if obj.attributes and obj.attributes.id and obj.attributes.id == id then
+      return obj
+    end
+    if obj.children then
+      local result = find_tag_with_id(obj.children, id)
+      if result then return result end
+    end
+  end
+  return nil
+end
+
+function urlencode(str)
+  str = string.gsub(str, "([^A-Za-z0-9-_.~])",
+    function (c) return string.format("%%%02X", string.byte(c)) end)
+  return str
+end
+
+function urldecode(str)
+  str = string.gsub(str, "%%(%x%x)",
+    function (h) return string.char(tonumber(h, 16)) end)
+  return str
 end
