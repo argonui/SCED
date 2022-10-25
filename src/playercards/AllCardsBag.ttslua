@@ -1,4 +1,9 @@
 
+-- Position to check for weaknesses.  Everything with X and Z less
+-- than these values (down and right on the table) will be checked
+local WEAKNESS_CHECK_X = 15
+local WEAKNESS_CHECK_Z = 37
+
 local cardIdIndex = { }
 local classAndLevelIndex = { }
 local basicWeaknessList = { }
@@ -114,15 +119,18 @@ function buildSupplementalIndexes()
   for cardId, card in pairs(cardIdIndex) do
     local cardData = card.data
     local cardMetadata = card.metadata
-    -- Add card to the basic weakness list, if appropriate.  Some weaknesses have
-    -- multiple copies, and are added multiple times
-    if (cardMetadata.weakness and cardMetadata.basicWeaknessCount ~= nil) then
-      for i = 1, cardMetadata.basicWeaknessCount do
-        table.insert(basicWeaknessList, cardMetadata.id)
+    -- If the ID key and the metadata ID don't match this is a duplicate card created by an
+    -- alternate_id, and we should skip it
+    if (cardId == cardMetadata.id) then
+      -- Add card to the basic weakness list, if appropriate.  Some weaknesses have
+      -- multiple copies, and are added multiple times
+      if (cardMetadata.weakness and cardMetadata.basicWeaknessCount ~= nil) then
+        for i = 1, cardMetadata.basicWeaknessCount do
+          table.insert(basicWeaknessList, cardMetadata.id)
       end
     end
 
-    -- Add the card to the appropriate class and level indexes
+  -- Add the card to the appropriate class and level indexes
     local isGuardian = false
     local isSeeker = false
     local isMystic = false
@@ -130,35 +138,38 @@ function buildSupplementalIndexes()
     local isSurvivor = false
     local isNeutral = false
     local upgradeKey
+    -- Excludes signature cards (which have no class or level) and alternate
+    -- ID entries
     if (cardMetadata.class ~= nil and cardMetadata.level ~= nil) then
-      isGuardian = string.match(cardMetadata.class, "Guardian")
-      isSeeker = string.match(cardMetadata.class, "Seeker")
-      isMystic = string.match(cardMetadata.class, "Mystic")
-      isRogue = string.match(cardMetadata.class, "Rogue")
-      isSurvivor = string.match(cardMetadata.class, "Survivor")
-      isNeutral = string.match(cardMetadata.class, "Neutral")
-      if (cardMetadata.level > 0) then
-        upgradeKey = "-upgrade"
-      else
-        upgradeKey = "-level0"
-      end
-      if (isGuardian) then
-        table.insert(classAndLevelIndex["Guardian"..upgradeKey], cardMetadata.id)
-      end
-      if (isSeeker) then
-        table.insert(classAndLevelIndex["Seeker"..upgradeKey], cardMetadata.id)
-      end
-      if (isMystic) then
-        table.insert(classAndLevelIndex["Mystic"..upgradeKey], cardMetadata.id)
-      end
-      if (isRogue) then
-        table.insert(classAndLevelIndex["Rogue"..upgradeKey], cardMetadata.id)
-      end
-      if (isSurvivor) then
-        table.insert(classAndLevelIndex["Survivor"..upgradeKey], cardMetadata.id)
-      end
-      if (isNeutral) then
-        table.insert(classAndLevelIndex["Neutral"..upgradeKey], cardMetadata.id)
+        isGuardian = string.match(cardMetadata.class, "Guardian")
+        isSeeker = string.match(cardMetadata.class, "Seeker")
+        isMystic = string.match(cardMetadata.class, "Mystic")
+        isRogue = string.match(cardMetadata.class, "Rogue")
+        isSurvivor = string.match(cardMetadata.class, "Survivor")
+        isNeutral = string.match(cardMetadata.class, "Neutral")
+        if (cardMetadata.level > 0) then
+          upgradeKey = "-upgrade"
+        else
+          upgradeKey = "-level0"
+        end
+        if (isGuardian) then
+          table.insert(classAndLevelIndex["Guardian"..upgradeKey], cardMetadata.id)
+        end
+        if (isSeeker) then
+          table.insert(classAndLevelIndex["Seeker"..upgradeKey], cardMetadata.id)
+        end
+        if (isMystic) then
+          table.insert(classAndLevelIndex["Mystic"..upgradeKey], cardMetadata.id)
+        end
+        if (isRogue) then
+          table.insert(classAndLevelIndex["Rogue"..upgradeKey], cardMetadata.id)
+        end
+        if (isSurvivor) then
+          table.insert(classAndLevelIndex["Survivor"..upgradeKey], cardMetadata.id)
+        end
+        if (isNeutral) then
+          table.insert(classAndLevelIndex["Neutral"..upgradeKey], cardMetadata.id)
+        end
       end
     end
   end
@@ -172,6 +183,7 @@ end
 function cardComparator(id1, id2)
   local card1 = cardIdIndex[id1]
   local card2 = cardIdIndex[id2]
+
   if (card1.metadata.level ~= card2.metadata.level) then
     return card1.metadata.level < card2.metadata.level
   end
@@ -222,19 +234,92 @@ function getCardsByClassAndLevel(params)
   return classAndLevelIndex[params.class..upgradeKey];
 end
 
+-- Searches the bag for cards which match the given name and returns a list.  Note that this is
+-- an O(n) search without index support.  It may be slow.
+-- Parameter array must contain these fields to define the search:
+--   name String or string fragment to search for names
+--   exact Whether the name match should be exact
+function getCardsByName(params)
+  local name = params.name
+  local exact = params.exact
+  local results = { }
+  -- Track cards (by ID) that we've added to avoid duplicates that may come from alternate IDs
+  local addedCards = { }
+  for _, cardData in pairs(cardIdIndex) do
+    if (not addedCards[cardData.metadata.id]) then
+      if (exact and (string.lower(cardData.data.Nickname) == string.lower(name)))
+          or (not exact and string.find(string.lower(cardData.data.Nickname), string.lower(name), 1, true)) then
+            table.insert(results, cardData)
+            addedCards[cardData.metadata.id] = true
+      end
+    end
+  end
+  return results
+end
+
 -- Gets a random basic weakness from the bag.  Once a given ID has been returned
 -- it will be removed from the list and cannot be selected again until a reload
 -- occurs or the indexes are rebuilt, which will refresh the list to include all
 -- weaknesses.
 -- Return: String ID of the selected weakness.
 function getRandomWeaknessId()
-  local pickedIndex = math.random(#basicWeaknessList)
-  local weaknessId = basicWeaknessList[pickedIndex]
-  if (#basicWeaknessList > 1) then
-    table.remove(basicWeaknessList, pickedIndex)
-  else
-    broadcastToAll("All weaknesses have been drawn!", {0.9, 0.2, 0.2})
+    local availableWeaknesses = buildAvailableWeaknesses()
+  if (#availableWeaknesses > 0) then
+    return availableWeaknesses[math.random(#availableWeaknesses)]
+  end
+end
+
+-- Constructs a list of available basic weaknesses by starting with the full pool of basic
+-- weaknesses then removing any which are currently in the play or deck construction areas
+-- Return: Table array of weakness IDs which are valid to choose from
+function buildAvailableWeaknesses()
+  local weaknessesInPlay = { }
+  local allObjects = getAllObjects()
+  for _, object in ipairs(allObjects) do
+    if (object.name == "Deck" and isInPlayArea(object)) then
+      for _, cardData in ipairs(object.getData().ContainedObjects) do
+        local cardMetadata = JSON.decode(cardData.GMNotes)
+        incrementWeaknessCount(weaknessesInPlay, cardMetadata)
+      end
+    elseif (object.name == "Card" and isInPlayArea(object)) then
+      local cardMetadata = JSON.decode(object.getGMNotes())
+      incrementWeaknessCount(weaknessesInPlay, cardMetadata)
+    end
   end
 
-  return weaknessId
+  local availableWeaknesses = { }
+  for _, weaknessId in ipairs(basicWeaknessList) do
+    if (weaknessesInPlay[weaknessId] ~= nil and weaknessesInPlay[weaknessId] > 0) then
+      weaknessesInPlay[weaknessId] = weaknessesInPlay[weaknessId] - 1
+    else
+      table.insert(availableWeaknesses, weaknessId)
+    end
+  end
+  return availableWeaknesses
+end
+
+-- Helper function that adds one to the table entry for the number of weaknesses in play
+function incrementWeaknessCount(table, cardMetadata)
+  if (isBasicWeakness(cardMetadata)) then
+    if (table[cardMetadata.id] == nil) then
+      table[cardMetadata.id] = 1
+    else
+      table[cardMetadata.id] = table[cardMetadata.id] + 1
+    end
+  end
+end
+
+function isInPlayArea(object)
+  if (object == nil) then
+    return false
+  end
+  local position = object.getPosition()
+  return position.x < WEAKNESS_CHECK_X
+      and position.z < WEAKNESS_CHECK_Z
+end
+function isBasicWeakness(cardMetadata)
+  return cardMetadata ~= nil
+    and cardMetadata.weakness
+    and cardMetadata.basicWeaknessCount ~= nil
+    and cardMetadata.basicWeaknessCount > 0
 end
