@@ -271,6 +271,25 @@ function checkTaboos(tabooId, slots, playerColor, configuration)
   end
 end
 
+-- Returns the zone name where the specified card should be placed, based on its metadata.
+---@param cardMetadata: Table of card metadata.  Metadata fields type and permanent are required; all others are optional.
+---@return: Zone name such as "Deck", "SetAside1", etc. See Zones object documentation for a list of valid zones.
+function getDefaultCardZone(cardMetadata)
+  if cardMetadata.type == "Investigator" then
+    return "Investigator"
+  elseif cardMetadata.type == "Minicard" then
+    return "Minicard"
+  elseif cardMetadata.permanent then
+    return "SetAside1"
+  elseif bondedList[cardMetadata.id] then
+    return "SetAside2"
+    -- SetAside3 is used for Ancestral Knowledge / Underworld Market
+    -- SetAside4 is used for upgrade sheets
+  else
+    return "Deck"
+  end
+end
+
 -- Process the slot list, which defines the card Ids and counts of cards to load. Spawn those cards at the appropriate zones
 -- and report an error to the user if any could not be loaded.
 -- This method uses an encapsulated coroutine with yields to make the card spawning cleaner.
@@ -291,7 +310,7 @@ function loadCards(slots, investigatorId, playerColor, commandManager, configura
     for cardId, cardCount in pairs(slots) do
       local card = allCardsBag.call("getCardById", { id = cardId })
       if card ~= nil then
-        local cardZone = Zones.getDefaultCardZone(card.metadata)
+        local cardZone = getDefaultCardZone(card.metadata)
         for i = 1, cardCount do
           table.insert(cardsToSpawn, { data = card.data, metadata = card.metadata, zone = cardZone })
         end
