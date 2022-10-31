@@ -1,0 +1,53 @@
+{
+  "AltLookAngle": {
+    "x": 0,
+    "y": 0,
+    "z": 0
+  },
+  "Autoraise": true,
+  "ColorDiffuse": {
+    "b": 0.18381986,
+    "g": 0.18381986,
+    "r": 0.18381986
+  },
+  "CustomAssetbundle": {
+    "AssetbundleSecondaryURL": "",
+    "AssetbundleURL": "http://cloud-3.steamusercontent.com/ugc/880873968289806692/67F62868DF65CD9CC43F3CDCDED7BACA0F075422/",
+    "LoopingEffectIndex": 0,
+    "MaterialIndex": 2,
+    "TypeIndex": 4
+  },
+  "Description": "[b]Camera Placement Helper[/b]\n\nIf you want to use another object as the focus for the camera, you may do so by enter its GUID into this object's NAME field.\n\nIf you put a space and a number, the camera rotation will be offset by that amount. POSITIVE NUMBERS ONLY.\n\n[i]Example:[/i]\ncecc3e 90\n",
+  "DragSelectable": true,
+  "GMNotes": "",
+  "GUID": "cecc3e",
+  "Grid": false,
+  "GridProjection": false,
+  "Hands": false,
+  "HideWhenFaceDown": false,
+  "IgnoreFoW": false,
+  "LayoutGroupSortIndex": 0,
+  "Locked": false,
+  "LuaScript": "--On-demand save function, remembers pitch and distance values\r\nfunction updateSave()\r\n    saved_data = JSON.encode({pitch=pitch, distance=distance})\r\n    self.script_state = saved_data\r\nend\r\n\r\n--Startup, loading memory\r\nfunction onload(saved_data)\r\n    --Loads the tracking for if the game has started yet\r\n    if saved_data ~= \"\" then\r\n        local loaded_data = JSON.decode(saved_data)\r\n        pitch = loaded_data.pitch\r\n        distance = loaded_data.distance\r\n    else\r\n        pitch = 45\r\n        distance = 30\r\n    end\r\n\r\n    createInputs()\r\n    createButtons()\r\nend\r\n\r\n--Activated by finishing writing in the input box, updates save info\r\nfunction input_entered(inputString, stillEditing , typeIndex)\r\n    if stillEditing == false  then\r\n        --Check to avoid empty input strings\r\n        if tonumber(inputString) == nil then inputString = 0 end\r\n        --Update save data\r\n        if typeIndex==0 then\r\n            pitch = inputString\r\n        else\r\n            distance = inputString\r\n        end\r\n        updateSave()\r\n    end\r\nend\r\n\r\n--Activated by button, the -5 -1 +1 +5 buttons\r\nfunction click_modify(amount, typeIndex)\r\n    if typeIndex==0 then\r\n        pitch = pitch + amount\r\n        self.editInput({index=typeIndex, value=pitch})\r\n    else\r\n        distance = distance + amount\r\n        self.editInput({index=typeIndex, value=distance})\r\n    end\r\n    updateSave()\r\nend\r\n\r\n--Activated by button, uses the data to move the camera\r\nfunction click_setCamera(_, color)\r\n    --Check if there is another object to use instead of self\r\n    local targetObj = self\r\n    local nameGUID = string.sub(self.getName(), 1, 6)\r\n    if getObjectFromGUID(nameGUID) ~= nil then\r\n        targetObj = getObjectFromGUID(nameGUID)\r\n    end\r\n\r\n    --Check if there is an offset to use instead of 180\r\n    local offsetY = 180\r\n    local offsetString = string.sub(self.getName(), 7)\r\n    if tonumber(string.match(offsetString, \"%d+\")) ~= nil then\r\n        offsetY = tonumber(string.match(offsetString, \"%d+\"))\r\n    end\r\n\r\n    --Move camera into position around object\r\n    local pos = targetObj.getPosition()\r\n    local rot = targetObj.getRotation()\r\n    rot.y = rot.y + offsetY\r\n    Player[color].lookAt({position=pos, pitch=pitch, yaw=rot.y, distance=distance})\r\n\r\n    local objectList = getObjects()\r\n    local AHLCGNavTile = nil\r\n\r\n    for i,v in ipairs(objectList) do\r\n        if v.getName() == 'Navigation Overlay Tile' then\r\n            AHLCGNavTile = v\r\n            break\r\n        end\r\n    end\r\n\r\n--    local AHLCGNavTile = getObjectFromGUID(\"0ffbc5\")\r\n    if AHLCGNavTile then\r\n        AHLCGNavTile.call('updateEditCamera', {pos, pitch, rot.y, distance})\r\n    end\r\nend\r\n\r\n\r\n\r\n\r\n--Button/Input creation\r\n\r\n\r\n\r\n--Text boxes for number input\r\nfunction createInputs()\r\n    local funcName = \"inputFuncNamePitch\"\r\n    local func = function(_,_,x,z) input_entered(x,z,0) end\r\n    self.setVar(funcName, func)\r\n    self.createInput({\r\n        input_function=funcName, function_owner=self, label=\"input\",\r\n        alignment=2, position={-3.4,0.35,-0.21}, rotation={0,0,0}, height=420, width=1400,\r\n        font_size=400, color={57/255,46/255,40/255},\r\n        font_color={1,1,1}, value=pitch,\r\n        validation=3  -- int (1 = None, 2 = Integer, 3 = Float, 4 = Alphanumeric, 5 = Username, 6 = Name),\r\n    })\r\n    local funcName = \"inputFuncNameDistance\"\r\n    local func = function(_,_,x,z) input_entered(x,z,1) end\r\n    self.setVar(funcName, func)\r\n    self.createInput({\r\n        input_function=funcName, function_owner=self, label=\"input\",\r\n        alignment=4, position={3.4,0.35,-0.21}, rotation={0,0,0}, height=420, width=1400,\r\n        font_size=400, color={57/255,46/255,40/255},\r\n        font_color={1,1,1}, value=distance,\r\n        validation=3  -- int (1 = None, 2 = Integer, 3 = Float, 4 = Alphanumeric, 5 = Username, 6 = Name),\r\n    })\r\nend\r\n\r\n--Center button and -5 - +5 buttons\r\nfunction createButtons()\r\n    self.createButton({\r\n        click_function=\"click_setCamera\", function_owner=self,\r\n        position={0,0.4,0}, height=900, width=900, color={1,1,1,0},\r\n        tooltip=\"Set camera to this angle\"\r\n    })\r\n\r\n    for i, ref in ipairs(ref_modifyPitchButtons) do\r\n        local funcName = \"pitchModifyFunction_\"..i\r\n        self.setVar(funcName, ref.func)\r\n        local pos = {-3.4+ref.offset,0.3,0.6}\r\n        self.createButton({\r\n            click_function=funcName, function_owner=self,\r\n            position=pos, height=240, width=320, color={1,1,1,0}\r\n        })\r\n    end\r\n\r\n    for i, ref in ipairs(ref_modifyDistanceButtons) do\r\n        local funcName = \"distanceModifyFunction_\"..i\r\n        self.setVar(funcName, ref.func)\r\n        local pos = {3.4+ref.offset,0.3,0.6}\r\n        self.createButton({\r\n            click_function=funcName, function_owner=self,\r\n            position=pos, height=240, width=320, color={1,1,1,0}\r\n        })\r\n    end\r\nend\r\n\r\n--Data tables used in button creation\r\n\r\nref_modifyPitchButtons = {\r\n    {offset=-0.37, func=function() click_modify(-1, 0) end},\r\n    {offset=-1.11, func=function() click_modify(-5, 0) end},\r\n    {offset=0.37, func=function() click_modify(1, 0) end},\r\n    {offset=1.11, func=function() click_modify(5, 0) end},\r\n}\r\n\r\nref_modifyDistanceButtons = {\r\n    {offset=-0.37, func=function() click_modify(-1, 1) end},\r\n    {offset=-1.11, func=function() click_modify(-5, 1) end},\r\n    {offset=0.37, func=function() click_modify(1, 1) end},\r\n    {offset=1.11, func=function() click_modify(5, 1) end},\r\n}",
+  "LuaScriptState": "{\"distance\":15,\"pitch\":75}",
+  "LuaScript_path": "Custom_Assetbundle.cecc3e.ttslua",
+  "MeasureMovement": false,
+  "Name": "Custom_Assetbundle",
+  "Nickname": "",
+  "Snap": false,
+  "Sticky": true,
+  "Tooltip": true,
+  "Transform": {
+    "posX": 18.1479759,
+    "posY": 3.50409222,
+    "posZ": -26.63417,
+    "rotX": 0.3053459,
+    "rotY": 269.9994,
+    "rotZ": 0.126356155,
+    "scaleX": 0.5750004,
+    "scaleY": 0.5750004,
+    "scaleZ": 0.5750004
+  },
+  "Value": 0,
+  "XmlUI": ""
+}

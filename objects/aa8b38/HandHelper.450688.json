@@ -1,0 +1,58 @@
+{
+  "AltLookAngle": {
+    "x": 0,
+    "y": 0,
+    "z": 0
+  },
+  "Autoraise": true,
+  "ColorDiffuse": {
+    "b": 1,
+    "g": 1,
+    "r": 1
+  },
+  "CustomImage": {
+    "CustomTile": {
+      "Stackable": false,
+      "Stretch": true,
+      "Thickness": 0.1,
+      "Type": 0
+    },
+    "ImageScalar": 1,
+    "ImageSecondaryURL": "http://cloud-3.steamusercontent.com/ugc/1704036721123215146/E44A3B99EACF310E49E94977151A03C9A3DC7F17/",
+    "ImageURL": "http://cloud-3.steamusercontent.com/ugc/1704036721123215146/E44A3B99EACF310E49E94977151A03C9A3DC7F17/",
+    "WidthScale": 0
+  },
+  "Description": "- DIsplays the hand size (total or by title for \"Dream Enhancing Serum\"), hover over it to briefly toggle counting method\n\n- Adds a context menu to \"Short Supply\" for the 1st turn\n\n- Allows you to randomly discard a card from your hand\n\nSee context menu for additional information.",
+  "DragSelectable": true,
+  "GMNotes": "",
+  "GUID": "450688",
+  "Grid": true,
+  "GridProjection": false,
+  "Hands": false,
+  "HideWhenFaceDown": false,
+  "IgnoreFoW": false,
+  "LayoutGroupSortIndex": 0,
+  "Locked": false,
+  "LuaScript": "-- Hand Helper\n-- updated by:      Chr1Z\n-- original by:     -\n-- description:     counts cards in your hand (all or unique), can discard a random card\ninformation = {\n    version = \"1.2\",\n    last_updated = \"11.10.2022\"\n}\n\nMAT_GUIDS = { \"8b081b\", \"bd0ff4\", \"383d8b\", \"0840d5\" }\n\nlocal BUTTON_PARAMETERS          = {}\nBUTTON_PARAMETERS.function_owner = self\n\n-- saving \"playerColor\" and \"des\"\nfunction onSave() return JSON.encode({ playerColor, des}) end\n\nfunction onLoad(saved_data)\n    -- loading saved data\n    local loaded_data = JSON.decode(saved_data)\n    playerColor       = loaded_data[1] or Player.getAvailableColors()[1]\n    des               = loaded_data[2] or false\n\n    -- index 0: button as hand size label\n    BUTTON_PARAMETERS.hover_color    = \"White\"\n    BUTTON_PARAMETERS.click_function = \"none\"\n    BUTTON_PARAMETERS.position       = { 0, 0.1, -0.4 }\n    BUTTON_PARAMETERS.height         = 0\n    BUTTON_PARAMETERS.width          = 0\n    BUTTON_PARAMETERS.font_size      = 500\n    BUTTON_PARAMETERS.font_color     = \"White\"\n    self.createButton(BUTTON_PARAMETERS)\n\n    -- index 1: button to toggle \"des\"\n    BUTTON_PARAMETERS.label          = \"DES: \" .. (des and \"✓\" or \"✗\")\n    BUTTON_PARAMETERS.click_function = \"toggleDES\"\n    BUTTON_PARAMETERS.position       = { 0.475, 0.1, 0.25 }\n    BUTTON_PARAMETERS.height         = 175\n    BUTTON_PARAMETERS.width          = 440\n    BUTTON_PARAMETERS.font_size      = 90\n    BUTTON_PARAMETERS.font_color     = \"Black\"\n    self.createButton(BUTTON_PARAMETERS)\n\n    -- index 2: button to discard a card\n    BUTTON_PARAMETERS.label          = \"discard random card\"\n    BUTTON_PARAMETERS.click_function = \"discardRandom\"\n    BUTTON_PARAMETERS.position       = { 0, 0.1, 0.7 }\n    BUTTON_PARAMETERS.width          = 900\n    self.createButton(BUTTON_PARAMETERS)\n\n    -- index 3: button to select color\n    BUTTON_PARAMETERS.label          = playerColor\n    BUTTON_PARAMETERS.color          = playerColor\n    BUTTON_PARAMETERS.hover_color    = playerColor\n    BUTTON_PARAMETERS.click_function = \"changeColor\"\n    BUTTON_PARAMETERS.tooltip        = \"change color\"\n    BUTTON_PARAMETERS.position       = { -0.475, 0.1, 0.25 }\n    BUTTON_PARAMETERS.width          = 440\n    self.createButton(BUTTON_PARAMETERS)\n\n    -- start loop to update card count\n    loopId = Wait.time(||updateValue(), 1, -1)\n\n    -- context menu to quickly bind color\n    self.addContextMenuItem(\"Bind to my color\", function(color)\n        changeColor(_, _, _, color)\n    end)\n\n    -- context menu to display additional information\n    self.addContextMenuItem(\"More Information\", function()\n        printToAll(\"------------------------------\", \"White\")\n        printToAll(\"Hand Helper v\" .. information[\"version\"] .. \" by Chr1Z\", \"Orange\")\n        printToAll(\"last updated: \" .. information[\"last_updated\"], \"White\")\n        printToAll(\"original by Tikatoy\", \"White\")\n        printToAll(\"Note: 'Hidden' cards can't be randomly discarded.\", \"Yellow\")\n        printToAll(\"Set them aside beforehand!\", \"Yellow\")\n    end)\n\n    -- initialize the pseudo random number generator\n    math.randomseed(os.time())\nend\n\nfunction onObjectHover(hover_color, obj)\n    -- error handling\n    if obj == nil then return end\n\n    -- add context menu to \"short supply\"\n    if obj.getName() == \"Short Supply\" then\n        obj.addContextMenuItem(\"Discard 10 (\" .. playerColor .. \")\", shortSupply)\n    end\n\n    -- only continue if correct player hovers over \"self\"\n    if obj ~= self or hover_color ~= playerColor then return end\n\n    -- stop loop, toggle \"des\" and displayed value briefly, then start new loop\n    Wait.stop(loopId)\n    des = not des\n    updateValue()\n    des = not des\n    loopId = Wait.time(||updateValue(), 1, -1)\nend\n\n-- toggle \"des\" and update button label\nfunction toggleDES()\n    des = not des\n    self.editButton({index = 1, label = \"DES: \" .. (des and \"✓\" or \"✗\")})\n    updateValue()\nend\n\n-- count cards in hand (by name for DES)\nfunction updateValue()\n    if not playerExists(playerColor) then return end\n\n    local hand = Player[playerColor].getHandObjects()\n    local size = 0\n\n    if des then\n        local cardHash = {}\n        for _, obj in pairs(hand) do\n            if obj.tag == \"Card\" then\n                local name = obj.getName()\n                local title = string.match(name, '(.+)(%s%(%d+%))') or name\n                cardHash[title] = obj\n            end\n        end\n        for _, obj in pairs(cardHash) do\n            size = size + 1\n        end\n    else\n        for _, obj in pairs(hand) do\n            if obj.tag == \"Card\" then size = size + 1 end\n        end\n    end\n    -- change button label and color\n    self.editButton({index = 0, font_color = des and \"Green\" or \"White\", label = size})\nend\n\n-- get index of current color and move up one step (or down for right-click)\nfunction changeColor(_, _, isRightClick, color)\n    if color then\n        playerColor = color\n    else\n        local COLORS = Player.getAvailableColors()\n        local pos = indexOf(COLORS, playerColor)\n\n        if isRightClick then\n            if pos == nil or pos == 1 then pos = #COLORS\n            else pos = pos - 1 end\n        else\n            if pos == nil or pos == #COLORS then pos = 1\n            else pos = pos + 1 end\n        end\n\n        -- update playerColor\n        playerColor = COLORS[pos]\n    end\n\n    -- update \"change color\" button (note: remove and create instantly updates hover_color)\n    BUTTON_PARAMETERS.label          = playerColor\n    BUTTON_PARAMETERS.color          = playerColor\n    BUTTON_PARAMETERS.hover_color    = playerColor\n    self.removeButton(3)\n    self.createButton(BUTTON_PARAMETERS)\nend\n\n---------------------------------------------------------\n-- discards a random card from hand\n---------------------------------------------------------\nfunction discardRandom()\n    if not playerExists(playerColor) then return end\n\n    -- error handling: hand is empty\n    local hand = Player[playerColor].getHandObjects()\n    if #hand == 0 then\n        broadcastToAll(\"Cannot discard from empty hand!\", \"Red\")\n    else\n        local mat = getPlayermat(playerColor)\n        if mat == nil then return end\n\n        local discardPos = mat.getTable(\"DISCARD_PILE_POSITION\")\n        if discardPos == nil then\n            broadcastToAll(\"Couldn't retrieve discard position from playermat!\", \"Red\")\n            return\n        end\n\n        local num = math.random(1, #hand)\n        hand[num].setPosition(discardPos)\n        broadcastToAll(playerColor .. \" randomly discarded card \" .. num .. \"/\" .. #hand .. \".\", \"White\")\n    end\nend\n\n---------------------------------------------------------\n-- discards the top 10 cards of your deck\n---------------------------------------------------------\nfunction shortSupply(color)\n    local mat = getPlayermat(playerColor)\n    if mat == nil then return end\n\n    -- get draw deck and discard pile\n    mat.call(\"getDrawDiscardDecks\")\n    drawDeck = mat.getVar(\"drawDeck\")\n    local discardPos = mat.getTable(\"DISCARD_PILE_POSITION\")\n    if discardPos == nil then\n        broadcastToAll(\"Couldn't retrieve discard position from playermat!\", \"Red\")\n        return\n    end\n\n    if drawDeck == nil then\n        broadcastToColor(\"Deck not found!\", color, \"Yellow\")\n        return\n    elseif drawDeck.tag ~= \"Deck\" then\n        broadcastToColor(\"Deck only contains a single card!\", color, \"Yellow\")\n        return\n    end\n\n    -- discard cards\n    discardPos[2] = 0.5\n    for i = 1, 10 do\n        discardPos[2] = discardPos[2] + 0.05 * i\n        drawDeck.takeObject({ flip = true; position = discardPos })\n    end\nend\n\n---------------------------------------------------------\n-- helper functions\n---------------------------------------------------------\n\n-- helper to search array\nfunction indexOf(array, value)\n    for i, v in ipairs(array) do\n        if v == value then return i end\n    end\nend\n\n-- helper to check if player exists\nfunction playerExists(color)\n    local COLORS = Player.getAvailableColors()\n    return indexOf(COLORS, color) and true or false\nend\n\n-- helper to find playermat based on hand position\nfunction getPlayermat(color)       \n    local pos = Player[playerColor].getHandTransform().position\n    if pos.x \u003c -30 then\n        if pos.z \u003e 0 then\n            playerNumber = 1\n        else\n            playerNumber = 2\n        end\n    else\n        if pos.z \u003e 0 then\n            playerNumber = 3\n        else\n            playerNumber = 4\n        end\n    end\n\n    local mat = getObjectFromGUID(MAT_GUIDS[playerNumber])\n    if mat == nil then\n        broadcastToAll(playerColor .. \" playermat could not be found!\", \"Yellow\")\n    end\n    return mat\nend",
+  "LuaScriptState": "[\"Green\",false]",
+  "LuaScript_path": "HandHelper.450688.ttslua",
+  "MeasureMovement": false,
+  "Name": "Custom_Tile",
+  "Nickname": "Hand Helper",
+  "Snap": true,
+  "Sticky": true,
+  "Tooltip": true,
+  "Transform": {
+    "posX": 37.613,
+    "posY": 2.21325469,
+    "posZ": -51.9647179,
+    "rotX": 0.0208069123,
+    "rotY": 269.9996,
+    "rotZ": 0.0167712662,
+    "scaleX": 1,
+    "scaleY": 1,
+    "scaleZ": 1
+  },
+  "Value": 0,
+  "XmlUI": ""
+}

@@ -1,0 +1,62 @@
+{
+  "AltLookAngle": {
+    "x": 0,
+    "y": 0,
+    "z": 0
+  },
+  "Autoraise": true,
+  "CardID": 846600,
+  "ColorDiffuse": {
+    "b": 0.713235259,
+    "g": 0.713235259,
+    "r": 0.713235259
+  },
+  "CustomDeck": {
+    "8466": {
+      "BackIsHidden": true,
+      "BackURL": "http://cloud-3.steamusercontent.com/ugc/1814412497119682452/BD224FCE1980DBA38E5A687FABFD146AA1A30D0E/",
+      "FaceURL": "http://cloud-3.steamusercontent.com/ugc/1829048801001629811/23FCEFC53D1F2E5A44F6E4B9467C6362459914AA/",
+      "NumHeight": 1,
+      "NumWidth": 1,
+      "Type": 0,
+      "UniqueBack": false
+    }
+  },
+  "Description": "",
+  "DragSelectable": true,
+  "GMNotes": "{\n  \"id\": \"09023-c\",\n  \"traits\": \"\",\n  \"permanent\": false,\n  \"weakness\": false\n}",
+  "GUID": "c8aa3e",
+  "Grid": true,
+  "GridProjection": false,
+  "Hands": false,
+  "HideWhenFaceDown": true,
+  "IgnoreFoW": false,
+  "LayoutGroupSortIndex": 0,
+  "Locked": false,
+  "LuaScript": "-- Customizable Cards: Custom Modifications\r\n-- by Chr1Z\r\ninformation = {\r\n    version = \"1.7\",\r\n    last_updated = \"12.10.2022\"\r\n}\r\n\r\n-- Color information for buttons\r\nboxSize = 38\r\n\r\n-- static values\r\nx_1         = -0.935\r\nx_offset    = 0.0735\r\ny_visible   = 0.25\r\ny_invisible = -0.5\r\n\r\n-- z-values (lines on the sheet)\r\nposZ = {\r\n    -0.895,\r\n    -0.455,\r\n    -0.215,\r\n    0.115,\r\n    0.453,\r\n    0.794\r\n}\r\n\r\n-- box setup (amount of boxes per line and amount of marked boxes in that line)\r\nexistingBoxes = { 1, 2, 2, 3, 3, 4 }\r\n\r\ninputBoxes = {}\r\n\r\n-- override 'marked boxes' for debugging ('all' or 'none')\r\nmarkDEBUG = \"\"\r\n\r\n-- save state when going into bags / decks\r\nfunction onDestroy() self.script_state = onSave() end\r\n\r\nfunction onSave() return JSON.encode({ markedBoxes, inputValues }) end\r\n\r\n-- Startup procedure\r\nfunction onLoad(saved_data)\r\n    if saved_data ~= \"\" and markDEBUG == \"\" then\r\n        local loaded_data = JSON.decode(saved_data)\r\n        markedBoxes = loaded_data[1]\r\n        inputValues = loaded_data[2]\r\n    else\r\n        markedBoxes = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }\r\n        inputValues = { \"\", \"\", \"\", \"\", \"\" }\r\n    end\r\n\r\n    makeData()\r\n    createButtonsAndBoxes()\r\n\r\n    self.addContextMenuItem(\"Reset Inputs\", function() updateState() end)\r\n    self.addContextMenuItem(\"Scale: normal\", function() self.setScale({ 1, 1, 1 }) end)\r\n    self.addContextMenuItem(\"Scale: double\", function() self.setScale({ 2, 1, 2 }) end)\r\n    self.addContextMenuItem(\"Scale: triple\", function() self.setScale({ 3, 1, 3 }) end)\r\nend\r\n\r\nfunction updateState(markedBoxesNew)\r\n    if markedBoxesNew then markedBoxes = markedBoxesNew end\r\n    makeData()\r\n    createButtonsAndBoxes()\r\nend\r\n\r\n-- create Data\r\nfunction makeData()\r\n    Data = {}\r\n    Data.checkbox = {}\r\n    Data.textbox = {}\r\n\r\n    -- repeat this for each entry (= line) in existingBoxes\r\n    local totalCount = 0\r\n    for i = 1, #existingBoxes do\r\n        -- repeat this for each checkbox per line\r\n        for j = 1, existingBoxes[i] do\r\n            totalCount                      = totalCount + 1\r\n            Data.checkbox[totalCount]       = {}\r\n            Data.checkbox[totalCount].pos   = {}\r\n            Data.checkbox[totalCount].pos.x = x_1 + j * x_offset\r\n            Data.checkbox[totalCount].pos.z = posZ[i]\r\n            Data.checkbox[totalCount].row   = i\r\n\r\n            if (markDEBUG == \"all\") or (markedBoxes[i] \u003e= j and markDEBUG ~= \"none\") then\r\n                Data.checkbox[totalCount].pos.y = y_visible\r\n                Data.checkbox[totalCount].state = true\r\n            else\r\n                Data.checkbox[totalCount].pos.y = y_invisible\r\n                Data.checkbox[totalCount].state = false\r\n            end\r\n        end\r\n    end\r\n\r\n    -- repeat this for each entry (= line) in inputBoxes\r\n    local totalCount = 0\r\n    for i = 1, #inputBoxes do\r\n        -- repeat this for each textbox per line\r\n        for j = 1, inputBoxes[i] do\r\n            totalCount                     = totalCount + 1\r\n            Data.textbox[totalCount]       = {}\r\n            Data.textbox[totalCount].pos   = inputPos[totalCount]\r\n            Data.textbox[totalCount].width = inputWidth[totalCount]\r\n            Data.textbox[totalCount].value = inputValues[totalCount]\r\n        end\r\n    end\r\nend\r\n\r\n-- checks or unchecks the given box\r\nfunction click_checkbox(tableIndex)\r\n    local row = Data.checkbox[tableIndex].row\r\n\r\n    if Data.checkbox[tableIndex].state == true then\r\n        Data.checkbox[tableIndex].pos.y = y_invisible\r\n        Data.checkbox[tableIndex].state = false\r\n\r\n        markedBoxes[row] = markedBoxes[row] - 1\r\n    else\r\n        Data.checkbox[tableIndex].pos.y = y_visible\r\n        Data.checkbox[tableIndex].state = true\r\n\r\n        markedBoxes[row] = markedBoxes[row] + 1\r\n    end\r\n\r\n    self.editButton({\r\n        index = tableIndex - 1,\r\n        position = Data.checkbox[tableIndex].pos\r\n    })\r\nend\r\n\r\n-- updates saved value for given text box\r\nfunction click_textbox(i, value, selected)\r\n    if selected == false then\r\n        inputValues[i] = value\r\n    end\r\nend\r\n\r\nfunction createButtonsAndBoxes()\r\n    self.clearButtons()\r\n    self.clearInputs()\r\n\r\n    for i, box_data in ipairs(Data.checkbox) do\r\n        local funcName = \"checkbox\" .. i\r\n        local func = function() click_checkbox(i) end\r\n        self.setVar(funcName, func)\r\n\r\n        self.createButton({\r\n            click_function = funcName,\r\n            function_owner = self,\r\n            position       = box_data.pos,\r\n            height         = boxSize,\r\n            width          = boxSize,\r\n            font_size      = box_data.size,\r\n            scale          = { 1, 1, 1 },\r\n            color          = { 0, 0, 0 },\r\n            font_color     = { 0, 0, 0 }\r\n        })\r\n    end\r\n\r\n    for i, box_data in ipairs(Data.textbox) do\r\n        local funcName = \"textbox\" .. i\r\n        local func = function(_, _, val, sel) click_textbox(i, val, sel) end\r\n        self.setVar(funcName, func)\r\n\r\n        self.createInput({\r\n            input_function = funcName,\r\n            function_owner = self,\r\n            label          = \"Click to type\",\r\n            alignment      = 2,\r\n            position       = box_data.pos,\r\n            scale          = buttonScale,\r\n            width          = box_data.width,\r\n            height         = (inputFontsize * 1) + 24,\r\n            font_size      = inputFontsize,\r\n            color          = \"White\",\r\n            font_color     = buttonFontColor,\r\n            value          = box_data.value\r\n        })\r\n    end\r\nend\r\n",
+  "LuaScriptState": "[[0,0,0,0,0,0,0,0,0,0],[\"\",\"\",\"\",\"\",\"\"]]",
+  "LuaScript_path": "CustomModificationsUpgradeSheet.c8aa3e.ttslua",
+  "MeasureMovement": false,
+  "Name": "CardCustom",
+  "Nickname": "Custom Modifications Upgrade Sheet",
+  "SidewaysCard": false,
+  "Snap": true,
+  "Sticky": true,
+  "Tags": [
+    "PlayerCard"
+  ],
+  "Tooltip": true,
+  "Transform": {
+    "posX": -42.7118,
+    "posY": 1.26749575,
+    "posZ": 83.309,
+    "rotX": 0.0208083615,
+    "rotY": 270.0005,
+    "rotZ": 0.016771324,
+    "scaleX": 1,
+    "scaleY": 1,
+    "scaleZ": 1
+  },
+  "Value": 0,
+  "XmlUI": ""
+}
