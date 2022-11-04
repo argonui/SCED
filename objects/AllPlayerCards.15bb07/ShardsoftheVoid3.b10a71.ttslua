@@ -1,42 +1,45 @@
--- Bundled by luabundle {"version":"1.6.0"}
-local __bundle_require, __bundle_loaded, __bundle_register, __bundle_modules = (function(superRequire)
-	local loadingPlaceholder = {[{}] = true}
+function onload()
+    chaosbag = getChaosBag()
+    IMAGE_TOKEN_MAP = { }
+    for i,v in pairs(Global.getVar("IMAGE_TOKEN_MAP")) do
+        IMAGE_TOKEN_MAP[i] = v
+    end
 
-	local register
-	local modules = {}
+    -- add menu items
+    self.clearContextMenu()
+    for url,name in pairs(IMAGE_TOKEN_MAP) do
+        if name == "0" then
+            self.addContextMenuItem("Seal 0", function(playerColor) sealToken(url, playerColor) end)
+        end
+    end
+end
 
-	local require
-	local loaded = {}
+function sealToken(url, playerColor)
+    local pos = self.getPosition()
 
-	register = function(name, body)
-		if not modules[name] then
-			modules[name] = body
-		end
-	end
+    local name = IMAGE_TOKEN_MAP[url]
+    for i,obj in ipairs(chaosbag.getObjects()) do
+        if obj.name == name then
+            chaosbag.takeObject({
+                position={ pos.x, pos.y + 1, pos.z },
+                index=i-1,
+                smooth=false
+            })
+            return
+        end
+    end
+    printToColor(name .. " token not found in bag", playerColor)
+end
 
-	require = function(name)
-		local loadedModule = loaded[name]
-
-		if loadedModule then
-			if loadedModule == loadingPlaceholder then
-				return nil
-			end
-		else
-			if not modules[name] then
-				if not superRequire then
-					local identifier = type(name) == 'string' and '\"' .. name .. '\"' or tostring(name)
-					error('Tried to require ' .. identifier .. ', but no such module has been registered')
-				else
-					return superRequire(name)
-				end
-			end
-
-			loaded[name] = loadingPlaceholder
-			loadedModule = modules[name](require, loaded, register, modules)
-			loaded[name] = loadedModule
-		end
-
-		return loadedModule
-	end
-
-	return require, loaded, register, modules
+function getChaosBag()
+    local items = getObjectFromGUID("83ef06").getObjects()
+    local chaosbag = nil
+    for i,v in ipairs(items) do
+        if v.getDescription() == "Chaos Bag" then
+            chaosbag = getObjectFromGUID(v.getGUID())
+            break
+        end
+    end
+    if chaosbag == nil then printToAll("No chaos bag found") end
+    return chaosbag
+end
