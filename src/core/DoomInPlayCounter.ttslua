@@ -1,132 +1,105 @@
-MIN_VALUE = -99
-MAX_VALUE = 999
+-- Doom-in-Play Counter
+-- made by:         Chr1Z
+-- description:     counts the doom tokens in play periodically (excluding the agenda), ignores objects with specified tag
+information = {
+    version = "1.1",
+    last_updated = "12.11.2022"
+}
 
-function onload(saved_data)
-    light_mode = false
-    val = 0
+-- common parameters
+local CAST_PARAMETERS        = {}
+CAST_PARAMETERS.direction    = { 0, 1, 0 }
+CAST_PARAMETERS.type         = 3
+CAST_PARAMETERS.max_distance = 0
 
-    if saved_data ~= "" then
-        local loaded_data = JSON.decode(saved_data)
-        light_mode = loaded_data[1]
-        val = loaded_data[2]
-    end
+local ypos       = 1.6
+local zone       = getObjectFromGUID("a2f932")
+local doom_url   = "https://i.imgur.com/EoL7yaZ.png"
+local IGNORE_TAG = "DoomCounter_ignore"
 
-    createAll()
-end
+-- playermats 1 to 4
+local originAndSize = {
+    { origin = { -55, ypos, 16.5 }, size = { 12, 1, 25 } },
+    { origin = { -55, ypos, -16.5 }, size = { 12, 1, 25 } },
+    { origin = { -25, ypos, 27 }, size = { 25, 1, 12 } },
+    { origin = { -25, ypos, -27 }, size = { 25, 1, 12 } }
+}
 
-function updateSave()
-    local data_to_save = {light_mode, val}
-    saved_data = JSON.encode(data_to_save)
-    self.script_state = saved_data
-end
-
-function createAll()
-    s_color = {0.5, 0.5, 0.5, 95}
-
-    if light_mode then
-        f_color = {1,1,1,95}
-    else
-        f_color = {0,0,0,100}
-    end
-
-
-
+-- create button, context menu and start loop
+function onLoad()
     self.createButton({
-      label=tostring(val),
-      click_function="add_subtract",
-      function_owner=self,
-      position={0,0.05,0},
-      height=600,
-      width=1000,
-      alignment = 3,
-      scale={x=1.5, y=1.5, z=1.5},
-      font_size=600,
-      font_color=f_color,
-      color={0,0,0,0}
-      })
+        label = tostring(0),
+        click_function = "moreInformation",
+        function_owner = self,
+        position = { 0, 0.06, 0 },
+        height = 600,
+        width = 1000,
+        scale = { 1.5, 1.5, 1.5 },
+        font_size = 600,
+        font_color = { 1, 1, 1, 100 },
+        color = { 0, 0, 0, 0 }
+    })
 
+    -- context menu
+    self.addContextMenuItem("More Information", moreInformation)
+    self.addContextMenuItem("Remove Doom", function()
+        removeDoom = true
+        Wait.stop(loopID)
+        countDoom()
+        Wait.time(function()
+            removeDoom = false
+            loopID = Wait.time(countDoom, 2, -1)
+        end, 2)
+    end)
 
+    loopID = Wait.time(countDoom, 2, -1)
+end
 
+function moreInformation()
+    printToAll("------------------------------", "White")
+    printToAll("Doom-in-Play Counter v" .. information["version"] .. " by Chr1Z", "Orange")
+    printToAll("last updated: " .. information["last_updated"], "White")
+    printToAll("Automatically counts the doom in play (exluding the agenda and objects with the ignore tag).", "Green")
+    printToAll("ignore tag: " .. IGNORE_TAG, "White")
+end
 
-    if light_mode then
-        lightButtonText = "[ Set dark ]"
+-- main function
+function countDoom()
+    local doom = 0
+    for i = 1, 5 do doom = doom + search(i) end
+    self.editButton({ index = 0, label = tostring(doom) })
+end
+
+-- searches playermats (num = 1-4) or the scripting zone (num = 5)
+function search(num)
+    local val = 0
+    if num == 5 then
+        for _, obj in ipairs(zone.getObjects()) do
+            val = val + getResult(obj)
+        end
     else
-        lightButtonText = "[ Set light ]"
+        CAST_PARAMETERS.origin = originAndSize[num].origin
+        CAST_PARAMETERS.size = originAndSize[num].size
+
+        for _, obj in ipairs(Physics.cast(CAST_PARAMETERS)) do
+            val = val + getResult(obj.hit_object)
+        end
     end
-
+    return val
 end
 
-function removeAll()
-    self.removeInput(0)
-    self.removeInput(1)
-    self.removeButton(0)
-    self.removeButton(1)
-    self.removeButton(2)
-end
-
-function reloadAll()
-    removeAll()
-    createAll()
-
-    updateSave()
-end
-
-function swap_fcolor(_obj, _color, alt_click)
-    light_mode = not light_mode
-    reloadAll()
-end
-
-function swap_align(_obj, _color, alt_click)
-    center_mode = not center_mode
-    reloadAll()
-end
-
-function editName(_obj, _string, value)
-    self.setName(value)
-    setTooltips()
-end
-
-function add_subtract(_obj, _color, alt_click)
-    mod = alt_click and -1 or 1
-    new_value = math.min(math.max(val + mod, MIN_VALUE), MAX_VALUE)
-    if val ~= new_value then
-        val = new_value
-      updateVal()
-        updateSave()
+-- checks an object for the doom image and gets quantity (for stacks)
+function getResult(obj)
+    if (obj.is_face_down and obj.getCustomObject().image_bottom == doom_url) or
+        (obj.name == "Custom_Token" and obj.getCustomObject().image == doom_url) then
+        if not obj.hasTag(IGNORE_TAG) then
+            if removeDoom then
+                obj.destruct()
+                return 0
+            else
+                return math.abs(obj.getQuantity())
+            end
+        end
     end
-end
-
-function updateVal()
-
-    self.editButton({
-        index = 0,
-        label = tostring(val),
-
-        })
-end
-
-function reset_val()
-    val = 0
-    updateVal()
-    updateSave()
-end
-
-function setTooltips()
-    self.editInput({
-        index = 0,
-        value = self.getName(),
-        tooltip = ttText
-        })
-    self.editButton({
-        index = 0,
-        value = tostring(val),
-        tooltip = ttText
-        })
-end
-
-function null()
-end
-
-function keepSample(_obj, _string, value)
-    reloadAll()
+    return 0
 end
