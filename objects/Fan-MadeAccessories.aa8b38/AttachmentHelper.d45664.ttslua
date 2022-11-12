@@ -3,35 +3,50 @@
 -- original by:     -
 -- description:     displays cards in it with cost/skill icons
 information = {
-    version = "1.4",
-    last_updated = "10.10.2022"
+    version = "1.6",
+    last_updated = "09.11.2022"
+}
+
+option_text = {
+    "Ancestral Knowledge",
+    "Astronomical Atlas",
+    "Crystallizer of Dreams",
+    "Diana Stanley",
+    "Gloria Goldberg",
+    "Sefina Rousseau",
+    "Wooden Sledge"
+}
+
+imageList = {
+    -- Ancestral Knowledge
+    "http://cloud-3.steamusercontent.com/ugc/1915746489207287888/2F9F6F211ED0F98E66C9D35D93221E4C7FB6DD3C/",
+    -- Astronomical Atlas
+    "http://cloud-3.steamusercontent.com/ugc/1754695853007989004/9153BC204FC707AE564ECFAC063A11CB8C2B5D1E/",
+    -- Crystallizer of Dreams
+    "http://cloud-3.steamusercontent.com/ugc/1915746489207280958/100F16441939E5E23818651D1EB5C209BF3125B9/",
+    -- Diana Stanley
+    "http://cloud-3.steamusercontent.com/ugc/1754695635919071208/1AB7222850201630826BFFBA8F2BD0065E2D572F/",
+    -- Gloria Goldberg
+    "http://cloud-3.steamusercontent.com/ugc/1754695635919102502/453D4426118C8A6DE2EA281184716E26CA924C84/",
+    -- Sefina Rousseau
+    "http://cloud-3.steamusercontent.com/ugc/1754695635919099826/3C3CBFFAADB2ACA9957C736491F470AE906CC953/",
+    -- Wooden Sledge
+    "http://cloud-3.steamusercontent.com/ugc/1750192233783143973/D526236AAE16BDBB98D3F30E27BAFC1D3E21F4AC/"
 }
 
 -- save state and options to restore onLoad
 function onSave() return JSON.encode({ cardsInBag, showCost, showIcons }) end
 
 -- load variables and create context menu
-function onload(saved_data)
-    if saved_data ~= "" and saved_data ~= nil then
-        local loaded_data = JSON.decode(saved_data)
-        cardsInBag        = loaded_data[1]
-        showCost          = loaded_data[2]
-        showIcons         = loaded_data[3]
-    else
-        cardsInBag = {}
-        showCost   = true
-        showIcons  = true
-    end
+function onLoad(saved_data)
+    local loaded_data = JSON.decode(saved_data)
+    cardsInBag        = loaded_data[1] or {}
+    showCost          = loaded_data[2] or true
+    showIcons         = loaded_data[3] or true
 
     recreateButtons()
 
-    self.addContextMenuItem("More Information", function()
-        printToAll("------------------------------", "White")
-        printToAll("Attachment Helper v" .. information["version"] .. " by Chr1Z", "Orange")
-        printToAll("original by: bankey", "White")
-        printToAll("last updated: " .. information["last_updated"], "White")
-    end)
-
+    self.addContextMenuItem("Select image", selectImage)
     self.addContextMenuItem("Toggle cost", function(color)
         showCost = not showCost
         printToColor("Show cost of cards: " .. tostring(showCost), color, "White")
@@ -42,6 +57,22 @@ function onload(saved_data)
         showIcons = not showIcons
         printToColor("Show skill icons of cards: " .. tostring(showIcons), color, "White")
         refresh()
+    end)
+
+    self.addContextMenuItem("More Information", function()
+        printToAll("------------------------------", "White")
+        printToAll("Attachment Helper v" .. information["version"] .. " by Chr1Z", "Orange")
+        printToAll("original by: bankey", "White")
+        printToAll("last updated: " .. information["last_updated"], "White")
+    end)
+end
+
+function selectImage(color)
+    Player[color].showOptionsDialog("Select image:", option_text, 1, function(_, option_index)
+        local customInfo = self.getCustomObject()
+        customInfo.diffuse = imageList[option_index]
+        self.setCustomObject(customInfo)
+        self.reload()
     end)
 end
 
@@ -80,10 +111,7 @@ function findCard(guid, name, GMNotes)
     local metadata = {}
 
     if name == nil or name == "" then name = "unnamed" end
-
-    if showCost or showIcons then
-        metadata = JSON.decode(GMNotes)
-    end
+    if showCost or showIcons then metadata = JSON.decode(GMNotes) end
 
     if showCost then
         if GMNotes ~= "" then cost = metadata.cost end
@@ -96,11 +124,11 @@ function findCard(guid, name, GMNotes)
             icons[1] = metadata.wildIcons
             icons[2] = metadata.willpowerIcons
             icons[3] = metadata.intellectIcons
-            icons[4] = metadata.fightIcons
+            icons[4] = metadata.combatIcons
             icons[5] = metadata.agilityIcons
         end
 
-        local IconTypes = { "Wild", "Willpower", "Intellect", "Fight", "Agility" }
+        local IconTypes = { "Wild", "Willpower", "Intellect", "Combat", "Agility" }
         local found = false
         for i = 1, 5 do
             if icons[i] ~= nil and icons[i] ~= "" then
@@ -113,7 +141,6 @@ function findCard(guid, name, GMNotes)
             end
         end
     end
-
     table.insert(cardsInBag, { name = name, id = guid })
 end
 
@@ -124,9 +151,7 @@ function recreateButtons()
 
     for _, card in ipairs(cardsInBag) do
         if _G['removeCard' .. card.id] == nil then
-            _G['removeCard' .. card.id] = function()
-                removeCard(card.id)
-            end
+            _G['removeCard' .. card.id] = function() removeCard(card.id) end
         end
 
         self.createButton({
@@ -138,22 +163,21 @@ function recreateButtons()
             width          = 1200,
             font_size      = string.len(card.name) > 20 and 75 or 100
         })
-
         verticalPosition = verticalPosition - 0.5
     end
 
-    local countLabel = '\nAttachment\nHelper\nv' .. information["version"]
+    local countLabel = '\nAttachment\nHelper\n' .. information["version"]
     if #cardsInBag ~= 0 then countLabel = #cardsInBag end
 
     self.createButton({
         label          = countLabel,
-        click_function = 'none',
+        click_function = "none",
         function_owner = self,
         position       = { 0, 0, -1.35 },
         height         = 0,
         width          = 0,
         font_size      = 225,
-        font_color     = { 1, 1, 1 }
+        font_color     = { 1, 1, 1, 1 }
     })
 end
 
