@@ -3,21 +3,21 @@
 -- original by:     -
 -- description:     changes the big playmats image
 information = {
-    version = "1.1",
-    last_updated = "10.10.2022"
+    version = "1.2",
+    last_updated = "12.11.2022"
 }
 
 defaultURL = "http://cloud-3.steamusercontent.com/ugc/998015670465071049/FFAE162920D67CF38045EFBD3B85AD0F916147B2/"
 
 -- parameters for open/close button for reusing
-BUTTON_PARAMETERS                = {}
+local BUTTON_PARAMETERS          = {}
 BUTTON_PARAMETERS.function_owner = self
 BUTTON_PARAMETERS.click_function = "click_toggleControl"
 BUTTON_PARAMETERS.height         = 1500
 BUTTON_PARAMETERS.width          = 1500
 BUTTON_PARAMETERS.color          = { 1, 1, 1, 0 }
 
-function onload()
+function onLoad()
     controlActive = false
     createOpenCloseButton()
 
@@ -79,7 +79,7 @@ end
 -- click function for apply button
 function click_applySurface(_, _, isRightClick)
     if isRightClick then
-        updateSurface(defaultURL)
+        updateSurface()
     else
         updateSurface(self.getInputs()[1].value)
     end
@@ -90,8 +90,8 @@ function none() end
 
 -- main function (can be called by other objects)
 function updateSurface(newURL)
-    local obj_surface = getObjectFromGUID("721ba2")
-    local customInfo = obj_surface.getCustomObject()
+    local playArea = getObjectFromGUID("721ba2")
+    local customInfo = playArea.getCustomObject()
 
     if newURL ~= "" and newURL ~= nil and newURL ~= defaultURL then
         customInfo.image = newURL
@@ -101,16 +101,19 @@ function updateSurface(newURL)
         broadcastToAll("Default Playmat Image Applied", { 0.2, 0.9, 0.2 })
     end
 
-    obj_surface.setCustomObject(customInfo)
-    obj_surface = obj_surface.reload()
+    playArea.setCustomObject(customInfo)
+
+    -- get custom data helper and call it after reloading
+    local guid = playArea.getVar("custom_data_helper_guid")
+    playArea = playArea.reload()
+
+    if guid ~= nil then
+        Wait.time(function() playArea.call("updateLocations", { guid }) end, 1)
+    end
 end
 
 -- creates the main button
 function createOpenCloseButton()
-    if controlActive then
-        BUTTON_PARAMETERS.tooltip = "Close Playmat Panel"
-    else
-        BUTTON_PARAMETERS.tooltip = "Open Playmat Panel"
-    end
+    BUTTON_PARAMETERS.tooltip = (controlActive and "Close" or "Open") .. " Playmat Panel"
     self.createButton(BUTTON_PARAMETERS)
 end
