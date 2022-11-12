@@ -1,5 +1,6 @@
 require("playermat/Zones")
 require("arkhamdb/LoaderUi")
+require("playercards/PlayerCardSpawner")
 
 local bondedList = { }
 local customizationRowsWithFields = { }
@@ -389,8 +390,6 @@ function loadCards(slots, investigatorId, playerColor, commandManager, configura
     -- TODO: Re-enable this later, as a command
     -- handleAltInvestigatorCard(cardsToSpawn, "promo", configuration)
 
-    table.sort(cardsToSpawn, cardComparator)
-
     -- TODO: Process commands for the cardsToSpawn list
 
     -- These should probably be commands, once the command handler is updated
@@ -399,50 +398,34 @@ function loadCards(slots, investigatorId, playerColor, commandManager, configura
     handleUnderworldMarket(cardsToSpawn, playerColor)
     handleHunchDeck(investigatorId, cardsToSpawn, playerColor)
 
-    -- Count the number of cards in each zone so we know if it's a deck or card.
-    -- TTS's Card vs. Deck distinction requires this since we can't spawn a deck with only one card
-    local zoneCounts = getZoneCounts(cardsToSpawn)
-    local zoneDecks = {}
-    for zone, count in pairs(zoneCounts) do
-      if count > 1 then
-        zoneDecks[zone] = buildDeckDataTemplate()
-      end
-    end
-    -- For each card in a deck zone, add it to that deck. Otherwise, spawn it directly
-    for _, spawnCard in ipairs(cardsToSpawn) do
-      if zoneDecks[spawnCard.zone] ~= nil then
-        addCardToDeck(zoneDecks[spawnCard.zone], spawnCard.data)
-      else
-        local cardPos = Zones.getZonePosition(playerColor, spawnCard.zone)
-        cardPos.y = 2
-        spawnObjectData({
-          data = spawnCard.data,
-          position = cardPos,
-          rotation = Zones.getDefaultCardRotation(playerColor, spawnCard.zone),
-        })
-      end
-    end
-    -- Spawn each of the decks
-    for zone, deck in pairs(zoneDecks) do
+    -- Split the card list into separate lists for each zone
+    local zoneDecks = buildZoneLists(cardsToSpawn)
+    -- Spawn the list for each zone
+    for zone, zoneCards in pairs(zoneDecks) do
       local deckPos = Zones.getZonePosition(playerColor, zone)
       deckPos.y = 3
-      local spreadCallback = nil;
+
+      local spreadCallback = nil
+      -- If cards are spread too close together TTS groups them weirdly, selecting multiples
+      -- when hovering over a single card.  This distance is the minimum to avoid that
+      local spreadDistance = 1.15
       if (zone == "SetAside4") then
         -- SetAside4 is reserved for customization cards, and we want them spread on the table
         -- so their checkboxes are visible
         if (playerColor == "White") then
-          deckPos.z = deckPos.z + (#deck.ContainedObjects - 1)
+          deckPos.z = deckPos.z + (#zoneCards - 1) * spreadDistance
         elseif (playerColor == "Green") then
-          deckPos.x = deckPos.x + (#deck.ContainedObjects - 1)
+          deckPos.x = deckPos.x + (#zoneCards - 1) * spreadDistance
         end
-        spreadCallback = function(deck) deck.spread(1.0) end
+        spreadCallback = function(deck) deck.spread(spreadDistance) end
       end
-      spawnObjectData({
-        data = deck,
-        position = deckPos,
-        rotation = Zones.getDefaultCardRotation(playerColor, zone),
-       callback_function = spreadCallback
-      })
+      Spawner.spawnCards(
+          zoneCards,
+          deckPos,
+          Zones.getDefaultCardRotation(playerColor, zone),
+          true,
+          spreadCallback)
+
       coroutine.yield(0)
     end
 
@@ -507,134 +490,19 @@ function getCardName(cardId)
   end
 end
 
--- Inserts a card into the given deck.  This does three things:
---   1. Add the card's data to ContainedObjects
---   2. Add the card's ID (the TTS CardID, not the Arkham ID) to the deck's
---      ID list.  Note that the deck's ID list is "DeckIDs" even though it
---      contains a list of card Ids
---   3. Extract the card's CustomDeck table and add it to the deck.  The deck's
---      "CustomDeck" field is a list of all CustomDecks used by cards within the
---      deck, keyed by the DeckID and referencing the custom deck table
----@param deck: TTS deck data structure to add to
----@param card: Data for the card to be inserted
-function addCardToDeck(deck, cardData)
-  for customDeckId, customDeckData in pairs(cardData.CustomDeck) do
-    if (deck.CustomDeck[customDeckId] == nil) then
-      -- CustomDeck not added to deck yet, add it
-      deck.CustomDeck[customDeckId] = customDeckData
-    elseif (deck.CustomDeck[customDeckId].FaceURL == customDeckData.FaceURL) then
-      -- CustomDeck for this card matches the current one for the deck, do nothing
-    else
-      -- CustomDeck data conflict
-      local newDeckId = nil
-      for deckId, customDeck in pairs(deck.CustomDeck) do
-        if (customDeckData.FaceURL == customDeck.FaceURL) then
-          newDeckId = deckId
-        end
-      end
-      if (newDeckId == nil) then
-        -- No non-conflicting custom deck for this card, add a new one
-        newDeckId = findNextAvailableId(deck.CustomDeck, "1000")
-        deck.CustomDeck[newDeckId] = customDeckData
-      end
-      -- Update the card with the new CustomDeck info
-      cardData.CardID = newDeckId..string.sub(cardData.CardID, 5)
-      cardData.CustomDeck[customDeckId] = nil
-      cardData.CustomDeck[newDeckId] = customDeckData
-      break
-    end
-  end
-  table.insert(deck.ContainedObjects, cardData)
-  table.insert(deck.DeckIDs, cardData.CardID)
-end
-
-function findNextAvailableId(objectTable, startId)
-  local id = startId
-  while (objectTable[id] ~= nil) do
-    id = tostring(tonumber(id) + 1)
-  end
-
-  return id
-end
-
 -- Count the number of cards in each zone
 ---@param cards: Table of {cardData, cardMetadata, zone}
 ---@return: Table of {zoneName=zoneCount}
-function getZoneCounts(cards)
-  local counts = {}
+function buildZoneLists(cards)
+  local zoneList = {}
   for _, card in ipairs(cards) do
-    if counts[card.zone] == nil then
-      counts[card.zone] = 1
-    else
-      counts[card.zone] = counts[card.zone] + 1
+    if zoneList[card.zone] == nil then
+      zoneList[card.zone] = { }
     end
+    table.insert(zoneList[card.zone], card)
   end
 
-  return counts
-end
-
--- Create an empty deck data table which can have cards added to it. This
--- creates a new table on each call without using metatables or previous
--- definitions because we can't be sure that TTS doesn't modify the structure
----@return: Table containing the minimal TTS deck data structure
-function buildDeckDataTemplate()
-  local deck = {}
-  deck.Name = "Deck"
-
-  -- Card data.  DeckIDs and CustomDeck entries will be built from the cards
-  deck.ContainedObjects = {}
-  deck.DeckIDs = {}
-  deck.CustomDeck = {}
-
-  -- Transform is required, Position and Rotation will be overridden by the spawn call so can be omitted here
-  deck.Transform = {
-    scaleX = 1,
-    scaleY = 1,
-    scaleZ = 1,
-  }
-
-  return deck
-end
-
--- Get the PBCN (Permanent/Bonded/Customizable/Normal) value from the given metadata.
----@return: 1 for Permanent, 2 for Bonded or 4 for Normal. The actual values are
---      irrelevant as they provide only grouping and the order between them doesn't matter.
-function getpbcn(metadata)
-  if metadata.permanent then
-    return 1
-  elseif metadata.bonded_to ~= nil then
-    return 2
-  else -- Normal card
-    return 3
-  end
-end
-
--- Comparison function used to sort the cards in a deck.  Groups bonded or
--- permanent cards first, then sorts within theose types by name/subname.
--- Normal cards will sort in standard alphabetical order, while
--- permanent/bonded/customizable will be in reverse alphabetical order.
---
--- Since cards spawn in the order provided by this comparator, with the first
--- cards ending up at the bottom of a pile, this ordering will spawn in reverse
--- alphabetical order.  This presents the cards in order for non-face-down
--- areas, and presents them in order when Searching the face-down deck.
-function cardComparator(card1, card2)
-  local pbcn1 = getpbcn(card1.metadata)
-  local pbcn2 = getpbcn(card2.metadata)
-  if pbcn1 ~= pbcn2 then
-    return pbcn1 > pbcn2
-  end
-  if pbcn1 == 3 then
-    if card1.data.Nickname ~= card2.data.Nickname then
-      return card1.data.Nickname < card2.data.Nickname
-    end
-    return card1.data.Description < card2.data.Description
-  else
-    if card1.data.Nickname ~= card2.data.Nickname then
-      return card1.data.Nickname > card2.data.Nickname
-    end
-    return card1.data.Description > card2.data.Description
-  end
+  return zoneList
 end
 
 -- Replace the investigator card and minicard with an alternate version.  This
