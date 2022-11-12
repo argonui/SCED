@@ -1,132 +1,60 @@
-MIN_VALUE = -99
-MAX_VALUE = 999
+-- Doom Counter with Print
+-- original by:     -
+-- changed by:      Chr1Z
+-- description:     Clickable counter for doom on the agenda, changing the value prints the new value, reset button added
+information = {
+    version = "1.4",
+    last_updated = "12.11.2022"
+}
 
-function onload(saved_data)
-    light_mode = false
-    val = 0
+function onSave() return JSON.encode(val) end
 
+function onLoad(saved_data)
     if saved_data ~= "" then
-        local loaded_data = JSON.decode(saved_data)
-        light_mode = loaded_data[1]
-        val = loaded_data[2]
-    end
-
-    createAll()
-end
-
-function updateSave()
-    local data_to_save = {light_mode, val}
-    saved_data = JSON.encode(data_to_save)
-    self.script_state = saved_data
-end
-
-function createAll()
-    s_color = {0.5, 0.5, 0.5, 95}
-
-    if light_mode then
-        f_color = {1,1,1,95}
+        val = JSON.decode(saved_data)
     else
-        f_color = {0,0,0,100}
+        val = 0
     end
-
-
 
     self.createButton({
-      label=tostring(val),
-      click_function="add_subtract",
-      function_owner=self,
-      position={0,0.05,0},
-      height=600,
-      width=1000,
-      alignment = 3,
-      scale={x=1.5, y=1.5, z=1.5},
-      font_size=600,
-      font_color=f_color,
-      color={0,0,0,0}
-      })
+        label          = tostring(val),
+        click_function = "addOrSubtract",
+        function_owner = self,
+        position       = { 0, 0.06, 0 },
+        height         = 800,
+        width          = 800,
+        font_size      = 650,
+        scale          = { 1.5, 1.5, 1.5 },
+        font_color     = { 1, 1, 1, 95 },
+        color          = { 0, 0, 0, 0 }
+    })
 
+    self.createButton({
+        label          = "Reset",
+        click_function = "setToZero",
+        function_owner = self,
+        position       = { 0, -0.04, 2.7 },
+        height         = 600,
+        width          = 1250,
+        font_size      = 425
+    })
 
-
-
-    if light_mode then
-        lightButtonText = "[ Set dark ]"
-    else
-        lightButtonText = "[ Set light ]"
-    end
-
+    self.addContextMenuItem("More Information", function()
+        printToAll("------------------------------", "White")
+        printToAll("Doom Counter v" .. information["version"] .. " by Chr1Z", "Orange")
+        printToAll("last updated: " .. information["last_updated"], "White")
+    end)
 end
 
-function removeAll()
-    self.removeInput(0)
-    self.removeInput(1)
-    self.removeButton(0)
-    self.removeButton(1)
-    self.removeButton(2)
+function setToZero() updateVal(0) end
+
+function addOrSubtract(_, _, alt_click)
+    local new_value = math.min(math.max(val + (alt_click and -1 or 1), 0), 99)
+    if val ~= new_value then updateVal(new_value) end
 end
 
-function reloadAll()
-    removeAll()
-    createAll()
-
-    updateSave()
-end
-
-function swap_fcolor(_obj, _color, alt_click)
-    light_mode = not light_mode
-    reloadAll()
-end
-
-function swap_align(_obj, _color, alt_click)
-    center_mode = not center_mode
-    reloadAll()
-end
-
-function editName(_obj, _string, value)
-    self.setName(value)
-    setTooltips()
-end
-
-function add_subtract(_obj, _color, alt_click)
-    mod = alt_click and -1 or 1
-    new_value = math.min(math.max(val + mod, MIN_VALUE), MAX_VALUE)
-    if val ~= new_value then
-        val = new_value
-      updateVal()
-        updateSave()
-    end
-end
-
-function updateVal()
-
-    self.editButton({
-        index = 0,
-        label = tostring(val),
-
-        })
-end
-
-function reset_val()
-    val = 0
-    updateVal()
-    updateSave()
-end
-
-function setTooltips()
-    self.editInput({
-        index = 0,
-        value = self.getName(),
-        tooltip = ttText
-        })
-    self.editButton({
-        index = 0,
-        value = tostring(val),
-        tooltip = ttText
-        })
-end
-
-function null()
-end
-
-function keepSample(_obj, _string, value)
-    reloadAll()
+function updateVal(number)
+    val = number or 0
+    self.editButton({ index = 0, label = tostring(val) })
+    printToAll("Doom on agenda set to: " .. val)
 end
