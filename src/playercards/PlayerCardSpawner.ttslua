@@ -1,0 +1,155 @@
+Spawner = { }
+
+-- Spawns a list of cards at the given position/rotation
+-- @param cardList: A list of Player Card data structures (data/metadata)
+-- @param pos Position table where the cards should be spawned (global)
+-- @param rot Rotation table for the orientation of the spawned cards (global)
+-- @param sort Boolean, true if this list of cards should be sorted before spawning
+-- @param callback Function, callback to be called after the card/deck spawns
+Spawner.spawnCards = function(cardList, pos, rot, sort, callback)
+  if (sort) then
+    table.sort(cardList, Spawner.cardComparator)
+  end
+  -- Spawn a single card directly
+  if (#cardList == 1) then
+    local cardPos = { pos.x, 2, pos.z}
+    spawnObjectData({
+      data = cardList[1].data,
+      position = cardPos,
+      rotation = rot,
+      callback_function = callback,
+    })
+    return
+  end
+
+  -- Multiple cards, build a deck and spawn that
+  local deck = Spawner.buildDeckDataTemplate()
+  for _, spawnCard in ipairs(cardList) do
+    Spawner.addCardToDeck(deck, spawnCard.data)
+  end
+  local deckPos = { pos.x, 3, pos.z }
+  spawnObjectData({
+    data = deck,
+    position = deckPos,
+    rotation = rot,
+    callback_function = callback,
+  })
+end
+
+-- Inserts a card into the given deck.  This does three things:
+--   1. Add the card's data to ContainedObjects
+--   2. Add the card's ID (the TTS CardID, not the Arkham ID) to the deck's
+--      ID list.  Note that the deck's ID list is "DeckIDs" even though it
+--      contains a list of card Ids
+--   3. Extract the card's CustomDeck table and add it to the deck.  The deck's
+--      "CustomDeck" field is a list of all CustomDecks used by cards within the
+--      deck, keyed by the DeckID and referencing the custom deck table
+---@param deck: TTS deck data structure to add to
+---@param card: Data for the card to be inserted
+Spawner.addCardToDeck = function(deck, cardData)
+  for customDeckId, customDeckData in pairs(cardData.CustomDeck) do
+    if (deck.CustomDeck[customDeckId] == nil) then
+      -- CustomDeck not added to deck yet, add it
+      deck.CustomDeck[customDeckId] = customDeckData
+    elseif (deck.CustomDeck[customDeckId].FaceURL == customDeckData.FaceURL) then
+      -- CustomDeck for this card matches the current one for the deck, do nothing
+    else
+      -- CustomDeck data conflict
+      local newDeckId = nil
+      for deckId, customDeck in pairs(deck.CustomDeck) do
+        if (customDeckData.FaceURL == customDeck.FaceURL) then
+          newDeckId = deckId
+        end
+      end
+      if (newDeckId == nil) then
+        -- No non-conflicting custom deck for this card, add a new one
+        newDeckId = Spawner.findNextAvailableId(deck.CustomDeck, "1000")
+        deck.CustomDeck[newDeckId] = customDeckData
+      end
+      -- Update the card with the new CustomDeck info
+      cardData.CardID = newDeckId..string.sub(cardData.CardID, 5)
+      cardData.CustomDeck[customDeckId] = nil
+      cardData.CustomDeck[newDeckId] = customDeckData
+      break
+    end
+  end
+  table.insert(deck.ContainedObjects, cardData)
+  table.insert(deck.DeckIDs, cardData.CardID)
+end
+
+-- Create an empty deck data table which can have cards added to it. This
+-- creates a new table on each call without using metatables or previous
+-- definitions because we can't be sure that TTS doesn't modify the structure
+---@return: Table containing the minimal TTS deck data structure
+Spawner.buildDeckDataTemplate = function()
+  local deck = {}
+  deck.Name = "Deck"
+
+  -- Card data.  DeckIDs and CustomDeck entries will be built from the cards
+  deck.ContainedObjects = {}
+  deck.DeckIDs = {}
+  deck.CustomDeck = {}
+
+  -- Transform is required, Position and Rotation will be overridden by the spawn call so can be omitted here
+  deck.Transform = {
+    scaleX = 1,
+    scaleY = 1,
+    scaleZ = 1,
+  }
+
+  return deck
+end
+
+-- Returns the first ID which does not exist in the given table, starting at startId and increasing
+-- @param objectTable Table keyed by strings which are numbers
+-- @param startId First possible ID.
+-- @return String ID >= startId
+Spawner.findNextAvailableId = function(objectTable, startId)
+  local id = startId
+  while (objectTable[id] ~= nil) do
+    id = tostring(tonumber(id) + 1)
+  end
+
+  return id
+end
+
+-- Get the PBCN (Permanent/Bonded/Customizable/Normal) value from the given metadata.
+---@return: 1 for Permanent, 2 for Bonded or 4 for Normal. The actual values are
+--      irrelevant as they provide only grouping and the order between them doesn't matter.
+Spawner.getpbcn = function(metadata)
+  if metadata.permanent then
+    return 1
+  elseif metadata.bonded_to ~= nil then
+    return 2
+  else -- Normal card
+    return 3
+  end
+end
+
+-- Comparison function used to sort the cards in a deck.  Groups bonded or
+-- permanent cards first, then sorts within theose types by name/subname.
+-- Normal cards will sort in standard alphabetical order, while
+-- permanent/bonded/customizable will be in reverse alphabetical order.
+--
+-- Since cards spawn in the order provided by this comparator, with the first
+-- cards ending up at the bottom of a pile, this ordering will spawn in reverse
+-- alphabetical order.  This presents the cards in order for non-face-down
+-- areas, and presents them in order when Searching the face-down deck.
+Spawner.cardComparator = function(card1, card2)
+  local pbcn1 = Spawner.getpbcn(card1.metadata)
+  local pbcn2 = Spawner.getpbcn(card2.metadata)
+  if pbcn1 ~= pbcn2 then
+    return pbcn1 > pbcn2
+  end
+  if pbcn1 == 3 then
+    if card1.data.Nickname ~= card2.data.Nickname then
+      return card1.data.Nickname < card2.data.Nickname
+    end
+    return card1.data.Description < card2.data.Description
+  else
+    if card1.data.Nickname ~= card2.data.Nickname then
+      return card1.data.Nickname > card2.data.Nickname
+    end
+    return card1.data.Description > card2.data.Description
+  end
+end
