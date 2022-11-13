@@ -19,23 +19,24 @@ buttonParamaters.color          = { 0, 0, 0, 0 }
 buttonParamaters.width          = 700
 buttonParamaters.height         = 700
 
-local tokenarranger = getObjectFromGUID("022907")
-local MODE          = { [false] = "Add / Remove", [true] = "Take / Return" }
-local BUTTON_COLOR  = { [false] = { 0.4, 0.4, 0.4 }, [true] = { 0.9, 0.9, 0.9 } }
-local FONT_COLOR    = { [false] = { 1, 1, 1 }, [true] = { 0, 0, 0 } }
-local whitespace    = "     "
+local altState     = false
+local MODE         = { [false] = "Add / Remove", [true] = "Take / Return" }
+local BUTTON_COLOR = { [false] = { 0.4, 0.4, 0.4 }, [true] = { 0.9, 0.9, 0.9 } }
+local FONT_COLOR   = { [false] = { 1, 1, 1 }, [true] = { 0, 0, 0 } }
+local whitespace   = "     "
+
+-- variable will be set by outside call
+tokenArranger = nil
 
 ---------------------------------------------------------
 -- creating buttons and menus + initializing tables
 ---------------------------------------------------------
 
-function onSave() return JSON.encode(TOGGLE) end
+function onSave() return JSON.encode(altState) end
 
 function onLoad(saved_state)
     if saved_state ~= nil then
-        TOGGLE = JSON.decode(saved_state)
-    else
-        TOGGLE = false
+        altState = JSON.decode(saved_state)
     end
 
     -- index: 0 - bless
@@ -82,12 +83,6 @@ function onLoad(saved_state)
     tokensTaken = { Bless = {}, Curse = {} }
     sealedTokens = {}
     Wait.time(initializeState, 1)
-
-    -- feedback for token arranger
-    if tokenarranger then
-        print("Bless/Curse Manager will update the Token Arranger automatically.")
-        print("If you remove the Token Arranger, save and reload before continuing.")
-    end
 end
 
 function initializeState()
@@ -117,8 +112,14 @@ function initializeState()
         end
     end
 
-    print("Bless Tokens " .. getTokenCount("Bless"))
-    print("Curse Tokens " .. getTokenCount("Curse"))
+    broadcastCount("Curse")
+    broadcastCount("Bless")
+end
+
+function broadcastCount(token)
+    local count = getTokenCount(token)
+    if count == "(0/0)" then return end
+    broadcastToAll(token .. " Tokens " .. count, "White")
 end
 
 function printStatus(color)
@@ -172,8 +173,8 @@ end
 -- context menu function 2
 function doReset(color)
     -- delete previously pulled out tokens by the token arranger
-    if tokenarranger then
-        for _, token in ipairs(getObjectsWithTag(tokenarranger.getVar("TO_DELETE_TAG"))) do
+    if tokenArranger then
+        for _, token in ipairs(getObjectsWithTag(tokenArranger.getVar("TO_DELETE_TAG"))) do
             token.destruct()
         end
     end
@@ -203,15 +204,15 @@ end
 
 -- click function 3
 function enableAlt()
-    if TOGGLE then return end
-    TOGGLE = not TOGGLE
+    if altState then return end
+    altState = not altState
     updateButtons()
 end
 
 -- click function 4
 function enableDefault()
-    if not TOGGLE then return end
-    TOGGLE = not TOGGLE
+    if not altState then return end
+    altState = not altState
     updateButtons()
 end
 
@@ -222,33 +223,33 @@ end
 function updateButtons()
     self.editButton({
         index = 0,
-        tooltip = MODE[TOGGLE] .. " Bless"
+        tooltip = MODE[altState] .. " Bless"
     })
 
     self.editButton({
         index = 1,
-        tooltip = MODE[TOGGLE] .. " Curse"
+        tooltip = MODE[altState] .. " Curse"
     })
 
     self.editButton({
         index = 2,
-        label = whitespace .. MODE[true] .. (TOGGLE and " ✓" or whitespace) .. " ",
-        color = BUTTON_COLOR[not TOGGLE],
-        font_color = FONT_COLOR[not TOGGLE]
+        label = whitespace .. MODE[true] .. (altState and " ✓" or whitespace) .. " ",
+        color = BUTTON_COLOR[not altState],
+        font_color = FONT_COLOR[not altState]
     })
 
     self.editButton({
         index = 3,
-        label = whitespace .. MODE[false] .. (TOGGLE and whitespace or " ✓") .. " ",
-        color = BUTTON_COLOR[TOGGLE],
-        font_color = FONT_COLOR[TOGGLE]
+        label = whitespace .. MODE[false] .. (altState and whitespace or " ✓") .. " ",
+        color = BUTTON_COLOR[altState],
+        font_color = FONT_COLOR[altState]
     })
 end
 
 -- function that is called by click_functions 1+2 and calls the other functions
 function callFunctions(token, isRightClick)
     local success
-    if not TOGGLE then
+    if not altState then
         if isRightClick then
             success = takeToken(token, true)
         else
@@ -266,11 +267,11 @@ end
 
 UPDATING = false
 function updateTokenArranger()
-    if tokenarranger and not UPDATING then
+    if tokenArranger and not UPDATING then
         UPDATING = true
         Wait.time(function()
             UPDATING = false
-            tokenarranger.call("layout")
+            tokenArranger.call("layout")
         end, 1.5)
     end
 end
@@ -352,8 +353,8 @@ function takeToken(type, remove)
         printToColor("No " .. type .. " tokens in the chaos bag.", playerColor)
         return 0
     end
-    local pos = self.getPosition() + Vector(-2, 0, 2.5)
-    if type == "Curse" then pos[3] = pos[3] - 5 end
+    local pos = self.getPosition() + Vector(2.25, 0, 0.85)
+    if type == "Curse" then pos[3] = pos[3] - 1.7 end
     chaosbag.takeObject({
         guid = table.remove(tokens),
         position = pos,
@@ -426,7 +427,7 @@ function addMenuOptions(playerColor, hoveredObject)
     sealedTokens[hoveredObject.getGUID()] = {}
 end
 
-function sealToken(type, color, enemy)
+function sealToken(type, playerColor, enemy)
     local chaosbag = getChaosBag()
     if chaosbag == nil then return end
     local pos = enemy.getPosition()
@@ -441,17 +442,17 @@ function sealToken(type, color, enemy)
                     Wait.frames(function()
                         table.insert(sealedTokens[enemy.getGUID()], obj)
                         table.insert(tokensTaken[type], obj.getGUID())
-                        printToColor("Sealing " .. type .. " token " .. getTokenCount(type), color)
+                        printToColor("Sealing " .. type .. " token " .. getTokenCount(type), playerColor)
                     end, 1)
                 end
             })
             return
         end
     end
-    printToColor(type .. " token not found in bag", color)
+    printToColor(type .. " token not found in bag", playerColor)
 end
 
-function releaseToken(type, color, enemy)
+function releaseToken(type, playerColor, enemy)
     local chaosbag = getChaosBag()
     if chaosbag == nil then return end
     local tokens = sealedTokens[enemy.getGUID()]
@@ -465,11 +466,11 @@ function releaseToken(type, color, enemy)
                 if v == guid then
                     table.remove(tokensTaken[type], j)
                     table.remove(tokens, i)
-                    printToColor("Releasing " .. type .. " token" .. getTokenCount(type), color)
+                    printToColor("Releasing " .. type .. " token" .. getTokenCount(type), playerColor)
                     return
                 end
             end
         end
     end
-    printToColor(type .. " token not sealed on " .. enemy.getName(), color)
+    printToColor(type .. " token not sealed on " .. enemy.getName(), playerColor)
 end
