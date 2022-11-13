@@ -18,15 +18,17 @@ local clueData = {
   image_bottom = TOKEN_DATA.doom.image
 }
 
+spawnedLocationGUIDs = {}
+
 ---------------------------------------------------------
 -- general code
 ---------------------------------------------------------
 
-function onSave() return JSON.encode(SPAWNED_LOCATION_GUIDS) end
+function onSave() return JSON.encode(spawnedLocationGUIDs) end
 
 function onLoad(save_state)
   -- records locations we have spawned clues for
-  SPAWNED_LOCATION_GUIDS = JSON.decode(save_state) or {}
+  spawnedLocationGUIDs = JSON.decode(save_state) or {}
 
   local dataHelper = getObjectFromGUID('708279')
   LOCATIONS = dataHelper.getTable('LOCATIONS_DATA')
@@ -68,7 +70,7 @@ function getClueCount(object, isFaceDown, playerCount)
 end
 
 function spawnCluesAtLocation(clueCount, object)
-  if SPAWNED_LOCATION_GUIDS[object.getGUID()] ~= nil then
+  if spawnedLocationGUIDs[object.getGUID()] ~= nil then
     error('tried to spawn clue for already spawned location:' .. object.getName())
   end
 
@@ -76,18 +78,18 @@ function spawnCluesAtLocation(clueCount, object)
   log('player count is ' .. COUNTER.getVar('val') .. ', clue count is ' .. clueCount)
 
   -- mark this location as spawned, can't happen again
-  SPAWNED_LOCATION_GUIDS[object.getGUID()] = 1
+  spawnedLocationGUIDs[object.getGUID()] = true
 
   -- spawn clues (starting top right, moving to the next row after 4 clues)
   local pos = object.getPosition()
   for i = 1, clueCount do
     local row = math.floor(1 + (i - 1) / 4)
     local column = (i - 1) % 4
-    spawnClues({ pos[1] + 1.5 - 0.55 * row, pos[2], pos[3] - 0.825 + 0.55 * column })
+    spawnClue({ pos.x + 1.5 - 0.55 * row, pos.y, pos.z - 0.825 + 0.55 * column })
   end
 end
 
-function spawnClues(position)
+function spawnClue(position)
   local token = spawnObject({
     position = position,
     rotation = { 3.88, -90, 0.24 },
@@ -113,7 +115,7 @@ function onCollisionEnter(collision_info)
 
   -- check if we should spawn clues here and do so according to playercount
   local object = collision_info.collision_object
-  if getLocation(object) ~= nil and SPAWNED_LOCATION_GUIDS[object.getGUID()] == nil then
+  if getLocation(object) ~= nil and spawnedLocationGUIDs[object.getGUID()] == nil then
     local clueCount = getClueCount(object, object.is_face_down, COUNTER.getVar('val'))
     if clueCount > 0 then spawnCluesAtLocation(clueCount, object) end
   end
