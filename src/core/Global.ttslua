@@ -6,10 +6,10 @@ ENCOUNTER_DECK_POS = {-3.93, 1, 5.76}
 ENCOUNTER_DECK_DISCARD_POSITION = {-3.85, 1, 10.38}
 
 -- GUID of data helper
-tokenDataId = "708279"
+DATA_HELPER_GUID = "708279"
 
 -- GUIDs that will not be interactable (e.g. parts of the table)
-NOT_INTERACTABLE = {
+local NOT_INTERACTABLE = {
   "6161b4",
   "721ba2",
   "9f334f",
@@ -22,6 +22,9 @@ NOT_INTERACTABLE = {
   "7bff34"
 }
 
+local chaosTokens = {}
+local chaosTokensLastMat = nil
+local IS_RESHUFFLING = false
 ---------------------------------------------------------
 -- data for tokens
 ---------------------------------------------------------
@@ -60,7 +63,7 @@ IMAGE_TOKEN_MAP = {
 -- data for chaos token stat tracker
 ---------------------------------------------------------
 
-maxSquid = 0
+local maxSquid = 0
 
 MAT_GUID_TO_COLOUR = {
   ["8b081b"] = "White",
@@ -69,14 +72,14 @@ MAT_GUID_TO_COLOUR = {
   ["0840d5"] = "Red"
 }
 
-PLAYER_PULLS = {
+local personalStats = {
   ["8b081b"] = {},
   ["bd0ff4"] = {},
   ["383d8b"] = {},
   ["0840d5"] = {}
 }
 
-PULLS = {
+local overallStats = {
   -- cultist
   ["https://i.imgur.com/VzhJJaH.png"] = 0,
   -- skull
@@ -164,7 +167,7 @@ function actualEncounterCardDraw(card, params)
   local alwaysFaceUp = params[3]
   local faceUpRotation = 0
   if not alwaysFaceUp then
-    if getObjectFromGUID(tokenDataId).call('checkHiddenCard', card.getName()) then
+    if getObjectFromGUID(DATA_HELPER_GUID).call('checkHiddenCard', card.getName()) then
       faceUpRotation = 180
     end
   end
@@ -172,7 +175,6 @@ function actualEncounterCardDraw(card, params)
   card.setRotationSmooth({0, rotation.y, faceUpRotation}, false, false)
 end
 
-IS_RESHUFFLING = false
 function reshuffleEncounterDeck(params)
   -- finishes moving the deck back and draws a card
   local function move(deck)
@@ -223,15 +225,13 @@ function findChaosBag()
   end
 end
 
-CHAOS_TOKENS = {}
-function putBackChaosTokens()
-  for _, token in pairs(CHAOS_TOKENS) do
+function returnChaosTokens()
+  for _, token in pairs(chaosTokens) do
     if token ~= nil then chaosbag.putObject(token) end
   end
-  CHAOS_TOKENS = {}
+  chaosTokens = {}
 end
 
-CHAOS_TOKENS_LAST_MAT = nil
 function drawChaostoken(params)
   findChaosBag()
 
@@ -240,31 +240,30 @@ function drawChaostoken(params)
   local isRightClick = params[3]
 
   -- return token(s) on other playmat first
-  if CHAOS_TOKENS_LAST_MAT ~= nil and CHAOS_TOKENS_LAST_MAT ~= mat and #CHAOS_TOKENS ~= 0 then
-    putBackChaosTokens()
-    CHAOS_TOKENS_LAST_MAT = nil
+  if chaosTokensLastMat ~= nil and chaosTokensLastMat ~= mat and #chaosTokens ~= 0 then
+    returnChaosTokens()
+    chaosTokensLastMat = nil
     return
   end
 
-  CHAOS_TOKENS_LAST_MAT = mat
+  chaosTokensLastMat = mat
   -- if we have left clicked and have no tokens OR if we have right clicked
-  if isRightClick or #CHAOS_TOKENS == 0 then
+  if isRightClick or #chaosTokens == 0 then
     if #chaosbag.getObjects() == 0 then return end
     chaosbag.shuffle()
 
     -- add the token to the list, compute new position based on list length
-    -- callback is needed for stat tracking
-    tokenOffset[1] = tokenOffset[1] + (0.17 * #CHAOS_TOKENS)
+    tokenOffset[1] = tokenOffset[1] + (0.17 * #chaosTokens)
     local token = chaosbag.takeObject({
       index = 0,
       position = mat.positionToWorld(tokenOffset),
       rotation = mat.getRotation(),
-	    callback_function = function(obj) take_callback(obj, mat) end
+	    callback_function = function(obj) trackChaosToken(obj, mat.getGUID()) end
     })
-    CHAOS_TOKENS[#CHAOS_TOKENS + 1] = token
+    chaosTokens[#chaosTokens + 1] = token
     return
   else
-    putBackChaosTokens()
+    returnChaosTokens()
   end
 end
 
@@ -273,23 +272,28 @@ end
 ---------------------------------------------------------
 
 function spawnToken(params)
-  local position = params[1]
+  local position  = params[1]
   local tokenType = params[2]
-  local rotation = params[3] or {0, 270, 0}
+  local rotation  = params[3] or {0, 270, 0}
   local tokenData = TOKEN_DATA[tokenType]
-  if tokenData == nil then error("no token data found for '" .. tokenType .. "'") end
+
+  if tokenData == nil then
+    error("no token data found for '" .. tokenType .. "'")
+  end
 
   local token = spawnObject({
     type = 'Custom_Token',
     position = position,
 	  rotation = rotation
   })
+
   token.setCustomObject({
     image = tokenData['image'],
     thickness = 0.3,
     merge_distance = 5,
     stackable = true
   })
+
   token.use_snap_points = false
   token.scale(tokenData['scale'])
   return token
@@ -299,53 +303,64 @@ end
 -- chaos token stat tracker
 ---------------------------------------------------------
 
-function take_callback(object_spawned, mat)
-  local player = mat.getGUID()
-  local image = object_spawned.getCustomObject().image
-  PULLS[image]                = (PULLS[image] or 0) + 1
-  PLAYER_PULLS[player][image] = (PLAYER_PULLS[player][image] or 0) + 1
+function trackChaosToken(token, matGUID)
+  local image = token.getCustomObject().image
+  overallStats[image]           = (overallStats[image] or 0) + 1
+  personalStats[matGUID][image] = (personalStats[matGUID][image] or 0) + 1
 end
 
-function printOrResetStats(_, _, isRightClick)
+function handleStatTrackerClick(_, _, isRightClick)
   if isRightClick then
-    for key, _ in pairs(PULLS) do
-      PULLS[key] = 0
-    end
-    for playerKey, _ in pairs(PLAYER_PULLS) do
-      for key, value in pairs(PULLS) do
-        PLAYER_PULLS[playerKey][key] = value
-      end
-    end
+    resetChaosTokenStats()
   else
-    local squidKing = "Nobody"
-    printToAll("Overall Game stats")
-    printToAll("------------------------------")
-    printNonZeroTokenPairs(PULLS)
-    printToAll("Individual Stats")
-    printToAll("------------------------------")
-    for playerMatGuid, _ in pairs(PLAYER_PULLS) do
-      local playerColour = MAT_GUID_TO_COLOUR[playerMatGuid]
-      local playerSquidCount = PLAYER_PULLS[playerMatGuid]["https://i.imgur.com/lns4fhz.png"] or 0
-      local playerName = playerColour
-      if Player[playerColour].seated then
-        playerName = Player[playerColour].steam_name
-      end
-
-      printToAll(playerName ..  " Stats", playerColour)
-      printNonZeroTokenPairs(PLAYER_PULLS[playerMatGuid])
-      
-      if playerSquidCount > maxSquid then
-        squidKing = playerName
-        maxSquid = playerSquidCount
-      end
-    end
-    printToAll(squidKing .. " is an auto-fail magnet.", {255, 0, 0})
+    printChaosTokenStats()
   end
+end
+
+function resetChaosTokenStats()
+  for key, _ in pairs(overallStats) do
+    overallStats[key] = 0
+  end
+  for playerKey, _ in pairs(personalStats) do
+    for key, value in pairs(overallStats) do
+      personalStats[playerKey][key] = value
+    end
+  end
+end
+
+function printChaosTokenStats()
+  local squidKing = "Nobody"
+  printToAll("")
+  printToAll("Overall Stats")
+  printToAll("------------------------------")
+  printNonZeroTokenPairs(overallStats)
+  printToAll("")
+  printToAll("Individual Stats")
+  printToAll("------------------------------")
+  for matGUID, _ in pairs(personalStats) do
+    local playerColour = MAT_GUID_TO_COLOUR[matGUID]
+    local playerSquidCount = personalStats[matGUID]["https://i.imgur.com/lns4fhz.png"] or 0
+    local playerName = playerColour
+    if Player[playerColour].seated then
+      playerName = Player[playerColour].steam_name
+    end
+
+    printToAll(playerName ..  " Stats", playerColour)
+    printNonZeroTokenPairs(personalStats[matGUID])
+    
+    if playerSquidCount > maxSquid then
+      squidKing = playerName
+      maxSquid = playerSquidCount
+    end
+  end
+  printToAll(squidKing .. " is an auto-fail magnet.", {255, 0, 0})
 end
 
 function printNonZeroTokenPairs(theTable)
   for key, value in pairs(theTable) do
-    if value ~= 0 then printToAll(IMAGE_TOKEN_MAP[key] .. ': ' .. tostring(value)) end
+    if value ~= 0 then
+      printToAll(IMAGE_TOKEN_MAP[key] .. ': ' .. tostring(value))
+    end
   end
 end
 
@@ -455,7 +470,7 @@ function fillContainer(args)
 end
 
 function getDataValue(storage, key)
-  local data = getObjectFromGUID(tokenDataId).getTable(storage)
+  local data = getObjectFromGUID(DATA_HELPER_GUID).getTable(storage)
   if data ~= nil then
     local value = data[key]
     if value ~= nil then
@@ -476,7 +491,7 @@ function getDataValue(storage, key)
 end
 
 function spawnChaosToken(id, pos)
-  local url = getImageUrl(id)
+  local url = getChaosTokenImageURL(id)
   if url ~= '' then
     local obj = spawnObject({
       type = 'Custom_Tile',
@@ -501,7 +516,7 @@ function getTokenName(params)
   return name
 end
 
-function getImageUrl(id)
+function getChaosTokenImageURL(id)
   if id == 'p1' then return 'https://i.imgur.com/uIx8jbY.png' end
   if id == '0' then return 'https://i.imgur.com/btEtVfd.png' end
   if id == 'm1' then return 'https://i.imgur.com/w3XbrCC.png' end
