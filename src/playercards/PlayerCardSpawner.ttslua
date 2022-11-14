@@ -1,36 +1,79 @@
 Spawner = { }
 
--- Spawns a list of cards at the given position/rotation
+-- Spawns a list of cards at the given position/rotation.  This will separate cards by size -
+-- investigator, standard, and mini, spawning them in that order with larger cards on bottom.  If
+-- there are different types, the provided callback will be called once for each type as it spawns
+-- either a card or deck.
 -- @param cardList: A list of Player Card data structures (data/metadata)
 -- @param pos Position table where the cards should be spawned (global)
 -- @param rot Rotation table for the orientation of the spawned cards (global)
 -- @param sort Boolean, true if this list of cards should be sorted before spawning
--- @param callback Function, callback to be called after the card/deck spawns
+-- @param callback Function, callback to be called after the card/deck spawns.
 Spawner.spawnCards = function(cardList, pos, rot, sort, callback)
   if (sort) then
     table.sort(cardList, Spawner.cardComparator)
   end
+
+  local miniCards = { }
+  local standardCards = { }
+  local investigatorCards = { }
+
+  for _, card in ipairs(cardList) do
+    if (card.metadata.type == "Investigator") then
+      table.insert(investigatorCards, card)
+    elseif (card.metadata.type == "Minicard") then
+      table.insert(miniCards, card)
+    else
+      table.insert(standardCards, card)
+    end
+  end
+  -- Spawn each of the three types individually.  Each Y position shift accounts for the thickness
+  -- of the spawned deck
+  local position = { x = pos.x, y = pos.y, z = pos.z }
+  Spawner.spawn(investigatorCards, position, { rot.x, rot.y - 90, rot.z}, callback)
+
+  position.y = position.y + (#investigatorCards + #standardCards) * 0.07
+  Spawner.spawn(standardCards, position, rot, callback)
+
+  position.y = position.y + (#standardCards + #miniCards) * 0.07
+  Spawner.spawn(miniCards, position, rot, callback)
+end
+
+-- Spawn a specific list of cards.  This method is for internal use and should not be called
+-- directly, use spawnCards instead.
+-- @param cardList: A list of Player Card data structures (data/metadata)
+-- @param pos Position table where the cards should be spawned (global)
+-- @param rot Rotation table for the orientation of the spawned cards (global)
+-- @param callback Function, callback to be called after the card/deck spawns.
+Spawner.spawn = function(cardList, pos, rot, callback)
+  if (#cardList == 0) then
+    return
+  end
   -- Spawn a single card directly
   if (#cardList == 1) then
-    local cardPos = { pos.x, 2, pos.z}
     spawnObjectData({
       data = cardList[1].data,
-      position = cardPos,
+      position = pos,
       rotation = rot,
       callback_function = callback,
     })
     return
   end
-
-  -- Multiple cards, build a deck and spawn that
+  -- For multiple cards, construct a deck and spawn that
   local deck = Spawner.buildDeckDataTemplate()
+  -- Decks won't inherently scale to the cards in them.  The card list being spawned should be all
+  -- the same type/size by this point, so use the first card to set the size
+  deck.Transform = {
+    scaleX = cardList[1].data.Transform.scaleX,
+    scaleY = 1,
+    scaleZ = cardList[1].data.Transform.scaleZ,
+  }
   for _, spawnCard in ipairs(cardList) do
     Spawner.addCardToDeck(deck, spawnCard.data)
   end
-  local deckPos = { pos.x, 3, pos.z }
   spawnObjectData({
     data = deck,
-    position = deckPos,
+    position = pos,
     rotation = rot,
     callback_function = callback,
   })

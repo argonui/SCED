@@ -6,6 +6,8 @@ information = {
     last_updated = "12.11.2022"
 }
 
+require("playercards/PlayerCardSpawner")
+
 local buttonParameters          = {}
 buttonParameters.function_owner = self
 buttonParameters.height         = 200
@@ -30,7 +32,7 @@ inputParameters.width          = 1200
 inputParameters.height         = 130
 inputParameters.font_size      = 107
 
-local allCardsBag = getObjectFromGUID("15bb07")
+local ALL_CARDS_GUID = "15bb07"
 
 -- main code
 function onSave() return JSON.encode({ spawnAll, searchExact, inputParameters.value }) end
@@ -100,6 +102,7 @@ function search()
         return
     end
 
+    local allCardsBag = getObjectFromGUID(ALL_CARDS_GUID)
     if allCardsBag == nil then
         printToAll("Player card bag couldn't be found.", "Red")
         return
@@ -111,23 +114,15 @@ function search()
         printToAll("No match found.", "Red")
         return
     end
+    if (#cardList > 100) then
+      printToAll("Matched more than 100 cards, please try a more specific search.", "Yellow")
+      return
+    end
 
     -- sort table by name (reverse for multiple results, because bottom card spawns first)
     table.sort(cardList, function(k1, k2) return spawnAll == (k1.data.Nickname > k2.data.Nickname) end)
 
     local rot = self.getRotation()
-    local pos = self.positionToWorld(Vector(0, 0, -0.225))
-    for _, card in ipairs(cardList) do
-        pos[2] = pos[2] + 0.1
-        spawnObjectData({
-            data     = card.data,
-            position = pos,
-            rotation = rot
-        })
-        if not spawnAll then return end
-        if i == 100 then
-            printToAll("Only first 100 results of " .. #cardList .. " total results spawned.", "Yellow")
-            return
-        end
-    end
+    local pos = self.positionToWorld(Vector(0, 2, -0.225))
+    Spawner.spawnCards(cardList, pos, rot, true)
 end
