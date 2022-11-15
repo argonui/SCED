@@ -6,14 +6,14 @@
 --                  - use the IGNORE_TAG to exclude objects from tidying (default: "CleanUpHelper_Ignore")
 information = {
     version = "2.3",
-    last_updated = "12.11.2022"
+    last_updated = "15.11.2022"
 }
 
 -- enable this for debugging
-SHOW_RAYS = false
+local SHOW_RAYS = false
 
 -- these objects will be ignored
-IGNORE_GUIDS = {
+local IGNORE_GUIDS = {
     -- big playmat, change image panel and investigator counter
     "b7b45b"; "f182ee"; "721ba2";
     -- bless/curse manager
@@ -30,33 +30,29 @@ IGNORE_GUIDS = {
 IGNORE_TAG = "CleanUpHelper_ignore"
 
 -- colors and order for following tables
-COLORS = { "White"; "Orange"; "Green"; "Red"; "Agenda" }
+local COLORS = { "White"; "Orange"; "Green"; "Red"; "Agenda" }
 
--- counter GUIDS (4x damage, 4x sanity, 4x resource and 1x doom)
-TOKEN_GUIDS = {
+-- counter GUIDS (4x damage, 4x sanity and 4x resource)
+local TOKEN_GUIDS = {
     "eb08d6"; "e64eec"; "1f5a0a"; "591a45";
     "468e88"; "0257d9"; "7b5729"; "beb964";
-    "4406f0"; "816d84"; "cd15ac"; "a4b60d";
-    "85c4c6"
+    "4406f0"; "816d84"; "cd15ac"; "a4b60d"
 }
 
--- default values (4x damage, 4x horror, 4x resources, 1x doom)
+-- default values (4x damage, 4x horror, 4x resources)
 DEFAULT_VALUES = {
     0; 0; 0; 0;
     0; 0; 0; 0;
-    5; 5; 5; 5;
-    0
+    5; 5; 5; 5
 }
 
-PLAYERMAT_GUIDS = { "8b081b"; "bd0ff4"; "383d8b"; "0840d5" }
-TRACKER_GUIDS   = { "e598c2"; "b4a5f7"; "af7ed7"; "e74881" }
-CLUE_GUIDS      = { "d86b7c"; "1769ed"; "032300"; "37be78" }
-TRASHCAN_GUIDS  = { "147e80"; "f7b6c8"; "5f896a"; "4b8594"; "70b9f6" }
-
-PLAYMATZONE = getObjectFromGUID("a2f932")
+local PLAYERMAT_GUIDS = { "8b081b"; "bd0ff4"; "383d8b"; "0840d5" }
+local TRACKER_GUIDS   = { "e598c2"; "b4a5f7"; "af7ed7"; "e74881" }
+local CLUE_GUIDS      = { "d86b7c"; "1769ed"; "032300"; "37be78" }
+local TRASHCAN_GUIDS  = { "147e80"; "f7b6c8"; "5f896a"; "4b8594"; "70b9f6" }
 
 -- values for physics.cast (4 entries for player zones, 5th entry for agenda/act deck, 6th for campaign log)
-PHYSICS_POSITION = {
+local PHYSICS_POSITION = {
     { -54.5, 2, 21 };
     { -54.5, 2, -21 };
     { -25.0, 2, 26 };
@@ -65,9 +61,9 @@ PHYSICS_POSITION = {
     { -00.0, 2, -27 }
 }
 
-PHYSICS_ROTATION = { 270, 270, 0, 180, 270, 0 }
+local PHYSICS_ROTATION = { 270, 270, 0, 180, 270, 0 }
 
-PHYSICS_SCALE = {
+local PHYSICS_SCALE = {
     { 36.6, 1, 14.5 };
     { 36.6, 1, 14.5 };
     { 28.0, 1, 14.5 };
@@ -76,26 +72,28 @@ PHYSICS_SCALE = {
     { 05.0, 1, 05.0 }
 }
 
-local blurse = getObjectFromGUID("5933fb")
+local tidyPlayermats = true
+local importTrauma   = true
+local resetResources = true
 
 local buttonParameters          = {}
 buttonParameters.function_owner = self
 
--- saving the options
-function onSave() return JSON.encode({ tidy_playermats, import_trauma, reset_resources }) end
+---------------------------------------------------------
+-- option loading and GUI setup
+---------------------------------------------------------
+
+function onSave() return JSON.encode({ tidyPlayermats, importTrauma, resetResources }) end
 
 function onLoad(saved_data)
     local loaded_data = JSON.decode(saved_data)
     if loaded_data ~= nil then
-        tidy_playermats = loaded_data[1]
-        import_trauma   = loaded_data[2]
-        reset_resources = loaded_data[3]
-    else
-        tidy_playermats = true
-        import_trauma   = true
-        reset_resources = true
+        tidyPlayermats = loaded_data[1]
+        importTrauma   = loaded_data[2]
+        resetResources = loaded_data[3]
     end
 
+    -- context menu and buttons
     self.addContextMenuItem("More Information", function()
         printToAll("------------------------------", "White")
         printToAll("Clean Up Helper v" .. information["version"] .. " by Chr1Z", "Orange")
@@ -115,10 +113,10 @@ function onLoad(saved_data)
     self.createButton(buttonParameters)
 
     -- index 1: option button for playermats
-    buttonParameters.label          = "Tidy playermats: " .. (tidy_playermats and "✓" or "✗")
+    buttonParameters.label          = "Tidy playermats: " .. (tidyPlayermats and "✓" or "✗")
     buttonParameters.color          = { 0, 0, 0, 0.95 }
-    buttonParameters.click_function = "toggle1"
-    buttonParameters.position.z     = -0.8
+    buttonParameters.click_function = "toggle_tidyPlayermats"
+    buttonParameters.position.z     = buttonParameters.position.z + 0.7
     buttonParameters.height         = 275
     buttonParameters.width          = 1550
     buttonParameters.font_size      = 165
@@ -126,21 +124,21 @@ function onLoad(saved_data)
     self.createButton(buttonParameters)
 
     -- index 2: option button for trauma import
-    buttonParameters.label          = "Import trauma:   " .. (import_trauma and "✓" or "✗")
-    buttonParameters.click_function = "toggle2"
-    buttonParameters.position.z     = -0.1
+    buttonParameters.label          = "Import trauma:   " .. (importTrauma and "✓" or "✗")
+    buttonParameters.click_function = "toggle_importTrauma"
+    buttonParameters.position.z     = buttonParameters.position.z + 0.7
     self.createButton(buttonParameters)
 
     -- index 3: option button for resources
-    buttonParameters.label          = "Reset resources:  " .. (reset_resources and "✓" or "✗")
-    buttonParameters.click_function = "toggle3"
-    buttonParameters.position.z     = 0.6
+    buttonParameters.label          = "Reset resources:  " .. (resetResources and "✓" or "✗")
+    buttonParameters.click_function = "toggle_resetResources"
+    buttonParameters.position.z     = buttonParameters.position.z + 0.7
     self.createButton(buttonParameters)
 
     -- index 4: start button
     buttonParameters.label          = "Start!"
     buttonParameters.click_function = "cleanUp"
-    buttonParameters.position.z     = 1.3
+    buttonParameters.position.z     = buttonParameters.position.z + 0.7
     buttonParameters.width          = 775
     self.createButton(buttonParameters)
 
@@ -154,19 +152,20 @@ end
 ---------------------------------------------------------
 -- click functions for option buttons
 ---------------------------------------------------------
-function toggle1()
-    tidy_playermats = not tidy_playermats
-    self.editButton({ index = 1, label = "Tidy playermats: " .. (tidy_playermats and "✓" or "✗") })
+
+function toggle_tidyPlayermats()
+    tidyPlayermats = not tidyPlayermats
+    self.editButton({ index = 1, label = "Tidy playermats: " .. (tidyPlayermats and "✓" or "✗") })
 end
 
-function toggle2()
-    import_trauma = not import_trauma
-    self.editButton({ index = 2, label = "Import trauma:   " .. (import_trauma and "✓" or "✗") })
+function toggle_importTrauma()
+    importTrauma = not importTrauma
+    self.editButton({ index = 2, label = "Import trauma:   " .. (importTrauma and "✓" or "✗") })
 end
 
-function toggle3()
-    reset_resources = not reset_resources
-    self.editButton({ index = 3, label = "Reset resources:  " .. (reset_resources and "✓" or "✗") })
+function toggle_resetResources()
+    resetResources = not resetResources
+    self.editButton({ index = 3, label = "Reset resources:  " .. (resetResources and "✓" or "✗") })
 end
 
 ---------------------------------------------------------
@@ -180,7 +179,7 @@ function cleanUp()
 
     getTrauma()
     resetCounters()
-    removeBlurse()
+    removeBlessCurse()
 
     printToAll("Discarding player hands...", "White")
     discardHands()
@@ -197,7 +196,7 @@ end
 function resetCounters()
     for i, guid in ipairs(TOKEN_GUIDS) do
         -- skip this step for resource tokens when option disabled (token number 9-12)
-        if reset_resources or (i < 9 or i > 12) then
+        if resetResources or (i < 9 or i > 12) then
             local TOKEN = getObjectFromGUID(guid)
             if TOKEN ~= nil then
                 TOKEN.setVar("val", RESET_VALUES[i])
@@ -208,6 +207,13 @@ function resetCounters()
             end
         end
     end
+
+    -- reset doom on agenda
+    local doomcounter = getObjectFromGUID("85c4c6")
+    if doomcounter ~= nil then
+        doomcounter.call("setToZero")
+    end
+
     for i, guid in ipairs(TRACKER_GUIDS) do
         local obj = getObjectFromGUID(guid)
         if obj ~= nil then
@@ -227,21 +233,21 @@ function getTrauma()
     end
 
     -- stop here if trauma import is disabled
-    if not import_trauma then
+    if not importTrauma then
         printToAll("Default values for health and sanity loaded.", "Yellow")
         return
     end
 
     -- get campaign log
-    local c_log = findObjects(6)[1]
-    if c_log == nil then
+    local campaignLog = findObjects(6)[1]
+    if campaignLog == nil then
         printToAll("Campaign log not found in standard position!", "Yellow")
         printToAll("Default values for health and sanity loaded.", "Yellow")
         return
     end
 
     -- get data from campaign log if possible
-    local counterData = c_log.hit_object.getVar("ref_buttonData")
+    local counterData = campaignLog.hit_object.getVar("ref_buttonData")
     if counterData ~= nil then
         printToAll("Trauma values found in campaign log!", "Green")
         for i = 1, 10, 3 do
@@ -254,9 +260,12 @@ function getTrauma()
     end
 end
 
--- get rid of bless/curse tokens
-function removeBlurse()
-    if blurse ~= nil then blurse.call("doRemove", "White") end
+-- get rid of bless/curse tokens via bless / curse manager
+function removeBlessCurse()
+    local BlessCurseManager = getObjectFromGUID("5933fb")
+    if BlessCurseManager ~= nil then
+        BlessCurseManager.call("doRemove", "White")
+    end
 end
 
 -- discard all hand objects
@@ -272,6 +281,7 @@ end
 -- clean up for big playmat
 function tidyPlaymatCoroutine()
     local trashcan = getObjectFromGUID(TRASHCAN_GUIDS[5])
+    local PLAYMATZONE = getObjectFromGUID("a2f932")
 
     if PLAYMATZONE == nil then
         printToAll("Scripting zone for big playmat could not be found!", "Red")
@@ -285,7 +295,6 @@ function tidyPlaymatCoroutine()
                 trashcan.putObject(obj)
             end
         end
-
     end
 
     local PLAYMAT = getObjectFromGUID('721ba2')
@@ -302,7 +311,7 @@ end
 function tidyPlayerMatCoroutine()
     for i = 1, 5 do
         -- skip playermat (1-4) if option disabled
-        if tidy_playermats or i == 5 then
+        if tidyPlayermats or i == 5 then
             -- delay for animation purpose
             for k = 1, 30 do coroutine.yield(0) end
 
@@ -340,7 +349,7 @@ function tidyPlayerMatCoroutine()
         end
     end
 
-    local datahelper = getObjectFromGUID('708279')
+    local datahelper = getObjectFromGUID("708279")
     if datahelper then
         datahelper.setTable("SPAWNED_PLAYER_CARD_GUIDS", {})
     end
