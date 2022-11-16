@@ -1,7 +1,3 @@
----------------------------------------------------------
--- general setup (identical for each playmat)
----------------------------------------------------------
-
 -- set true to enable debug logging and show Physics.cast()
 local DEBUG = false
 
@@ -21,11 +17,13 @@ local DISCARD_BUTTON_OFFSETS = {
 }
 
 local PLAY_ZONE_ROTATION = self.getRotation()
-activeInvestigatorId = "00000"
 
----------------------------------------------------------
--- general code (identical for each playmat)
----------------------------------------------------------
+local TRASHCAN
+local STAT_TRACKER
+local RESOURCE_COUNTER
+
+-- global variable so it can be reset by the Clean Up Helper
+activeInvestigatorId = "00000"
 
 function onSave() return JSON.encode({zoneID = zoneID, playerColor = PLAYER_COLOR, activeInvestigatorId = activeInvestigatorId}) end
 
@@ -34,6 +32,10 @@ function onLoad(save_state)
   DATA_HELPER = getObjectFromGUID('708279')
   PLAYER_CARDS = DATA_HELPER.getTable('PLAYER_CARD_DATA')
   PLAYER_CARD_TOKEN_OFFSETS = DATA_HELPER.getTable('PLAYER_CARD_TOKEN_OFFSETS')
+
+  TRASHCAN = getObjectFromGUID(TRASHCAN_GUID)
+  STAT_TRACKER = getObjectFromGUID(STAT_TRACKER_GUID)
+  RESOURCE_COUNTER = getObjectFromGUID(RESOURCE_COUNTER_GUID)
 
   for i = 1, 6 do
     makeDiscardButton(DISCARD_BUTTON_OFFSETS[i], {-3.85, 3, 10.38}, i)
@@ -203,7 +205,9 @@ function doUpkeep(_, color, alt_click)
         if notes.uses ~= nil then
           local count = notes.uses[1].count
           local replenish = notes.uses[1].replenish
-          if count and replenish then replenishTokens(obj, count, replenish) end
+          if count and replenish then
+            replenishTokens(obj, count, replenish)
+          end
         end
       end
     elseif obj.getDescription() == "Action Token" and obj.is_face_down then
@@ -216,9 +220,9 @@ function doUpkeep(_, color, alt_click)
   if activeInvestigatorId ~= nil then
     local miniId = string.match(activeInvestigatorId, "%d%d%d%d%d") .. "-m"
     for _, obj in ipairs(getObjects()) do
-      if obj.tag == "Card" then
+      if obj.tag == "Card" and obj.is_face_down then
         local notes = JSON.decode(obj.getGMNotes())
-        if obj.is_face_down and notes ~= nil and notes.type == "Minicard" and (notes.id == miniId or notes.id == "09080-m") then
+        if notes ~= nil and notes.type == "Minicard" and (notes.id == miniId or notes.id == "09080-m") then
           obj.flip()
         end
       end
@@ -236,11 +240,16 @@ function doUpkeep(_, color, alt_click)
 
   -- draw a card (with handling for Patrice and Forced Learning)
   if activeInvestigatorId == "06005" then
-    local handSize = #Player[PLAYER_COLOR].getHandObjects()
-    if handSize >= 5 then return end
-    local cardsToDraw = 5 - handSize
-    printToColor("Drawing " .. cardsToDraw .. " cards (Patrice)", messageColor)
-    drawCardsWithReshuffle(cardsToDraw)
+    if forcedLearning then
+      printToColor("Wow, did you really take 'Versatile' to play Patrice with 'Forced Learning'? Choose which draw replacement effect takes priority and draw cards accordingly.", messageColor)
+    else
+      local handSize = #Player[PLAYER_COLOR].getHandObjects()
+      if handSize < 5 then
+        local cardsToDraw = 5 - handSize
+        printToColor("Drawing " .. cardsToDraw .. " cards (Patrice)", messageColor)
+        drawCardsWithReshuffle(cardsToDraw)
+      end
+    end
   elseif forcedLearning then
     printToColor("Drawing 2 cards, discard 1 (Forced Learning)", messageColor)
     drawCardsWithReshuffle(2)
@@ -257,7 +266,6 @@ end
 
 -- draw X cards (shuffle discards if necessary)
 function drawCardsWithReshuffle(numCards)
-  if type(numCards) ~= "number" then numCards = 1 end
   getDrawDiscardDecks()
 
   -- Norman Withers handling
@@ -456,10 +464,8 @@ function spawnTokensFor(object)
     spawnTokenGroup(object, token, tokenCount)
   else
     local data = getPlayerCardData(object)
-    if data == nil then error('attempt to spawn tokens for ' .. object.getName() .. ': no token data') end
     token = data['tokenType']
     tokenCount = data['tokenCount']
-    log(object.getName() .. '[' .. object.getDescription() .. ']' .. ' : ' .. data['tokenType'] .. ' : ' .. data['tokenCount'])
     log("Spawning tokens for "..object.getName()..'['..object.getDescription()..']: '..tokenCount.."x "..token)
     spawnTokenGroup(object, token, tokenCount)
   end
@@ -530,10 +536,10 @@ function maybeUpdateActiveInvestigator(card)
     for _, obj in ipairs(search) do
       local obj = obj.hit_object
       if obj.getDescription() == "Action Token" and obj.getStateId() > 0 then
-        if self.positionToLocal(obj.getPosition()).x > -0.95 then
+        if obj.getScale().x < 0.4 then
           small_token = obj
         else
-          objState(obj, state_table[notes.class])
+          setObjectState(obj, state_table[notes.class])
         end
       end
     end
@@ -541,26 +547,26 @@ function maybeUpdateActiveInvestigator(card)
     -- update the small token with special action for certain investigators
     -- Ursula Downs: Investigate action
     if activeInvestigatorId == "04002" then
-      objState(small_token, 8)
+      setObjectState(small_token, 8)
     -- Daisy Walker (only for normal front, not parallel): Tome action
-    elseif activeInvestigatorId == "01002" or activeInvestigatorId == "01002-r" or activeInvestigatorId == "01002-pb" then
-      objState(small_token, 9)
+    elseif activeInvestigatorId == "01002" or activeInvestigatorId == "01502" or activeInvestigatorId == "01002-pb" then
+      setObjectState(small_token, 9)
     -- Tony Morgan: Engage/Fight action
     elseif activeInvestigatorId == "06003" then
-      objState(small_token, 10)
+      setObjectState(small_token, 10)
     -- Finn Edwards: Evade action
     elseif activeInvestigatorId == "04003" then
-      objState(small_token, 11)
+      setObjectState(small_token, 11)
     -- Bob Jenkins: Play Item action
     elseif activeInvestigatorId == "08016" then
-      objState(small_token, 14)
+      setObjectState(small_token, 14)
     else
-      objState(small_token, state_table[notes.class])
+      setObjectState(small_token, state_table[notes.class])
     end
   end
 end
 
-function objState(obj, stateId)
+function setObjectState(obj, stateId)
   if obj.getStateId() ~= stateId then obj.setState(stateId) end
 end
 
@@ -580,6 +586,8 @@ function spawnToken(position, tokenType)
   Global.call('spawnToken', {position, tokenType, PLAY_ZONE_ROTATION})
 end
 
+-- called by custom data helpers to add player card data
+---@param args table Contains only one entry, the GUID of the custom data helper
 function updatePlayerCards(args)
   local custom_data_helper = getObjectFromGUID(args[1])
   data_player_cards = custom_data_helper.getTable("PLAYER_CARD_DATA")
