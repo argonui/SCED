@@ -147,6 +147,8 @@ local function onDeckResult(deck, playerColor, configuration)
   local slots = deck.slots
   maybeDrawRandomWeakness(slots, playerColor, configuration)
   maybeAddInvestigatorCards(deck, slots)
+  maybeAddCustomizeUpgradeSheets(slots, configuration)
+  maybeAddSummonedServitor(slots)
   extractBondedCards(slots, configuration)
   checkTaboos(deck.taboo_id, slots, playerColor, configuration)
 
@@ -171,8 +173,8 @@ local function onDeckResult(deck, playerColor, configuration)
   local customizations = {}
   if meta then customizations = JSON.decode(deck.meta) end
 
-  loadCards(slots, deck.investigator_code, playerColor, commandManager,
-    configuration, results.configuration, customizations)
+  loadCards(slots, deck.investigator_code, customizations, playerColor, commandManager,
+    configuration, results.configuration)
 end
 
 -- Checks to see if the slot list includes the random weakness ID. If it does,
@@ -221,6 +223,34 @@ function maybeAddInvestigatorCards(deck, slots)
       investigatorId = investigatorId .. "-pb"
     end
     slots[investigatorId] = 1
+  end
+end
+
+-- Process the card list looking for the customizable cards, and add their upgrade sheets if needed
+---@param slots: The slot list for cards in this deck. Table key is the cardId, value is the number
+--     of those cards which will be spawned
+function maybeAddCustomizeUpgradeSheets(slots, configuration)
+  local allCardsBag = getObjectFromGUID(configuration.card_bag_guid)
+  for cardId, _ in pairs(slots) do
+    -- upgrade sheets for customizable cards
+    local upgradesheet = allCardsBag.call("getCardById", { id = cardId .. "-c" })
+    if upgradesheet ~= nil then
+      slots[cardId.."-c"] = 1
+    end
+  end
+end
+
+-- Process the card list looking for the Summoned Servitor, and add its minicard to the list if
+-- needed
+---@param slots: The slot list for cards in this deck. Table key is the cardId, value is the number
+--     of those cards which will be spawned
+function maybeAddSummonedServitor(slots)
+  for cardId, cardCount in pairs(slots) do
+    -- spawn additional minicard for 'Summoned Servitor'
+    if cardId == "09080" then
+      slots["09080-m"] = 1
+      return
+    end
   end
 end
 
@@ -276,16 +306,21 @@ end
 ---@param cardMetadata: Table of card metadata.  Metadata fields type and permanent are required; all others are optional.
 ---@return: Zone name such as "Deck", "SetAside1", etc. See Zones object documentation for a list of valid zones.
 function getDefaultCardZone(cardMetadata)
-  if cardMetadata.type == "Investigator" then
+  if (cardMetadata.id == "09080-m") then -- Have to check the Servitor before other minicards
+    return "SetAside6"
+  elseif cardMetadata.type == "Investigator" then
     return "Investigator"
   elseif cardMetadata.type == "Minicard" then
     return "Minicard"
+  elseif cardMetadata.type == "UpgradeSheet" then
+    return "SetAside4"
+  elseif cardMetadata.startsInPlay then
+    return "BlankTop"
   elseif cardMetadata.permanent then
     return "SetAside1"
   elseif bondedList[cardMetadata.id] then
     return "SetAside2"
     -- SetAside3 is used for Ancestral Knowledge / Underworld Market
-    -- SetAside4 is used for upgrade sheets
   else
     return "Deck"
   end
@@ -300,10 +335,10 @@ end
 --     Investigator cards should already be added to the slots list if they
 --     should be spawned, but this value is separate to check for special
 --     handling for certain investigators
+---@param customizations: ArkhamDB data for customizations on customizable cards
 ---@param playerColor String Color name of the player mat to place this deck on (e.g. "Red")
 ---@param configuration: Loader configuration object
----@param customizations: ArkhamDB data for customizations on customizable cards
-function loadCards(slots, investigatorId, playerColor, commandManager, configuration, command_config, customizations)
+function loadCards(slots, investigatorId, customizations, playerColor, commandManager, configuration, command_config)
   function coinside()
     local allCardsBag = getObjectFromGUID(configuration.card_bag_guid)
     local yPos = {}
@@ -316,73 +351,6 @@ function loadCards(slots, investigatorId, playerColor, commandManager, configura
           table.insert(cardsToSpawn, { data = card.data, metadata = card.metadata, zone = cardZone })
         end
 
-        -- upgrade sheets for customizable cards
-        local upgradesheet = allCardsBag.call("getCardById", { id = cardId .. "-c" })
-        if upgradesheet ~= nil then
-
-          -- update metadata for spawned upgrade sheets
-          local upgrades = customizations["cus_" .. cardId]
-
-          if upgrades ~= nil then
-            -- initialize tables
-            -- markedBoxes: contains the amount of markedBoxes (left to right) per row (starting at row 1)
-            -- inputValues: contains the amount of inputValues per row (starting at row 0)
-            local markedBoxes = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }
-            local inputValues = {}
-            local index_xp    = {}
-
-            -- get the index and xp values (looks like this: X|X,X|X, ..)
-            for str in string.gmatch(customizations["cus_" .. cardId], "([^,]+)") do
-              table.insert(index_xp, str)
-            end
-
-            -- split each pair and assign it to the proper position in markedBoxes
-            if (customizationRowsWithFields[cardId] ~= nil) then
-              for i = 1, customizationRowsWithFields[cardId].inputCount do
-                table.insert(inputValues, "")
-              end
-            end
-            local inputCount = 0
-            for _, entry in ipairs(index_xp) do
-              local counter = 0
-              local index   = 0
-
-              -- if found number is 0, then only get inputvalue
-              for str in string.gmatch(entry, "([^|]+)") do
-                counter = counter + 1
-                if counter == 1 then
-                  index = tonumber(str) + 1
-                elseif counter == 2 then
-                  markedBoxes[index] = tonumber(str)
-                elseif counter == 3 and str ~= "" then
-                  if (cardId == "09042") then
-                    inputValues[customizationRowsWithFields[cardId].inputMap[index]] =
-                        convertRavenQuillSelections(str)
-                  else
-                    inputValues[customizationRowsWithFields[cardId].inputMap[index]] = str
-                  end
-                end
-              end
-            end
-
-            -- remove first entry in markedBoxes if row 0 has textbox
-            if customizationRowsWithFields[cardId] ~= nil
-                and customizationRowsWithFields[cardId].inputCount > 0 then
-              table.remove(markedBoxes, 1)
-            end
-
-            -- write the loaded values to the save_data of the sheets
-            upgradesheet.data["LuaScriptState"] = JSON.encode({ markedBoxes, inputValues })
-            table.insert(cardsToSpawn, { data = upgradesheet.data, metadata = upgradesheet.metadata, zone = "SetAside4" })
-          end
-        end
-
-        -- spawn additional minicard for 'Summoned Servitor'
-        if cardId == "09080" then
-          local servitor = allCardsBag.call("getCardById", { id = "09080-m" })
-          table.insert(cardsToSpawn, { data = servitor.data, metadata = servitor.metadata, zone = "SetAside6" })
-        end
-
         slots[cardId] = 0
       end
     end
@@ -393,10 +361,10 @@ function loadCards(slots, investigatorId, playerColor, commandManager, configura
     -- TODO: Process commands for the cardsToSpawn list
 
     -- These should probably be commands, once the command handler is updated
-    handleStartsInPlay(cardsToSpawn)
     handleAncestralKnowledge(cardsToSpawn)
     handleUnderworldMarket(cardsToSpawn, playerColor)
     handleHunchDeck(investigatorId, cardsToSpawn, playerColor)
+    handleCustomizableUpgrades(cardsToSpawn, customizations)
 
     -- Split the card list into separate lists for each zone
     local zoneDecks = buildZoneLists(cardsToSpawn)
@@ -535,13 +503,6 @@ function handleAltInvestigatorCard(cardList, altVersionTag, configuration)
   end
 end
 
--- Place cards which start in play (Duke, Sophie) in the play area
-function handleStartsInPlay(cardList)
-  for _, card in ipairs(cardList) do
-    if card.metadata.startsInPlay then card.zone = "BlankTop" end
-  end
-end
-
 -- Check to see if the deck list has Ancestral Knowledge. If it does, move 5 random skills to SetAside3
 function handleAncestralKnowledge(cardList)
   local hasAncestralKnowledge = false
@@ -646,6 +607,73 @@ function handleHunchDeck(investigatorId, cardList, playerColor)
         playerColor)
     else
       debugPrint("Built Joe's hunch deck", Priority.INFO, playerColor)
+    end
+  end
+end
+
+-- For any customization upgrade cards in the card list, process the metadata from the deck to
+-- set the save state to show the correct checkboxes/text field values
+---@param cardList: Deck list being created
+---@param customizations: Deck's meta table, extracted from ArkhamDB's deck structure
+function handleCustomizableUpgrades(cardList, customizations)
+  for _, card in ipairs(cardList) do
+    if card.metadata.type == "UpgradeSheet" then
+      local baseId = string.sub(card.metadata.id, 1, 5)
+      local upgrades = customizations["cus_" .. baseId]
+      log(upgrades)
+      log(baseId)
+
+      if upgrades ~= nil then
+        -- initialize tables
+        -- markedBoxes: contains the amount of markedBoxes (left to right) per row (starting at row 1)
+        -- inputValues: contains the amount of inputValues per row (starting at row 0)
+        local markedBoxes = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }
+        local inputValues = {}
+        local index_xp    = {}
+
+        -- get the index and xp values (looks like this: X|X,X|X, ..)
+        for str in string.gmatch(customizations["cus_" .. baseId], "([^,]+)") do
+          table.insert(index_xp, str)
+        end
+
+        -- split each pair and assign it to the proper position in markedBoxes
+        if (customizationRowsWithFields[baseId] ~= nil) then
+          for i = 1, customizationRowsWithFields[baseId].inputCount do
+            table.insert(inputValues, "")
+          end
+        end
+        local inputCount = 0
+        for _, entry in ipairs(index_xp) do
+          local counter = 0
+          local index   = 0
+
+          -- if found number is 0, then only get inputvalue
+          for str in string.gmatch(entry, "([^|]+)") do
+            counter = counter + 1
+            if counter == 1 then
+              index = tonumber(str) + 1
+            elseif counter == 2 then
+              markedBoxes[index] = tonumber(str)
+            elseif counter == 3 and str ~= "" then
+              if (baseId == "09042") then
+                inputValues[customizationRowsWithFields[baseId].inputMap[index]] =
+                    convertRavenQuillSelections(str)
+              else
+                inputValues[customizationRowsWithFields[baseId].inputMap[index]] = str
+              end
+            end
+          end
+        end
+
+        -- remove first entry in markedBoxes if row 0 has textbox
+        if customizationRowsWithFields[baseId] ~= nil
+            and customizationRowsWithFields[baseId].inputCount > 0 then
+          table.remove(markedBoxes, 1)
+        end
+
+        -- write the loaded values to the save_data of the sheets
+        card.data["LuaScriptState"] = JSON.encode({ markedBoxes, inputValues })
+      end
     end
   end
 end
