@@ -226,6 +226,9 @@ function maybeAddInvestigatorCards(deck, slots)
   end
 end
 
+-- Process the card list looking for the customizable cards, and add their upgrade sheets if needed
+---@param slots: The slot list for cards in this deck. Table key is the cardId, value is the number
+--     of those cards which will be spawned
 function maybeAddCustomizeUpgradeSheets(slots, configuration)
   local allCardsBag = getObjectFromGUID(configuration.card_bag_guid)
   for cardId, _ in pairs(slots) do
@@ -237,11 +240,15 @@ function maybeAddCustomizeUpgradeSheets(slots, configuration)
   end
 end
 
+-- Process the card list looking for the Summoned Servitor, and add its minicard to the list if
+-- needed
+---@param slots: The slot list for cards in this deck. Table key is the cardId, value is the number
+--     of those cards which will be spawned
 function maybeAddSummonedServitor(slots)
   for cardId, cardCount in pairs(slots) do
     -- spawn additional minicard for 'Summoned Servitor'
     if cardId == "09080" then
-      slots["09080-m"] = cardCount
+      slots["09080-m"] = 1
       return
     end
   end
@@ -299,7 +306,7 @@ end
 ---@param cardMetadata: Table of card metadata.  Metadata fields type and permanent are required; all others are optional.
 ---@return: Zone name such as "Deck", "SetAside1", etc. See Zones object documentation for a list of valid zones.
 function getDefaultCardZone(cardMetadata)
-  if (cardMetadata.id == "09080-m") then
+  if (cardMetadata.id == "09080-m") then -- Have to check the Servitor before other minicards
     return "SetAside6"
   elseif cardMetadata.type == "Investigator" then
     return "Investigator"
@@ -307,12 +314,13 @@ function getDefaultCardZone(cardMetadata)
     return "Minicard"
   elseif cardMetadata.type == "UpgradeSheet" then
     return "SetAside4"
+  elseif cardMetadata.startsInPlay then
+    return "BlankTop"
   elseif cardMetadata.permanent then
     return "SetAside1"
   elseif bondedList[cardMetadata.id] then
     return "SetAside2"
     -- SetAside3 is used for Ancestral Knowledge / Underworld Market
-    -- SetAside4 is used for upgrade sheets
   else
     return "Deck"
   end
@@ -353,7 +361,6 @@ function loadCards(slots, investigatorId, customizations, playerColor, commandMa
     -- TODO: Process commands for the cardsToSpawn list
 
     -- These should probably be commands, once the command handler is updated
-    handleStartsInPlay(cardsToSpawn)
     handleAncestralKnowledge(cardsToSpawn)
     handleUnderworldMarket(cardsToSpawn, playerColor)
     handleHunchDeck(investigatorId, cardsToSpawn, playerColor)
@@ -496,13 +503,6 @@ function handleAltInvestigatorCard(cardList, altVersionTag, configuration)
   end
 end
 
--- Place cards which start in play (Duke, Sophie) in the play area
-function handleStartsInPlay(cardList)
-  for _, card in ipairs(cardList) do
-    if card.metadata.startsInPlay then card.zone = "BlankTop" end
-  end
-end
-
 -- Check to see if the deck list has Ancestral Knowledge. If it does, move 5 random skills to SetAside3
 function handleAncestralKnowledge(cardList)
   local hasAncestralKnowledge = false
@@ -611,6 +611,10 @@ function handleHunchDeck(investigatorId, cardList, playerColor)
   end
 end
 
+-- For any customization upgrade cards in the card list, process the metadata from the deck to
+-- set the save state to show the correct checkboxes/text field values
+---@param cardList: Deck list being created
+---@param customizations: Deck's meta table, extracted from ArkhamDB's deck structure
 function handleCustomizableUpgrades(cardList, customizations)
   for _, card in ipairs(cardList) do
     if card.metadata.type == "UpgradeSheet" then
