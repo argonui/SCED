@@ -32,6 +32,8 @@ customizationRowsWithFields["09101"].inputMap[1] = 1
 customizationRowsWithFields["09101"].inputMap[2] = 2
 customizationRowsWithFields["09101"].inputMap[3] = 3
 
+local PLAY_AREA_GUID = "721ba2"
+
 local RANDOM_WEAKNESS_ID = "01000"
 local tags = { configuration = "import_configuration_provider" }
 local Priority = {
@@ -149,6 +151,7 @@ local function onDeckResult(deck, playerColor, configuration)
   maybeAddInvestigatorCards(deck, slots)
   maybeAddCustomizeUpgradeSheets(slots, configuration)
   maybeAddSummonedServitor(slots)
+  maybeAddOnTheMend(slots)
   extractBondedCards(slots, configuration)
   checkTaboos(deck.taboo_id, slots, playerColor, configuration)
 
@@ -245,11 +248,20 @@ end
 ---@param slots: The slot list for cards in this deck. Table key is the cardId, value is the number
 --     of those cards which will be spawned
 function maybeAddSummonedServitor(slots)
-  for cardId, cardCount in pairs(slots) do
-    -- spawn additional minicard for 'Summoned Servitor'
-    if cardId == "09080" then
-      slots["09080-m"] = 1
-      return
+  if slots["09080"] ~= nil then
+    slots["09080-m"] = 1
+  end
+end
+
+-- On the Mend should have 1-per-investigator copies set aside, but ArkhamDB always sends 1.  Update
+-- the count based on the investigator count
+---@param slots: The slot list for cards in this deck. Table key is the cardId, value is the number
+--     of those cards which will be spawned
+function maybeAddOnTheMend(slots)
+  if slots["09006"] ~= nil then
+    local playArea = getObjectFromGUID(PLAY_AREA_GUID)
+    if playArea ~= nil then
+      slots["09006"] = playArea.call("getInvestigatorCount")
     end
   end
 end
@@ -308,6 +320,8 @@ end
 function getDefaultCardZone(cardMetadata)
   if (cardMetadata.id == "09080-m") then -- Have to check the Servitor before other minicards
     return "SetAside6"
+  elseif (cardMetadata.id == "09006") then -- On The Mend is set aside
+      return "SetAside2"
   elseif cardMetadata.type == "Investigator" then
     return "Investigator"
   elseif cardMetadata.type == "Minicard" then
