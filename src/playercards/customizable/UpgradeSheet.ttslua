@@ -1,0 +1,125 @@
+-- override 'marked boxes' for debugging ('all' or 'none')
+local markDEBUG = ""
+
+-- save state when going into bags / decks
+function onDestroy() self.script_state = onSave() end
+
+function onSave() return JSON.encode({ markedBoxes, inputValues }) end
+
+function onLoad(saved_data)
+  if saved_data ~= "" and markDEBUG == "" then
+    local loaded_data = JSON.decode(saved_data)
+    markedBoxes = loaded_data[1]
+    inputValues = loaded_data[2]
+  else
+    markedBoxes = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }
+    inputValues = { "", "", "", "", "" }
+  end
+
+  makeData()
+  createButtonsAndBoxes()
+
+  self.addContextMenuItem("Reset Inputs", function() updateState() end)
+  self.addContextMenuItem("Scale: normal", function() self.setScale({ 1, 1, 1 }) end)
+  self.addContextMenuItem("Scale: double", function() self.setScale({ 2, 1, 2 }) end)
+  self.addContextMenuItem("Scale: triple", function() self.setScale({ 3, 1, 3 }) end)
+end
+
+-- can be called to set the state to 'markedBoxesNew' / 'inputValuesNew'
+function updateState(markedBoxesNew, inputValuesNew)
+  if markedBoxesNew then markedBoxes = markedBoxesNew end
+  if inputValuesNew then inputValues = inputValuesNew end
+  makeData()
+  createButtonsAndBoxes()
+end
+
+-- create Data (mainly positions of boxes)
+function makeData()
+  Data = {}
+  Data.checkbox = {}
+  Data.inputbox = {}
+
+  -- repeat this for each entry (= line) in existingBoxes
+  local totalCount = 0
+  for i = 1, #existingBoxes do
+    -- repeat this for each checkbox per line
+    for j = 1, existingBoxes[i] do
+      local state                     = (markDEBUG == "all") or (markedBoxes[i] >= j and markDEBUG ~= "none")
+      totalCount                      = totalCount + 1
+      Data.checkbox[totalCount]       = {}
+      Data.checkbox[totalCount].state = state
+      Data.checkbox[totalCount].pos   = { x = x_1 + j * x_offset, y = state and 0.25 or -0.5, z = posZ[i] }
+      Data.checkbox[totalCount].row   = i
+    end
+  end
+
+  -- repeat this for each entry (= line) in inputBoxes
+  local totalCount = 0
+  for i = 1, #inputBoxes do
+    -- repeat this for each inputbox per line
+    for j = 1, inputBoxes[i] do
+      totalCount                      = totalCount + 1
+      Data.inputbox[totalCount]       = {}
+      Data.inputbox[totalCount].pos   = inputPos[totalCount]
+      Data.inputbox[totalCount].width = inputWidth[totalCount]
+      Data.inputbox[totalCount].value = inputValues[totalCount]
+    end
+  end
+end
+
+-- checks or unchecks the given box
+function clickCheckbox(tableIndex)
+  local row = Data.checkbox[tableIndex].row
+  local state = Data.checkbox[tableIndex].state
+
+  Data.checkbox[tableIndex].state = not state
+  Data.checkbox[tableIndex].pos.y = state and -0.5 or 0.25
+  markedBoxes[row] = markedBoxes[row] + (state and -1 or 1)
+
+  self.editButton({ index = tableIndex - 1, position = Data.checkbox[tableIndex].pos })
+end
+
+-- updates saved value for given text box
+function clickTextbox(i, value, selected)
+  if selected then return end
+  inputValues[i] = value
+end
+
+function createButtonsAndBoxes()
+  self.clearButtons()
+  self.clearInputs()
+
+  -- create checkboxes
+  for i, box_data in ipairs(Data.checkbox) do
+    local funcName = "checkbox" .. i
+    self.setVar(funcName, function() clickCheckbox(i) end)
+    self.createButton({
+      click_function = funcName,
+      function_owner = self,
+      position       = box_data.pos,
+      height         = boxSize,
+      width          = boxSize,
+      font_size      = box_data.size,
+      color          = { 0, 0, 0 },
+      font_color     = { 0, 0, 0 }
+    })
+  end
+
+  -- create inputboxes
+  for i, box_data in ipairs(Data.inputbox) do
+    local funcName = "inputbox" .. i
+    self.setVar(funcName, function(_, _, val, sel) clickTextbox(i, val, sel) end)
+    self.createInput({
+      input_function = funcName,
+      function_owner = self,
+      label          = "Click to type",
+      alignment      = 2,
+      position       = box_data.pos,
+      width          = box_data.width,
+      height         = (inputFontsize * 1) + 24,
+      font_size      = inputFontsize,
+      color          = "White",
+      value          = box_data.value
+    })
+  end
+end
