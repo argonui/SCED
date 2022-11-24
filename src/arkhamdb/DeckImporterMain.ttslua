@@ -373,7 +373,7 @@ function loadCards(slots, investigatorId, customizations, playerColor, commandMa
       local deckPos = Zones.getZonePosition(playerColor, zone)
       deckPos.y = 3
 
-      local spreadCallback = nil
+      local callback = nil
       -- If cards are spread too close together TTS groups them weirdly, selecting multiples
       -- when hovering over a single card.  This distance is the minimum to avoid that
       local spreadDistance = 1.15
@@ -385,14 +385,16 @@ function loadCards(slots, investigatorId, customizations, playerColor, commandMa
         elseif (playerColor == "Green") then
           deckPos.x = deckPos.x + (#zoneCards - 1) * spreadDistance
         end
-        spreadCallback = function(deck) deck.spread(spreadDistance) end
+        callback = function(deck) deck.spread(spreadDistance) end
+      elseif zone == "Deck" then
+        callback = function(deck) deckSpawned(deck, playerColor) end
       end
       Spawner.spawnCards(
           zoneCards,
           deckPos,
           Zones.getDefaultCardRotation(playerColor, zone),
           true, -- Sort deck
-          spreadCallback)
+          callback)
 
       coroutine.yield(0)
     end
@@ -428,6 +430,22 @@ function loadCards(slots, investigatorId, customizations, playerColor, commandMa
   end
 
   startLuaCoroutine(self, "coinside")
+end
+
+-- Callback handler for the main deck spawning.  Looks for cards which should start in hand, and
+-- draws them for the appropriate player.
+-- @param deck Callback-provided spawned deck object
+-- @param playerColor Color of the player to draw the cards to
+function deckSpawned(deck, playerColor)
+  local handPos = Player[playerColor].getHandTransform(1).position -- Only one hand zone per player
+  local deckCards = deck.getData().ContainedObjects
+  -- Process in reverse order so taking cards out doesn't upset the indexing
+  for i = #deckCards, 1, -1 do
+    local cardMetadata = JSON.decode(deckCards[i].GMNotes) or { }
+    if cardMetadata.startsInHand then
+      deck.takeObject({ index = i - 1, position = handPos, flip = true, smooth = true})
+    end
+  end
 end
 
 -- Conver the Raven Quill's selections from card IDs to card names.  This could be more elegant
