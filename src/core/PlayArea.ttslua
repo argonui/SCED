@@ -3,14 +3,27 @@
 ---------------------------------------------------------
 
 -- set true to enable debug logging
-DEBUG = false
+local DEBUG = true
+
+-- Location connection directional options
+local BIDIRECTIONAL = 0
+local ONE_WAY = 1
+local CONNECTION_THICKNESS = 0.015
+local CONNECTION_COLOR = { 0.4, 0.4, 0.4, 1 }
+local DIRECTIONAL_ARROW_DISTANCE = 3.5
+local ARROW_ARM_LENGTH = 0.9
+local ARROW_ANGLE = 25
 
 -- we use this to turn off collision handling until onLoad() is complete
-COLLISION_ENABLED = false
+local collisionEnabled = false
 
 local INVESTIGATOR_COUNTER_GUID = "f182ee"
 local clueData = {}
-spawnedLocationGUIDs = {}
+local spawnedLocationGUIDs = {}
+
+local locations = { }
+local locationConnections = { }
+local draggingGuids = { }
 
 ---------------------------------------------------------
 -- general code
@@ -35,7 +48,7 @@ function onLoad(save_state)
   LOCATIONS = dataHelper.getTable('LOCATIONS_DATA')
 
   self.interactable = DEBUG
-  Wait.time(function() COLLISION_ENABLED = true end, 1)
+  Wait.time(function() collisionEnabled = true end, 1)
 end
 
 function log(message)
@@ -112,7 +125,7 @@ function updateLocations(args)
 end
 
 function onCollisionEnter(collision_info)
-  if not COLLISION_ENABLED then return end
+  if not collisionEnabled then return end
 
   -- check if we should spawn clues here and do so according to playercount
   local object = collision_info.collision_object
@@ -120,9 +133,207 @@ function onCollisionEnter(collision_info)
     local clueCount = getClueCount(object, object.is_face_down, getInvestigatorCount())
     if clueCount > 0 then spawnCluesAtLocation(clueCount, object) end
   end
+  draggingGuid = nil
+  maybeTrackLocation(collision_info.collision_object)
 end
+
+function onCollisionExit(collisionInfo)
+  maybeUntrackLocation(collisionInfo.collision_object)
+end
+
+function onObjectPickUp(player, object)
+  -- onCollisionExit fires first, so we have to check the card to see if it's a location we should
+  -- be tracking
+  if isInPlayArea(object) and object.getGMNotes() ~= nil and object.getGMNotes() ~= "" then
+    local pickedUpGuid = object.getGUID()
+    local metadata = JSON.decode(object.getGMNotes())
+    if (metadata.type == "Location") then
+      draggingGuids[pickedUpGuid] = metadata
+      rebuildConnectionList()
+    end
+  end
+end
+
+function onUpdate()
+  local needsConnectionDraw = false
+  for guid, _ in pairs(draggingGuids) do
+    local obj = getObjectFromGUID(guid)
+    if obj == nil or not isInPlayArea(obj) then
+      draggingGuids[guid] = nil
+      rebuildConnectionList()
+    end
+    -- Even if the last location left the play area, need one last draw to clear the lines
+    needsConnectionDraw = true
+  end
+  if needsConnectionDraw then
+    drawConnections()
+  end
+end
+
+function maybeTrackLocation(card)
+  -- Collision checks for any part of the card overlap, but our other tracking is centerpoint
+  -- Ignore any collision where the centerpoint isn't in the area
+  if isInPlayArea(card) then
+    local metadata = JSON.decode(card.getGMNotes()) or { }
+    if metadata.type == "Location" then
+      locations[card.getGUID()] = metadata
+      rebuildConnectionList()
+    end
+  end
+end
+
+function maybeUntrackLocation(card)
+  local metadata = JSON.decode(card.getGMNotes()) or { }
+  if metadata.type == "Location" then
+    locations[card.getGUID()] = nil
+    rebuildConnectionList()
+  end
+end
+
+function rebuildConnectionList()
+  local iconCardList = { }
+
+  for cardId, metadata in pairs(draggingGuids) do
+    buildLocListByIcon(cardId, iconCardList)
+  end
+  for cardId, metadata in pairs(locations) do
+    buildLocListByIcon(cardId, iconCardList)
+  end
+
+  locationConnections = { }
+  for cardId, metadata in pairs(draggingGuids) do
+    buildConnection(cardId, iconCardList)
+  end
+  for cardId, metadata in pairs(locations) do
+    -- Build everything else
+    if draggingGuids[cardId] == nil then
+      buildConnection(cardId, iconCardList)
+    end
+  end
+
+  drawConnections()
+end
+
+function buildLocListByIcon(cardId, iconCardList)
+  local card = getObjectFromGUID(cardId)
+  local locData = getLocationData(card)
+  if locData.icons ~= nil then
+    for icon in string.gmatch(locData.icons, "%a+") do
+      if iconCardList[icon] == nil then
+        iconCardList[icon] = { }
+      end
+      table.insert(iconCardList[icon], card.getGUID())
+    end
+  end
+end
+
+function buildConnection(cardId, iconCardList)
+  local card = getObjectFromGUID(cardId)
+  local locData = getLocationData(card)
+  if locData.connections ~= nil then
+    locationConnections[card.getGUID()] = { }
+    for icon in string.gmatch(locData.connections, "%a+") do
+      if iconCardList[icon] ~= nil then
+        for _, connectedGuid in ipairs(iconCardList[icon]) do
+          -- If the reciprocal exists, convert it to BiDi, otherwise add as a one-way
+          if locationConnections[connectedGuid] ~= nil
+              and locationConnections[connectedGuid][card.getGUID()] ~= nil then
+                locationConnections[connectedGuid][card.getGUID()] = BIDIRECTIONAL
+          else
+            locationConnections[card.getGUID()][connectedGuid] = ONE_WAY
+          end
+        end
+      end
+    end
+  end
+end
+
+function getLocationData(card)
+  if card == nil then
+    return { }
+  end
+  if card.is_face_down then
+    return JSON.decode(card.getGMNotes()).locationBack
+  else
+    return JSON.decode(card.getGMNotes()).locationFront
+  end
+end
+
+function drawConnections()
+  local cardConnectionLines = { }
+  for originGuid, targetGuids in pairs(locationConnections) do
+    local originCard = getObjectFromGUID(originGuid)
+    for targetGuid, direction in pairs(targetGuids) do
+      local targetCard = getObjectFromGUID(targetGuid)
+      if direction == BIDIRECTIONAL then
+        addBidirectionalVector(originCard, targetCard, cardConnectionLines)
+      elseif direction == ONE_WAY then
+        addOneWayVector(originCard, targetCard, cardConnectionLines)
+      end
+    end
+  end
+  self.setVectorLines(cardConnectionLines)
+end
+
+function addBidirectionalVector(card1, card2, lines)
+  table.insert(lines, {
+      points = { self.positionToLocal(card1.getPosition()), self.positionToLocal(card2.getPosition()) },
+      color = CONNECTION_COLOR,
+      thickness = CONNECTION_THICKNESS,
+  });
+end
+
+function addOneWayVector(origin, target, lines)
+  -- Start with the BiDi then add the arrow lines to it
+  addBidirectionalVector(origin, target, lines)
+  local originPos = origin.getPosition()
+  local targetPos = target.getPosition()
+
+  -- Calculate card distance to be closer for horizontal positions than vertical, since cards are
+  -- taller than they are wide
+  local heading = Vector(originPos):sub(targetPos):heading("y")
+  local distanceFromCard = DIRECTIONAL_ARROW_DISTANCE * 0.7 + DIRECTIONAL_ARROW_DISTANCE * 0.3 * math.abs(math.sin(math.rad(heading)))
+
+  -- Calculate the three possible arrow positions.  These are offset by half the arrow length to
+  -- make them visually balanced by keeping the arrows centered, not tracking the point
+  local midpoint = Vector(originPos):add(targetPos):scale(Vector(0.5, 0.5, 0.5)):moveTowards(targetPos, ARROW_ARM_LENGTH / 2)
+  local closeToOrigin = Vector(originPos):moveTowards(targetPos, distanceFromCard + ARROW_ARM_LENGTH / 2)
+  local closeToTarget = Vector(targetPos):moveTowards(originPos, distanceFromCard - ARROW_ARM_LENGTH / 2)
+
+  if (originPos:distance(closeToOrigin) > originPos:distance(closeToTarget)) then
+    addArrowLines(midpoint, originPos, lines)
+  else
+    addArrowLines(closeToOrigin, originPos, lines)
+    addArrowLines(closeToTarget, originPos, lines)
+  end
+end
+
+function addArrowLines(arrowheadPos, originPos, lines)
+  local arrowArm1 = Vector(arrowheadPos):moveTowards(originPos, ARROW_ARM_LENGTH):sub(arrowheadPos):rotateOver("y", -1 * ARROW_ANGLE):add(arrowheadPos)
+  local arrowArm2 = Vector(arrowheadPos):moveTowards(originPos, ARROW_ARM_LENGTH):sub(arrowheadPos):rotateOver("y", ARROW_ANGLE):add(arrowheadPos)
+
+  local head = self.positionToLocal(arrowheadPos)
+  local arm1 = self.positionToLocal(arrowArm1)
+  local arm2 = self.positionToLocal(arrowArm2)
+  table.insert(lines, {
+    points = { arm1, head, arm2},
+    color = CONNECTION_COLOR,
+    thickness = CONNECTION_THICKNESS
+  })
+end
+
 
 function getInvestigatorCount()
   local investigatorCounter = getObjectFromGUID('f182ee')
   return investigatorCounter.getVar("val")
+end
+
+function isInPlayArea(object)
+  local bounds = self.getBounds()
+  local position = object.getPosition()
+  -- Corners are arbitrary since it's all global - c1 goes down both axes, c2 goes up
+  local c1 = { x = bounds.center.x - bounds.size.x / 2, z = bounds.center.z - bounds.size.z / 2}
+  local c2 = { x = bounds.center.x + bounds.size.x / 2, z = bounds.center.z + bounds.size.z / 2}
+
+  return position.x > c1.x and position.x < c2.x and position.z > c1.z and position.z < c2.z
 end
