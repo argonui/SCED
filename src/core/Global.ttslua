@@ -558,14 +558,10 @@ local source_repo = 'https://raw.githubusercontent.com/seth-sced/loadable-object
 local library = nil
 local request_obj
 
-function onClick_toggleUi(player, window)
-  toggle_ui(window)
-end
-
 function onClick_refreshList()
   local request = WebRequest.get(source_repo .. '/library.json', completed_list_update)
   request_obj = request
-  startLuaCoroutine(Global, 'my_coroutine')
+  startLuaCoroutine(Global, 'downloadCoroutine')
 end
 
 function onClick_select(player, params)
@@ -573,7 +569,7 @@ function onClick_select(player, params)
   local url = source_repo .. '/' .. params.url
   local request = WebRequest.get(url, function (request) complete_obj_download(request, params) end )
   request_obj = request
-  startLuaCoroutine(Global, 'my_coroutine')
+  startLuaCoroutine(Global, 'downloadCoroutine')
 end
 
 function onClick_load()
@@ -581,18 +577,50 @@ function onClick_load()
   UI.hide('load_button')
 end
 
-function toggle_ui(title)
-  UI.hide('load_ui')
-  if UI.getValue('title') == title or title == 'Hidden' then
-    UI.setValue('title', 'Hidden')
+function onClick_defaultSettings()
+  print("Dummy: Load default settings")
+end
+
+local optionPanel = {}
+function onClick_toggleOption(_, id)
+  local state = self.UI.getAttribute("toggle" .. id, "isOn")
+
+  -- flip state (and handle stupid "False" value)
+  if state == "False" then
+    state = true
   else
+    state = false
+  end
+
+  self.UI.setAttribute("toggle" .. id, "isOn", state)
+  optionPanel[id] = state
+  print("Option no. " .. id .. ": " .. tostring(optionPanel[id]))
+end
+
+function onClick_applySettings()
+  print("Dummy: Apply settings")
+end
+
+function onClick_toggleUi(_, title)
+  UI.hide('optionPanel')
+  UI.hide('load_ui')
+  
+  -- when same button is clicked or close window button is pressed, don't open UI
+  if UI.getValue('title') ~= title and title ~= 'Hidden' then
     UI.setValue('title', title)
-    update_window_content(title)
-    UI.show('load_ui')
+
+    if title == "Option Panel" then
+      UI.show('optionPanel')
+    else
+      update_window_content(title)
+      UI.show('load_ui')
+    end
+  else
+    UI.setValue('title', "Hidden")
   end
 end
 
-function my_coroutine()
+function downloadCoroutine()
   while request_obj do
     UI.setAttribute('download_progress', 'percentage', request_obj.download_progress * 100)
     coroutine.yield(0)
