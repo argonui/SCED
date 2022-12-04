@@ -1,5 +1,5 @@
 -- set true to enable debug logging and show Physics.cast()
-local DEBUG = false
+local DEBUG = true
 
 -- we use this to turn off collision handling until onLoad() is complete
 local COLLISION_ENABLED = false
@@ -14,6 +14,27 @@ local DISCARD_BUTTON_OFFSETS = {
   {0, 0.1, -0.945},
   {0.455, 0.1, -0.945},
   {0.91, 0.1, -0.945}
+}
+
+local MAIN_PLAY_AREA = {
+  upperLeft = {
+    x = 1.98,
+    z = 0.736,
+  },
+  lowerRight = {
+    x = -0.79,
+    z = -0.39,
+  }
+}
+local INVESTIGATOR_AREA = {
+  upperLeft = {
+    x = -1.084,
+    z = 0.06517
+  },
+  lowerRight = {
+    x = -1.258,
+    z = -0.0805,
+  }
 }
 
 local PLAY_ZONE_ROTATION = self.getRotation()
@@ -625,6 +646,56 @@ end
 
 function spawnToken(position, tokenType)
   Global.call('spawnToken', {position, tokenType, PLAY_ZONE_ROTATION})
+end
+
+-- Sets this playermat's snap points to limit snapping to matching card types or not.  If matchTypes
+-- is true, the main card slot snap points will only snap assets, while the investigator area point
+-- will only snap Investigators.  If matchTypes is false, snap points will be reset to snap all
+-- cards.
+-- @param matchTypes Boolean.  Whether snap points should only snap for the matching card types.
+function setLimitSnapsByType(params)
+  local matchTypes = params.matchTypes
+  if matchTypes then
+    log("Set true")
+  else
+    log("Set false")
+  end
+  local snaps = self.getSnapPoints()
+  for i, snap in ipairs(snaps) do
+    local snapPos = snap.position
+    if inArea(snapPos, MAIN_PLAY_AREA) then
+      local snapTags = snaps[i].tags
+      if matchTypes then
+        if snapTags == nil then
+          snaps[i].tags = { "Asset" }
+        else
+          table.insert(snaps[i].tags, "Asset")
+        end
+      else
+        snaps[i].tags = nil
+      end
+    end
+    if inArea(snapPos, INVESTIGATOR_AREA) then
+      local snapTags = snaps[i].tags
+      if matchTypes then
+        if snapTags == nil then
+          snaps[i].tags = { "Investigator" }
+        else
+          table.insert(snaps[i].tags, "Investigator")
+        end
+      else
+        snaps[i].tags = nil
+      end
+    end
+  end
+  self.setSnapPoints(snaps)
+end
+
+function inArea(point, bounds)
+  return (point.x < bounds.upperLeft.x
+      and point.x > bounds.lowerRight.x
+      and point.z < bounds.upperLeft.z
+      and point.z > bounds.lowerRight.z)
 end
 
 -- called by custom data helpers to add player card data
