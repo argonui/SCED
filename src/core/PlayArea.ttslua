@@ -17,7 +17,7 @@ local ARROW_ARM_LENGTH = 0.9
 local ARROW_ANGLE = 25
 
 -- Height to draw the connector lines, places them just above the table and always below cards
-local CONNECTION_LINE_Y = 1.525
+local CONNECTION_LINE_Y = 1.529
 
 -- we use this to turn off collision handling until onLoad() is complete
 local collisionEnabled = false
@@ -30,15 +30,24 @@ local locations = { }
 local locationConnections = { }
 local draggingGuids = { }
 
+local locationData
+
 ---------------------------------------------------------
 -- general code
 ---------------------------------------------------------
 
-function onSave() return JSON.encode(spawnedLocationGUIDs) end
+function onSave()
+  return JSON.encode({
+    spawnedLocations = spawnedLocationGUIDs,
+    trackedLocations = locations
+  })
+end
 
-function onLoad(save_state)
+function onLoad(saveState)
   -- records locations we have spawned clues for
-  spawnedLocationGUIDs = JSON.decode(save_state) or {}
+  local save = JSON.decode(saveState) or { }
+  spawnedLocationGUIDs = save.spawnedLocations or { }
+  locations = save.trackedLocations or { }
 
   local TOKEN_DATA = Global.getTable('TOKEN_DATA')
   clueData = {
@@ -50,7 +59,7 @@ function onLoad(save_state)
   }
 
   local dataHelper = getObjectFromGUID('708279')
-  LOCATIONS = dataHelper.getTable('LOCATIONS_DATA')
+  locationData = dataHelper.getTable('LOCATIONS_DATA')
 
   self.interactable = DEBUG
   Wait.time(function() collisionEnabled = true end, 1)
@@ -66,7 +75,7 @@ end
 
 -- try the compound key then the name alone as default
 function getLocation(object)
-  return LOCATIONS[object.getName() .. '_' .. object.getGUID()] or LOCATIONS[object.getName()]
+  return locationData[object.getName() .. '_' .. object.getGUID()] or locationData[object.getName()]
 end
 
 -- Return the number of clues to spawn on this location
@@ -125,7 +134,7 @@ function updateLocations(args)
   local custom_data_helper = getObjectFromGUID(args[1])
 
   for k, v in pairs(custom_data_helper.getTable("LOCATIONS_DATA")) do
-    LOCATIONS[k] = v
+    locationData[k] = v
   end
 end
 
@@ -208,7 +217,9 @@ end
 -- be cleared in the next onUpdate() cycle.
 -- @param card Card to (maybe) stop tracking
 function maybeUntrackLocation(card)
-  if locations[card.getGUID()] ~= nil then
+  -- Locked objects no longer collide (hence triggering an exit event) but are still in the play
+  -- area.  If the object is now locked, don't remove it.
+  if locations[card.getGUID()] ~= nil and not card.locked then
     locations[card.getGUID()] = nil
     rebuildConnectionList()
     drawConnections()
@@ -222,6 +233,7 @@ end
 function rebuildConnectionList()
   local iconCardList = { }
 
+  -- Build a list of cards with each icon as their location ID
   for cardId, metadata in pairs(draggingGuids) do
     buildLocListByIcon(cardId, iconCardList)
   end
@@ -229,12 +241,12 @@ function rebuildConnectionList()
     buildLocListByIcon(cardId, iconCardList)
   end
 
+  -- Pair up all the icons
   locationConnections = { }
   for cardId, metadata in pairs(draggingGuids) do
     buildConnection(cardId, iconCardList)
   end
   for cardId, metadata in pairs(locations) do
-    -- Build everything else
     if draggingGuids[cardId] == nil then
       buildConnection(cardId, iconCardList)
     end
@@ -247,7 +259,7 @@ end
 function buildLocListByIcon(cardId, iconCardList)
   local card = getObjectFromGUID(cardId)
   local locData = getLocationData(card)
-  if locData.icons ~= nil then
+  if locData ~= nil and locData.icons ~= nil then
     for icon in string.gmatch(locData.icons, "%a+") do
       if iconCardList[icon] == nil then
         iconCardList[icon] = { }
@@ -264,7 +276,7 @@ end
 function buildConnection(cardId, iconCardList)
   local card = getObjectFromGUID(cardId)
   local locData = getLocationData(card)
-  if locData.connections ~= nil then
+  if locData ~= nil and locData.connections ~= nil then
     locationConnections[card.getGUID()] = { }
     for icon in string.gmatch(locData.connections, "%a+") do
       if iconCardList[icon] ~= nil then
@@ -272,7 +284,7 @@ function buildConnection(cardId, iconCardList)
           -- If the reciprocal exists, convert it to BiDi, otherwise add as a one-way
           if locationConnections[connectedGuid] ~= nil
               and locationConnections[connectedGuid][card.getGUID()] ~= nil then
-                locationConnections[connectedGuid][card.getGUID()] = BIDIRECTIONAL
+            locationConnections[connectedGuid][card.getGUID()] = BIDIRECTIONAL
           else
             locationConnections[card.getGUID()][connectedGuid] = ONE_WAY
           end
@@ -285,10 +297,11 @@ end
 -- Helper method to extract the location metadata from a card based on whether it's front or back
 -- is showing.
 -- @param card Card object to extract data from
--- @return Table with either the locationFront or locationBack metadata structure
+-- @return Table with either the locationFront or locationBack metadata structure, or nil if the
+--     metadata doesn't exist
 function getLocationData(card)
   if card == nil then
-    return { }
+    return nil
   end
   if card.is_face_down then
     return JSON.decode(card.getGMNotes()).locationBack
