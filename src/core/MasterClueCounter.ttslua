@@ -6,11 +6,27 @@ local clueCounterGUIDS = {
   "d86b7c"
 }
 
-function onLoad()
+local clueClickers = {}
+local clueClickerGUIDS = {
+  "db85d6",
+  "3f22e5",
+  "891403",
+  "4111de"
+}
+
+count = 0
+clickableCounters = false
+
+function onSave() return JSON.encode(clickableCounters) end
+
+function onLoad(savedData)
+  if savedData ~= nil then
+    clickableCounters = JSON.decode(savedData)
+  end
   self.createButton({
     label = "0",
     click_function = "removeAllPlayerClues",
-    tooltip = "Click here to remove all Clues from playermats",
+    tooltip = "Click here to remove all collected clues",
     function_owner = self,
     position = { 0, 0.06, 0 },
     height = 900,
@@ -21,26 +37,41 @@ function onLoad()
     color = { 0, 0, 0, 0 }
   })
 
-  -- loading object references to the counting bowls via GUID
+  -- loading object references to the clue counters / clickers via GUID
   for i = 1, 4 do
     clueCounters[i] = getObjectFromGUID(clueCounterGUIDS[i])
+    clueClickers[i] = getObjectFromGUID(clueClickerGUIDS[i])
   end
 
   loopID = Wait.time(sumClues, 2, -1)
 end
 
--- removes all player clues by calling the respective function from the counting bowls
+-- removes all player clues by calling the respective function from the counting bowls / clickers
 function removeAllPlayerClues()
-  for i = 1, 4 do
-    clueCounters[i].call("removeAllClues")
+  printToAll(count .. " clue(s) from playermats removed.", "White")
+  if not clickableCounters then
+    for i = 1, 4 do
+      clueCounters[i].call("removeAllClues")
+    end
+  else
+    for i = 1, 4 do
+      clueClickers[i].call("updateVal", 0)
+    end
   end
+  self.editButton({ index = 0, label = "0" })
 end
 
--- gets the counted values from the counting bowls and sums them up
+-- gets the counted values from the counting bowls / clickers and sums them up
 function sumClues()
-  local count = 0
-  for i = 1, 4 do
-    count = count + tonumber(clueCounters[i].getVar("exposedValue"))
+  count = 0
+  if not clickableCounters then
+    for i = 1, 4 do
+      count = count + tonumber(clueCounters[i].getVar("exposedValue"))
+    end
+  else
+    for i = 1, 4 do
+      count = count + tonumber(clueClickers[i].getVar("val"))
+    end
   end
   self.editButton({ index = 0, label = tostring(count) })
 end
