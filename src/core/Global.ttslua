@@ -1,0 +1,720 @@
+---------------------------------------------------------
+-- general setup
+---------------------------------------------------------
+
+ENCOUNTER_DECK_POS = {-3.93, 1, 5.76}
+ENCOUNTER_DECK_DISCARD_POSITION = {-3.85, 1, 10.38}
+
+-- GUID of data helper
+DATA_HELPER_GUID = "708279"
+
+-- GUIDs that will not be interactable (e.g. parts of the table)
+local NOT_INTERACTABLE = {
+  "6161b4",
+  "721ba2",
+  "9f334f",
+  "23a43c",
+  "5450cc",
+  "463022",
+  "9487a4",
+  "91dd9b",
+  "f182ee",
+  "7bff34"
+}
+
+local chaosTokens = {}
+local chaosTokensLastMat = nil
+local IS_RESHUFFLING = false
+
+---------------------------------------------------------
+-- data for tokens
+---------------------------------------------------------
+
+TOKEN_DATA = {
+  damage   = {image = "http://cloud-3.steamusercontent.com/ugc/1758068501357115146/903D11AAE7BD5C254C8DC136E9202EE516289DEA/", scale = {0.17, 0.17, 0.17}},
+  horror   = {image = "http://cloud-3.steamusercontent.com/ugc/1758068501357163535/6D9E0756503664D65BDB384656AC6D4BD713F5FC/", scale = {0.17, 0.17, 0.17}},
+  resource = {image = "http://cloud-3.steamusercontent.com/ugc/1758068501357192910/11DDDC7EF621320962FDCF3AE3211D5EDC3D1573/", scale = {0.17, 0.17, 0.17}},
+  doom     = {image = "https://i.imgur.com/EoL7yaZ.png", scale = {0.17, 0.17, 0.17}},
+  clue     = {image = "http://cloud-3.steamusercontent.com/ugc/1758068501357164917/1D06F1DC4D6888B6F57124BD2AFE20D0B0DA15A8/", scale = {0.15, 0.15, 0.15}}
+}
+
+IMAGE_TOKEN_MAP = {
+  ["https://i.imgur.com/nEmqjmj.png"] = "Elder Sign",
+  ["https://i.imgur.com/uIx8jbY.png"] = "+1",
+  ["https://i.imgur.com/btEtVfd.png"] = "0",
+  ["https://i.imgur.com/w3XbrCC.png"] = "-1",
+  ["https://i.imgur.com/bfTg2hb.png"] = "-2",
+  ["https://i.imgur.com/yfs8gHq.png"] = "-3",
+  ["https://i.imgur.com/qrgGQRD.png"] = "-4",
+  ["https://i.imgur.com/3Ym1IeG.png"] = "-5",
+  ["https://i.imgur.com/c9qdSzS.png"] = "-6",
+  ["https://i.imgur.com/4WRD42n.png"] = "-7",
+  ["https://i.imgur.com/9t3rPTQ.png"] = "-8",
+  ["https://i.imgur.com/stbBxtx.png"] = "Skull",
+  ["https://i.imgur.com/VzhJJaH.png"] = "Cultist",
+  ["https://i.imgur.com/1plY463.png"] = "Tablet",
+  ["https://i.imgur.com/ttnspKt.png"] = "Elder Thing",
+  ["https://i.imgur.com/lns4fhz.png"] = "Auto-fail",
+  ["http://cloud-3.steamusercontent.com/ugc/1655601092778627699/339FB716CB25CA6025C338F13AFDFD9AC6FA8356/"] = "Bless",
+  ["http://cloud-3.steamusercontent.com/ugc/1655601092778636039/2A25BD38E8C44701D80DD96BF0121DA21843672E/"] = "Curse",
+  ["http://cloud-3.steamusercontent.com/ugc/1858293462583104677/195F93C063A8881B805CE2FD4767A9718B27B6AE/"] = "Frost"
+}
+
+---------------------------------------------------------
+-- data for chaos token stat tracker
+---------------------------------------------------------
+
+local maxSquid = 0
+
+MAT_GUID_TO_COLOUR = {
+  ["8b081b"] = "White",
+  ["bd0ff4"] = "Orange",
+  ["383d8b"] = "Green",
+  ["0840d5"] = "Red"
+}
+
+local personalStats = {
+  ["8b081b"] = {},
+  ["bd0ff4"] = {},
+  ["383d8b"] = {},
+  ["0840d5"] = {}
+}
+
+local overallStats = {
+  -- cultist
+  ["https://i.imgur.com/VzhJJaH.png"] = 0,
+  -- skull
+  ["https://i.imgur.com/stbBxtx.png"] = 0,
+  -- tablet
+  ["https://i.imgur.com/1plY463.png"] = 0,
+  -- curse
+  ["http://cloud-3.steamusercontent.com/ugc/1655601092778636039/2A25BD38E8C44701D80DD96BF0121DA21843672E/"] = 0,
+  -- tentacle
+  ["https://i.imgur.com/lns4fhz.png"] = 0,
+  -- minus eight
+  ["https://i.imgur.com/9t3rPTQ.png"] = 0,
+  -- minus seven
+  ["https://i.imgur.com/4WRD42n.png"] = 0,
+  -- minus six
+  ["https://i.imgur.com/c9qdSzS.png"] = 0,
+  -- minus five
+  ["https://i.imgur.com/3Ym1IeG.png"] = 0,
+  -- minus four
+  ["https://i.imgur.com/qrgGQRD.png"] = 0,
+  -- minus three
+  ["https://i.imgur.com/yfs8gHq.png"] = 0,
+  -- minus two
+  ["https://i.imgur.com/bfTg2hb.png"] = 0,
+  -- minus one
+  ["https://i.imgur.com/w3XbrCC.png"] = 0,
+  -- zero
+  ["https://i.imgur.com/btEtVfd.png"] = 0,
+  -- plus one
+  ["https://i.imgur.com/uIx8jbY.png"] = 0,
+  -- elder thing
+  ["https://i.imgur.com/ttnspKt.png"] = 0,
+  -- bless
+  ["http://cloud-3.steamusercontent.com/ugc/1655601092778627699/339FB716CB25CA6025C338F13AFDFD9AC6FA8356/"] = 0,
+  -- elder sign
+  ["https://i.imgur.com/nEmqjmj.png"] = 0,
+  -- frost
+  ["http://cloud-3.steamusercontent.com/ugc/1858293462583104677/195F93C063A8881B805CE2FD4767A9718B27B6AE/"] = 0,
+}
+
+---------------------------------------------------------
+-- general code
+---------------------------------------------------------
+
+function onLoad()
+  for _, guid in ipairs(NOT_INTERACTABLE) do
+    getObjectFromGUID(guid).interactable = false
+  end
+  math.randomseed(os.time())
+end
+
+---------------------------------------------------------
+-- encounter card drawing
+---------------------------------------------------------
+
+function isDeck(x) return x.tag == 'Deck' end
+
+function isCardOrDeck(x) return x.tag == 'Card' or x.tag == 'Deck' end
+
+function drawEncountercard(params)
+  local position = params[1]
+  local rotation = params[2]
+  local alwaysFaceUp = params[3]
+  local card
+  local items = findInRadiusBy(ENCOUNTER_DECK_POS, 4, isCardOrDeck)
+  if #items > 0 then
+    for _, v in ipairs(items) do
+      if v.tag == 'Deck' then
+        card = v.takeObject({index = 0})
+        break
+      end
+    end
+    -- we didn't find the deck so just pull the first thing we did find
+    if card == nil then card = items[1] end
+    actualEncounterCardDraw(card, params)
+  else
+    -- nothing here, time to reshuffle
+    reshuffleEncounterDeck(params)
+  end
+end
+
+function actualEncounterCardDraw(card, params)
+  local position = params[1]
+  local rotation = params[2]
+  local alwaysFaceUp = params[3]
+  local faceUpRotation = 0
+  if not alwaysFaceUp then
+    if getObjectFromGUID(DATA_HELPER_GUID).call('checkHiddenCard', card.getName()) then
+      faceUpRotation = 180
+    end
+  end
+  card.setPositionSmooth(position, false, false)
+  card.setRotationSmooth({0, rotation.y, faceUpRotation}, false, false)
+end
+
+function reshuffleEncounterDeck(params)
+  -- finishes moving the deck back and draws a card
+  local function move(deck)
+    deck.setPositionSmooth({ENCOUNTER_DECK_POS[1], ENCOUNTER_DECK_POS[2] + 2, ENCOUNTER_DECK_POS[3]}, false, true)
+    actualEncounterCardDraw(deck.takeObject({index=0}), params)
+    Wait.time(function() IS_RESHUFFLING = false end, 1)
+  end
+  -- bail out if we're mid reshuffle
+  if IS_RESHUFFLING then return end
+  local discarded = findInRadiusBy(ENCOUNTER_DECK_DISCARD_POSITION, 4, isDeck)
+  if #discarded > 0 then
+    IS_RESHUFFLING = true
+    local deck = discarded[1]
+    if not deck.is_face_down then deck.flip() end
+    deck.shuffle()
+    Wait.time(|| move(deck), 0.3)
+  else
+    printToAll("Couldn't find encounter discard pile to reshuffle.", {1, 0, 0})
+  end
+end
+
+function findInRadiusBy(pos, radius, filter)
+  local objList = Physics.cast({
+    origin = pos,
+    direction = {0, 1, 0},
+    type = 2,
+    size = {radius, radius, radius},
+    max_distance = 0
+  })
+
+  local filteredList = {}
+  for _, obj in ipairs(objList) do
+    if filter and filter(obj.hit_object) then
+      table.insert(filteredList, obj.hit_object)
+    end
+  end
+  return filteredList
+end
+
+---------------------------------------------------------
+-- chaos token drawing
+---------------------------------------------------------
+
+-- checks scripting zone for chaos bag
+function findChaosBag()
+  for _, item in ipairs(getObjectFromGUID("83ef06").getObjects()) do
+    if item.getDescription() == "Chaos Bag" then chaosbag = item end
+  end
+end
+
+function returnChaosTokens()
+  for _, token in pairs(chaosTokens) do
+    if token ~= nil then chaosbag.putObject(token) end
+  end
+  chaosTokens = {}
+end
+
+function drawChaostoken(params)
+  local mat = params[1]
+  local tokenOffset = params[2]
+  local isRightClick = params[3]
+  findChaosBag()
+
+  -- return token(s) on other playmat first
+  if chaosTokensLastMat ~= nil and chaosTokensLastMat ~= mat and #chaosTokens ~= 0 then
+    returnChaosTokens()
+    chaosTokensLastMat = nil
+    return
+  end
+
+  chaosTokensLastMat = mat
+  -- if we have left clicked and have no tokens OR if we have right clicked
+  if isRightClick or #chaosTokens == 0 then
+    if #chaosbag.getObjects() == 0 then return end
+    chaosbag.shuffle()
+
+    -- add the token to the list, compute new position based on list length
+    tokenOffset[1] = tokenOffset[1] + (0.17 * #chaosTokens)
+    local token = chaosbag.takeObject({
+      index = 0,
+      position = mat.positionToWorld(tokenOffset),
+      rotation = mat.getRotation(),
+	    callback_function = function(obj) trackChaosToken(obj, mat.getGUID()) end
+    })
+    chaosTokens[#chaosTokens + 1] = token
+    return
+  else
+    returnChaosTokens()
+  end
+end
+
+---------------------------------------------------------
+-- token spawning
+---------------------------------------------------------
+
+function spawnToken(params)
+  local position  = params[1]
+  local tokenType = params[2]
+  local rotation  = params[3] or {0, 270, 0}
+  local tokenData = TOKEN_DATA[tokenType]
+
+  if tokenData == nil then
+    error("no token data found for '" .. tokenType .. "'")
+  end
+
+  local token = spawnObject({
+    type = 'Custom_Token',
+    position = position,
+	  rotation = rotation
+  })
+
+  token.setCustomObject({
+    image = tokenData['image'],
+    thickness = 0.3,
+    merge_distance = 5,
+    stackable = true
+  })
+
+  token.use_snap_points = false
+  token.scale(tokenData['scale'])
+  return token
+end
+
+---------------------------------------------------------
+-- chaos token stat tracker
+---------------------------------------------------------
+
+function trackChaosToken(token, matGUID)
+  local image = token.getCustomObject().image
+  overallStats[image]           = (overallStats[image] or 0) + 1
+  personalStats[matGUID][image] = (personalStats[matGUID][image] or 0) + 1
+end
+
+function handleStatTrackerClick(_, _, isRightClick)
+  if isRightClick then
+    resetChaosTokenStats()
+  else
+    printChaosTokenStats()
+  end
+end
+
+function resetChaosTokenStats()
+  for key, _ in pairs(overallStats) do
+    overallStats[key] = 0
+  end
+  for playerKey, _ in pairs(personalStats) do
+    for key, value in pairs(overallStats) do
+      personalStats[playerKey][key] = value
+    end
+  end
+end
+
+function printChaosTokenStats()
+  local squidKing = "Nobody"
+  printToAll("")
+  printToAll("Overall Stats")
+  printToAll("------------------------------")
+  printNonZeroTokenPairs(overallStats)
+  printToAll("")
+  printToAll("Individual Stats")
+  printToAll("------------------------------")
+  for matGUID, _ in pairs(personalStats) do
+    local playerColour = MAT_GUID_TO_COLOUR[matGUID]
+    local playerSquidCount = personalStats[matGUID]["https://i.imgur.com/lns4fhz.png"] or 0
+    local playerName = playerColour
+    if Player[playerColour].seated then
+      playerName = Player[playerColour].steam_name
+    end
+
+    printToAll(playerName ..  " Stats", playerColour)
+    printNonZeroTokenPairs(personalStats[matGUID])
+    
+    if playerSquidCount > maxSquid then
+      squidKing = playerName
+      maxSquid = playerSquidCount
+    end
+  end
+  printToAll(squidKing .. " is an auto-fail magnet.", {255, 0, 0})
+end
+
+function printNonZeroTokenPairs(theTable)
+  for key, value in pairs(theTable) do
+    if value ~= 0 then
+      printToAll(IMAGE_TOKEN_MAP[key] .. ': ' .. tostring(value))
+    end
+  end
+end
+
+---------------------------------------------------------
+-- Difficulty selector script
+---------------------------------------------------------
+
+-- called for button creation on the difficulty selectors
+---@param object object Usually "self"
+---@param key string Name of the scenario
+function createSetupButtons(args)
+  local data = getDataValue('modeData', args.key)
+  if data ~= nil then
+    local buttonParameters          = {}
+    buttonParameters.function_owner = args.object
+    buttonParameters.position       = {0, 0.1, -0.15}
+    buttonParameters.scale          = {0.47, 1, 0.47}
+    buttonParameters.height         = 200
+    buttonParameters.width          = 1150
+    buttonParameters.color          = {0.87, 0.8, 0.7}
+
+    if data.easy ~= nil then
+      buttonParameters.label = "Easy"
+      buttonParameters.click_function = "easyClick"
+      args.object.createButton(buttonParameters)
+      buttonParameters.position[3] = buttonParameters.position[3] + 0.20
+    end
+
+    if data.normal ~= nil then
+      buttonParameters.label = "Standard"
+      buttonParameters.click_function = "normalClick"
+      args.object.createButton(buttonParameters)
+      buttonParameters.position[3] = buttonParameters.position[3] + 0.20
+    end
+
+    if data.hard ~= nil then
+      buttonParameters.label = "Hard"
+      buttonParameters.click_function = "hardClick"
+      args.object.createButton(buttonParameters)
+      buttonParameters.position[3] = buttonParameters.position[3] + 0.20
+    end
+
+    if data.expert ~= nil then
+      buttonParameters.label = "Expert"
+      buttonParameters.click_function = "expertClick"
+      args.object.createButton(buttonParameters)
+      buttonParameters.position[3] = buttonParameters.position[3] + 0.20
+    end
+
+    if data.standalone ~= nil then
+      buttonParameters.label = "Standalone"
+      buttonParameters.click_function = "standaloneClick"
+      args.object.createButton(buttonParameters)
+    end
+  end
+end
+
+-- called for adding chaos tokens
+---@param object object Usually "self"
+---@param key string Name of the scenario
+---@param mode string diffculty (e.g. "hard" or "expert")
+function fillContainer(args)
+  findChaosBag()
+
+  if chaosbag ~= nil then
+    local data = getDataValue('modeData', args.key)
+    if data == nil then return end
+
+    local value = data[args.mode]
+    if value == nil or value.token == nil then return end
+
+    local pos = chaosbag.getPosition()
+    if args.object ~= nil then
+      pos = args.object.getPosition()
+    end
+
+    -- empty the chaos bag
+    for _, item in ipairs(chaosbag.getObjects()) do
+      destroyObject(chaosbag.takeObject({}))
+    end
+
+    for _, token in ipairs(value.token) do
+      local obj = spawnChaosToken(token, pos)
+      if obj ~= nil then
+        chaosbag.putObject(obj)
+      end
+    end
+
+    if value.append ~= nil then
+      for _, token in ipairs(value.append) do
+        local obj = spawnChaosToken(token, pos)
+        if obj ~= nil then
+          chaosbag.putObject(obj)
+        end
+      end
+    end
+
+    -- randomly choose tokens for specific Carcosa scenarios in standalone
+    if value.random then
+      local n = #value.random
+      if n > 0 then
+        for _, token in ipairs(value.random[math.random(1, n)]) do
+          local obj = spawnChaosToken(token, pos)
+          if obj ~= nil then
+            chaosbag.putObject(obj)
+          end
+        end
+      end
+    end
+
+    if value.message then
+      broadcastToAll(value.message)
+    end
+
+    if value.warning then
+      broadcastToAll(value.warning, { 1, 0.5, 0.5 })
+    end
+  end
+end
+
+function getDataValue(storage, key)
+  local data = getObjectFromGUID(DATA_HELPER_GUID).getTable(storage)
+  if data ~= nil then
+    local value = data[key]
+    if value ~= nil then
+      local res = {}
+      for m, v in pairs(value) do
+        res[m] = v
+        if res[m].parent ~= nil then
+          local parentData = getDataValue(storage, res[m].parent)
+          if parentData ~= nil and parentData[m] ~= nil and parentData[m].token ~= nil then
+            res[m].token = parentData[m].token
+          end
+          res[m].parent = nil
+        end
+      end
+      return res
+    end
+  end
+end
+
+function spawnChaosToken(id, pos)
+  local url = getChaosTokenImageURL(id)
+  if url ~= '' then
+    local obj = spawnObject({
+      type = 'Custom_Tile',
+      position = {pos.x, pos.y + 3, pos.z},
+      rotation = {0, 260, 0}
+    })
+    obj.setCustomObject({
+      type = 2,
+      image = url,
+      thickness = 0.1
+    })
+    obj.scale {0.81, 1, 0.81}
+    obj.setName(getTokenName({ url=url }))
+    return obj
+  end
+end
+
+-- chaos bag needs this for renaming chaos tokens
+function getTokenName(params)
+  local name = IMAGE_TOKEN_MAP[params.url]
+    if name == nil then name = "" end
+  return name
+end
+
+-- returns the image url for a chaos token (identified by the "id")
+function getChaosTokenImageURL(id)
+  if id == 'p1' then return 'https://i.imgur.com/uIx8jbY.png' end
+  if id == '0' then return 'https://i.imgur.com/btEtVfd.png' end
+  if id == 'm1' then return 'https://i.imgur.com/w3XbrCC.png' end
+  if id == 'm2' then return 'https://i.imgur.com/bfTg2hb.png' end
+  if id == 'm3' then return 'https://i.imgur.com/yfs8gHq.png' end
+  if id == 'm4' then return 'https://i.imgur.com/qrgGQRD.png' end
+  if id == 'm5' then return 'https://i.imgur.com/3Ym1IeG.png' end
+  if id == 'm6' then return 'https://i.imgur.com/c9qdSzS.png' end
+  if id == 'm7' then return 'https://i.imgur.com/4WRD42n.png' end
+  if id == 'm8' then return 'https://i.imgur.com/9t3rPTQ.png' end
+  if id == 'skull' then return 'https://i.imgur.com/stbBxtx.png' end
+  if id == 'cultist' then return 'https://i.imgur.com/VzhJJaH.png' end
+  if id == 'tablet' then return 'https://i.imgur.com/1plY463.png' end
+  if id == 'elder' then return 'https://i.imgur.com/ttnspKt.png' end
+  if id == 'red' then return 'https://i.imgur.com/lns4fhz.png' end
+  if id == 'blue' then return 'https://i.imgur.com/nEmqjmj.png' end
+	if id == 'frost' then return 'http://cloud-3.steamusercontent.com/ugc/1858293462583104677/195F93C063A8881B805CE2FD4767A9718B27B6AE/' end
+  return ''
+end
+
+---------------------------------------------------------
+-- Content Importing and XML functions
+---------------------------------------------------------
+
+local source_repo = 'https://raw.githubusercontent.com/seth-sced/loadable-objects/main'
+local library = nil
+local request_obj
+
+function onClick_toggleUi(player, window)
+  toggle_ui(window)
+end
+
+function onClick_refreshList()
+  local request = WebRequest.get(source_repo .. '/library.json', completed_list_update)
+  request_obj = request
+  startLuaCoroutine(Global, 'my_coroutine')
+end
+
+function onClick_select(player, params)
+  params = JSON.decode(urldecode(params))
+  local url = source_repo .. '/' .. params.url
+  local request = WebRequest.get(url, function (request) complete_obj_download(request, params) end )
+  request_obj = request
+  startLuaCoroutine(Global, 'my_coroutine')
+end
+
+function onClick_load()
+  UI.show('progress_display')
+  UI.hide('load_button')
+end
+
+function toggle_ui(title)
+  UI.hide('load_ui')
+  if UI.getValue('title') == title or title == 'Hidden' then
+    UI.setValue('title', 'Hidden')
+  else
+    UI.setValue('title', title)
+    update_window_content(title)
+    UI.show('load_ui')
+  end
+end
+
+function my_coroutine()
+  while request_obj do
+    UI.setAttribute('download_progress', 'percentage', request_obj.download_progress * 100)
+    coroutine.yield(0)
+  end
+  return 1
+end
+
+function update_list(objects)
+  local ui = UI.getXmlTable()
+  local update_height = find_tag_with_id(ui, 'ui_update_height')
+  local update_children = find_tag_with_id(update_height.children, 'ui_update_point')
+
+  update_children.children = {}
+
+  for _, v in ipairs(objects) do
+    local s = JSON.encode(v);
+    table.insert(update_children.children,
+      { tag = 'Text',
+        value = v.name,
+        attributes = { onClick = 'onClick_select(' .. urlencode(JSON.encode(v)) .. ')', alignment = 'MiddleLeft' }
+      })
+  end
+
+  update_height.attributes.height = #(update_children.children) * 24
+  UI.setXmlTable(ui)
+end
+
+function update_window_content(new_title)
+  if not library then return end
+
+  if new_title == 'Campaigns' then
+    update_list(library.campaigns)
+  elseif new_title == 'Standalone Scenarios' then
+    update_list(library.scenarios)
+  elseif new_title == 'Investigators' then
+    update_list(library.investigators)
+  elseif new_title == 'Community Content' then
+    update_list(library.community)
+  elseif new_title == 'Extras' then
+    update_list(library.extras)
+  else
+    update_list({})
+  end
+end
+
+function complete_obj_download(request, params)
+  assert(request.is_done)
+  if request.is_error or request.response_code ~= 200 then
+    print('error: ' .. request.error)
+  else
+    if pcall(function()
+      local replaced_object
+      pcall(function()
+        if params.replace then
+          replaced_object = getObjectFromGUID(params.replace)
+        end
+      end)
+      local json = request.text
+      if replaced_object then
+        local pos = replaced_object.getPosition()
+        local rot = replaced_object.getRotation()
+        destroyObject(replaced_object)
+        Wait.frames(function()
+          spawnObjectJSON({json = json, position = pos, rotation = rot})
+        end, 1)
+      else
+        spawnObjectJSON({json = json})
+      end
+    end) then
+      print('Object loaded.')
+    else
+      print('Error loading object.')
+    end
+  end
+
+  request_obj = nil
+  UI.setAttribute('download_progress', 'percentage', 100)
+end
+
+-- the download button on the placeholder objects calls this to directly initiate a download
+-- params is a table with url and guid of replacement object, which happens to match what onClick_select wants
+function placeholder_download(params)
+  onClick_select(nil, JSON.encode(params))
+end
+
+function completed_list_update(request)
+  assert(request.is_done)
+  if request.is_error or request.response_code ~= 200 then
+    print('error: ' .. request.error)
+  else
+    local json_response = nil
+    if pcall(function () json_response = JSON.decode(request.text) end) then
+      library = json_response
+      update_window_content(UI.getValue('title'))
+    else
+      print('error parsing downloaded library')
+    end
+  end
+
+  request_obj = nil
+  UI.setAttribute('download_progress', 'percentage', 100)
+end
+
+function find_tag_with_id(ui, id)
+  for _, obj in ipairs(ui) do
+    if obj.attributes and obj.attributes.id and obj.attributes.id == id then return obj end
+    if obj.children then
+      local result = find_tag_with_id(obj.children, id)
+      if result then return result end
+    end
+  end
+  return nil
+end
+
+function urlencode(str)
+  local str = string.gsub(str, "([^A-Za-z0-9-_.~])",
+    function (c) return string.format("%%%02X", string.byte(c)) end)
+  return str
+end
+
+function urldecode(str)
+  local str = string.gsub(str, "%%(%x%x)",
+    function (h) return string.char(tonumber(h, 16)) end)
+  return str
+end

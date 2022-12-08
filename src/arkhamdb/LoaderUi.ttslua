@@ -1,0 +1,196 @@
+local INPUT_FIELD_HEIGHT = 340
+local INPUT_FIELD_WIDTH = 1500
+local FIELD_COLOR = { 0.9, 0.7, 0.5 }
+
+local PRIVATE_TOGGLE_LABELS = {}
+PRIVATE_TOGGLE_LABELS[true] = "Private"
+PRIVATE_TOGGLE_LABELS[false] = "Published"
+
+local UPGRADED_TOGGLE_LABELS = {}
+UPGRADED_TOGGLE_LABELS[true] = "Upgraded"
+UPGRADED_TOGGLE_LABELS[false] = "Specific"
+
+local LOAD_INVESTIGATOR_TOGGLE_LABELS = {}
+LOAD_INVESTIGATOR_TOGGLE_LABELS[true] = "Yes"
+LOAD_INVESTIGATOR_TOGGLE_LABELS[false] = "No"
+
+local redDeckId = ""
+local orangeDeckId = ""
+local whiteDeckId = ""
+local greenDeckId = ""
+
+local privateDeck = true
+local loadNewestDeck = true
+local loadInvestigators = false
+
+-- Returns a table with the full state of the UI, including options and deck IDs.
+-- This can be used to persist via onSave(), or provide values for a load operation
+-- Table values:
+--   redDeck: Deck ID to load for the red player
+--   orangeDeck: Deck ID to load for the orange player
+--   whiteDeck: Deck ID to load for the white player
+--   greenDeck: Deck ID to load for the green player
+--   private: True to load a private deck, false to load a public deck
+--   loadNewest: True if the most upgraded version of the deck should be loaded
+--   investigators: True if investigator cards should be spawned
+function getUiState()
+  return {
+    redDeck = redDeckId,
+    orangeDeck = orangeDeckId,
+    whiteDeck = whiteDeckId,
+    greenDeck = greenDeckId,
+    private = privateDeck,
+    loadNewest = loadNewestDeck,
+    investigators = loadInvestigators
+  }
+end
+
+-- Sets up the UI for the deck loader, populating fields from the given save state table decoded from onLoad()
+function initializeUi(savedUiState)
+  if savedUiState ~= nil then
+    redDeckId = savedUiState.redDeck
+    orangeDeckId = savedUiState.orangeDeck
+    whiteDeckId = savedUiState.whiteDeck
+    greenDeckId = savedUiState.greenDeck
+    privateDeck = savedUiState.private
+    loadNewestDeck = savedUiState.loadNewest
+    loadInvestigators = savedUiState.investigators
+  end
+
+  makeOptionToggles()
+  makeDeckIdFields()
+  makeBuildButton()
+end
+
+function makeOptionToggles()
+  -- common parameters
+  local checkbox_parameters = {}
+  checkbox_parameters.function_owner = self
+  checkbox_parameters.width = INPUT_FIELD_WIDTH
+  checkbox_parameters.height = INPUT_FIELD_HEIGHT
+  checkbox_parameters.scale = { 0.1, 0.1, 0.1 }
+  checkbox_parameters.font_size = 240
+  checkbox_parameters.hover_color = { 0.4, 0.6, 0.8 }
+  checkbox_parameters.color = FIELD_COLOR
+
+  -- public / private deck
+  checkbox_parameters.click_function = "publicPrivateChanged"
+  checkbox_parameters.position = { 0.25, 0.1, -0.102 }
+  checkbox_parameters.tooltip = "Published or private deck?\n\nPLEASE USE A PRIVATE DECK IF JUST FOR TTS TO AVOID FLOODING ARKHAMDB PUBLISHED DECK LISTS!"
+  checkbox_parameters.label = PRIVATE_TOGGLE_LABELS[privateDeck]
+  self.createButton(checkbox_parameters)
+
+  -- load upgraded?
+  checkbox_parameters.click_function = "loadUpgradedChanged"
+  checkbox_parameters.position = { 0.25, 0.1, -0.01 }
+  checkbox_parameters.tooltip = "Load newest upgrade or exact deck?"
+  checkbox_parameters.label = UPGRADED_TOGGLE_LABELS[loadNewestDeck]
+  self.createButton(checkbox_parameters)
+
+  -- load investigators?
+  checkbox_parameters.click_function = "loadInvestigatorsChanged"
+  checkbox_parameters.position = { 0.25, 0.1, 0.081 }
+  checkbox_parameters.tooltip = "Spawn investigator cards?"
+  checkbox_parameters.label = LOAD_INVESTIGATOR_TOGGLE_LABELS[loadInvestigators]
+  self.createButton(checkbox_parameters)
+end
+
+-- Create the four deck ID entry fields
+function makeDeckIdFields()
+  local input_parameters = {}
+  -- Parameters common to all entry fields
+  input_parameters.function_owner = self
+  input_parameters.scale = { 0.1, 0.1, 0.1 }
+  input_parameters.width = INPUT_FIELD_WIDTH
+  input_parameters.height = INPUT_FIELD_HEIGHT
+  input_parameters.font_size = 320
+  input_parameters.tooltip = "Deck ID from ArkhamDB URL of the deck\nPublic URL: 'https://arkhamdb.com/decklist/view/101/knowledge-overwhelming-solo-deck-1.0' = '101'\nPrivate URL: 'https://arkhamdb.com/deck/view/102' = '102'"
+  input_parameters.alignment = 3 -- Center
+  input_parameters.color = FIELD_COLOR
+  input_parameters.font_color = { 0, 0, 0 }
+  input_parameters.validation = 2 -- Integer
+
+  -- Green
+  input_parameters.input_function = "greenDeckChanged"
+  input_parameters.position = { -0.166, 0.1, 0.385 }
+  input_parameters.value = greenDeckId
+  self.createInput(input_parameters)
+  -- Red
+  input_parameters.input_function = "redDeckChanged"
+  input_parameters.position = { 0.171, 0.1, 0.385 }
+  input_parameters.value = redDeckId
+  self.createInput(input_parameters)
+  -- White
+  input_parameters.input_function = "whiteDeckChanged"
+  input_parameters.position = { -0.166, 0.1, 0.474 }
+  input_parameters.value = whiteDeckId
+  self.createInput(input_parameters)
+  -- Orange
+  input_parameters.input_function = "orangeDeckChanged"
+  input_parameters.position = { 0.171, 0.1, 0.474 }
+  input_parameters.value = orangeDeckId
+  self.createInput(input_parameters)
+end
+
+-- Create the Build All button. This is a transparent button which covers the Build All portion of the background graphic
+function makeBuildButton()
+  local button_parameters = {}
+  button_parameters.click_function = "loadDecks"
+  button_parameters.function_owner = self
+  button_parameters.position = { 0, 0.1, 0.71 }
+  button_parameters.width = 320
+  button_parameters.height = 30
+  button_parameters.color = { 0, 0, 0, 0 }
+  button_parameters.tooltip = "Click to build all four decks!"
+  self.createButton(button_parameters)
+end
+
+-- Event handlers for deck ID change
+function redDeckChanged(_, _, inputValue) redDeckId = inputValue end
+
+function orangeDeckChanged(_, _, inputValue) orangeDeckId = inputValue end
+
+function whiteDeckChanged(_, _, inputValue) whiteDeckId = inputValue end
+
+function greenDeckChanged(_, _, inputValue) greenDeckId = inputValue end
+
+-- Event handlers for toggle buttons
+function publicPrivateChanged()
+  privateDeck = not privateDeck
+  self.editButton { index = 0, label = PRIVATE_TOGGLE_LABELS[privateDeck] }
+end
+
+function loadUpgradedChanged()
+  loadNewestDeck = not loadNewestDeck
+  self.editButton { index = 1, label = UPGRADED_TOGGLE_LABELS[loadNewestDeck] }
+end
+
+function loadInvestigatorsChanged()
+  loadInvestigators = not loadInvestigators
+  self.editButton { index = 2, label = LOAD_INVESTIGATOR_TOGGLE_LABELS[loadInvestigators] }
+end
+
+function loadDecks()
+  -- testLoadLotsOfDecks()
+  -- Method in DeckImporterMain, visible due to inclusion
+
+  -- TODO: Make this use the configuration ID for the all cards bag
+  local allCardsBag = getObjectFromGUID("15bb07")
+  local indexReady = allCardsBag.call("isIndexReady")
+  if (not indexReady) then
+    broadcastToAll("Still loading player cards, please try again in a few seconds", {0.9, 0.2, 0.2})
+    return
+  end
+  if (redDeckId ~= nil and redDeckId ~= "") then
+    buildDeck("Red", redDeckId)
+  end
+  if (orangeDeckId ~= nil and orangeDeckId ~= "") then
+    buildDeck("Orange", orangeDeckId)
+  end
+  if (whiteDeckId ~= nil and whiteDeckId ~= "") then
+    buildDeck("White", whiteDeckId)
+  end
+  if (greenDeckId ~= nil and greenDeckId ~= "") then
+    buildDeck("Green", greenDeckId)
+  end
+end

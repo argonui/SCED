@@ -1,0 +1,265 @@
+-- Customizable Cards: Living Ink
+-- by Chr1Z
+information = {
+    version = "1.7",
+    last_updated = "12.10.2022"
+}
+
+-- Size information for buttons
+boxSize = 40
+
+-- static values
+x_1         = -0.935
+x_offset    = 0.075
+y_visible   = 0.25
+y_invisible = -0.5
+
+-- z-values (lines on the sheet)
+posZ = {
+    -0.69,
+    -0.355,
+    0.0855,
+    0.425,
+    0.555,
+    0.685,
+    1.02
+}
+
+-- box setup (amount of boxes per line and amount of marked boxes in that line)
+existingBoxes = { 1, 1, 2, 2, 3, 3, 3 }
+
+-- override 'marked boxes' for debugging ('all' or 'none')
+markDEBUG = ""
+
+-- Locations of the skill selectors
+local SKILL_ICON_POSITIONS = {
+  willpower = { x = 0.085, z = -0.88},
+  intellect = { x = -0.183, z = -0.88},
+  combat = { x = -0.473, z = -0.88},
+  agility = { x = -0.74, z = -0.88},
+}
+
+local selectedSkills = {
+  willpower = false,
+  intellect = false,
+  combat = false,
+  agility = false
+}
+
+-- save state when going into bags / decks
+function onDestroy() self.script_state = onSave() end
+
+function onSave()
+  local skillArray = { }
+  for skill, isSelected in pairs(selectedSkills) do
+    if (isSelected) then
+      table.insert(skillArray, skill)
+    end
+  end
+  return JSON.encode({ markedBoxes, skillArray })
+end
+
+-- Startup procedure
+function onLoad(saved_data)
+    if saved_data ~= "" and markDEBUG == "" then
+        local loaded_data = JSON.decode(saved_data)
+        markedBoxes = loaded_data[1]
+        log(loaded_data[2])
+        for _, skill in ipairs(loaded_data[2]) do
+          if (skill ~= "") then
+            log("Skill from load "..skill)
+            selectedSkills[skill] = true
+          end
+        end
+    else
+        markedBoxes = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }
+        inputValues = { "", "", "", "", "" }
+        local selectedSkills = {
+          willpower = false,
+          intellect = false,
+          combat = false,
+          agility = false
+        }
+    end
+
+    makeData()
+    createButtonsAndBoxes()
+
+    self.addContextMenuItem("Reset Inputs", function() updateState() end)
+    self.addContextMenuItem("Scale: normal", function() updateScale(1) end)
+    self.addContextMenuItem("Scale: double", function() updateScale(2) end)
+    self.addContextMenuItem("Scale: triple", function() updateScale(3) end)
+    updateSkillDisplay()
+end
+
+function updateScale(scale)
+  self.setScale({ scale, 1, scale })
+  updateSkillDisplay()
+end
+
+function updateState(markedBoxesNew)
+    if markedBoxesNew then markedBoxes = markedBoxesNew end
+    makeData()
+    createButtonsAndBoxes()
+    updateSkillDisplay()
+end
+
+-- create Data
+function makeData()
+    Data = {}
+    Data.checkbox = {}
+    Data.textbox = {}
+
+    -- repeat this for each entry (= line) in existingBoxes
+    local totalCount = 0
+    for i = 1, #existingBoxes do
+        -- repeat this for each checkbox per line
+        for j = 1, existingBoxes[i] do
+            totalCount                      = totalCount + 1
+            Data.checkbox[totalCount]       = {}
+            Data.checkbox[totalCount].pos   = {}
+            Data.checkbox[totalCount].pos.x = x_1 + j * x_offset
+            Data.checkbox[totalCount].pos.z = posZ[i]
+            Data.checkbox[totalCount].row   = i
+
+            if (markDEBUG == "all") or (markedBoxes[i] >= j and markDEBUG ~= "none") then
+                Data.checkbox[totalCount].pos.y = y_visible
+                Data.checkbox[totalCount].state = true
+            else
+                Data.checkbox[totalCount].pos.y = y_invisible
+                Data.checkbox[totalCount].state = false
+            end
+        end
+    end
+end
+
+-- checks or unchecks the given box
+function click_checkbox(tableIndex)
+    local row = Data.checkbox[tableIndex].row
+
+    if Data.checkbox[tableIndex].state == true then
+        Data.checkbox[tableIndex].pos.y = y_invisible
+        Data.checkbox[tableIndex].state = false
+
+        markedBoxes[row] = markedBoxes[row] - 1
+    else
+        Data.checkbox[tableIndex].pos.y = y_visible
+        Data.checkbox[tableIndex].state = true
+
+        markedBoxes[row] = markedBoxes[row] + 1
+    end
+
+    self.editButton({
+        index = tableIndex - 1,
+        position = Data.checkbox[tableIndex].pos
+    })
+end
+
+function click_willpower()
+  selectedSkills.willpower = not selectedSkills.willpower
+  updateSkillDisplay()
+end
+
+function click_intellect()
+  selectedSkills.intellect = not selectedSkills.intellect
+  updateSkillDisplay()
+end
+
+function click_combat()
+  selectedSkills.combat = not selectedSkills.combat
+  updateSkillDisplay()
+end
+
+function click_agility()
+  selectedSkills.agility = not selectedSkills.agility
+  updateSkillDisplay()
+end
+
+function createButtonsAndBoxes()
+    self.clearButtons()
+
+    for i, box_data in ipairs(Data.checkbox) do
+        local funcName = "checkbox" .. i
+        local func = function() click_checkbox(i) end
+        self.setVar(funcName, func)
+
+        self.createButton({
+            click_function = funcName,
+            function_owner = self,
+            position       = box_data.pos,
+            height         = boxSize,
+            width          = boxSize,
+            font_size      = box_data.size,
+            scale          = { 1, 1, 1 },
+            color          = { 0, 0, 0 },
+            font_color     = { 0, 0, 0 }
+        })
+    end
+
+    makeSkillSelectionButtons()
+end
+
+-- Creates the invisible buttons overlaying the skill icons
+function makeSkillSelectionButtons()
+  local buttonPositions = { x = -1 * SKILL_ICON_POSITIONS.willpower.x, y = 0.2, z = SKILL_ICON_POSITIONS.willpower.z }
+  local buttonData = {
+        click_function = "click_willpower",
+        function_owner = self,
+        position       = buttonPositions,
+        height         = 130,
+        width          = 130,
+        scale          = { 1, 1, 1 },
+        color          = { 0, 0, 0, 0 },
+  }
+  self.createButton(buttonData)
+  buttonData.click_function = "click_intellect"
+  buttonPositions.x = -1 * SKILL_ICON_POSITIONS.intellect.x
+  buttonData.position = buttonPositions
+  self.createButton(buttonData)
+  buttonData.click_function = "click_combat"
+  buttonPositions.x = -1 * SKILL_ICON_POSITIONS.combat.x
+  buttonData.position = buttonPositions
+  self.createButton(buttonData)
+  buttonData.click_function = "click_agility"
+  buttonPositions.x = -1 * SKILL_ICON_POSITIONS.agility.x
+  buttonData.position = buttonPositions
+  self.createButton(buttonData)
+end
+
+-- Refresh the vector circles indicating a skill is selected.  Since we can only have one table of
+-- vectors set, have to refresh all 4 at once
+function updateSkillDisplay()
+  local circles = { }
+  for skill, isSelected in pairs(selectedSkills) do
+    if isSelected then
+      local circle = getCircleVector(SKILL_ICON_POSITIONS[skill])
+      if circle ~= nil then
+        table.insert(circles, circle)
+      end
+    end
+  end
+  self.setVectorLines(circles)
+end
+
+function getCircleVector(center)
+  local diameter = Vector(0, 0, 0.1)
+  local pointOfOrigin = Vector(center.x, 0.3, center.z)
+
+  -- Declare Results vectors
+  local vec = Vector(0, 0, 0)
+  local vecList = {}
+
+  local arcStep = 5
+  for i = 0, 360, arcStep do
+    diameter:rotateOver('y', arcStep)
+    vec = pointOfOrigin + diameter
+    vec.y = pointOfOrigin.y
+    table.insert(vecList, vec)
+  end
+
+  return {
+      points    = vecList,
+      color     = {0.597, 0.195, 0.796},
+      thickness = 0.02,
+  }
+end

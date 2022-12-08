@@ -1,0 +1,98 @@
+-- Drawing Tool
+-- created by:      Chr1Z
+-- original by:     Whimsical
+-- description:     draws lines between selected objects
+information = {
+    version = "1.1",
+    last_updated = "10.10.2022"
+}
+
+-- save "lines" to be able to remove them after loading
+function onSave() return JSON.encode(lines) end
+
+-- load data and add context menu
+function onload(saved_data)
+    lines = JSON.decode(saved_data) or {}
+
+    self.addContextMenuItem("More Information", function()
+        printToAll("------------------------------", "White")
+        printToAll("Drawing Tool v" .. information["version"] .. " by Chr1Z", "Orange")
+        printToAll("last updated: " .. information["last_updated"], "White")
+        printToAll("original concept by Whimsical", "White")
+    end)
+end
+
+-- create timer when numpad 0 is pressed
+function onScriptingButtonDown(index, player_color)
+    if index ~= 10 then return end
+    TimerID = Wait.time(function() draw_from(Player[player_color]) end, 1)
+end
+
+-- called for long press of numpad 0, draws lines from hovered object to selected objects
+function draw_from(player)
+    local source = player.getHoverObject()
+    if not source then return end
+
+    for _, item in ipairs(player.getSelectedObjects()) do
+        if item.getGUID() ~= source.getGUID() then
+            if item.getGUID() > source.getGUID() then
+                draw_with_pair(item, source)
+            else
+                draw_with_pair(source, item)
+            end
+        end
+    end
+
+    process_lines()
+end
+
+-- general drawing of all lines between selected objects
+function onScriptingButtonUp(index, player_color)
+    if index ~= 10 then return end
+    -- returns true only if there is a timer to cancel. If this is false then we've waited longer than a second.
+    if not Wait.stop(TimerID) then return end
+
+    local items = Player[player_color].getSelectedObjects()
+    if #items < 2 then
+        broadcastToColor("You must have at least two items selected (currently: " .. #items .. ").", player_color, "Red")
+        return
+    end
+
+    table.sort(items, function(a, b) return a.getGUID() > b.getGUID() end)
+
+    for f = 1, #items - 1 do
+        for s = f + 1, #items do
+            draw_with_pair(items[f], items[s])
+        end
+    end
+
+    process_lines()
+end
+
+-- adds two objects to table of vector lines
+function draw_with_pair(first, second)
+    local guid_first  = first.getGUID()
+    local guid_second = second.getGUID()
+
+    if Global.getVectorLines() == nil then lines = {} end
+    if not lines[guid_first] then lines[guid_first] = {} end
+
+    if lines[guid_first][guid_second] then
+        lines[guid_first][guid_second] = nil
+    else
+        lines[guid_first][guid_second] = { points = { first.getPosition(), second.getPosition() }, color = "White" }
+    end
+end
+
+-- updates the global vector lines based on "lines"
+function process_lines()
+    local drawing = {}
+
+    for _, first in pairs(lines) do
+        for _, data in pairs(first) do
+            table.insert(drawing, data)
+        end
+    end
+
+    Global.setVectorLines(drawing)
+end

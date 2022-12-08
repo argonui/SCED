@@ -1,0 +1,476 @@
+-- Bless / Curse Manager
+-- updated by:      Chr1Z
+-- made by:         Tikatoy
+-- description:     helps with adding / removing and sealing of bless and curse tokens
+information = {
+    version = "3.5",
+    last_updated = "12.11.2022"
+}
+
+local IMAGE_URL = {
+    Bless = "http://cloud-3.steamusercontent.com/ugc/1655601092778627699/339FB716CB25CA6025C338F13AFDFD9AC6FA8356/",
+    Curse = "http://cloud-3.steamusercontent.com/ugc/1655601092778636039/2A25BD38E8C44701D80DD96BF0121DA21843672E/"
+}
+
+-- common button parameters
+local buttonParamaters          = {}
+buttonParamaters.function_owner = self
+buttonParamaters.color          = { 0, 0, 0, 0 }
+buttonParamaters.width          = 700
+buttonParamaters.height         = 700
+
+local altState     = false
+local MODE         = { [false] = "Add / Remove", [true] = "Take / Return" }
+local BUTTON_COLOR = { [false] = { 0.4, 0.4, 0.4 }, [true] = { 0.9, 0.9, 0.9 } }
+local FONT_COLOR   = { [false] = { 1, 1, 1 }, [true] = { 0, 0, 0 } }
+local whitespace   = "     "
+
+-- variable will be set by outside call
+tokenArranger = nil
+
+---------------------------------------------------------
+-- creating buttons and menus + initializing tables
+---------------------------------------------------------
+
+function onSave() return JSON.encode(altState) end
+
+function onLoad(saved_state)
+    if saved_state ~= nil then
+        altState = JSON.decode(saved_state)
+    end
+
+    -- index: 0 - bless
+    buttonParamaters.click_function = "clickBless"
+    buttonParamaters.position       = { -1.03, 0.05, 0.46 }
+    self.createButton(buttonParamaters)
+
+    -- index: 1 - curse
+    buttonParamaters.click_function = "clickCurse"
+    buttonParamaters.position[1]    = -buttonParamaters.position[1]
+    self.createButton(buttonParamaters)
+
+    -- index: 2 - alternative mode (take / return)
+    buttonParamaters.click_function = "enableAlt"
+    buttonParamaters.width          = 900
+    buttonParamaters.height         = 210
+    buttonParamaters.position       = { -1.03, 0.05, -0.85 }
+    self.createButton(buttonParamaters)
+
+    -- index: 3 - default mode (add / remove)
+    buttonParamaters.click_function = "enableDefault"
+    buttonParamaters.position[1]    = -buttonParamaters.position[1]
+    self.createButton(buttonParamaters)
+
+    -- load labels, tooltips and colors
+    updateButtons()
+
+    -- context menu
+    self.addContextMenuItem("Remove all", doRemove)
+    self.addContextMenuItem("Reset", doReset)
+    self.addContextMenuItem("More Information", function()
+        printToAll("------------------------------", "White")
+        printToAll("Bless / Curse Manager v" .. information["version"] .. " by Chr1Z", "Orange")
+        printToAll("last updated: " .. information["last_updated"], "White")
+        printToAll("original by Tikatoy", "White")
+    end)
+
+    -- hotkeys
+    addHotkey("Bless Curse Status", printStatus, false)
+    addHotkey("Wendy's Menu", addMenuOptions, false)
+
+    -- initializing tables
+    numInPlay = { Bless = 0, Curse = 0 }
+    tokensTaken = { Bless = {}, Curse = {} }
+    sealedTokens = {}
+    Wait.time(initializeState, 1)
+end
+
+function initializeState()
+    -- count tokens in the bag
+    local chaosbag = getChaosBag()
+    if chaosbag == nil then return end
+    local tokens = {}
+    for _, v in ipairs(chaosbag.getObjects()) do
+        if v.name == "Bless" then
+            numInPlay.Bless = numInPlay.Bless + 1
+        elseif v.name == "Curse" then
+            numInPlay.Curse = numInPlay.Curse + 1
+        end
+    end
+
+    -- find tokens in the play area
+    for _, obj in ipairs(getObjects()) do
+        local pos = obj.getPosition()
+        if pos.x > -50 and pos.x < 50 and pos.z > 8 and pos.z < 50 then
+            if obj.getName() == "Bless" then
+                table.insert(tokensTaken.Bless, obj.getGUID())
+                numInPlay.Bless = numInPlay.Bless + 1
+            elseif obj.getName() == "Curse" then
+                table.insert(tokensTaken.Curse, obj.getGUID())
+                numInPlay.Curse = numInPlay.Curse + 1
+            end
+        end
+    end
+
+    broadcastCount("Curse")
+    broadcastCount("Bless")
+end
+
+function broadcastCount(token)
+    local count = getTokenCount(token)
+    if count == "(0/0)" then return end
+    broadcastToAll(token .. " Tokens " .. count, "White")
+end
+
+function printStatus(color)
+    broadcastToColor("Curse Tokens " .. getTokenCount("Curse"), color, "White")
+    broadcastToColor("Bless Tokens " .. getTokenCount("Bless"), color, "White")
+end
+
+-- context menu function 1
+function doRemove(color)
+    local chaosbag = getChaosBag()
+    if chaosbag == nil then
+        broadcastToAll("Chaos bag not found!", "Red")
+        return
+    end
+
+    -- remove tokens from chaos bag
+    local count = { Bless = 0, Curse = 0 }
+    for _, v in ipairs(chaosbag.getObjects()) do
+        if v.name == "Bless" or v.name == "Curse" then
+            chaosbag.takeObject({
+                guid = v.guid,
+                position = { 0, 5, 0 },
+                callback_function = function(obj) obj.destruct() end
+            })
+            count[v.name] = count[v.name] + 1
+        end
+    end
+
+    broadcastToColor("Removed " .. count["Bless"] .. " Bless and " ..
+        count["Curse"] .. " Curse tokens from the chaos bag.", color, "White")
+
+    -- removing tokens that were 'taken'
+    local function removeType(type)
+        local count = 0
+        for _, guid in ipairs(tokensTaken[type]) do
+            local token = getObjectFromGUID(guid)
+            if token ~= nil then
+                token.destruct()
+                count = count + 1
+            end
+        end
+        return count
+    end
+
+    broadcastToColor("Removed " .. removeType("Bless") .. " Bless and " ..
+        removeType("Curse") .. " Curse tokens from play.", color, "White")
+
+    doReset(color)
+end
+
+-- context menu function 2
+function doReset(color)
+    -- delete previously pulled out tokens by the token arranger
+    if tokenArranger then
+        for _, token in ipairs(getObjectsWithTag(tokenArranger.getVar("TO_DELETE_TAG"))) do
+            token.destruct()
+        end
+    end
+
+    playerColor = color
+    numInPlay = { Bless = 0, Curse = 0 }
+    tokensTaken = { Bless = {}, Curse = {} }
+    initializeState()
+    updateTokenArranger()
+end
+
+---------------------------------------------------------
+-- click functions
+---------------------------------------------------------
+
+-- click function 1
+function clickBless(_, color, isRightClick)
+    playerColor = color
+    callFunctions("Bless", isRightClick)
+end
+
+-- click function 2
+function clickCurse(_, color, isRightClick)
+    playerColor = color
+    callFunctions("Curse", isRightClick)
+end
+
+-- click function 3
+function enableAlt()
+    if altState then return end
+    altState = not altState
+    updateButtons()
+end
+
+-- click function 4
+function enableDefault()
+    if not altState then return end
+    altState = not altState
+    updateButtons()
+end
+
+---------------------------------------------------------
+-- called functions
+---------------------------------------------------------
+
+function updateButtons()
+    self.editButton({
+        index = 0,
+        tooltip = MODE[altState] .. " Bless"
+    })
+
+    self.editButton({
+        index = 1,
+        tooltip = MODE[altState] .. " Curse"
+    })
+
+    self.editButton({
+        index = 2,
+        label = whitespace .. MODE[true] .. (altState and " ✓" or whitespace) .. " ",
+        color = BUTTON_COLOR[not altState],
+        font_color = FONT_COLOR[not altState]
+    })
+
+    self.editButton({
+        index = 3,
+        label = whitespace .. MODE[false] .. (altState and whitespace or " ✓") .. " ",
+        color = BUTTON_COLOR[altState],
+        font_color = FONT_COLOR[altState]
+    })
+end
+
+-- function that is called by click_functions 1+2 and calls the other functions
+function callFunctions(token, isRightClick)
+    local success
+    if not altState then
+        if isRightClick then
+            success = takeToken(token, true)
+        else
+            success = addToken(token)
+        end
+    else
+        if isRightClick then
+            success = returnToken(token)
+        else
+            success = takeToken(token, false)
+        end
+    end
+    if success ~= 0 then updateTokenArranger() end
+end
+
+UPDATING = false
+function updateTokenArranger()
+    if tokenArranger and not UPDATING then
+        UPDATING = true
+        Wait.time(function()
+            UPDATING = false
+            tokenArranger.call("layout")
+        end, 1.5)
+    end
+end
+
+function getChaosBag()
+    local zone = getObjectFromGUID("83ef06")
+    if zone == nil then printToAll("Zone for chaosbag not found!", "Red") return end
+
+    local items = zone.getObjects()
+    local chaosbag = nil
+    for _, v in ipairs(items) do
+        if v.getDescription() == "Chaos Bag" then
+            chaosbag = getObjectFromGUID(v.getGUID())
+            break
+        end
+    end
+    if chaosbag == nil then printToColor("No chaos bag found", playerColor) end
+    return chaosbag
+end
+
+function getTokenCount(type)
+    if type == nil then type = mode end
+    return "(" .. (numInPlay[type] - #tokensTaken[type]) .. "/" .. #tokensTaken[type] .. ")"
+end
+
+---------------------------------------------------------
+-- main functions: add, take and return
+---------------------------------------------------------
+
+function addToken(type)
+    if numInPlay[type] == 10 then
+        printToColor("10 tokens already in play, not adding any.", playerColor)
+        return 0
+    end
+    return spawnToken(type)
+end
+
+function spawnToken(type)
+    local chaosbag = getChaosBag()
+    if chaosbag == nil then
+        return 0
+    end
+    local pos = chaosbag.getPosition()
+    local obj = spawnObject({
+        type = 'Custom_Tile',
+        position = { pos.x, pos.y + 1, pos.z },
+        callback_function = function(obj)
+            obj.setName(type)
+            chaosbag.putObject(obj)
+            numInPlay[type] = numInPlay[type] + 1
+            printToAll("Adding " .. type .. " token " .. getTokenCount(type))
+        end
+    })
+    obj.setCustomObject({
+        type = 2,
+        image = IMAGE_URL[type],
+        thickness = 0.1,
+    })
+    obj.scale { 0.81, 1, 0.81 }
+end
+
+function takeToken(type, remove)
+    local chaosbag = getChaosBag()
+    if chaosbag == nil then
+        broadcastToAll("Chaos bag not found!", "Red")
+        return 0
+    end
+    if not remove and not SEAL_CARD_MESSAGE then
+        broadcastToColor("For sealing tokens on cards try right-clicking on the card for seal options.", playerColor)
+        SEAL_CARD_MESSAGE = true
+    end
+    local tokens = {}
+    for _, v in ipairs(chaosbag.getObjects()) do
+        if v.name == type then
+            table.insert(tokens, v.guid)
+        end
+    end
+    if #tokens == 0 then
+        printToColor("No " .. type .. " tokens in the chaos bag.", playerColor)
+        return 0
+    end
+    local pos = self.getPosition() + Vector(2.25, 0, 0.85)
+    if type == "Curse" then pos[3] = pos[3] - 1.7 end
+    chaosbag.takeObject({
+        guid = table.remove(tokens),
+        position = pos,
+        smooth = false,
+        callback_function = function(obj)
+            if remove then
+                numInPlay[type] = numInPlay[type] - 1
+                printToAll("Removing " .. type .. " token " .. getTokenCount(type))
+                obj.destruct()
+            else
+                table.insert(tokensTaken[type], obj.getGUID())
+                printToAll("Taking " .. type .. " token " .. getTokenCount(type))
+            end
+        end
+    })
+end
+
+function returnToken(type)
+    local guid = table.remove(tokensTaken[type])
+    if guid == nil then
+        printToColor("No " .. type .. " tokens to return", playerColor)
+        return 0
+    end
+    local token = getObjectFromGUID(guid)
+    if token == nil then
+        printToColor("Couldn't find token " .. guid .. ", not returning to bag", playerColor)
+        return 0
+    end
+    local chaosbag = getChaosBag()
+    if chaosbag == nil then
+        return 0
+    end
+    chaosbag.putObject(token)
+    printToAll("Returning " .. type .. " token " .. getTokenCount(type))
+end
+
+---------------------------------------------------------
+-- Wendy Menu (context menu for cards on hotkey press)
+---------------------------------------------------------
+
+function addMenuOptions(playerColor, hoveredObject)
+    if hoveredObject == nil or hoveredObject.getVar("MENU_ADDED") == true then return end
+    if hoveredObject.tag ~= "Card" then
+        broadcastToColor("Right-click seal options can only be added to cards", playerColor)
+        return
+    end
+
+    hoveredObject.addContextMenuItem("Seal Bless", function(color)
+        sealToken("Bless", color, hoveredObject)
+        updateTokenArranger()
+    end, true)
+
+    hoveredObject.addContextMenuItem("Release Bless", function(color)
+        releaseToken("Bless", color, hoveredObject)
+        updateTokenArranger()
+    end, true)
+
+    hoveredObject.addContextMenuItem("Seal Curse", function(color)
+        sealToken("Curse", color, hoveredObject)
+        updateTokenArranger()
+    end, true)
+
+    hoveredObject.addContextMenuItem("Release Curse", function(color)
+        releaseToken("Curse", color, hoveredObject)
+        updateTokenArranger()
+    end, true)
+
+    broadcastToColor("Right-click seal options added to " .. hoveredObject.getName(), playerColor)
+    hoveredObject.setVar("MENU_ADDED", true)
+    sealedTokens[hoveredObject.getGUID()] = {}
+end
+
+function sealToken(type, playerColor, enemy)
+    local chaosbag = getChaosBag()
+    if chaosbag == nil then return end
+    local pos = enemy.getPosition()
+
+    for i, token in ipairs(chaosbag.getObjects()) do
+        if token.name == type then
+            chaosbag.takeObject({
+                position = { pos.x, pos.y + 1, pos.z },
+                index = i - 1,
+                smooth = false,
+                callback_function = function(obj)
+                    Wait.frames(function()
+                        table.insert(sealedTokens[enemy.getGUID()], obj)
+                        table.insert(tokensTaken[type], obj.getGUID())
+                        printToColor("Sealing " .. type .. " token " .. getTokenCount(type), playerColor)
+                    end, 1)
+                end
+            })
+            return
+        end
+    end
+    printToColor(type .. " token not found in bag", playerColor)
+end
+
+function releaseToken(type, playerColor, enemy)
+    local chaosbag = getChaosBag()
+    if chaosbag == nil then return end
+    local tokens = sealedTokens[enemy.getGUID()]
+    if tokens == nil or #tokens == 0 then return end
+
+    for i, token in ipairs(tokens) do
+        if token ~= nil and token.getName() == type then
+            local guid = token.getGUID()
+            chaosbag.putObject(token)
+            for j, v in ipairs(tokensTaken[type]) do
+                if v == guid then
+                    table.remove(tokensTaken[type], j)
+                    table.remove(tokens, i)
+                    printToColor("Releasing " .. type .. " token" .. getTokenCount(type), playerColor)
+                    return
+                end
+            end
+        end
+    end
+    printToColor(type .. " token not sealed on " .. enemy.getName(), playerColor)
+end
