@@ -45,8 +45,9 @@ local RESOURCE_COUNTER
 
 -- global variable so it can be reset by the Clean Up Helper
 activeInvestigatorId = "00000"
+local drawButton = false
 
-function onSave() return JSON.encode({zoneID = zoneID, playerColor = PLAYER_COLOR, activeInvestigatorId = activeInvestigatorId}) end
+function onSave() return JSON.encode({zoneID = zoneID, playerColor = PLAYER_COLOR, activeInvestigatorId = activeInvestigatorId, drawButton = drawButton}) end
 
 function onLoad(save_state)
   self.interactable = DEBUG
@@ -96,7 +97,10 @@ function onLoad(save_state)
     zoneID = state.zoneID
     PLAYER_COLOR = state.playerColor
     activeInvestigatorId = state.activeInvestigatorId
+    drawButton = state.drawButton
   end
+
+  showDrawButton(drawButton)
 
   if getObjectFromGUID(zoneID) == nil then spawnDeckZone() end
   COLLISION_ENABLED = true
@@ -648,11 +652,40 @@ function spawnToken(position, tokenType)
   Global.call('spawnToken', {position, tokenType, PLAY_ZONE_ROTATION})
 end
 
+-- Sets this playermat's draw 1 button to visible
+---@param visibleButton Boolean.  Whether the draw 1 button should be visible
+function showDrawButton(visibleButton)
+  drawButton = visibleButton
+  if drawButton then
+    self.createButton({
+        label = "Draw 1",
+        click_function = "doDrawOne",
+        function_owner = mat,
+        position = { 1.84, 0.1, -0.36 },
+        scale = { 0.12, 0.12, 0.12 },
+        width = 800,
+        height = 280,
+        font_size = 180
+    })
+  else
+    -- remove button with index 9 if 10 buttons are present (because index starts at 0)
+    if #self.getButtons() == 10 then
+      self.removeButton(9)
+    end
+  end
+end
+
+-- Spawns / destroys a clickable clue counter for this playmat
+---@param clickableCounter Boolean.  Whether the clickable clue counter should be present
+function clickableClues(clickableCounter)
+  print("dummy function for clue counters")
+end
+
 -- Sets this playermat's snap points to limit snapping to matching card types or not.  If matchTypes
 -- is true, the main card slot snap points will only snap assets, while the investigator area point
 -- will only snap Investigators.  If matchTypes is false, snap points will be reset to snap all
 -- cards.
--- @param matchTypes Boolean.  Whether snap points should only snap for the matching card types.
+---@param matchTypes Boolean.  Whether snap points should only snap for the matching card types.
 function setLimitSnapsByType(matchTypes)
   local snaps = self.getSnapPoints()
   for i, snap in ipairs(snaps) do
