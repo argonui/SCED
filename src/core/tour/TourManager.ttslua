@@ -1,0 +1,188 @@
+do
+  require("core/tour/TourScript")
+  require("core/tour/TourCard")
+  local TourManager = { }
+  local internal = { }
+
+  -- Base IDs for various tour card UI elements.  Actual IDs will have _[playerColor] appended
+  local cardId = "tourCard"
+  local narratorId = "tourNarratorImage"
+  local textId = "tourText"
+  local nextButtonId = "tourNext"
+  local stopButtonId = "tourStop"
+
+  -- Table centerpoint for the camera hook object.  Camera handling is a bit erratic so it doesn't
+  -- always land right where you think it's going to, but it's close
+  local CAMERA_HOME = {
+    x = -30.2,
+    y = 60,
+    z = 0,
+  }
+
+  local cameraHookGuid
+  local currentCardIndex
+
+  -- Kicks off the tour by initializing the card and camera hook.  A callback on the hook creation
+  -- will then show the first card.
+  -- @param playerColor Player color to start the tour for
+  TourManager.startTour = function(playerColor)
+    currentCardIndex = 1
+    -- Camera gets really screwy when we finalize if we don't start in ThirdPerson before attaching
+    -- to the hook
+    Player["White"].setCameraMode("ThirdPerson")
+    internal.createTourCard("White")
+    -- XML update takes time to load, wait for it to finish then create the hook
+    Wait.condition(
+        function()
+          internal.createCameraHook()
+        end,
+        function()
+          return not Global.UI.loading
+        end
+    )
+  end
+
+  -- Shows the next card in the tour script.  This method is exposed (rather than being part of
+  -- internal) because the XMLUI callbacks expect the method to be on the object directly.
+  -- @param playerColor Player color to show the next card for
+  function nextCard(playerColor)
+    internal.hideCard()
+    Wait.time(function()
+      currentCardIndex = currentCardIndex + 1
+      if currentCardIndex > #TOUR_SCRIPT then
+        internal.finalizeTour()
+      else
+        internal.showCurrentCard()
+      end
+    end, 0.3)
+  end
+
+  -- Ends the tour and cleans up the camera.  This method is exposed (rather than being part of
+  -- internal) because the XMLUI callbacks expect the method to be on the object directly.
+  -- @param playerColor Player color to end the tour for
+  function stopTour(playerColor)
+    internal.hideCard()
+    Wait.time(function()
+      internal.finalizeTour()
+    end, 0.3)
+  end
+
+  -- Updates the card UI for the script at the current index, moves the camera to the proper
+  -- position, and shows the card.
+  -- @param playerColor Player color to show the current card for
+  internal.showCurrentCard = function(playerColor)
+    internal.updateCardDisplay(currentCardIndex)
+    local hook = getObjectFromGUID(cameraHookGuid)
+    hook.setPositionSmooth(CAMERA_HOME, false, false)
+    local delay = 0.5
+    if TOUR_SCRIPT[currentCardIndex].showObj ~= nil then
+      Wait.time(function()
+        local lookAtObj = getObjectFromGUID(TOUR_SCRIPT[currentCardIndex].showObj)
+        hook.setPositionSmooth(lookAtObj.getPosition(), false, false)
+      end, delay)
+      delay = delay + 0.5
+    end
+    Wait.time(function() Global.UI.show(cardId) end, delay)
+  end
+
+  -- Hides the current card being shown to a player.  This can be in preparation for showing the
+  -- next card, or ending the tour.
+  -- @param playerColor Player color to hide the current card for
+  internal.hideCard = function(playerColor)
+    Global.UI.hide(cardId)
+  end
+
+  -- Cleans up all the various resources associated with the tour, and (hopefully) resets the
+  -- camera to the default position.  Camera handling is erratic, the final card in the script
+  -- should include instructions for the player to fix it.
+  -- @param playerColor Player color to clean up
+  internal.finalizeTour = function(playerColor)
+    local cameraHook = getObjectFromGUID(cameraHookGuid)
+    cameraHook.destruct()
+    Player["White"].setCameraMode("ThirdPerson")
+    Wait.frames(function()
+      -- This resets to the default camera position.  If we don't place the camera exactly at the
+      -- default, camera controls get weird
+      Player["White"].lookAt({position={-22.265,-2.5,5.2575},pitch=64.343,yaw=90.333,distance=104.7})
+    end, 3)
+  end
+
+  -- Updates the card UI to show the appropriate narrator and text.
+  -- @param index Script entry which should be shown
+  -- @param playerColor Player color to update card for
+  internal.updateCardDisplay = function(index, playerColor)
+    Global.UI.setAttribute(narratorId, "image", TOUR_SCRIPT[index].narrator)
+    Global.UI.setAttribute(textId, "text", TOUR_SCRIPT[index].text)
+  end
+
+  -- Creates a small, transparent object which the camera will be attached to in order to move the
+  -- user's view around the table.  This should be called only at the beginning of the tour. Once
+  -- creation is complete the user's camera will be attached to the hook and the first card will be
+  -- shown.
+  -- @param playerColor Player color to create the hook for
+  internal.createCameraHook = function(playerColor)
+    local hookData = {
+      Name = "BlockSquare",
+      Transform = {
+        posX = CAMERA_HOME.x,
+        posY = CAMERA_HOME.y,
+        posZ = CAMERA_HOME.z,
+        rotX = 0,
+        rotY = 270.0,
+        rotZ = 0,
+        scaleX = 0.1,
+        scaleY = 0.1,
+        scaleZ = 0.1,
+      },
+      ColorDiffuse = {
+        r = 0,
+        g = 0,
+        b = 0,
+        a = 0,
+      },
+      Locked = true,
+    }
+
+    spawnObjectData({ data = hookData, callback_function = internal.onHookCreated })
+  end
+
+  -- Callback for creation of the camera hook object.  Will attach the camera and show the current
+  -- (presumably first) card.
+  -- @param hook Created object
+  internal.onHookCreated = function(hook)
+    cameraHookGuid = hook.getGUID()
+    Player.White.attachCameraToObject({
+      object = hook,
+      offset = { x = -20, y = 30, z = 0 }
+    })
+    internal.showCurrentCard()
+  end
+
+  -- Creates an XMLUI entry in Global for a player-specific tour card.  Dynamically creating this
+  -- is somewhat complex, but ensures we can properly handle any player color.
+  -- @param playerColor Player color to create the card for
+  internal.createTourCard = function(playerColor)
+    if Global.UI.getAttributes("cardId_"..playerColor) ~= nil then
+      return
+    end
+    cardId = cardId .. "_" .. playerColor
+    narratorId = narratorId .. "_" .. playerColor
+    textId = textId .. "_" .. playerColor
+    nextButtonId = nextButtonId .. "_" .. playerColor
+    stopButtonId = stopButtonId .. "_" .. playerColor
+    tourCardTemplate.attributes.id = cardId
+    tourCardTemplate.attributes.visibility = playerColor
+    tourCardTemplate.children[1].attributes.id = narratorId
+    tourCardTemplate.children[2].children[1].attributes.id = textId
+    tourCardTemplate.children[3].attributes.id = nextButtonId
+    tourCardTemplate.children[4].attributes.id = stopButtonId
+    tourCardTemplate.children[3].attributes.onClick = self.getGUID().."/nextCard"
+    tourCardTemplate.children[4].attributes.onClick = self.getGUID().."/stopTour"
+
+    local globalXml = Global.UI.getXmlTable()
+    table.insert(globalXml, tourCardTemplate)
+    Global.UI.setXmlTable(globalXml)
+  end
+
+  return TourManager
+end
