@@ -26,6 +26,8 @@ local chaosTokens = {}
 local chaosTokensLastMat = nil
 local IS_RESHUFFLING = false
 
+local bagSearchers = { }
+
 ---------------------------------------------------------
 -- data for tokens
 ---------------------------------------------------------
@@ -140,6 +142,26 @@ function isDeck(x) return x.tag == 'Deck' end
 
 function isCardOrDeck(x) return x.tag == 'Card' or x.tag == 'Deck' end
 
+-- Event hook for any object search.  When chaos tokens are manipulated while the chaos bag
+-- container is being searched, a TTS bug can cause tokens to duplicate or vanish.  We lock the
+-- chaos bag during search operations to avoid this.
+function onObjectSearchStart(object, playerColor)
+  findChaosBag()
+  if object.getGUID() == chaosbag.getGUID() then
+    bagSearchers[playerColor] = true
+  end
+end
+
+-- Event hook for any object search.  When chaos tokens are manipulated while the chaos bag
+-- container is being searched, a TTS bug can cause tokens to duplicate or vanish.  We lock the
+-- chaos bag during search operations to avoid this.
+function onObjectSearchEnd(object, playerColor)
+  findChaosBag()
+  if object.getGUID() == chaosbag.getGUID() then
+    bagSearchers[playerColor] = nil
+  end
+end
+
 function drawEncountercard(params)
   local position = params[1]
   local rotation = params[2]
@@ -233,7 +255,27 @@ function returnChaosTokens()
   chaosTokens = {}
 end
 
+-- Checks to see if the chaos bag can be manipulated.  If a player is searching the bag when tokens
+-- are drawn or replaced a TTS bug can cause those tokens to vanish.  Any functions which change the
+-- contents of the bag should check this method before doing so.
+-- This method will broadcast a message to all players if the bag is being searched.
+-- @return Boolean.  True if the bag is manipulated, false if it should be blocked.
+function canTouchChaosTokens()
+  for color, searching in pairs(bagSearchers) do
+    if searching then
+      broadcastToAll("Someone is searching the chaos bag, can't touch the tokens", "Red")
+      return false
+    end
+  end
+
+  return true
+end
+
 function drawChaostoken(params)
+  if not canTouchChaosTokens() then
+    return
+  end
+
   local mat = params[1]
   local tokenOffset = params[2]
   local isRightClick = params[3]
@@ -347,7 +389,7 @@ function printChaosTokenStats()
 
     printToAll(playerName ..  " Stats", playerColour)
     printNonZeroTokenPairs(personalStats[matGUID])
-    
+
     if playerSquidCount > maxSquid then
       squidKing = playerName
       maxSquid = playerSquidCount
