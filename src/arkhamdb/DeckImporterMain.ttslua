@@ -1,36 +1,39 @@
-require("playermat/Zones")
 require("arkhamdb/LoaderUi")
 require("playercards/PlayerCardSpawner")
+
+local zones = require("playermat/Zones")
 
 local bondedList = { }
 local customizationRowsWithFields = { }
 -- inputMap maps from (our 1-indexes) customization row index to inputValue table index
 -- The Raven Quill
-customizationRowsWithFields["09042"] = { }
+customizationRowsWithFields["09042"] = {}
 customizationRowsWithFields["09042"].inputCount = 2
-customizationRowsWithFields["09042"].inputMap = { }
+customizationRowsWithFields["09042"].inputMap = {}
 customizationRowsWithFields["09042"].inputMap[1] = 1
 customizationRowsWithFields["09042"].inputMap[5] = 2
 -- Friends in Low Places
-customizationRowsWithFields["09060"] = { }
+customizationRowsWithFields["09060"] = {}
 customizationRowsWithFields["09060"].inputCount = 2
-customizationRowsWithFields["09060"].inputMap = { }
+customizationRowsWithFields["09060"].inputMap = {}
 customizationRowsWithFields["09060"].inputMap[1] = 1
 customizationRowsWithFields["09060"].inputMap[3] = 2
 -- Living Ink
-customizationRowsWithFields["09079"] = { }
+customizationRowsWithFields["09079"] = {}
 customizationRowsWithFields["09079"].inputCount = 3
-customizationRowsWithFields["09079"].inputMap = { }
+customizationRowsWithFields["09079"].inputMap = {}
 customizationRowsWithFields["09079"].inputMap[1] = 1
 customizationRowsWithFields["09079"].inputMap[5] = 2
 customizationRowsWithFields["09079"].inputMap[6] = 3
 -- Grizzled
-customizationRowsWithFields["09101"] = { }
+customizationRowsWithFields["09101"] = {}
 customizationRowsWithFields["09101"].inputCount = 3
-customizationRowsWithFields["09101"].inputMap = { }
+customizationRowsWithFields["09101"].inputMap = {}
 customizationRowsWithFields["09101"].inputMap[1] = 1
 customizationRowsWithFields["09101"].inputMap[2] = 2
 customizationRowsWithFields["09101"].inputMap[3] = 3
+
+local PLAY_AREA_GUID = "721ba2"
 
 local RANDOM_WEAKNESS_ID = "01000"
 local tags = { configuration = "import_configuration_provider" }
@@ -149,6 +152,7 @@ local function onDeckResult(deck, playerColor, configuration)
   maybeAddInvestigatorCards(deck, slots)
   maybeAddCustomizeUpgradeSheets(slots, configuration)
   maybeAddSummonedServitor(slots)
+  maybeAddOnTheMend(slots)
   extractBondedCards(slots, configuration)
   checkTaboos(deck.taboo_id, slots, playerColor, configuration)
 
@@ -235,7 +239,7 @@ function maybeAddCustomizeUpgradeSheets(slots, configuration)
     -- upgrade sheets for customizable cards
     local upgradesheet = allCardsBag.call("getCardById", { id = cardId .. "-c" })
     if upgradesheet ~= nil then
-      slots[cardId.."-c"] = 1
+      slots[cardId .. "-c"] = 1
     end
   end
 end
@@ -245,11 +249,20 @@ end
 ---@param slots: The slot list for cards in this deck. Table key is the cardId, value is the number
 --     of those cards which will be spawned
 function maybeAddSummonedServitor(slots)
-  for cardId, cardCount in pairs(slots) do
-    -- spawn additional minicard for 'Summoned Servitor'
-    if cardId == "09080" then
-      slots["09080-m"] = 1
-      return
+  if slots["09080"] ~= nil then
+    slots["09080-m"] = 1
+  end
+end
+
+-- On the Mend should have 1-per-investigator copies set aside, but ArkhamDB always sends 1.  Update
+-- the count based on the investigator count
+---@param slots: The slot list for cards in this deck. Table key is the cardId, value is the number
+--     of those cards which will be spawned
+function maybeAddOnTheMend(slots)
+  if slots["09006"] ~= nil then
+    local playArea = getObjectFromGUID(PLAY_AREA_GUID)
+    if playArea ~= nil then
+      slots["09006"] = playArea.call("getInvestigatorCount")
     end
   end
 end
@@ -308,6 +321,8 @@ end
 function getDefaultCardZone(cardMetadata)
   if (cardMetadata.id == "09080-m") then -- Have to check the Servitor before other minicards
     return "SetAside6"
+  elseif (cardMetadata.id == "09006") then -- On The Mend is set aside
+    return "SetAside2"
   elseif cardMetadata.type == "Investigator" then
     return "Investigator"
   elseif cardMetadata.type == "Minicard" then
@@ -370,10 +385,10 @@ function loadCards(slots, investigatorId, customizations, playerColor, commandMa
     local zoneDecks = buildZoneLists(cardsToSpawn)
     -- Spawn the list for each zone
     for zone, zoneCards in pairs(zoneDecks) do
-      local deckPos = Zones.getZonePosition(playerColor, zone)
+      local deckPos = zones.getZonePosition(playerColor, zone)
       deckPos.y = 3
 
-      local spreadCallback = nil
+      local callback = nil
       -- If cards are spread too close together TTS groups them weirdly, selecting multiples
       -- when hovering over a single card.  This distance is the minimum to avoid that
       local spreadDistance = 1.15
@@ -385,14 +400,16 @@ function loadCards(slots, investigatorId, customizations, playerColor, commandMa
         elseif (playerColor == "Green") then
           deckPos.x = deckPos.x + (#zoneCards - 1) * spreadDistance
         end
-        spreadCallback = function(deck) deck.spread(spreadDistance) end
+        callback = function(deck) deck.spread(spreadDistance) end
+      elseif zone == "Deck" then
+        callback = function(deck) deckSpawned(deck, playerColor) end
       end
       Spawner.spawnCards(
           zoneCards,
           deckPos,
-          Zones.getDefaultCardRotation(playerColor, zone),
+          zones.getDefaultCardRotation(playerColor, zone),
           true, -- Sort deck
-          spreadCallback)
+          callback)
 
       coroutine.yield(0)
     end
@@ -430,6 +447,22 @@ function loadCards(slots, investigatorId, customizations, playerColor, commandMa
   startLuaCoroutine(self, "coinside")
 end
 
+-- Callback handler for the main deck spawning.  Looks for cards which should start in hand, and
+-- draws them for the appropriate player.
+-- @param deck Callback-provided spawned deck object
+-- @param playerColor Color of the player to draw the cards to
+function deckSpawned(deck, playerColor)
+  local handPos = Player[playerColor].getHandTransform(1).position -- Only one hand zone per player
+  local deckCards = deck.getData().ContainedObjects
+  -- Process in reverse order so taking cards out doesn't upset the indexing
+  for i = #deckCards, 1, -1 do
+    local cardMetadata = JSON.decode(deckCards[i].GMNotes) or { }
+    if cardMetadata.startsInHand then
+      deck.takeObject({ index = i - 1, position = handPos, flip = true, smooth = true})
+    end
+  end
+end
+
 -- Conver the Raven Quill's selections from card IDs to card names.  This could be more elegant
 -- but the inputs are very static so we're using some brute force.
 -- @param An ArkhamDB string indicating the customization selections for The Raven's Quill.  Should
@@ -438,7 +471,7 @@ function convertRavenQuillSelections(selectionString)
   if (string.len(selectionString) == 5) then
     return getCardName(selectionString)
   elseif (string.len(selectionString) == 11) then
-    return getCardName(string.sub(selectionString, 1, 5))..", "..getCardName(string.sub(selectionString, 7))
+    return getCardName(string.sub(selectionString, 1, 5)) .. ", " .. getCardName(string.sub(selectionString, 7))
   end
 end
 
@@ -465,7 +498,7 @@ function buildZoneLists(cards)
   local zoneList = {}
   for _, card in ipairs(cards) do
     if zoneList[card.zone] == nil then
-      zoneList[card.zone] = { }
+      zoneList[card.zone] = {}
     end
     table.insert(zoneList[card.zone], card)
   end
@@ -540,7 +573,7 @@ function handleUnderworldMarket(cardList, playerColor)
       -- Underworld Market found
       hasMarket = true
       card.zone = "SetAside3"
-    elseif (string.find(card.metadata.traits, "Illicit", 1, true)
+    elseif (card.metadata.traits ~= nil and string.find(card.metadata.traits, "Illicit", 1, true)
         and card.metadata.bonded_to == nil
         and not card.metadata.weakness) then
       table.insert(illicitList, i)
@@ -583,6 +616,7 @@ function handleHunchDeck(investigatorId, cardList, playerColor)
     local insightList = {}
     for i, card in ipairs(cardList) do
       if (card.metadata.type == "Event"
+          and card.metadata.traits ~= nil
           and string.match(card.metadata.traits, "Insight")
           and card.metadata.bonded_to == nil) then
         table.insert(insightList, i)
@@ -656,9 +690,8 @@ function handleCustomizableUpgrades(cardList, customizations)
               markedBoxes[index] = tonumber(str)
             elseif counter == 3 and str ~= "" then
               if (baseId == "09042") then
-                inputValues[customizationRowsWithFields[baseId].inputMap[index]] =
-                    convertRavenQuillSelections(str)
-              else
+                inputValues[customizationRowsWithFields[baseId].inputMap[index]] = convertRavenQuillSelections(str)
+              elseif customizationRowsWithFields[baseId] ~= nil then
                 inputValues[customizationRowsWithFields[baseId].inputMap[index]] = str
               end
             end

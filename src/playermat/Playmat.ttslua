@@ -188,30 +188,40 @@ function doUpkeep(_, color, alt_click)
     printToColor("Upkeep button bound to " .. color, color)
     return
   end
-  
+
   local forcedLearning = false
 
   -- unexhaust cards in play zone, flip action tokens and find forcedLearning
   for _, v in ipairs(searchArea(PLAY_ZONE_POSITION, PLAY_ZONE_SCALE)) do
     local obj = v.hit_object
-    if obj.tag == "Card" and not obj.is_face_down and not doNotReady(obj) then
-      local notes = JSON.decode(obj.getGMNotes()) or {}
-      if notes.id == "08031" then
-        forcedLearning = true
-      elseif notes.type ~= "Investigator" then
+    if obj.getDescription() == "Action Token" and obj.is_face_down then
+      obj.flip()
+    elseif obj.tag == "Card" and not obj.is_face_down then
+      local cardMetadata = JSON.decode(obj.getGMNotes()) or {}
+      if not doNotReady(obj) and cardMetadata.type ~= "Investigator" then
         obj.setRotation(PLAY_ZONE_ROTATION)
-
+      end
+      if cardMetadata.id == "08031" then
+        forcedLearning = true
+      end
+      if cardMetadata.uses ~= nil then
         -- check for cards with 'replenish' in their metadata
-        if notes.uses ~= nil then
-          local count = notes.uses[1].count
-          local replenish = notes.uses[1].replenish
-          if count and replenish then
-            replenishTokens(obj, count, replenish)
-          end
+        local count
+        local replenish
+        -- Uses structure underwent a breaking change in 2.4.0, have to check to see if this is
+        -- a single entry or an array.  TODO: Clean this up when 2.4.0 has been out long
+        -- enough that saved decks don't have old data
+        if cardMetadata.uses.count ~= nil then
+          count = cardMetadata.uses.count
+          replenish = cardMetadata.uses.replenish
+        else
+          count = cardMetadata.uses[1].count
+          replenish = cardMetadata.uses[1].replenish
+        end
+        if count and replenish then
+          replenishTokens(obj, count, replenish)
         end
       end
-    elseif obj.getDescription() == "Action Token" and obj.is_face_down then
-      obj.flip()
     end
   end
 
@@ -230,11 +240,11 @@ function doUpkeep(_, color, alt_click)
   end
 
   -- gain a resource
-  RESOURCE_COUNTER.call("add_subtract")
+  RESOURCE_COUNTER.call("addOrSubtract")
 
   -- gain an additional resource for Jenny Barnes
   if string.match(activeInvestigatorId, "%d%d%d%d%d") == "02003" then
-    RESOURCE_COUNTER.call("add_subtract")
+    RESOURCE_COUNTER.call("addOrSubtract")
     printToColor("Gaining 2 resources (Jenny)", messageColor)
   end
 
@@ -350,10 +360,26 @@ function spawnTokenOn(object, offsets, tokenType)
   spawnToken(tokenPosition, tokenType)
 end
 
--- spawn a group of tokens of the given type on the object
-function spawnTokenGroup(object, tokenType, tokenCount)
+-- Spawn a group of tokens of the given type on the object
+-- @param object Object to spawn the tokens on
+-- @param tokenType Type of token to be spawned
+-- @param tokenCount Number of tokens to spawn
+-- @param shiftDown Amount to shift this group down to avoid spawning multiple token groups on
+--     top of each other.  Negative values are allowed, and will move the group up instead.  This is
+--     a static value and is unaware of how many tokens were spawned previously; callers should
+--     ensure the proper shift.
+function spawnTokenGroup(object, tokenType, tokenCount, shiftDown)
   if (tokenCount < 1 or tokenCount > 12) then return end
   local offsets = PLAYER_CARD_TOKEN_OFFSETS[tokenCount]
+  if shiftDown ~= nil then
+    -- Copy the offsets to make sure we don't change the static values
+    local baseOffsets = offsets
+    offsets = { }
+    for i, baseOffset in ipairs(baseOffsets) do
+      offsets[i] = baseOffset
+      offsets[i][3] = offsets[i][3] + shiftDown
+    end
+  end
   if offsets == nil then error("couldn't find offsets for " .. tokenCount .. ' tokens') end
 
   for i = 1, tokenCount do
@@ -371,7 +397,7 @@ function replenishTokens(card, count, replenish)
 
   -- don't continue for cards on your deck (Norman) or in your discard pile
   if self.positionToLocal(cardPos).x < -1 then return end
-  
+
   -- get current amount of resource tokens on the card
   local search = searchArea(cardPos, { 2.5, 0.5, 3.5 })
   local foundTokens = 0
@@ -435,33 +461,48 @@ function spawnTokensFor(object)
   local token = nil
   local tokenCount = 0
   if cardMetadata.uses ~= nil then
-    for _, useInfo in ipairs(cardMetadata.uses) do
-      type = useInfo.type
-      token = useInfo.token
-      tokenCount = useInfo.count
-    end
+    -- Uses structure underwent a breaking change in 2.4.0, have to check to see if this is
+    -- a single entry or an array.  This is ugly and duplicated, but impossible to replicate the
+    -- multi-spawn vs. single spawn otherwise.  TODO: Clean this up when 2.4.0 has been out long
+    -- enough that saved decks don't have old data
+    if cardMetadata.uses.count != nil then
+      type = cardMetadata.uses.type
+      token = cardMetadata.uses.token
+      tokenCount = cardMetadata.uses.count
+      if activeInvestigatorId == "03004" and type == "Charge" then tokenCount = tokenCount + 1 end
 
-    -- additional uses for certain customizable cards (by checking the upgradesheets)
-    if customizationsTable[cardMetadata.id] ~= nil then
-      for _, obj in ipairs(searchArea(PLAY_ZONE_POSITION, PLAY_ZONE_SCALE)) do
-        local obj = obj.hit_object
-        if obj.tag == "Card" then
-          local notes = JSON.decode(obj.getGMNotes()) or {}
-          if notes.id == (cardMetadata.id .. "-c") then
-            local pos = customizationsTable[cardMetadata.id][1]
-            local boxes = customizationsTable[cardMetadata.id][2]
-            if obj.getVar("markedBoxes")[pos] == boxes then tokenCount = tokenCount + 2 end
-            break
+      log("Spawning tokens for "..object.getName()..'['..object.getDescription()..']: '..tokenCount.."x "..token)
+      spawnTokenGroup(object, token, tokenCount)
+    else
+      for i, useInfo in ipairs(cardMetadata.uses) do
+        type = useInfo.type
+        token = useInfo.token
+        tokenCount = useInfo.count
+
+        -- additional uses for certain customizable cards (by checking the upgradesheets)
+        if customizationsTable[cardMetadata.id] ~= nil then
+          for _, obj in ipairs(searchArea(PLAY_ZONE_POSITION, PLAY_ZONE_SCALE)) do
+            local obj = obj.hit_object
+            if obj.tag == "Card" then
+              local notes = JSON.decode(obj.getGMNotes()) or {}
+              if notes.id == (cardMetadata.id .. "-c") then
+                local pos = customizationsTable[cardMetadata.id][1]
+                local boxes = customizationsTable[cardMetadata.id][2]
+                if obj.getVar("markedBoxes")[pos] == boxes then tokenCount = tokenCount + 2 end
+                break
+              end
+            end
           end
         end
+
+        -- additional charge for Akachi
+        if activeInvestigatorId == "03004" and type == "Charge" then tokenCount = tokenCount + 1 end
+
+        log("Spawning tokens for "..object.getName()..'['..object.getDescription()..']: '..tokenCount.."x "..token)
+        -- Shift each spawned group after the first down so they don't pile on each other
+        spawnTokenGroup(object, token, tokenCount, (i - 1) * 0.6)
       end
     end
-
-    -- additional charge for Akachi
-    if activeInvestigatorId == "03004" and type == "Charge" then tokenCount = tokenCount + 1 end
-
-    log("Spawning tokens for "..object.getName()..'['..object.getDescription()..']: '..tokenCount.."x "..token)
-    spawnTokenGroup(object, token, tokenCount)
   else
     local data = getPlayerCardData(object)
     token = data['tokenType']
@@ -501,7 +542,7 @@ function onCollisionEnter(collision_info)
   -- only continue for cards
   if object.name ~= "Card" and object.name ~= "CardCustom" then return end
   maybeUpdateActiveInvestigator(object)
-  
+
   -- don't spawn tokens for cards in discard pile / threat area
   local localpos = self.positionToLocal(object.getPosition())
   if localpos.x < -0.7 or localpos.z < -0.3 then
@@ -532,7 +573,7 @@ function maybeUpdateActiveInvestigator(card)
       ["Survivor"] = 5,
       ["Neutral"]  = 6
     }
-    
+
     for _, obj in ipairs(search) do
       local obj = obj.hit_object
       if obj.getDescription() == "Action Token" and obj.getStateId() > 0 then
