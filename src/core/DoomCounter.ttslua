@@ -1,0 +1,79 @@
+local optionsVisible = false
+local options = {
+  Agenda = true,
+  Playarea = true,
+  Playermats = true
+}
+
+val = 0
+
+-- save current value and options
+function onSave() return JSON.encode({ val, options }) end
+
+function onLoad(savedData)
+  if savedData ~= "" then
+    local loadedData = JSON.decode(savedData)
+    val              = loadedData[1]
+    options          = loadedData[2]
+
+    -- restore state for option panel
+    for key, bool in pairs(options) do
+      self.UI.setAttribute("option" .. key, "isOn", not bool)
+    end
+  end
+
+  self.createButton({
+    label          = tostring(val),
+    click_function = "addOrSubtract",
+    function_owner = self,
+    position       = { 0, 0.06, 0 },
+    height         = 800,
+    width          = 800,
+    font_size      = 650,
+    scale          = { 1.5, 1.5, 1.5 },
+    font_color     = { 1, 1, 1, 95 },
+    color          = { 0, 0, 0, 0 }
+  })
+end
+
+-- called by the invisible button to change displayed value
+function addOrSubtract(_, _, isRightClick)
+  local newVal = math.min(math.max(val + (isRightClick and -1 or 1), 0), 99)
+  if val ~= newVal then
+    updateVal(newVal)
+  end
+end
+
+function updateVal(number)
+  val = number or 0
+  self.editButton({ index = 0, label = tostring(val) })
+  printToAll("Doom on agenda set to: " .. val)
+end
+
+-- called by "Reset" button to remove doom
+function startReset()
+  if options.Agenda then
+    updateVal(0)
+  end
+  -- call the "Doom-in-Play"-counter
+  local DoomInPlayCounter = getObjectFromGUID("652ff3")
+  if DoomInPlayCounter then
+    DoomInPlayCounter.call("removeDoom", options)
+  end
+end
+
+-- XML UI functions
+function optionClick(_, optionName)
+  options[optionName] = not options[optionName]
+  printToAll("Doom removal of " .. optionName .. (options[optionName] and " enabled" or " disabled"))
+end
+
+function toggleOptions()
+  optionsVisible = not optionsVisible
+
+  if optionsVisible then
+    self.UI.show("Options")
+  else
+    self.UI.hide("Options")
+  end
+end
