@@ -47,7 +47,14 @@ local RESOURCE_COUNTER
 activeInvestigatorId = "00000"
 local drawButton = false
 
-function onSave() return JSON.encode({zoneID = zoneID, playerColor = PLAYER_COLOR, activeInvestigatorId = activeInvestigatorId, drawButton = drawButton}) end
+function onSave()
+  return JSON.encode({
+    zoneID = zoneID,
+    playerColor = PLAYER_COLOR,
+    activeInvestigatorId = activeInvestigatorId,
+    drawButton = drawButton
+  })
+end
 
 function onLoad(save_state)
   self.interactable = DEBUG
@@ -653,9 +660,11 @@ function spawnToken(position, tokenType)
 end
 
 -- Sets this playermat's draw 1 button to visible
----@param visibleButton Boolean.  Whether the draw 1 button should be visible
-function showDrawButton(visibleButton)
-  drawButton = visibleButton
+---@param visible Boolean.  Whether the draw 1 button should be visible
+function showDrawButton(visible)
+  drawButton = visible
+
+  -- create the "Draw 1" button
   if drawButton then
     self.createButton({
         label = "Draw 1",
@@ -667,23 +676,27 @@ function showDrawButton(visibleButton)
         height = 280,
         font_size = 180
     })
+
+  -- remove the "Draw 1" button
   else
-    -- remove button with index 9 if 10 buttons are present (because index starts at 0)
-    if #self.getButtons() == 10 then
-      self.removeButton(9)
+    local buttons = self.getButtons()
+    for i = 1, #buttons do 
+      if buttons[i].label == "Draw 1" then
+        self.removeButton(buttons[i].index)
+      end
     end
   end
 end
 
 -- Spawns / destroys a clickable clue counter for this playmat with the correct amount of clues
----@param clickableCounter Boolean.  Whether the clickable clue counter should be present
-function clickableClues(clickableCounter)
+---@param showCounter Boolean.  Whether the clickable clue counter should be present
+function clickableClues(showCounter)
   local CLUE_COUNTER = getObjectFromGUID(CLUE_COUNTER_GUID)
   local CLUE_CLICKER = getObjectFromGUID(CLUE_CLICKER_GUID)
   local clickerPos = CLUE_CLICKER.getPosition()
   local clueCount = 0
 
-  if clickableCounter then
+  if showCounter then
     -- current clue count
     clueCount = CLUE_COUNTER.getVar("exposedValue")
 
@@ -751,10 +764,10 @@ function setLimitSnapsByType(matchTypes)
 end
 
 -- Simple method to check if the given point is in a specified area.  Local use only,
--- @param point Vector.  Point to check, only x and z values are relevant
--- @param bounds Table.  Defined area to see if the point is within.  See MAIN_PLAY_AREA for sample
+---@param point Vector.  Point to check, only x and z values are relevant
+---@param bounds Table.  Defined area to see if the point is within.  See MAIN_PLAY_AREA for sample
 --     bounds definition.
--- @return Boolean.  True if the point is in the area defined by bounds
+---@return Boolean.  True if the point is in the area defined by bounds
 function inArea(point, bounds)
   return (point.x < bounds.upperLeft.x
       and point.x > bounds.lowerRight.x

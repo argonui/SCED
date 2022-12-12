@@ -28,8 +28,8 @@ local NOT_INTERACTABLE = {
 local chaosTokens = {}
 local chaosTokensLastMat = nil
 local IS_RESHUFFLING = false
-
-local bagSearchers = { }
+local bagSearchers = {}
+local playmatAPI = require("playermat/PlaymatApi")
 
 ---------------------------------------------------------
 -- data for tokens
@@ -131,18 +131,15 @@ local overallStats = {
 ---------------------------------------------------------
 
 -- saving state of optionPanel to restore later
-function onSave() return JSON.encode(optionPanel) end
+function onSave() return JSON.encode({ optionPanel = optionPanel }) end
 
 function onLoad(savedData)
   if savedData then
-    optionPanel = JSON.decode(savedData)
-    for id, enabled in pairs(optionPanel) do
-      if enabled then self.UI.setAttribute("toggle" .. id, "isOn", true) end
-    end
+    loadedData = JSON.decode(savedData)
+    optionPanel = loadedData.optionPanel
+    updateOptionPanelState()
   else
-    for i = 1, 8 do
-      optionPanel[i] = false
-    end
+    print("Saved state could not be found!")
   end
 
   for _, guid in ipairs(NOT_INTERACTABLE) do
@@ -652,27 +649,31 @@ function onClick_toggleOption(_, id)
   end
 
   self.UI.setAttribute("toggle" .. id, "isOn", state)
-  optionPanel[id] = state
 
-  applyChange(id, state)
+  id = tonumber(id)
+  optionPanel[id] = state
+  applyOptionPanelChange(id, state)
 end
 
-local PlayerMatAPI = require("playermat/PlaymatApi")
-function applyChange(id, state)
+-- sets the option panel to the correct state (corresponding to 'optionPanel')
+function updateOptionPanelState()
+  for id, enabled in pairs(optionPanel) do
+    if enabled then self.UI.setAttribute("toggle" .. id, "isOn", true) end
+  end
+end
+
+function applyOptionPanelChange(id, state)
   -- option 1: Snap tags
-  if id == "1" then
-    printToAll("Playermat snap tags " .. (state and "en" or "dis") .."abled.", "White")
-    PlayerMatAPI.setLimitSnapsByType(state, "All")
+  if id == 1 then
+    playmatAPI.setLimitSnapsByType(state, "All")
 
   -- option 2: Draw 1 button
-  elseif id=="2" then
-    printToAll("'Draw 1' button " .. (state and "en" or "dis") .."abled.", "White")
-    PlayerMatAPI.showDrawButton(state, "All")
+  elseif id == 2 then
+    playmatAPI.showDrawButton(state, "All")
 
   -- option 3: Clickable clue counters
-  elseif id=="3" then
-    printToAll("Clickable clue counters " .. (state and "en" or "dis") .."abled.", "White")
-    PlayerMatAPI.clickableClues(state, "All")
+  elseif id == 3 then
+    playmatAPI.clickableClues(state, "All")
 
     -- update master clue counter
     getObjectFromGUID("4a3aa4").setVar("clickableCounters", state)
