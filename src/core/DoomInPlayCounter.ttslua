@@ -1,104 +1,106 @@
--- Doom-in-Play Counter
--- made by:         Chr1Z
--- description:     counts the doom tokens in play periodically (excluding the agenda), ignores objects with specified tag
-information = {
-    version = "1.1",
-    last_updated = "12.11.2022"
-}
-
 -- common parameters
 local castParameters        = {}
 castParameters.direction    = { 0, 1, 0 }
 castParameters.type         = 3
 castParameters.max_distance = 0
 
-local zone       = getObjectFromGUID("a2f932")
-local doom_url   = "https://i.imgur.com/EoL7yaZ.png"
+local zone
+local doomURL    = "https://i.imgur.com/EoL7yaZ.png"
 local IGNORE_TAG = "DoomCounter_ignore"
 
 -- playermats 1 to 4
 local originAndSize = {
-    { origin = { -55, 1.6, 16.5 }, size = { 12, 1, 25 } },
-    { origin = { -55, 1.6, -16.5 }, size = { 12, 1, 25 } },
-    { origin = { -25, 1.6, 27 }, size = { 25, 1, 12 } },
-    { origin = { -25, 1.6, -27 }, size = { 25, 1, 12 } }
+  { origin = { -55, 1.6, 16.5 }, size = { 12, 1, 25 } },
+  { origin = { -55, 1.6, -16.5 }, size = { 12, 1, 25 } },
+  { origin = { -25, 1.6, 27 }, size = { 25, 1, 12 } },
+  { origin = { -25, 1.6, -27 }, size = { 25, 1, 12 } }
 }
 
 -- create button, context menu and start loop
 function onLoad()
-    self.createButton({
-        label = tostring(0),
-        click_function = "moreInformation",
-        function_owner = self,
-        position = { 0, 0.06, 0 },
-        height = 600,
-        width = 1000,
-        scale = { 1.5, 1.5, 1.5 },
-        font_size = 600,
-        font_color = { 1, 1, 1, 100 },
-        color = { 0, 0, 0, 0 }
-    })
+  self.createButton({
+    label = tostring(0),
+    click_function = "none",
+    function_owner = self,
+    position = { 0, 0.06, 0 },
+    height = 0,
+    width = 0,
+    scale = { 1.5, 1.5, 1.5 },
+    font_size = 600,
+    font_color = { 1, 1, 1, 100 },
+    color = { 0, 0, 0, 0 }
+  })
 
-    -- context menu
-    self.addContextMenuItem("More Information", moreInformation)
-    self.addContextMenuItem("Remove Doom", function()
-        Wait.stop(loopID)
-        removeDoom = true
-        countDoom()
-        Wait.time(function()
-            removeDoom = false
-            loopID = Wait.time(countDoom, 2, -1)
-        end, 2)
-    end)
-
-    loopID = Wait.time(countDoom, 2, -1)
-end
-
-function moreInformation()
-    printToAll("------------------------------", "White")
-    printToAll("Doom-in-Play Counter v" .. information["version"] .. " by Chr1Z", "Orange")
-    printToAll("last updated: " .. information["last_updated"], "White")
-    printToAll("Automatically counts the doom in play (exluding the agenda and objects with the ignore tag).", "Green")
-    printToAll("ignore tag: " .. IGNORE_TAG, "White")
+  zone = getObjectFromGUID("a2f932")
+  loopID = Wait.time(countDoom, 2, -1)
 end
 
 -- main function
 function countDoom()
-    local doom = 0
-    for i = 1, 5 do doom = doom + search(i) end
-    self.editButton({ index = 0, label = tostring(doom) })
+  local doom = 0
+  for i = 1, 5 do doom = doom + search(i) end
+  self.editButton({ index = 0, label = tostring(doom) })
 end
 
 -- searches playermats (num = 1-4) or the scripting zone (num = 5)
 function search(num)
-    local val = 0
-    if num == 5 then
-        for _, obj in ipairs(zone.getObjects()) do
-            val = val + isDoom(obj)
-        end
-    else
-        castParameters.origin = originAndSize[num].origin
-        castParameters.size = originAndSize[num].size
-
-        for _, obj in ipairs(Physics.cast(castParameters)) do
-            val = val + isDoom(obj.hit_object)
-        end
+  local val = 0
+  if num == 5 then
+    for _, obj in ipairs(zone.getObjects()) do
+      val = val + isDoom(obj)
     end
-    return val
+  else
+    castParameters.origin = originAndSize[num].origin
+    castParameters.size = originAndSize[num].size
+
+    for _, obj in ipairs(Physics.cast(castParameters)) do
+      val = val + isDoom(obj.hit_object)
+    end
+  end
+  return val
 end
 
 -- checks an object for the doom image and gets quantity (for stacks)
 function isDoom(obj)
-    if (obj.is_face_down and obj.getCustomObject().image_bottom == doom_url) or
-        (obj.name == "Custom_Token" and obj.getCustomObject().image == doom_url) then
-        if not obj.hasTag(IGNORE_TAG) then
-            if removeDoom then
-                obj.destruct()
-                return 0
-            else
-                return math.abs(obj.getQuantity())
-            end
-        end
+  if (obj.is_face_down and obj.getCustomObject().image_bottom == doomURL) or
+      (obj.name == "Custom_Token" and obj.getCustomObject().image == doomURL) then
+    if not obj.hasTag(IGNORE_TAG) then
+      return math.abs(obj.getQuantity())
     end
-    return 0
+  end
+  return 0
+end
+
+-- removes doom from playermats / playarea
+function removeDoom(options)
+  local trashCan = getObjectFromGUID("70b9f6")
+  local count = 0
+  if options.Playermats then
+    for i = 1, 4 do
+      castParameters.origin = originAndSize[i].origin
+      castParameters.size = originAndSize[i].size
+
+      for _, obj in ipairs(Physics.cast(castParameters)) do
+        local obj = obj.hit_object
+        local amount = isDoom(obj)
+        if amount > 0 then
+          trashCan.putObject(obj)
+          count = count + amount
+        end
+      end
+    end
+    broadcastToAll(count .. " doom removed from Playermats.", "White")
+  end
+
+  local count = 0
+  if options.Playarea then
+    for _, obj in ipairs(zone.getObjects()) do
+      local amount = isDoom(obj)
+      if amount > 0 then
+        trashCan.putObject(obj)
+        count = count + amount
+      end
+    end
+    broadcastToAll(count .. " doom removed from Playarea.", "White")
+  end
 end
