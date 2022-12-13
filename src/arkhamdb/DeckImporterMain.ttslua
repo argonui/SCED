@@ -1,5 +1,6 @@
 require("arkhamdb/LoaderUi")
 require("playercards/PlayerCardSpawner")
+local playAreaApi = require("core/PlayAreaApi")
 
 local zones = require("playermat/Zones")
 
@@ -32,8 +33,6 @@ customizationRowsWithFields["09101"].inputMap = {}
 customizationRowsWithFields["09101"].inputMap[1] = 1
 customizationRowsWithFields["09101"].inputMap[2] = 2
 customizationRowsWithFields["09101"].inputMap[3] = 3
-
-local PLAY_AREA_GUID = "721ba2"
 
 local RANDOM_WEAKNESS_ID = "01000"
 local tags = { configuration = "import_configuration_provider" }
@@ -152,7 +151,7 @@ local function onDeckResult(deck, playerColor, configuration)
   maybeAddInvestigatorCards(deck, slots)
   maybeAddCustomizeUpgradeSheets(slots, configuration)
   maybeAddSummonedServitor(slots)
-  maybeAddOnTheMend(slots)
+  maybeAddOnTheMend(slots, playerColor)
   extractBondedCards(slots, configuration)
   checkTaboos(deck.taboo_id, slots, playerColor, configuration)
 
@@ -258,11 +257,15 @@ end
 -- the count based on the investigator count
 ---@param slots: The slot list for cards in this deck. Table key is the cardId, value is the number
 --     of those cards which will be spawned
-function maybeAddOnTheMend(slots)
+---@param playerColor: Color name of the player this deck is being loaded for. Used for broadcast if an error occurs
+function maybeAddOnTheMend(slots, playerColor)
   if slots["09006"] ~= nil then
-    local playArea = getObjectFromGUID(PLAY_AREA_GUID)
-    if playArea ~= nil then
-      slots["09006"] = playArea.call("getInvestigatorCount")
+    local investigatorCount = playAreaApi.getInvestigatorCount()
+    if investigatorCount ~= nil then
+      slots["09006"] = investigatorCount
+    else
+      debugPrint("Something went wrong with the load, adding 4 copies of On the Mend", Priority.INFO, playerColor)
+      slots["09006"] = 4
     end
   end
 end
