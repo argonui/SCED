@@ -5,6 +5,9 @@
 ENCOUNTER_DECK_POS = {-3.93, 1, 5.76}
 ENCOUNTER_DECK_DISCARD_POSITION = {-3.85, 1, 10.38}
 
+-- optionPanel data
+optionPanel = {}
+
 -- GUID of data helper
 DATA_HELPER_GUID = "708279"
 
@@ -25,8 +28,8 @@ local NOT_INTERACTABLE = {
 local chaosTokens = {}
 local chaosTokensLastMat = nil
 local IS_RESHUFFLING = false
-
-local bagSearchers = { }
+local bagSearchers = {}
+local playmatAPI = require("playermat/PlaymatApi")
 
 ---------------------------------------------------------
 -- data for tokens
@@ -127,10 +130,22 @@ local overallStats = {
 -- general code
 ---------------------------------------------------------
 
-function onLoad()
+-- saving state of optionPanel to restore later
+function onSave() return JSON.encode({ optionPanel = optionPanel }) end
+
+function onLoad(savedData)
+  if savedData then
+    loadedData = JSON.decode(savedData)
+    optionPanel = loadedData.optionPanel
+    updateOptionPanelState()
+  else
+    print("Saved state could not be found!")
+  end
+
   for _, guid in ipairs(NOT_INTERACTABLE) do
     getObjectFromGUID(guid).interactable = false
   end
+
   math.randomseed(os.time())
 end
 
@@ -600,14 +615,10 @@ local source_repo = 'https://raw.githubusercontent.com/seth-sced/loadable-object
 local library = nil
 local request_obj
 
-function onClick_toggleUi(player, window)
-  toggle_ui(window)
-end
-
 function onClick_refreshList()
   local request = WebRequest.get(source_repo .. '/library.json', completed_list_update)
   request_obj = request
-  startLuaCoroutine(Global, 'my_coroutine')
+  startLuaCoroutine(Global, 'downloadCoroutine')
 end
 
 function onClick_select(player, params)
@@ -615,7 +626,7 @@ function onClick_select(player, params)
   local url = source_repo .. '/' .. params.url
   local request = WebRequest.get(url, function (request) complete_obj_download(request, params) end )
   request_obj = request
-  startLuaCoroutine(Global, 'my_coroutine')
+  startLuaCoroutine(Global, 'downloadCoroutine')
 end
 
 function onClick_load()
@@ -623,18 +634,70 @@ function onClick_load()
   UI.hide('load_button')
 end
 
-function toggle_ui(title)
-  UI.hide('load_ui')
-  if UI.getValue('title') == title or title == 'Hidden' then
-    UI.setValue('title', 'Hidden')
+function onClick_defaultSettings()
+  print("Dummy: Load default settings")
+end
+
+function onClick_toggleOption(_, id)
+  local state = self.UI.getAttribute("toggle" .. id, "isOn")
+
+  -- flip state (and handle stupid "False" value)
+  if state == "False" then
+    state = true
   else
-    UI.setValue('title', title)
-    update_window_content(title)
-    UI.show('load_ui')
+    state = false
+  end
+
+  self.UI.setAttribute("toggle" .. id, "isOn", state)
+
+  id = tonumber(id)
+  optionPanel[id] = state
+  applyOptionPanelChange(id, state)
+end
+
+-- sets the option panel to the correct state (corresponding to 'optionPanel')
+function updateOptionPanelState()
+  for id, enabled in pairs(optionPanel) do
+    if enabled then self.UI.setAttribute("toggle" .. id, "isOn", true) end
   end
 end
 
-function my_coroutine()
+function applyOptionPanelChange(id, state)
+  -- option 1: Snap tags
+  if id == 1 then
+    playmatAPI.setLimitSnapsByType(state, "All")
+
+  -- option 2: Draw 1 button
+  elseif id == 2 then
+    playmatAPI.showDrawButton(state, "All")
+
+  -- option 3: Clickable clue counters
+  elseif id == 3 then
+    playmatAPI.clickableClues(state, "All")
+
+  end
+end
+
+function onClick_toggleUi(_, title)
+  UI.hide('optionPanel')
+  UI.hide('load_ui')
+  
+  -- when same button is clicked or close window button is pressed, don't open UI
+  if UI.getValue('title') ~= title and title ~= 'Hidden' then
+    UI.setValue('title', title)
+
+    if title == "Options" then
+      UI.show('optionPanel')
+    else
+      update_window_content(title)
+      UI.show('load_ui')
+    end
+  else
+    UI.setValue('title', "Hidden")
+  end
+end
+
+function downloadCoroutine()
   while request_obj do
     UI.setAttribute('download_progress', 'percentage', request_obj.download_progress * 100)
     coroutine.yield(0)

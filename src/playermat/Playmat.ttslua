@@ -45,8 +45,16 @@ local RESOURCE_COUNTER
 
 -- global variable so it can be reset by the Clean Up Helper
 activeInvestigatorId = "00000"
+local isDrawButtonVisible = false
 
-function onSave() return JSON.encode({zoneID = zoneID, playerColor = PLAYER_COLOR, activeInvestigatorId = activeInvestigatorId}) end
+function onSave()
+  return JSON.encode({
+    zoneID = zoneID,
+    playerColor = PLAYER_COLOR,
+    activeInvestigatorId = activeInvestigatorId,
+    isDrawButtonVisible = isDrawButtonVisible
+  })
+end
 
 function onLoad(save_state)
   self.interactable = DEBUG
@@ -96,7 +104,10 @@ function onLoad(save_state)
     zoneID = state.zoneID
     PLAYER_COLOR = state.playerColor
     activeInvestigatorId = state.activeInvestigatorId
+    isDrawButtonVisible = state.isDrawButtonVisible
   end
+
+  showDrawButton(isDrawButtonVisible)
 
   if getObjectFromGUID(zoneID) == nil then spawnDeckZone() end
   COLLISION_ENABLED = true
@@ -648,11 +659,46 @@ function spawnToken(position, tokenType)
   Global.call('spawnToken', {position, tokenType, PLAY_ZONE_ROTATION})
 end
 
+-- Sets this playermat's draw 1 button to visible
+---@param visible Boolean.  Whether the draw 1 button should be visible
+function showDrawButton(visible)
+  isDrawButtonVisible = visible
+
+  -- create the "Draw 1" button
+  if isDrawButtonVisible then
+    self.createButton({
+        label = "Draw 1",
+        click_function = "doDrawOne",
+        function_owner = mat,
+        position = { 1.84, 0.1, -0.36 },
+        scale = { 0.12, 0.12, 0.12 },
+        width = 800,
+        height = 280,
+        font_size = 180
+    })
+
+  -- remove the "Draw 1" button
+  else
+    local buttons = self.getButtons()
+    for i = 1, #buttons do 
+      if buttons[i].label == "Draw 1" then
+        self.removeButton(buttons[i].index)
+      end
+    end
+  end
+end
+
+-- Shows or hides the clickable clue counter for this playmat
+---@param showCounters Boolean.  Whether the clickable clue counter should be present
+function clickableClues(showCounters)
+  print("dummy function for clue counters")
+end
+
 -- Sets this playermat's snap points to limit snapping to matching card types or not.  If matchTypes
 -- is true, the main card slot snap points will only snap assets, while the investigator area point
 -- will only snap Investigators.  If matchTypes is false, snap points will be reset to snap all
 -- cards.
--- @param matchTypes Boolean.  Whether snap points should only snap for the matching card types.
+---@param matchTypes Boolean.  Whether snap points should only snap for the matching card types.
 function setLimitSnapsByType(matchTypes)
   local snaps = self.getSnapPoints()
   for i, snap in ipairs(snaps) do
@@ -686,10 +732,10 @@ function setLimitSnapsByType(matchTypes)
 end
 
 -- Simple method to check if the given point is in a specified area.  Local use only,
--- @param point Vector.  Point to check, only x and z values are relevant
--- @param bounds Table.  Defined area to see if the point is within.  See MAIN_PLAY_AREA for sample
+---@param point Vector.  Point to check, only x and z values are relevant
+---@param bounds Table.  Defined area to see if the point is within.  See MAIN_PLAY_AREA for sample
 --     bounds definition.
--- @return Boolean.  True if the point is in the area defined by bounds
+---@return Boolean.  True if the point is in the area defined by bounds
 function inArea(point, bounds)
   return (point.x < bounds.upperLeft.x
       and point.x > bounds.lowerRight.x
