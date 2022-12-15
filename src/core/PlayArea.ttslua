@@ -8,7 +8,21 @@ DEBUG = false
 -- we use this to turn off collision handling until onLoad() is complete
 COLLISION_ENABLED = false
 
+local SHIFT_OFFSETS = {
+  left  = { x = 0.00, y = 0, z = 7.67 },
+  right = { x = 0.00, y = 0, z = -7.67 },
+  up    = { x = 6.54, y = 0, z = 0.00 },
+  down  = { x = -6.54, y = 0, z = 0.00 }
+}
+local SHIFT_EXCLUSION = {
+  ["b7b45b"] = true,
+  ["f182ee"] = true,
+  ["721ba2"] = true
+}
+
 local INVESTIGATOR_COUNTER_GUID = "f182ee"
+local PLAY_AREA_ZONE_GUID = "a2f932"
+
 local clueData = {}
 spawnedLocationGUIDs = {}
 
@@ -122,7 +136,49 @@ function onCollisionEnter(collision_info)
   end
 end
 
+-- Move all contents on the play area (cards, tokens, etc) one slot in the given direction.  Certain
+-- fixed objects will be ignored, as will anything the player has tagged with
+-- 'displacement_excluded'
+---@param playerColor Color of the player requesting the shift.  Used solely to send an error
+---    message in the unlikely case that the scripting zone has been deleted
+function shiftContentsUp(playerColor)
+  shiftContents(playerColor, "up")
+end
+
+function shiftContentsDown(playerColor)
+  shiftContents(playerColor, "down")
+end
+
+function shiftContentsLeft(playerColor)
+  shiftContents(playerColor, "left")
+end
+
+function shiftContentsRight(playerColor)
+  shiftContents(playerColor, "right")
+end
+
+function shiftContents(playerColor, direction)
+  local zone = getObjectFromGUID(PLAY_AREA_ZONE_GUID)
+  if not zone then
+    broadcastToColor("Scripting zone couldn't be found.", playerColor, "Red")
+    return
+  end
+
+  for _, object in ipairs(zone.getObjects()) do
+    if not (SHIFT_EXCLUSION[object.getGUID()] or object.hasTag("displacement_excluded")) then
+      object.translate(SHIFT_OFFSETS[direction])
+    end
+  end
+end
+
+-- Returns the current value of the investigator counter from the playmat
+---@return Integer.  Number of investigators currently set on the counter
 function getInvestigatorCount()
-  local investigatorCounter = getObjectFromGUID('f182ee')
+  local investigatorCounter = getObjectFromGUID("f182ee")
   return investigatorCounter.getVar("val")
+end
+
+-- Reset the play area's tracking of which cards have had tokens spawned.
+function resetSpawnedCards()
+  spawnedLocationGUIDs = {}
 end
