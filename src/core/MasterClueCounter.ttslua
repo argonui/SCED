@@ -1,22 +1,7 @@
-local clueCounters = {}
-local clueCounterGUIDS = {
-  "37be78",
-  "1769ed",
-  "032300",
-  "d86b7c"
-}
-
-local clueClickers = {}
-local clueClickerGUIDS = {
-  "db85d6",
-  "3f22e5",
-  "891403",
-  "4111de"
-}
-
 count = 0
 useClickableCounters = false
 
+local playmatAPI = require("playermat/PlaymatApi")
 function onSave() return JSON.encode(useClickableCounters) end
 
 function onLoad(savedData)
@@ -37,41 +22,18 @@ function onLoad(savedData)
     color = { 0, 0, 0, 0 }
   })
 
-  -- loading object references to the clue counters / clickers via GUID
-  for i = 1, 4 do
-    clueCounters[i] = getObjectFromGUID(clueCounterGUIDS[i])
-    clueClickers[i] = getObjectFromGUID(clueClickerGUIDS[i])
-  end
-
   loopID = Wait.time(sumClues, 2, -1)
 end
 
 -- removes all player clues by calling the respective function from the counting bowls / clickers
 function removeAllPlayerClues()
   printToAll(count .. " clue(s) from playermats removed.", "White")
-  if useClickableCounters then
-    for i = 1, 4 do
-      clueClickers[i].call("updateVal", 0)
-    end
-  else
-    for i = 1, 4 do
-      clueCounters[i].call("removeAllClues")
-    end
-  end
+  playmatAPI.removeClues("All")
   self.editButton({ index = 0, label = "0" })
 end
 
 -- gets the counted values from the counting bowls / clickers and sums them up
 function sumClues()
-  count = 0
-  if useClickableCounters then
-    for i = 1, 4 do
-      count = count + tonumber(clueClickers[i].getVar("val"))
-    end
-  else
-    for i = 1, 4 do
-      count = count + tonumber(clueCounters[i].getVar("exposedValue"))
-    end
-  end
+  count = playmatAPI.getClueCount(useClickableCounters, "All")
   self.editButton({ index = 0, label = tostring(count) })
 end
