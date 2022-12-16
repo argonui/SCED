@@ -688,10 +688,66 @@ function showDrawButton(visible)
   end
 end
 
--- Shows or hides the clickable clue counter for this playmat
----@param showCounters Boolean.  Whether the clickable clue counter should be present
-function clickableClues(showCounters)
-  print("dummy function for clue counters")
+-- Spawns / destroys a clickable clue counter for this playmat with the correct amount of clues
+---@param showCounter Boolean Whether the clickable clue counter should be present
+function clickableClues(showCounter)
+  local CLUE_COUNTER = getObjectFromGUID(CLUE_COUNTER_GUID)
+  local CLUE_CLICKER = getObjectFromGUID(CLUE_CLICKER_GUID)
+  local clickerPos = CLUE_CLICKER.getPosition()
+  local clueCount = 0
+
+  if showCounter then
+    -- current clue count
+    clueCount = CLUE_COUNTER.getVar("exposedValue")
+
+    -- remove clues
+    CLUE_COUNTER.call("removeAllClues")
+
+    -- set value for clue clickers
+    CLUE_CLICKER.call("updateVal", clueCount)
+
+    -- move clue counters up
+    clickerPos.y = 1.52
+    CLUE_CLICKER.setPosition(clickerPos)
+  else
+    -- current clue count
+    clueCount = CLUE_CLICKER.getVar("val")
+
+    -- move clue counters down
+    clickerPos.y = 1.3
+    CLUE_CLICKER.setPosition(clickerPos)
+
+    -- spawn clues
+    local pos = self.positionToWorld({x = -1.12, y = 0.05, z = 0.7})
+    for i = 1, clueCount do
+      pos.y = pos.y + 0.045 * i
+      spawnToken(pos, "clue")
+    end
+  end
+end
+
+-- removes all clues (moving tokens to the trash and setting counters to 0)
+function removeClues()
+  local CLUE_COUNTER = getObjectFromGUID(CLUE_COUNTER_GUID)
+  local CLUE_CLICKER = getObjectFromGUID(CLUE_CLICKER_GUID)
+
+  CLUE_COUNTER.call("removeAllClues")
+  CLUE_CLICKER.call("updateVal", 0)
+end
+
+-- reports the clue count
+---@param useClickableCounters Boolean Controls which type of counter is getting checked
+function getClueCount(useClickableCounters)
+  local count = 0
+
+  if useClickableCounters then
+    local CLUE_CLICKER = getObjectFromGUID(CLUE_CLICKER_GUID)
+    count = tonumber(CLUE_CLICKER.getVar("val"))
+  else
+    local CLUE_COUNTER = getObjectFromGUID(CLUE_COUNTER_GUID)
+    count = tonumber(CLUE_COUNTER.getVar("exposedValue"))
+  end
+  return count
 end
 
 -- Sets this playermat's snap points to limit snapping to matching card types or not.  If matchTypes
