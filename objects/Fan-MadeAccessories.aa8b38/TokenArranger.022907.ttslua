@@ -1,14 +1,5 @@
--- Token Arranger
--- created by:      Chr1Z
--- original by:     Whimsical
--- description:     displays the content of the chaos bag
-information = {
-    version = "1.7",
-    last_updated = "13.11.2022"
-}
-
 -- names of tokens in order
-local token_names = {
+local TOKEN_NAMES = {
     "Elder Sign",
     "Skull",
     "Cultist",
@@ -23,7 +14,7 @@ local token_names = {
 
 -- token modifiers for sorting (and order for same modifier)
 -- order starts at 2 because there is a "+1" token
-local token_precedence = {
+local TOKEN_PRECEDENCE = {
     ["Elder Sign"]  = { 100, 2 },
     ["Skull"]       = { -1, 3 },
     ["Cultist"]     = { -2, 4 },
@@ -54,16 +45,13 @@ inputParameters.alignment      = 3
 inputParameters.validation     = 2
 inputParameters.tab            = 2
 
--- tag for cloned tokens
-TO_DELETE_TAG = "to_be_deleted"
-
 updating = false
 
-function onSave() return JSON.encode(token_precedence) end
+function onSave() return JSON.encode(TOKEN_PRECEDENCE) end
 
 function onLoad(save_state)
     if save_state ~= nil then
-        token_precedence = JSON.decode(save_state)
+        TOKEN_PRECEDENCE = JSON.decode(save_state)
     end
 
     -- create UI
@@ -82,7 +70,7 @@ function onLoad(save_state)
 
         buttonParameters.click_function = attachIndex("tokenClick", i)
         inputParameters.input_function  = attachIndex2("tokenInput", i)
-        inputParameters.value           = token_precedence[token_names[i]][1]
+        inputParameters.value           = TOKEN_PRECEDENCE[TOKEN_NAMES[i]][1]
 
         self.createButton(buttonParameters)
         self.createInput(inputParameters)
@@ -100,8 +88,7 @@ function onLoad(save_state)
 
     self.addContextMenuItem("More Information", function()
         printToAll("------------------------------", "White")
-        printToAll("Token Arranger v" .. information["version"] .. " by Chr1Z", "Orange")
-        printToAll("last updated: " .. information["last_updated"], "White")
+        printToAll("Token Arranger by Chr1Z", "Orange")
         printToAll("original concept by Whimsical", "White")
     end)
 
@@ -138,11 +125,11 @@ function tokenClick(obj, player_color, alt_click, index)
     if not updating then
         updating = true
         if alt_click then
-            token_precedence[token_names[index]][1] = token_precedence[token_names[index]][1] - 1
+            TOKEN_PRECEDENCE[TOKEN_NAMES[index]][1] = TOKEN_PRECEDENCE[TOKEN_NAMES[index]][1] - 1
         else
-            token_precedence[token_names[index]][1] = token_precedence[token_names[index]][1] + 1
+            TOKEN_PRECEDENCE[TOKEN_NAMES[index]][1] = TOKEN_PRECEDENCE[TOKEN_NAMES[index]][1] + 1
         end
-        self.editInput({ index = index - 1, value = token_precedence[token_names[index]][1] })
+        self.editInput({ index = index - 1, value = TOKEN_PRECEDENCE[TOKEN_NAMES[index]][1] })
         layout()
     end
 end
@@ -153,7 +140,7 @@ function tokenInput(obj, player_color, input, selected, index)
         updating = true
         local num = tonumber(input)
         if num ~= nil then
-            token_precedence[token_names[index]][1] = num
+            TOKEN_PRECEDENCE[TOKEN_NAMES[index]][1] = num
         end
         layout()
     end
@@ -197,7 +184,7 @@ end
 -- main function (delete old tokens, clone chaos bag content, sort it and position it)
 function layout(_, _, isRightClick)
     -- delete previously pulled out tokens
-    for _, token in ipairs(getObjectsWithTag(TO_DELETE_TAG)) do token.destruct() end
+    for _, token in ipairs(getObjectsWithTag("to_be_deleted")) do token.destruct() end
 
     -- stop here if right-clicked
     if isRightClick then return end
@@ -212,14 +199,14 @@ function layout(_, _, isRightClick)
             smooth = false,
             callback_function = function(tok)
                 chaos_bag.putObject(tok.clone())
-                tok.addTag(TO_DELETE_TAG)
+                tok.addTag("to_be_deleted")
             end
         }
     end
 
     -- wait until all tokens have finished spawning
     Wait.condition(function() do_position() end,
-        function() return #chaos_bag_objects == #getObjectsWithTag(TO_DELETE_TAG) end)
+        function() return #chaos_bag_objects == #getObjectsWithTag("to_be_deleted") end)
 end
 
 -- position tokens sorted by value
@@ -227,10 +214,10 @@ function do_position()
     local data = {}
 
     -- create table with tokens
-    for i, token in ipairs(getObjectsWithTag(TO_DELETE_TAG)) do
+    for i, token in ipairs(getObjectsWithTag("to_be_deleted")) do
         local name = token.getName() or ""
         local value = tonumber(name)
-        local precedence = token_precedence[name]
+        local precedence = TOKEN_PRECEDENCE[name]
 
         data[i] = {
             token = token,
