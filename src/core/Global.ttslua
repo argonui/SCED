@@ -11,6 +11,9 @@ optionPanel = {}
 -- GUID of data helper
 DATA_HELPER_GUID = "708279"
 
+-- GUID of fan-made accessories bag (also just called "barrel")
+BARREL_GUID = "aa8b38"
+
 -- GUIDs that will not be interactable (e.g. parts of the table)
 local NOT_INTERACTABLE = {
   "6161b4",
@@ -634,52 +637,6 @@ function onClick_load()
   UI.hide('load_button')
 end
 
-function onClick_defaultSettings()
-  print("Dummy: Load default settings")
-end
-
-function onClick_toggleOption(_, id)
-  local state = self.UI.getAttribute("toggle" .. id, "isOn")
-
-  -- flip state (and handle stupid "False" value)
-  if state == "False" then
-    state = true
-  else
-    state = false
-  end
-
-  self.UI.setAttribute("toggle" .. id, "isOn", state)
-
-  id = tonumber(id)
-  optionPanel[id] = state
-  applyOptionPanelChange(id, state)
-end
-
--- sets the option panel to the correct state (corresponding to 'optionPanel')
-function updateOptionPanelState()
-  for id, enabled in pairs(optionPanel) do
-    if enabled then self.UI.setAttribute("toggle" .. id, "isOn", true) end
-  end
-end
-
-function applyOptionPanelChange(id, state)
-  -- option 1: Snap tags
-  if id == 1 then
-    playmatAPI.setLimitSnapsByType(state, "All")
-
-  -- option 2: Draw 1 button
-  elseif id == 2 then
-    playmatAPI.showDrawButton(state, "All")
-
-  -- option 3: Clickable clue counters
-  elseif id == 3 then
-    playmatAPI.clickableClues(state, "All")
-
-    -- update master clue counter
-    getObjectFromGUID("4a3aa4").setVar("useClickableCounters", state)
-  end
-end
-
 function onClick_toggleUi(_, title)
   UI.hide('optionPanel')
   UI.hide('load_ui')
@@ -824,4 +781,143 @@ function urldecode(str)
   local str = string.gsub(str, "%%(%x%x)",
     function (h) return string.char(tonumber(h, 16)) end)
   return str
+end
+
+---------------------------------------------------------
+-- Option Panel related functionality
+---------------------------------------------------------
+
+-- loads the default options
+function onClick_defaultSettings()
+  print("Dummy: Load default settings")
+end
+
+-- called by toggling an option
+function onClick_toggleOption(_, id)
+  local state = self.UI.getAttribute(id, "isOn")
+
+  -- flip state (and handle stupid "False" value)
+  if state == "False" then
+    state = true
+  else
+    state = false
+  end
+
+  self.UI.setAttribute(id, "isOn", state)
+  optionPanel[id] = state
+  applyOptionPanelChange(id, state)
+end
+
+-- sets the option panel to the correct state (corresponding to 'optionPanel')
+function updateOptionPanelState()
+  for id, enabled in pairs(optionPanel) do
+    if enabled then
+      self.UI.setAttribute(id, "isOn", true)
+    end
+  end
+end
+
+-- handles the applying of option selections and calls the respective functions based
+---@param id String ID of the option that was selected or deselected
+---@param state Boolean State of the option (true = enabled)
+function applyOptionPanelChange(id, state)
+  -- option: Snap tags
+  if id == "useSnapTags" then
+    playmatAPI.setLimitSnapsByType(state, "All")
+
+  -- option: Draw 1 button
+  elseif id == "showDrawButton" then
+    playmatAPI.showDrawButton(state, "All")
+
+  -- option: Clickable clue counters
+  elseif id == "useClueClickers" then
+    playmatAPI.clickableClues(state, "All")
+
+    -- update master clue counter
+    getObjectFromGUID("4a3aa4").setVar("useClickableCounters", state)
+  
+  -- option: Show token arranger
+  elseif id == "showTokenArranger" then
+    -- delete previously pulled out tokens
+    for _, token in ipairs(getObjectsWithTag("to_be_deleted")) do token.destruct() end
+
+    spawnOrRemoveHelper(state, "Token Arranger", {-42.3, 1.4, -46.5})
+
+  -- option: Show clean up helper
+  elseif id == "showCleanUpHelper" then
+    spawnOrRemoveHelper(state, "Clean Up Helper", {-68, 1.6, 35.5})
+  
+  -- option: Show hand helper for each player
+  elseif id == "showHandHelper" then
+    spawnOrRemoveHelper(state, "Hand Helper", {-50.84, 1.6, 7.02}, {0, 270, 0}, "White")
+    spawnOrRemoveHelper(state, "Hand Helper", {-50.90, 1.6, -25.10}, {0, 270, 0}, "Orange")
+    spawnOrRemoveHelper(state, "Hand Helper", {-34.38, 1.6, 22.44}, {0, 000, 0}, "Green")
+    spawnOrRemoveHelper(state, "Hand Helper", {-16.69, 1.6, -22.42}, {0, 180, 0}, "Red")
+
+  -- option: Show chaos bag manager
+  elseif id == "showChaosBagManager" then
+    spawnOrRemoveHelper(state, "Chaos Bag Manager", {-67.8, 1.4, -49.5})
+  end
+end
+
+-- handler for spawn / remove functions of helper objects
+---@param state Boolean Contains the state of the option: true = spawn it, false = remove it
+---@param name String Name of the helper object
+---@param position Vector Position of the object (where it will spawn or where it will be removed from)
+---@param rotation Vector Rotation of the object for spawning (default: {0, 270, 0})
+---@param color Color This is only needed for correctly setting the color of the "Hand Helper"
+function spawnOrRemoveHelper(state, name, position, rotation, color)
+  if state then
+    spawnHelperObject(name, position, rotation, color)
+    Player["White"].pingTable(position)
+  else
+    removeHelperObject(name, position)
+  end
+end
+
+-- copies the specified tool (by name) from the barrel
+---@param name String Name of the object that should be copied
+---@param position Position Desired position of the object
+function spawnHelperObject(name, position, rotation, color)
+  if rotation == nil then rotation = {0, 270, 0} end
+
+  for _, obj in ipairs(getObjectFromGUID(BARREL_GUID).getData().ContainedObjects) do
+    if obj["Nickname"] == name then
+      spawnObjectData({
+        data = obj,
+        position = position,
+        rotation = rotation,
+        callback_function = function(object)
+          if name == "Hand Helper" then
+            Wait.time(function() object.call("externalColorChange", color) end, 1)
+          elseif name == "Token Arranger" then
+            Wait.time(function() object.call("layout") end, 1)
+          end
+        end
+      })
+      return
+    end
+  end
+end
+
+-- removes the specified tool (by name) from the provided position
+---@param name String Name of the object that should be removed
+---@param position Position Position of the object
+function removeHelperObject(name, position)
+  local search = Physics.cast({
+    direction    = { 0, 1, 0 },
+    max_distance = 1,
+    type         = 3,
+    size         = {1, 1, 1},
+    origin       = position,
+    orientation  = { 0, 270, 0 }
+  })
+  
+  for _, obj in ipairs(search) do
+    obj = obj.hit_object
+    if obj.getName() == name then
+      obj.destruct()
+      return
+    end
+  end
 end
