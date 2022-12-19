@@ -93,21 +93,24 @@ function onLoad(save_state)
     end)
 
     -- send object reference to bless/curse manager
-    Wait.time(function()
-        getObjectFromGUID("5933fb").setVar("tokenArranger", self)
-    end, 1)
+    Wait.time(function() getObjectFromGUID("5933fb").setVar("tokenArranger", self) end, 1)
 end
 
 function onDestroy()
+    deleteCopiedTokens()
     -- remove object reference from bless/curse manager
     getObjectFromGUID("5933fb").setVar("tokenArranger", nil)
+end
+
+function onPickUp()
+    deleteCopiedTokens()
 end
 
 -- helper functions to carry index
 function attachIndex(click_function, index)
     local fn_name = click_function .. index
-    _G[fn_name] = function(obj, player_color, alt_click)
-        _G[click_function](obj, player_color, alt_click, index)
+    _G[fn_name] = function(obj, player_color, isRightClick)
+        _G[click_function](obj, player_color, isRightClick, index)
     end
     return fn_name
 end
@@ -121,21 +124,18 @@ function attachIndex2(input_function, index)
 end
 
 -- click_function for buttons on chaos tokens
-function tokenClick(obj, player_color, alt_click, index)
+function tokenClick(_, _, isRightClick, index)
     if not updating then
         updating = true
-        if alt_click then
-            TOKEN_PRECEDENCE[TOKEN_NAMES[index]][1] = TOKEN_PRECEDENCE[TOKEN_NAMES[index]][1] - 1
-        else
-            TOKEN_PRECEDENCE[TOKEN_NAMES[index]][1] = TOKEN_PRECEDENCE[TOKEN_NAMES[index]][1] + 1
-        end
+        local change = tonumber(isRightClick and "-1" or "1")
+        TOKEN_PRECEDENCE[TOKEN_NAMES[index]][1] = TOKEN_PRECEDENCE[TOKEN_NAMES[index]][1] + change
         self.editInput({ index = index - 1, value = TOKEN_PRECEDENCE[TOKEN_NAMES[index]][1] })
         layout()
     end
 end
 
 -- input_function for input_boxes
-function tokenInput(obj, player_color, input, selected, index)
+function tokenInput(_, _, input, selected, index)
     if selected == false and not updating then
         updating = true
         local num = tonumber(input)
@@ -181,10 +181,14 @@ function getChaosBag()
     return chaosbag
 end
 
+-- deletes previously placed tokens
+function deleteCopiedTokens()
+    for _, token in ipairs(getObjectsWithTag("to_be_deleted")) do token.destruct() end
+end
+
 -- main function (delete old tokens, clone chaos bag content, sort it and position it)
 function layout(_, _, isRightClick)
-    -- delete previously pulled out tokens
-    for _, token in ipairs(getObjectsWithTag("to_be_deleted")) do token.destruct() end
+    deleteCopiedTokens()
 
     -- stop here if right-clicked
     if isRightClick then return end
@@ -205,12 +209,11 @@ function layout(_, _, isRightClick)
     end
 
     -- wait until all tokens have finished spawning
-    Wait.condition(function() do_position() end,
-        function() return #chaos_bag_objects == #getObjectsWithTag("to_be_deleted") end)
+    Wait.condition(function() placeTokens() end, function() return #chaos_bag_objects == #getObjectsWithTag("to_be_deleted") end)
 end
 
 -- position tokens sorted by value
-function do_position()
+function placeTokens()
     local data = {}
 
     -- create table with tokens
