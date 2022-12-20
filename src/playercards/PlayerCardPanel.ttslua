@@ -1,0 +1,509 @@
+require("playercards/PlayerCardPanelData")
+local spawnBag = require("playercards/spawnbag/SpawnBag")
+local arkhamDb = require("arkhamdb/ArkhamDb")
+
+-- TODO: Update when the real UI image is in place
+local BUTTON_WIDTH = 150
+local BUTTON_HEIGHT = 550
+
+local ALL_CARDS_BAG_GUID = "15bb07"
+
+local FACE_UP_ROTATION = { x = 0, y = 270, z = 0}
+local FACE_DOWN_ROTATION = { x = 0, y = 270, z = 180}
+
+-- Coordinates to begin laying out cards to match the reserved areas of the
+-- table.  Cards will lay out horizontally, then create additional rows
+local START_POSITIONS = {
+  skill = Vector(58.384, 1.36, 92.4),
+  event = Vector(53.229, 1.36, 92.4),
+  asset = Vector(40.960, 1.36, 92.4),
+  investigator = Vector(60, 1.36, 80)
+}
+
+-- Position offsets for investigator decks in investigator mode, defines the spacing for how the
+-- rows and columns are laid out
+local INVESTIGATOR_POSITION_SHIFT_ROW = Vector(-11, 0, 0)
+local INVESTIGATOR_POSITION_SHIFT_COL = Vector(0, 0, -6)
+local INVESTIGATOR_MAX_COLS = 6
+
+-- Positions relative to the minicard to place other stacks.  Both signature card piles and starter
+-- decks use SIGNATURE_OFFSET
+local INVESTIGATOR_CARD_OFFSET = Vector(-2.55, 0, 0)
+local INVESTIGATOR_SIGNATURE_OFFSET = Vector(-5.75, 0, 0)
+
+local spawnStarterDecks = false
+
+function onSave()
+  local saveState = {
+    spawnBagState = spawnBag.getStateForSave(),
+  }
+  return JSON.encode(saveState)
+end
+
+function onLoad(savedData)
+  arkhamDb.initialize()
+  if (savedData ~= nil) then
+    local saveState = JSON.decode(savedData) or { }
+    if (saveState.spawnBagState ~= nil) then
+      spawnBag.loadFromSave(saveState.spawnBagState)
+    end
+  end
+
+  self.createButton({
+      label="Guardian", click_function="spawnInvestigatorsGuardian", function_owner=self,
+      position={-0.3,0.2,-0.5}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
+      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
+  })
+  self.createButton({
+      label="Seeker", click_function="spawnInvestigatorsSeeker", function_owner=self,
+      position={0,0.2,-0.5}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
+      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
+  })
+  self.createButton({
+      label="Mystic", click_function="spawnInvestigatorsMystic", function_owner=self,
+      position={0.3,0.2,-0.5}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
+      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
+  })
+  self.createButton({
+      label="Rogue", click_function="spawnInvestigatorsRogue", function_owner=self,
+      position={-0.3,0.2,-0.4}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
+      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
+  })
+  self.createButton({
+      label="Survivor", click_function="spawnSurvivor", function_owner=self,
+      position={0,0.2,-0.4}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
+      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
+  })
+  self.createButton({
+      label="Neutral", click_function="spawnNeutral", function_owner=self,
+      position={0.3,0.2,-0.4}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
+      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
+  })
+
+  self.createButton({
+      label="Core", click_function="spawnCore", function_owner=self,
+      position={-0.3,0.2,-0.2}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
+      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
+  })
+  self.createButton({
+      label="Dunwich", click_function="spawnDunwich", function_owner=self,
+      position={0,0.2,-0.2}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
+      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
+  })
+  self.createButton({
+      label="Carcosa", click_function="spawnCarcosa", function_owner=self,
+      position={0.3,0.2,-0.2}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
+      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
+  })
+  self.createButton({
+      label="Forgotten Age", click_function="spawnForgottenAge", function_owner=self,
+      position={-0.3,0.2,-0.1}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
+      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
+  })
+  self.createButton({
+      label="Circle Undone", click_function="spawnCircleUndone", function_owner=self,
+      position={0,0.2,-0.1}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
+      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
+  })
+  self.createButton({
+      label="Dream Eaters", click_function="spawnDreamEaters", function_owner=self,
+      position={0.3,0.2,-0.1}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
+      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
+  })
+  self.createButton({
+      label="Innsmouth", click_function="spawnInnsmouth", function_owner=self,
+      position={-0.3,0.2,0}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
+      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
+  })
+  self.createButton({
+      label="EotE", click_function="spawnEotE", function_owner=self,
+      position={0,0.2,0}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
+      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
+  })
+  self.createButton({
+      label="Scarlet Keys", click_function="spawnScarletKeys", function_owner=self,
+      position={0.3,0.2,0}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
+      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
+  })
+  self.createButton({
+      label="InvPacks", click_function="spawnInvestigatorDecks", function_owner=self,
+      position={-0.3,0.2,0.1}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
+      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
+  })
+  self.createButton({
+      label="Investigators", click_function="setInvestigators", function_owner=self,
+      position={-0.15,0.2,-0.6}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
+      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
+  })
+  self.createButton({
+      label="Starters", click_function="setStarters", function_owner=self,
+      position={0.15,0.2,-0.6}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
+      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
+  })
+
+  self.createButton({
+      label="L0 Guardian", click_function="spawnBasicGuardian", function_owner=self,
+      position={-0.15,0.2,0.3}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
+      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
+  })
+  self.createButton({
+      label="L1-5 Guardian", click_function="spawnUpgradedGuardian", function_owner=self,
+      position={0.15,0.2,0.3}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
+      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
+  })
+  self.createButton({
+      label="L0 Seeker", click_function="spawnBasicSeeker", function_owner=self,
+      position={-0.15,0.2,0.4}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
+      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
+  })
+  self.createButton({
+      label="L1-5 Seeker", click_function="spawnUpgradedSeeker", function_owner=self,
+      position={0.15,0.2,0.4}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
+      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
+  })
+  self.createButton({
+      label="L0 Mystic", click_function="spawnBasicMystic", function_owner=self,
+      position={-0.15,0.2,0.5}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
+      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
+  })
+  self.createButton({
+      label="L1-5 Mystic", click_function="spawnUpgradedGuardian", function_owner=self,
+      position={0.15,0.2,0.5}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
+      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
+  })
+  self.createButton({
+      label="L0 Rogue", click_function="spawnBasicRogue", function_owner=self,
+      position={-0.15,0.2,0.6}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
+      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
+  })
+  self.createButton({
+      label="L1-5 Rogue", click_function="spawnUpgradedRogue", function_owner=self,
+      position={0.15,0.2,0.6}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
+      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
+  })
+  self.createButton({
+      label="L0 Survivor", click_function="spawnBasicSurvivor", function_owner=self,
+      position={-0.15,0.2,0.7}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
+      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
+  })
+  self.createButton({
+      label="L1-5 Survivor", click_function="spawnUpgradedSurvivor", function_owner=self,
+      position={0.15,0.2,0.7}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
+      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
+  })
+  self.createButton({
+      label="L0 Neutral", click_function="spawnBasicNeutral", function_owner=self,
+      position={-0.15,0.2,0.8}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
+      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
+  })
+  self.createButton({
+      label="L1-5 Neutral", click_function="spawnUpgradedNeutral", function_owner=self,
+      position={0.15,0.2,0.8}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
+      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
+  })
+  self.createButton({
+      label="Clear", click_function="deleteAll", function_owner=self,
+      position={0.5,0.2,0.9}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
+      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
+  })
+  self.createButton({
+      label="Weaknesses", click_function="spawnWeaknesses", function_owner=self,
+      position={-0.5,0.2,0.9}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
+      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
+  })
+  local classList = { "Guardian", "Seeker", "Mystic", "Rogue", "Survivor", "Neutral" }
+  for _, className in ipairs(classList) do
+    local funcName = "spawnInvestigators"..className
+    self.setVar(funcName, function(_, _, _) spawnGroup(className) end)
+    funcName = "spawnBasic"..className
+    self.setVar(funcName, function(_, _, _) spawnClassCards(className, false) end)
+    funcName = "spawnUpgraded"..className
+    self.setVar(funcName, function(_, _, _) spawnClassCards(className, true) end)
+  end
+end
+
+-- TODO: Replace these with something less manual once the full data in in place so we know what
+-- keys to use
+function placeCore()
+  spawnGroup("Core")
+end
+
+function placeDunwich()
+  spawnGroup("Dunwich")
+end
+
+function placeCarcosa()
+  spawnGroup("Carcosa")
+end
+
+function placeForgottenAge()
+  spawnGroup("ForgottenAge")
+end
+
+function placeCircleUndone()
+  spawnGroup("CircleUndone")
+end
+
+function placeDreamEaters()
+  spawnGroup("DreamEaters")
+end
+
+function placeInnsmouth()
+  spawnGroup("Innsmouth")
+end
+
+function placeEotE()
+  spawnGroup("EotE")
+end
+
+function placeScarletKeys()
+  spawnGroup("ScarletKeys")
+end
+
+function placeInvestigatorDecks()
+  spawnGroup("InvestigatorDecks")
+end
+
+-- UI handler to put the investigator spawn in investigator mode.
+function setInvestigators()
+  spawnStarterDecks = false
+  printToAll("Spawning investigator piles")
+end
+
+-- UI handler to put the investigator spawn in starter deck mode.
+function setStarters()
+  spawnStarterDecks = true
+  printToAll("Spawning starter decks")
+end
+
+-- Deletes all cards currently placed on the table
+function deleteAll()
+  spawnBag.recall(true)
+end
+
+-- Spawn an investigator group, based on the current UI setting for either investigators or starter
+-- decks.
+---@param groupName String.  Name of the group to spawn, matching a key in InvestigatorPanelData
+function spawnGroup(groupName)
+  spawnBag.recall(true)
+  Wait.frames(function()
+    if spawnStarterDecks then
+      spawnStarters(groupName)
+    else
+      spawnInvestigators(groupName)
+    end
+  end, 2)
+end
+
+-- Spawn cards for all investigators in the given group.  This creates piles for all defined
+-- investigator cards and minicards as well as the signature cards.
+---@param groupName String.  Name of the group to spawn, matching a key in InvestigatorPanelData
+function spawnInvestigators(groupName)
+  local position = Vector(START_POSITIONS.investigator)
+  local col = 1
+  local row = 1
+  if INVESTIGATOR_GROUPS[groupName] == nil then
+    printToAll("No " .. groupName .. " data yet")
+    return
+  end
+  for _, investigatorName in ipairs(INVESTIGATOR_GROUPS[groupName]) do
+    for _, spawnSpec in ipairs(buildInvestigatorSpawnSpec(
+        investigatorName, INVESTIGATORS[investigatorName], position, false)) do
+      spawnBag.spawn(spawnSpec)
+    end
+    position:add(INVESTIGATOR_POSITION_SHIFT_COL)
+    col = col + 1
+    if col > INVESTIGATOR_MAX_COLS then
+      col = 1
+      position = Vector(START_POSITIONS.investigator)
+      position:add(Vector(
+          INVESTIGATOR_POSITION_SHIFT_ROW.x * row,
+          INVESTIGATOR_POSITION_SHIFT_ROW.z * row,
+          INVESTIGATOR_POSITION_SHIFT_ROW.z * row))
+      row = row + 1
+    end
+  end
+end
+
+-- Creates the spawn spec for the investigator's signature cards.
+---@param investigatorName String.  Name of the investigator, matching a key in
+---    InvestigatorPanelData
+---@param investigatorData Table.  Spawn definition for the investigator, retrieved from
+---    INVESTIGATORS
+---@param position Vector.  Where to spawn the minicard; investigagor cards will be placed below
+function buildInvestigatorSpawnSpec(investigatorName, investigatorData, position)
+  local sigPos = Vector(position):add(INVESTIGATOR_SIGNATURE_OFFSET)
+  local spawns = buildCommonSpawnSpec(investigatorName, investigatorData, position)
+  table.insert(spawns, {
+      name = investigatorName.."signatures",
+      cards = investigatorData.signatures,
+      globalPos = sigPos,
+      rotation = FACE_UP_ROTATION,
+    })
+
+  return spawns
+end
+
+-- Builds the spawn specs for minicards and investigator cards.  These are common enough to be
+-- shared, and will only differ in whether they spawn the full stack of possible investigator and
+-- minicards, or only the first of each.
+---@param investigatorName String.  Name of the investigator, matching a key in
+---    InvestigatorPanelData
+---@param investigatorData Table.  Spawn definition for the investigator, retrieved from
+---    INVESTIGATORS
+---@param position Vector.  Where to spawn the minicard; investigagor cards will be placed below
+---@param oneCardOnly Boolean.  If true, will spawn only the first card in the investigator card
+---    and minicard lists.  Otherwise, spawn them all in a deck
+function buildCommonSpawnSpec(investigatorName, investigatorData, position, oneCardOnly)
+  local cardPos = Vector(position):add(INVESTIGATOR_CARD_OFFSET)
+  return {
+      {
+        name = investigatorName.."minicards",
+        cards = oneCardOnly and investigatorData.minicards[1] or investigatorData.minicards,
+        globalPos = position,
+        rotation = FACE_UP_ROTATION,
+      },
+      {
+        name = investigatorName.."cards",
+        cards = oneCardOnly and investigatorData.cards[1] or investigatorData.cards,
+        globalPos = cardPos,
+        rotation = FACE_UP_ROTATION,
+      },
+  }
+end
+
+-- Spawns all starter decks (single minicard and investigator card, plus the starter deck) for
+-- investigators in the given group.
+---@param groupName String.  Name of the group to spawn, matching a key in InvestigatorPanelData
+function spawnStarters(groupName)
+  local position = Vector(START_POSITIONS.investigator)
+  local col = 1
+  local row = 1
+  for _, investigatorName in ipairs(INVESTIGATOR_GROUPS[groupName]) do
+    spawnStarterDeck(investigatorName, INVESTIGATORS[investigatorName], position)
+    position:add(INVESTIGATOR_POSITION_SHIFT_COL)
+    col = col + 1
+    if col > INVESTIGATOR_MAX_COLS then
+      col = 1
+      position = Vector(START_POSITIONS.investigator)
+      position:add(Vector(
+          INVESTIGATOR_POSITION_SHIFT_ROW.x * row,
+          INVESTIGATOR_POSITION_SHIFT_ROW.z * row,
+          INVESTIGATOR_POSITION_SHIFT_ROW.z * row))
+      row = row + 1
+    end
+  end
+end
+
+-- Spawns the defined starter deck for the given investigator's.
+---@param investigatorName String.  Name of the investigator, matching a key in
+---    InvestigatorPanelData
+function spawnStarterDeck(investigatorName, investigatorData, position)
+  for _, spawnSpec in ipairs(
+      buildCommonSpawnSpec(investigatorName, INVESTIGATORS[investigatorName], position, true)) do
+    spawnBag.spawn(spawnSpec)
+  end
+  local deckPos = Vector(position):add(INVESTIGATOR_SIGNATURE_OFFSET)
+  arkhamDb.getDecklist("None", investigatorData.starterDeck, true, false, false, function(slots)
+    local cardIdList = { }
+    for id, count in pairs(slots) do
+      for i = 1, count do
+        table.insert(cardIdList, id)
+      end
+    end
+    spawnBag.spawn({
+      name = investigatorName.."starter",
+      cards = cardIdList,
+      globalPos = deckPos,
+      rotation = FACE_DOWN_ROTATION
+    })
+  end)
+end
+-- Clears the currently placed cards, then places cards for the given class and level spread
+---@param cardClass String.  Class to place ("Guardian", "Seeker", etc)
+---@param isUpgraded Boolean.  If true, spawn the Level 1-5 cards.  Otherwise, Level 0.
+function spawnClassCards(cardClass, isUpgraded)
+  spawnBag.recall(true)
+  Wait.frames(function() placeClassCards(cardClass, isUpgraded) end, 2)
+end
+
+-- Spawn the class cards.
+---@param cardClass String.  Class to place ("Guardian", "Seeker", etc)
+---@param isUpgraded Boolean.  If true, spawn the Level 1-5 cards.  Otherwise, Level 0.
+function placeClassCards(cardClass, isUpgraded)
+  local allCardsBag = getObjectFromGUID(ALL_CARDS_BAG_GUID)
+  local indexReady = allCardsBag.call("isIndexReady")
+  if (not indexReady) then
+    broadcastToAll("Still loading player cards, please try again in a few seconds", {0.9, 0.2, 0.2})
+    return
+  end
+  local cardIdList = allCardsBag.call("getCardsByClassAndLevel", {class = cardClass, upgraded = isUpgraded})
+
+  local skillList = { }
+  local eventList = { }
+  local assetList = { }
+  for _, cardId in ipairs(cardIdList) do
+    local cardMetadata = allCardsBag.call("getCardById", { id = cardId }).metadata
+    if (cardMetadata.type == "Skill") then
+      table.insert(skillList, cardId)
+    elseif (cardMetadata.type == "Event") then
+      table.insert(eventList, cardId)
+    elseif (cardMetadata.type == "Asset") then
+      table.insert(assetList, cardId)
+    end
+  end
+  if #skillList > 0 then
+    spawnBag.spawn({
+      name = cardClass .. (isUpgraded and "upgraded" or "basic"),
+      cards = skillList,
+      globalPos = START_POSITIONS.skill,
+      rotation = FACE_UP_ROTATION,
+      spread = true,
+      spreadCols = 20
+    })
+  end
+  if #eventList > 0 then
+    spawnBag.spawn({
+      name = cardClass .. "event" .. (isUpgraded and "upgraded" or "basic"),
+      cards = eventList,
+      globalPos = START_POSITIONS.event,
+      rotation = FACE_UP_ROTATION,
+      spread = true,
+      spreadCols = 20
+    })
+  end
+  if #assetList > 0 then
+    spawnBag.spawn({
+      name = cardClass .. "asset" .. (isUpgraded and "upgraded" or "basic"),
+      cards = assetList,
+      globalPos = START_POSITIONS.asset,
+      rotation = FACE_UP_ROTATION,
+      spread = true,
+      spreadCols = 20
+    })
+  end
+end
+
+-- Clears the current cards, and places all basic weaknesses on the table.
+function spawnWeaknesses()
+  spawnBag.recall(fast)
+  local allCardsBag = getObjectFromGUID(ALL_CARDS_BAG_GUID)
+  local indexReady = allCardsBag.call("isIndexReady")
+  if (not indexReady) then
+    broadcastToAll("Still loading player cards, please try again in a few seconds", {0.9, 0.2, 0.2})
+    return
+  end
+  local weaknessIdList = allCardsBag.call("getBasicWeaknesses")
+  local copiedList = { }
+  for i, id in ipairs(weaknessIdList) do
+    copiedList[i] = id
+  end
+  spawnBag.spawn({
+    name = "weaknesses",
+    cards = copiedList,
+    globalPos = START_POSITIONS.asset,
+    rotation = FACE_UP_ROTATION,
+    spread = true,
+    spreadCols = 20
+  })
+end
