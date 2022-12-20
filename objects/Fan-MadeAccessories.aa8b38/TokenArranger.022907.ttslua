@@ -193,37 +193,22 @@ function layout(_, _, isRightClick)
     -- stop here if right-clicked
     if isRightClick then return end
 
-    local chaos_bag = getChaosBag()
-    local chaos_bag_objects = chaos_bag.getObjects()
-
-    -- take each token out and clone it
-    for _, data in ipairs(chaos_bag_objects) do
-        chaos_bag.takeObject {
-            guid = data.guid,
-            smooth = false,
-            callback_function = function(tok)
-                chaos_bag.putObject(tok.clone())
-                tok.addTag("to_be_deleted")
-            end
-        }
-    end
-
-    -- wait until all tokens have finished spawning
-    Wait.condition(function() placeTokens() end, function() return #chaos_bag_objects == #getObjectsWithTag("to_be_deleted") end)
-end
-
--- position tokens sorted by value
-function placeTokens()
+    local chaosBag = getChaosBag()
     local data = {}
 
-    -- create table with tokens
-    for i, token in ipairs(getObjectsWithTag("to_be_deleted")) do
-        local name = token.getName() or ""
-        local value = tonumber(name)
-        local precedence = TOKEN_PRECEDENCE[name]
+    -- clone tokens from chaos bag (default position above trash can)
+    for i, obj in ipairs(chaosBag.getData().ContainedObjects) do
+        obj["Tags"] = { "to_be_deleted" }
+        local spawnedObj = spawnObjectData({
+            data = obj,
+            position = { 0.49, 3, 0 }
+        })
+
+        local value = tonumber(obj["Nickname"])
+        local precedence = TOKEN_PRECEDENCE[obj["Nickname"]]
 
         data[i] = {
-            token = token,
+            token = spawnedObj,
             value = value or precedence[1]
         }
 
@@ -237,11 +222,17 @@ function placeTokens()
     -- sort table by value (symbols last if same value)
     table.sort(data, token_value_comparator)
 
+    -- error handling for removal of token arranger
+    if self == nil then
+        for _, token in ipairs(getObjectsWithTag("to_be_deleted")) do token.destruct() end
+        return
+    end
+    
     -- laying out the tokens
     local pos           = self.getPosition() + Vector(3.55, -0.05, -3.95)
     local location      = { x = pos.x, y = pos.y, z = pos.z }
     local current_value = data[1].value
-
+    
     for _, item in ipairs(data) do
         if item.value ~= current_value then
             location.x = location.x - 1.75
