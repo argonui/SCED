@@ -38,15 +38,8 @@ customizationRowsWithFields["09101"].inputMap[1] = 1
 customizationRowsWithFields["09101"].inputMap[2] = 2
 customizationRowsWithFields["09101"].inputMap[3] = 3
 
-local function fixUtf16String(str)
-  return str:gsub("\\u(%w%w%w%w)", function(match)
-    return string.char(tonumber(match, 16))
-  end)
-end
-
 function onLoad(script_state)
-  local state = JSON.decode(script_state)
-  initializeUi(state)
+  initializeUi(JSON.decode(script_state))
   math.randomseed(os.time())
   arkhamDb.initialize()
 end
@@ -55,8 +48,8 @@ function onSave() return JSON.encode(getUiState()) end
 
 -- Returns the zone name where the specified card should be placed, based on its metadata.
 ---@param cardMetadata Table of card metadata.
----@return Zone name such as "Deck", "SetAside1", etc. See Zones object documentation for a list of
----    valid zones.
+---@return Zone String Name of the zone such as "Deck", "SetAside1", etc.
+--     See Zones object documentation for a list of valid zones.
 function getDefaultCardZone(cardMetadata, bondedList)
   if (cardMetadata.id == "09080-m") then -- Have to check the Servitor before other minicards
     return "SetAside6"
@@ -96,15 +89,15 @@ end
 -- This is a callback function which handles the results of ArkhamDb.getDecklist()
 -- This method uses an encapsulated coroutine with yields to make the card spawning cleaner.
 --
----@param slots Key-Value table of cardId:count. cardId is the ArkhamDB ID of the card to spawn,
----    and count is the number which should be spawned
+---@param slots Table Key-Value table of cardId:count. cardId is the ArkhamDB ID of the card to spawn,
+--     and count is the number which should be spawned
 ---@param investigatorId String ArkhamDB ID (code) for this deck's investigator.
 --     Investigator cards should already be added to the slots list if they
 --     should be spawned, but this value is separate to check for special
 --     handling for certain investigators
----@param bondedList A table of cardID keys to meaningless values.  Card IDs in this list were added
----    from a parent bonded card.
----@param customizations ArkhamDB data for customizations on customizable cards
+---@param bondedList Table A table of cardID keys to meaningless values.  Card IDs in this list were added
+--     from a parent bonded card.
+---@param customizations String ArkhamDB data for customizations on customizable cards
 ---@param playerColor String Color name of the player mat to place this deck on (e.g. "Red")
 function loadCards(slots, investigatorId, bondedList, customizations, playerColor)
   function coinside()
@@ -180,8 +173,8 @@ end
 
 -- Callback handler for the main deck spawning.  Looks for cards which should start in hand, and
 -- draws them for the appropriate player.
--- @param deck Callback-provided spawned deck object
--- @param playerColor Color of the player to draw the cards to
+---@param deck Object Callback-provided spawned deck object
+---@param playerColor String Color of the player to draw the cards to
 function deckSpawned(deck, playerColor)
   local handPos = Player[playerColor].getHandTransform(1).position -- Only one hand zone per player
   local deckCards = deck.getData().ContainedObjects
@@ -196,8 +189,8 @@ end
 
 -- Conver the Raven Quill's selections from card IDs to card names.  This could be more elegant
 -- but the inputs are very static so we're using some brute force.
--- @param An ArkhamDB string indicating the customization selections for The Raven's Quill.  Should
---        be either a single card ID or two separated by a ^ (e.g. XXXXX^YYYYY)
+---@param selectionString String provided by ArkhamDB, indicates the customization selections
+--     Should be either a single card ID or two separated by a ^ (e.g. XXXXX^YYYYY)
 function convertRavenQuillSelections(selectionString)
   if (string.len(selectionString) == 5) then
     return getCardName(selectionString)
@@ -238,7 +231,7 @@ function buildZoneLists(cards)
 end
 
 -- Check to see if the deck list has Ancestral Knowledge. If it does, move 5 random skills to SetAside3
----@param cardList Deck list being created
+---@param cardList Table Deck list being created
 function handleAncestralKnowledge(cardList)
   local hasAncestralKnowledge = false
   local skillList = {}
@@ -264,8 +257,8 @@ function handleAncestralKnowledge(cardList)
 end
 
 -- Check for and handle Underworld Market by moving all Illicit cards to UnderSetAside3
----@param cardList Deck list being created
----@param playerColor Color this deck is being loaded for
+---@param cardList Table Deck list being created
+---@param playerColor String Color this deck is being loaded for
 function handleUnderworldMarket(cardList, playerColor)
   local hasMarket = false
   local illicitList = {}
@@ -313,10 +306,10 @@ end
 
 -- If the investigator is Joe Diamond, extract all Insight events to SetAside5 to build the Hunch
 --     Deck.
----@param investigatorId ID for the deck's investigator card. Passed separately because the
+---@param investigatorId String ID for the deck's investigator card. Passed separately because the
 ---    investigator may not be included in the cardList
----@param cardList Deck list being created
----@param playerColor Color this deck is being loaded for
+---@param cardList Table Deck list being created
+---@param playerColor String Color this deck is being loaded for
 function handleHunchDeck(investigatorId, cardList, playerColor)
   if investigatorId == "05002" then -- Joe Diamond
     local insightList = {}
@@ -353,8 +346,8 @@ end
 
 -- For any customization upgrade cards in the card list, process the metadata from the deck to
 -- set the save state to show the correct checkboxes/text field values
----@param cardList Deck list being created
----@param customizations Deck's meta table, extracted from ArkhamDB's deck structure
+---@param cardList Table Deck list being created
+---@param customizations Table Deck's meta table, extracted from ArkhamDB's deck structure
 function handleCustomizableUpgrades(cardList, customizations)
   for _, card in ipairs(cardList) do
     if card.metadata.type == "UpgradeSheet" then
