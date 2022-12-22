@@ -787,11 +787,6 @@ end
 -- Option Panel related functionality
 ---------------------------------------------------------
 
--- loads the default options
-function onClick_defaultSettings()
-  print("Dummy: Load default settings")
-end
-
 -- called by toggling an option
 function onClick_toggleOption(_, id)
   local state = self.UI.getAttribute(id, "isOn")
@@ -814,6 +809,8 @@ function updateOptionPanelState()
         or (type(enabled) == "string" and enabled)
         or (type(enabled) == "table" and #enabled ~= 0) then
       self.UI.setAttribute(id, "isOn", true)
+    else
+      self.UI.setAttribute(id, "isOn", "False")
     end
   end
 end
@@ -888,26 +885,32 @@ end
 ---@param name String Name of the object that should be copied
 ---@param position Position Desired position of the object
 function spawnHelperObject(name, position, rotation, color)
-  for _, obj in ipairs(getObjectFromGUID(BARREL_GUID).getData().ContainedObjects) do
-    if obj["Nickname"] == name then
-      return spawnObjectData({
-        data = obj,
-        position = position,
-        rotation = rotation or {0, 270, 0},
-        callback_function = function(object)
+  local spawnTable = {
+    position = position,
+    callback_function = function(object)
           if name == "Hand Helper" then
             Wait.time(function() object.call("externalColorChange", color) end, 1)
           elseif name == "Token Arranger" then
             Wait.time(function() object.call("layout") end, 1)
           end
-        end
-      })
+    end
+  }
+
+  -- only overrride rotation if there is one provided (object's rotation used instead)
+  if rotation then
+    spawnTable.rotation = rotation
+  end
+
+  for _, obj in ipairs(getObjectFromGUID(BARREL_GUID).getData().ContainedObjects) do
+    if obj["Nickname"] == name then
+      spawnTable.data = obj
+      return spawnObjectData(spawnTable)
     end
   end
 end
 
 -- removes the specified tool (by name)
----@param name String Name of the object that should be removed
+---@param name String Object that should be removed
 function removeHelperObject(name)
   -- links objects name to the respective option name (to grab the GUID for removal)
   local referenceTable = {
@@ -932,4 +935,31 @@ function removeHelperObject(name)
       if obj then obj.destruct() end
     end
   end
+end
+
+-- loads the default options
+function onClick_defaultSettings()
+  for id, _ in pairs(optionPanel) do
+    local state = false
+    -- override for settings that are enabled by default
+    if id == "useSnapTags" then
+      state = true
+    end
+    applyOptionPanelChange(id, state)
+  end
+
+  -- clean reset of variable
+  optionPanel = {
+    useSnapTags = true,
+    showDrawButton = false,
+    useClueClickers = false,
+    showTokenArranger = false,
+    showCleanUpHelper = false,
+    showHandHelper = false,
+    showChaosBagManager = false,
+    showNavigationOverlay = false
+  }
+
+  -- update UI
+  updateOptionPanelState()
 end
