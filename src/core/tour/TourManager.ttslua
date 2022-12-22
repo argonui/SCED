@@ -8,17 +8,26 @@ do
   local CARD_ID = "tourCard"
   local LEFT_NARRATOR_ID = "tourNarratorImageLeft"
   local RIGHT_NARRATOR_ID = "tourNarratorImageRight"
+  local BUBBLE_ID = "tourSpeechBubble"
   local TEXT_ID = "tourText"
   local NEXT_BUTTON_ID = "tourNext"
   local STOP_BUTTON_ID = "tourStop"
 
   -- Table centerpoint for the camera hook object.  Camera handling is a bit erratic so it doesn't
   -- always land right where you think it's going to, but it's close
-  local CAMERA_HOME = {
+  local HOOK_CAMERA_HOME = {
     x = -30.2,
     y = 60,
     z = 0,
   }
+
+  -- Default (0) position for the camera, as defined in the mod.  If we don't recreate this position
+  -- EXACTLY when exiting the tour then camera controls get weird
+  local DEFAULT_CAMERA_POS = {
+    position = { x = -22.265, y = -2.5, z = 5.2575},
+    pitch=64.343,
+    yaw=90.333,
+    distance=104.7}
 
   -- Global XML coordinates where we can present a card
   local SCREEN_POSITIONS = {
@@ -46,9 +55,16 @@ do
     }
     -- Camera gets really screwy when we finalize if we don't start settled in ThirdPerson at the
     -- default position before attaching to the hook.  Unfortunately there are no callbacks for when
-    -- the movement is done, but the 2 sec seems to handle it
+    -- the movement is done, but the delay seems to handle it
     Player[playerColor].setCameraMode("ThirdPerson")
-    Player[playerColor].lookAt({position={-22.265,-2.5,5.2575},pitch=64.343,yaw=90.333,distance=104.7})
+    Player[playerColor].lookAt(DEFAULT_CAMERA_POS)
+    -- Initial camera rotation is painfully slow.  White and Orange players are likely oriented
+    -- correctly, but need a longer start delay for Green and Red
+    local delay = 0.5
+    if playerColor ~= "White" and playerColor ~= "Orange" then
+      delay = 2
+      broadcastToColor("Starting the tour, please wait...", playerColor)
+    end
     Wait.time(function()
       internal.createTourCard(playerColor)
       -- XML update to add the new card takes a few frames to load, wait for it to finish then
@@ -61,7 +77,7 @@ do
             return not Global.UI.loading
           end
       )
-    end, 2)
+    end, delay)
   end
 
   -- Shows the next card in the tour script.  This method is exposed (rather than being part of
@@ -95,7 +111,7 @@ do
   internal.showCurrentCard = function(playerColor)
     internal.updateCardDisplay(playerColor)
     local hook = getObjectFromGUID(tourState[playerColor].cameraHookGuid)
-    hook.setPositionSmooth(CAMERA_HOME, false, false)
+    hook.setPositionSmooth(HOOK_CAMERA_HOME, false, false)
     local delay = 0.5
     local cardIndex = tourState[playerColor].currentCardIndex
     local lookPos
@@ -136,13 +152,11 @@ do
     Player[playerColor].setCameraMode("ThirdPerson")
     tourState[playerColor] = nil
     Wait.frames(function()
-      -- This resets to the default camera position.  If we don't place the camera exactly at the
-      -- default, camera controls get weird
-      Player[playerColor].lookAt({position={-22.265,-2.5,5.2575},pitch=64.343,yaw=90.333,distance=104.7})
+      Player[playerColor].lookAt(DEFAULT_CAMERA_POS)
     end, 3)
   end
 
-  -- Updates the card UI to show the appropriate narrator and text.
+  -- Updates the card UI to show the appropriate card configuration.
   ---@param playerColor Player color to update card for
   internal.updateCardDisplay = function(playerColor)
     local index = tourState[playerColor].currentCardIndex
@@ -156,11 +170,17 @@ do
     if TOUR_SCRIPT[index].speakerSide == "right" then
       Global.UI.setAttribute(internal.getUiId(LEFT_NARRATOR_ID, playerColor), "active", false)
       Global.UI.setAttribute(internal.getUiId(RIGHT_NARRATOR_ID, playerColor), "active", true)
-      Global.UI.setAttribute(internal.getUiId(TEXT_ID, playerColor), "rotation", "0 180 0")
+      Global.UI.setAttribute(internal.getUiId(BUBBLE_ID, playerColor), "rotation", "0 180 0")
+      Global.UI.setAttribute(internal.getUiId(TEXT_ID, playerColor), "offsetXY", "-15 -15")
+      Global.UI.setAttribute(internal.getUiId(NEXT_BUTTON_ID, playerColor), "offsetXY", "-35 -45")
+      Global.UI.setAttribute(internal.getUiId(STOP_BUTTON_ID, playerColor), "offsetXY", "5 -45")
     else
       Global.UI.setAttribute(internal.getUiId(LEFT_NARRATOR_ID, playerColor), "active", true)
       Global.UI.setAttribute(internal.getUiId(RIGHT_NARRATOR_ID, playerColor), "active", false)
-      Global.UI.setAttribute(internal.getUiId(TEXT_ID, playerColor), "rotation", "0 0 0")
+      Global.UI.setAttribute(internal.getUiId(BUBBLE_ID, playerColor), "rotation", "0 0 0")
+      Global.UI.setAttribute(internal.getUiId(TEXT_ID, playerColor), "offsetXY", "15 -15")
+      Global.UI.setAttribute(internal.getUiId(NEXT_BUTTON_ID, playerColor), "offsetXY", "-5 -45")
+      Global.UI.setAttribute(internal.getUiId(STOP_BUTTON_ID, playerColor), "offsetXY", "35 -45")
     end
   end
 
@@ -173,9 +193,9 @@ do
     local hookData = {
       Name = "BlockSquare",
       Transform = {
-        posX = CAMERA_HOME.x,
-        posY = CAMERA_HOME.y,
-        posZ = CAMERA_HOME.z,
+        posX = HOOK_CAMERA_HOME.x,
+        posY = HOOK_CAMERA_HOME.y,
+        posZ = HOOK_CAMERA_HOME.z,
         rotX = 0,
         rotY = 270.0,
         rotZ = 0,
@@ -220,11 +240,12 @@ do
     tourCardTemplate.attributes.id = internal.getUiId(CARD_ID, playerColor)
     tourCardTemplate.children[1].attributes.id = internal.getUiId(LEFT_NARRATOR_ID, playerColor)
     tourCardTemplate.children[2].attributes.id = internal.getUiId(RIGHT_NARRATOR_ID, playerColor)
-    tourCardTemplate.children[3].children[1].attributes.id = internal.getUiId(TEXT_ID, playerColor)
-    tourCardTemplate.children[4].attributes.id = internal.getUiId(NEXT_BUTTON_ID, playerColor)
-    tourCardTemplate.children[4].attributes.onClick = self.getGUID().."/nextCard"
-    tourCardTemplate.children[5].attributes.id = internal.getUiId(STOP_BUTTON_ID, playerColor)
-    tourCardTemplate.children[5].attributes.onClick = self.getGUID().."/stopTour"
+    tourCardTemplate.children[3].attributes.id = internal.getUiId(BUBBLE_ID, playerColor)
+    tourCardTemplate.children[4].attributes.id = internal.getUiId(TEXT_ID, playerColor)
+    tourCardTemplate.children[5].attributes.id = internal.getUiId(NEXT_BUTTON_ID, playerColor)
+    tourCardTemplate.children[5].attributes.onClick = self.getGUID().."/nextCard"
+    tourCardTemplate.children[6].attributes.id = internal.getUiId(STOP_BUTTON_ID, playerColor)
+    tourCardTemplate.children[6].attributes.onClick = self.getGUID().."/stopTour"
     internal.setDeepVisibility(tourCardTemplate, playerColor)
 
     local globalXml = Global.UI.getXmlTable()
