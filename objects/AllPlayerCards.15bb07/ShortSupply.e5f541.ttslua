@@ -1,0 +1,57 @@
+local MAT_GUIDS = { "8b081b", "bd0ff4", "383d8b", "0840d5" }
+
+function onLoad()
+  self.addContextMenuItem("Discard 10 cards", shortSupply)
+end
+
+-- called by context menu entry
+function shortSupply(color)
+  local cardPos = self.getPosition()
+  local playerNumber = getPlayernumber(cardPos)
+  local mat = getObjectFromGUID(MAT_GUIDS[playerNumber])
+  if mat == nil then return end
+
+  -- get draw deck and discard pile
+  mat.call("getDrawDiscardDecks")
+  local drawDeck = mat.getVar("drawDeck")
+  local discardPos = mat.getTable("DISCARD_PILE_POSITION")
+  if discardPos == nil then
+    broadcastToAll("Couldn't retrieve discard position from playermat!", "Red")
+    return
+  end
+
+  if drawDeck == nil then
+    broadcastToColor("Deck not found!", color, "Yellow")
+    return
+  elseif drawDeck.tag ~= "Deck" then
+    broadcastToColor("Deck only contains a single card!", color, "Yellow")
+    return
+  end
+
+  -- discard cards
+  discardPos.y = 0.5
+  for i = 1, 10 do
+    discardPos.y = discardPos.y + 0.05 * i
+    drawDeck.takeObject({
+      flip = true,
+      position = discardPos
+    })
+  end
+end
+
+-- helper to find playernumber based on position
+function getPlayernumber(cardPos)
+  if cardPos.x < -42 then
+    if cardPos.z > 0 then
+      return 1
+    else
+      return 2
+    end
+  else
+    if cardPos.z > 0 then
+      return 3
+    else
+      return 4
+    end
+  end
+end
