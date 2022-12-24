@@ -48,7 +48,7 @@ do
 
   -- Kicks off the tour by initializing the card and camera hook.  A callback on the hook creation
   -- will then show the first card.
-  ---@param playerColor Player color to start the tour for
+  ---@param playerColor String Player color to start the tour for
   TourManager.startTour = function(playerColor)
     tourState[playerColor] = {
       currentCardIndex = 1
@@ -107,13 +107,17 @@ do
 
   -- Updates the card UI for the script at the current index, moves the camera to the proper
   -- position, and shows the card.
-  ---@param playerColor Player color to show the current card for
+  ---@param playerColor String Player color to show the current card for
   internal.showCurrentCard = function(playerColor)
     internal.updateCardDisplay(playerColor)
-    local hook = getObjectFromGUID(tourState[playerColor].cameraHookGuid)
-    hook.setPositionSmooth(HOOK_CAMERA_HOME, false, false)
-    local delay = 0.5
+    local delay = 0
     local cardIndex = tourState[playerColor].currentCardIndex
+    local hook = getObjectFromGUID(tourState[playerColor].cameraHookGuid)
+
+    if not TOUR_SCRIPT[cardIndex].skipCentering then
+      hook.setPositionSmooth(HOOK_CAMERA_HOME, false, false)
+      delay = delay + 0.5
+    end
     local lookPos
     if TOUR_SCRIPT[cardIndex].showObj ~= nil then
       local lookAtObj = getObjectFromGUID(TOUR_SCRIPT[cardIndex].showObj)
@@ -137,7 +141,7 @@ do
 
   -- Hides the current card being shown to a player.  This can be in preparation for showing the
   -- next card, or ending the tour.
-  ---@param playerColor Player color to hide the current card for
+  ---@param playerColor String Player color to hide the current card for
   internal.hideCard = function(playerColor)
     Global.UI.hide(internal.getUiId(CARD_ID, playerColor))
   end
@@ -145,7 +149,7 @@ do
   -- Cleans up all the various resources associated with the tour, and (hopefully) resets the
   -- camera to the default position.  Camera handling is erratic, the final card in the script
   -- should include instructions for the player to fix it.
-  ---@param playerColor Player color to clean up
+  ---@param playerColor String Player color to clean up
   internal.finalizeTour = function(playerColor)
     local cameraHook = getObjectFromGUID(tourState[playerColor].cameraHookGuid)
     cameraHook.destruct()
@@ -157,14 +161,15 @@ do
   end
 
   -- Updates the card UI to show the appropriate card configuration.
-  ---@param playerColor Player color to update card for
+  ---@param playerColor String Player color to update card for
   internal.updateCardDisplay = function(playerColor)
     local index = tourState[playerColor].currentCardIndex
-    Global.UI.setAttribute(internal.getUiId(LEFT_NARRATOR_ID, playerColor), "image", TOUR_SCRIPT[index].narrator)
-    Global.UI.setAttribute(internal.getUiId(RIGHT_NARRATOR_ID, playerColor), "image", TOUR_SCRIPT[index].narrator)
-    Global.UI.setAttribute(internal.getUiId(TEXT_ID, playerColor), "text", TOUR_SCRIPT[index].text)
+    Global.UI.setAttribute(internal.getUiId(LEFT_NARRATOR_ID, playerColor), "image", "Inv-" .. TOUR_SCRIPT[index].narrator)
+    Global.UI.setAttribute(internal.getUiId(RIGHT_NARRATOR_ID, playerColor), "image", "Inv-" .. TOUR_SCRIPT[index].narrator)
+    Global.UI.setAttribute(internal.getUiId(TEXT_ID, playerColor), "text", "\"" .. TOUR_SCRIPT[index].text .. "\"")
     local cardPos = TOUR_SCRIPT[index].position or "north"
     Global.UI.setAttribute(internal.getUiId(CARD_ID, playerColor), "position", SCREEN_POSITIONS[cardPos])
+    Global.UI.setAttribute(internal.getUiId(NEXT_BUTTON_ID, playerColor), "active", index < #TOUR_SCRIPT)
 
     -- Adjust images so the narrator is on the left or right, as defined by the card
     if TOUR_SCRIPT[index].speakerSide == "right" then
@@ -188,7 +193,7 @@ do
   -- user's view around the table.  This should be called only at the beginning of the tour. Once
   -- creation is complete the user's camera will be attached to the hook and the first card will be
   -- shown.
-  ---@param playerColor Player color to create the hook for
+  ---@param playerColor String Player color to create the hook for
   internal.createCameraHook = function(playerColor)
     local hookData = {
       Name = "BlockSquare",
@@ -231,7 +236,7 @@ do
 
   -- Creates an XMLUI entry in Global for a player-specific tour card.  Dynamically creating this
   -- is somewhat complex, but ensures we can properly handle any player color.
-  ---@param playerColor Player color to create the card for
+  ---@param playerColor String Player color to create the card for
   internal.createTourCard = function(playerColor)
     -- Make sure the card doesn't exist before we create a new one
     if Global.UI.getAttributes(internal.getUiId(CARD_ID, playerColor)) ~= nil then
