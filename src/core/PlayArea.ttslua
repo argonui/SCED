@@ -1,3 +1,4 @@
+local tokenManager = require("core/token/TokenManager")
 ---------------------------------------------------------
 -- general setup
 ---------------------------------------------------------
@@ -23,8 +24,6 @@ local SHIFT_EXCLUSION = {
 local INVESTIGATOR_COUNTER_GUID = "f182ee"
 local PLAY_AREA_ZONE_GUID = "a2f932"
 
-local clueData = {}
-spawnedLocationGUIDs = {}
 local currentScenario
 
 ---------------------------------------------------------
@@ -33,7 +32,6 @@ local currentScenario
 
 function onSave()
   return JSON.encode({
-    spawnedLocs = spawnedLocationGUIDs,
     currentScenario = currentScenario
   })
 end
@@ -41,20 +39,7 @@ end
 function onLoad(saveState)
   -- records locations we have spawned clues for
   local saveData = JSON.decode(saveState) or {}
-  spawnedLocationGUIDs = saveData.spawnedLocs or { }
   currentScenario = saveData.currentScenario
-
-  local TOKEN_DATA = Global.getTable('TOKEN_DATA')
-  clueData = {
-    thickness    = 0.1,
-    stackable    = true,
-    type         = 2,
-    image        = TOKEN_DATA.clue.image,
-    image_bottom = TOKEN_DATA.doom.image
-  }
-
-  local dataHelper = getObjectFromGUID('708279')
-  LOCATIONS = dataHelper.getTable('LOCATIONS_DATA')
 
   self.interactable = DEBUG
   Wait.time(function() COLLISION_ENABLED = true end, 1)
@@ -64,72 +49,13 @@ function log(message)
   if DEBUG then print(message) end
 end
 
----------------------------------------------------------
--- clue spawning
----------------------------------------------------------
-
--- try the compound key then the name alone as default
-function getLocation(object)
-  return LOCATIONS[object.getName() .. '_' .. object.getGUID()] or LOCATIONS[object.getName()]
-end
-
--- Return the number of clues to spawn on this location
-function getClueCount(object, isFaceDown, playerCount)
-  local details = getLocation(object)
-  if details == nil then
-    error('attempted to get clue for unexpected object: ' .. object.getName())
-  end
-
-  log(object.getName() .. ' : ' .. details['type'] .. ' : ' .. details['value'] .. ' : ' .. details['clueSide'])
-  if ((isFaceDown and details['clueSide'] == 'back') or (not isFaceDown and details['clueSide'] == 'front')) then
-    if details['type'] == 'fixed' then
-      return details['value']
-    elseif details['type'] == 'perPlayer' then
-      return details['value'] * playerCount
-    end
-    error('unexpected location type: ' .. details['type'])
-  end
-  return 0
-end
-
-function spawnCluesAtLocation(clueCount, object)
-  if spawnedLocationGUIDs[object.getGUID()] ~= nil then
-    error('tried to spawn clue for already spawned location:' .. object.getName())
-  end
-
-  log('spawning clues for ' .. object.getName() .. '_' .. object.getGUID())
-  log('player count is ' .. getInvestigatorCount() .. ', clue count is ' .. clueCount)
-
-  -- mark this location as spawned, can't happen again
-  spawnedLocationGUIDs[object.getGUID()] = true
-
-  -- spawn clues (starting top right, moving to the next row after 4 clues)
-  local pos = object.getPosition()
-  for i = 1, clueCount do
-    local row = math.floor(1 + (i - 1) / 4)
-    local column = (i - 1) % 4
-    spawnClue({ pos.x + 1.5 - 0.55 * row, pos.y, pos.z - 0.825 + 0.55 * column })
-  end
-end
-
-function spawnClue(position)
-  local token = spawnObject({
-    position = position,
-    rotation = { 3.88, -90, 0.24 },
-    type     = 'Custom_Tile'
-  })
-
-  token.setCustomObject(clueData)
-  token.scale { 0.25, 1, 0.25 }
-  token.use_snap_points = false
-end
-
+-- Called by Custom Data Helpers to push their location data into the Data Helper.  This adds the
+-- data to the local token manager instance.
+---@param args Table Single-value array holding the GUID of the Custom Data Helper making the call
 function updateLocations(args)
-  custom_data_helper_guid = args[1]
-  local custom_data_helper = getObjectFromGUID(args[1])
-
-  for k, v in pairs(custom_data_helper.getTable("LOCATIONS_DATA")) do
-    LOCATIONS[k] = v
+  local customDataHelper = getObjectFromGUID(args[1])
+  if customDataHelper ~= nil then
+    tokenManager.addLocationData(customDataHelper.getTable("LOCATIONS_DATA"))
   end
 end
 
@@ -137,11 +63,21 @@ function onCollisionEnter(collision_info)
   if not COLLISION_ENABLED then return end
 
   -- check if we should spawn clues here and do so according to playercount
-  local object = collision_info.collision_object
-  if getLocation(object) ~= nil and spawnedLocationGUIDs[object.getGUID()] == nil then
-    local clueCount = getClueCount(object, object.is_face_down, getInvestigatorCount())
-    if clueCount > 0 then spawnCluesAtLocation(clueCount, object) end
+  local card = collision_info.collision_object
+  if shouldSpawnTokens(card) then
+    tokenManager.spawnForCard(card)
   end
+end
+
+function shouldSpawnTokens(card)
+  local metadata = JSON.decode(card.getGMNotes())
+  if metadata == nil then
+    return tokenManager.hasLocationData(card) ~= nil
+  end
+  return metadata.type == "Location"
+      or metadata.type == "Enemy"
+      or metadata.type == "Treachery"
+      or metadata.weakness
 end
 
 -- Move all contents on the play area (cards, tokens, etc) one slot in the given direction.  Certain

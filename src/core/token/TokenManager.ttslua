@@ -1,0 +1,446 @@
+do
+  local tokenSpawnTracker = require("core/token/TokenSpawnTrackerApi")
+  local playAreaApi = require("core/PlayAreaApi")
+
+  local PLAYER_CARD_TOKEN_OFFSETS = {
+    [1] = {
+      Vector(0, 8, -0.2)
+    },
+    [2] = {
+      Vector(0.4, 20, -0.2),
+      Vector(-0.4, 20, -0.2)
+    },
+    [3] = {
+      Vector(0, 8, -0.9),
+      Vector(0.4, 8, -0.2),
+      Vector(-0.4, 8, -0.2)
+    },
+    [4] = {
+      Vector(0.4, 10, -0.9),
+      Vector(-0.4, 10, -0.9),
+      Vector(0.4, 10, -0.2),
+      Vector(-0.4, 10, -0.2)
+    },
+    [5] = {
+      Vector(0.7, 3, -0.9),
+      Vector(0, 3, -0.9),
+      Vector(-0.7, 3, -0.9),
+      Vector(0.4, 3, -0.2),
+      Vector(-0.4, 3, -0.2)
+    },
+    [6] = {
+      Vector(0.7, 3, -0.9),
+      Vector(0, 3, -0.9),
+      Vector(-0.7, 3, -0.9),
+      Vector(0.7, 3, -0.2),
+      Vector(0, 3, -0.2),
+      Vector(-0.7, 3, -0.2)
+    },
+    [7] = {
+      Vector(0.7, 3, -0.9),
+      Vector(0, 3, -0.9),
+      Vector(-0.7, 3, -0.9),
+      Vector(0.7, 3, -0.2),
+      Vector(0, 3, -0.2),
+      Vector(-0.7, 3, -0.2),
+      Vector(0, 3, 0.5)
+    },
+    [8] = {
+      Vector(0.7, 3, -0.9),
+      Vector(0, 3, -0.9),
+      Vector(-0.7, 3, -0.9),
+      Vector(0.7, 3, -0.2),
+      Vector(0, 3, -0.2),
+      Vector(-0.7, 3, -0.2),
+      Vector(-0.35, 3, 0.5),
+      Vector(0.35, 3, 0.5)
+    },
+    [9] = {
+      Vector(0.7, 3, -0.9),
+      Vector(0, 3, -0.9),
+      Vector(-0.7, 3, -0.9),
+      Vector(0.7, 3, -0.2),
+      Vector(0, 3, -0.2),
+      Vector(-0.7, 3, -0.2),
+      Vector(0.7, 3, 0.5),
+      Vector(0, 3, 0.5),
+      Vector(-0.7, 3, 0.5)
+    },
+    [10] = {
+      Vector(0.7, 3, -0.9),
+      Vector(0, 3, -0.9),
+      Vector(-0.7, 3, -0.9),
+      Vector(0.7, 3, -0.2),
+      Vector(0, 3, -0.2),
+      Vector(-0.7, 3, -0.2),
+      Vector(0.7, 3, 0.5),
+      Vector(0, 3, 0.5),
+      Vector(-0.7, 3, 0.5),
+      Vector(0, 3, 1.2)
+    },
+    [11] = {
+      Vector(0.7, 3, -0.9),
+      Vector(0, 3, -0.9),
+      Vector(-0.7, 3, -0.9),
+      Vector(0.7, 3, -0.2),
+      Vector(0, 3, -0.2),
+      Vector(-0.7, 3, -0.2),
+      Vector(0.7, 3, 0.5),
+      Vector(0, 3, 0.5),
+      Vector(-0.7, 3, 0.5),
+      Vector(-0.35, 3, 1.2),
+      Vector(0.35, 3, 1.2)
+    },
+    [12] = {
+      Vector(0.7, 3, -0.9),
+      Vector(0, 3, -0.9),
+      Vector(-0.7, 3, -0.9),
+      Vector(0.7, 3, -0.2),
+      Vector(0, 3, -0.2),
+      Vector(-0.7, 3, -0.2),
+      Vector(0.7, 3, 0.5),
+      Vector(0, 3, 0.5),
+      Vector(-0.7, 3, 0.5),
+      Vector(0.7, 3, 1.2),
+      Vector(0, 3, 1.2),
+      Vector(-0.7, 3, 1.2)
+    }
+  }
+
+  local SOURCE_BAG_GUIDS = {
+    damage = "480bda",
+    horror = "c3ecf4",
+    resource = "9fadf9",
+    doom = "47ffc3",
+    clue = "31fa39",
+  }
+
+  local DATA_HELPER_GUID = "708279"
+
+  local playerCardData
+  local locationData
+
+  local TokenManager = { }
+  local internal = { }
+
+  -- Spawns tokens for the card.  This function is built to just throw a card at it and let it do
+  -- the work.  It will check to see if the card has already spawned, find appropriate data from
+  -- either the uses metadata or the Data Helper, and spawn the tokens.
+  ---@param card Object Card to maybe spawn tokens for
+  ---@param extraUses Table A table of <use type>=<count> which will modify the number of tokens
+  ---    spawned for that type.  e.g. Akachi's playmat should pass "Charge"=1
+  TokenManager.spawnForCard = function(card, extraUses)
+    if tokenSpawnTracker.hasSpawnedTokens(card.getGUID()) then
+      return
+    end
+    local metadata = JSON.decode(card.getGMNotes())
+    if metadata ~= nil then
+      internal.spawnTokensFromUses(card, extraUses)
+    else
+      internal.spawnTokensFromDataHelper(card)
+    end
+  end
+
+  -- Spawns a set of tokens on the given card.
+  ---@param card Object Card to spawn tokens on
+  ---@param tokenType String type of token to spawn, valid values are "damage", "horror",
+  --     "resource", "doom", or "clue"
+  ---@param tokenCount How many tokens to spawn.  For damage or horror this value will be set to the
+  --     spawned state object rather than spawning multiple tokens
+  ---@param shiftDown An offset for the z-value of this group of tokens
+  TokenManager.spawnTokenGroup = function(card, tokenType, tokenCount, shiftDown)
+    if tokenType == "damage" or tokenType == "horror" then
+      TokenManager.spawnCounterToken(card, tokenType, tokenCount, shiftDown)
+    else
+      TokenManager.spawnMultipleTokens(card, tokenType, tokenCount, shiftDown)
+    end
+  end
+
+  -- Spawns a single counter token and sets the value to tokenValue.  Used for damage and horror
+  -- tokens.
+  ---@param card Object Card to spawn tokens on
+  ---@param tokenType String type of token to spawn, valid values are "damage" and "horror".  Other
+  --     types should use spawnMultipleTokens()
+  ---@param tokenValue Value to set the damage/horror to
+  ---@param shiftDown An offset for the z-value of this group of tokens
+  TokenManager.spawnCounterToken = function(card, tokenType, tokenValue, shiftDown)
+    if tokenCount < 1 or tokenCount > 50 then
+      return
+    end
+    local offsets = PLAYER_CARD_TOKEN_OFFSETS[1]
+    if shiftDown ~= nil then
+      -- Copy the offsets to make sure we don't change the static values
+      local baseOffsets = offsets
+      offsets = { }
+      for i, baseOffset in ipairs(baseOffsets) do
+        offsets[i] = baseOffset
+        offsets[i][3] = offsets[i][3] + shiftDown
+      end
+    end
+    local pos = card.positionToWorld(offsets[1])
+    pos.y = card.getPosition().y + 0.15
+    TokenManager.spawnToken(pos, tokenType, card.getRotation(), function(spawned)
+      spawned.setState(tokenValue)
+    end)
+  end
+
+  -- Spawns a number of tokens.
+  ---@param tokenType String type of token to spawn, valid values are resource", "doom", or "clue".
+  --     Other types should use spawnCounterToken()
+  ---@param tokenCount How many tokens to spawn.  For damage or horror this value will be set to the
+  --     spawned state object rather than spawning multiple tokens
+  ---@param shiftDown An offset for the z-value of this group of tokens
+  TokenManager.spawnMultipleTokens = function(card, tokenType, tokenCount, shiftDown)
+    if tokenCount < 1 or tokenCount > 12 then
+      return
+    end
+    local offsets
+    if tokenType == "clue" then
+      offsets = internal.buildClueOffsets(card, tokenCount)
+    else
+      offsets = { }
+      for i = 1, tokenCount do
+        offsets[i] = card.positionToWorld(PLAYER_CARD_TOKEN_OFFSETS[tokenCount][i])
+        -- Fix the y-position for the spawn, since positionToWorld considers rotation which can
+        -- have bad results for face up/down differences
+        offsets[i].y = card.getPosition().y + 0.15
+      end
+    end
+    -- end
+    if shiftDown ~= nil then
+      -- Copy the offsets to make sure we don't change the static values
+      local baseOffsets = offsets
+      offsets = { }
+      for i, baseOffset in ipairs(baseOffsets) do
+        offsets[i] = baseOffset
+        offsets[i][3] = offsets[i][3] + shiftDown
+      end
+    end
+    if offsets == nil then
+      error("couldn't find offsets for " .. tokenCount .. ' tokens')
+    end
+
+    for i = 1, tokenCount do
+      TokenManager.spawnToken(offsets[i], tokenType, card.getRotation())
+    end
+  end
+
+  -- Spawns a single token at the given global position by copying it from the template bag.
+  ---@param position Global position to spawn the token
+  ---@param tokenType String type of token to spawn, valid values are "damage", "horror",
+  --     "resource", "doom", or "clue"
+  ---@param rotation Vector Rotation to be used for the new token.  Only the y-value will be used,
+  --     x and z will use the default rotation from the source bag
+  ---@param callback A callback function triggered after the new token is spawned
+  TokenManager.spawnToken = function(position, tokenType, rotation, callback)
+    if SOURCE_BAG_GUIDS[tokenType] == nil then
+      error("Unknown token type '" .. tokenType .. "'")
+      return
+    end
+    local sourceBag = getObjectFromGUID(SOURCE_BAG_GUIDS[tokenType])
+    if sourceBag == nil then
+      error("No token source for '" .. tokenType .. "'")
+      return
+    end
+    -- All the source bags are infinite, so we just grab the first object
+    local tokenTemplate = sourceBag.getData().ContainedObjects[1]
+    -- Take ONLY the Y-value for rotation, so we don't flip the token coming out of the bag
+    local tokenRotation  = rotation or { x = 0, y = 270, z = 0 }
+    tokenTemplate.Transform.rotY = tokenRotation.y
+    log("x=" .. tokenTemplate.Transform.rotX .. ",y=" .. tokenTemplate.Transform.rotY .. "z=" .. tokenTemplate.Transform.rotZ)
+    return spawnObjectData({
+      data = tokenTemplate,
+      position = position,
+      callback_function = callback
+    })
+  end
+
+  -- Delegate function to the token spawn tracker.  Exists to avoid circular dependencies in some
+  -- callers.
+  ---@param card Object Card object to reset the tokens for
+  TokenManager.resetTokensSpawned = function(card)
+    tokenSpawnTracker.resetTokensSpawned(card.getGUID())
+  end
+
+  -- Pushes new player card data into the local copy of the Data Helper player data.
+  ---@param dataTable Table Key/Value pairs following the DataHelper style
+  TokenManager.addPlayerCardData = function(dataTable)
+    internal.initDataHelperData()
+    for k, v in pairs(dataTable) do
+      playerCardData[k] = v
+    end
+  end
+
+  -- Pushes new location data into the local copy of the Data Helper location data.
+  ---@param dataTable Table Key/Value pairs following the DataHelper style
+  TokenManager.addLocationData = function(dataTable)
+    internal.initDataHelperData()
+    for k, v in pairs(dataTable) do
+      locationData[k] = v
+    end
+  end
+
+  -- Checks to see if the given card has location data in the DataHelper
+  ---@param card Object Card to check for data
+  ---@return Boolean True if this card has data in the helper, false otherwise
+  TokenManager.hasLocationData = function(card)
+    return internal.getLocationData(card) ~= nil
+  end
+
+  -- Copies the data from the DataHelper.  Will only happen once.
+  internal.initDataHelperData = function()
+    if playerCardData ~= nil then
+      return
+    end
+    local dataHelper = getObjectFromGUID(DATA_HELPER_GUID)
+    playerCardData = dataHelper.getTable('PLAYER_CARD_DATA')
+    locationData = dataHelper.getTable('LOCATIONS_DATA')
+  end
+
+  -- Spawn tokens for a card based on the uses metadata.  This will consider the face up/down state
+  -- of the card for both locations and standard cards.
+  ---@param card Object Card to maybe spawn tokens for
+  ---@param extraUses Table A table of <use type>=<count> which will modify the number of tokens
+  ---    spawned for that type.  e.g. Akachi's playmat should pass "Charge"=1
+  internal.spawnTokensFromUses = function(card, extraUses)
+    local uses = internal.getUses(card)
+    if uses == nil then
+      return
+    end
+    local type = nil
+    local token = nil
+    local tokenCount = 0
+    -- Uses structure underwent a breaking change in 2.4.0, have to check to see if this is
+    -- a single entry or an array.  This is ugly and duplicated, but impossible to replicate the
+    -- multi-spawn vs. single spawn otherwise.  TODO: Clean this up when 2.4.0 has been out long
+    -- enough that saved decks don't have old data
+    if uses.count != nil then
+      type = cardMetadata.uses.type
+      token = cardMetadata.uses.token
+      tokenCount = cardMetadata.uses.count
+      if extraUses ~= nil and extraUses[type] ~= nil then
+        tokenCount = tokenCount + extraUses[type]
+      end
+      log("Spawning single use tokens for "..card.getName()..'['..card.getDescription()..']: '..tokenCount.."x "..token)
+      TokenManager.spawnTokenGroup(card, token, tokenCount)
+    else
+      for i, useInfo in ipairs(uses) do
+        type = useInfo.type
+        token = useInfo.token
+        tokenCount = (useInfo.count or 0)
+            + (useInfo.countPerInvestigator or 0) * playAreaApi.getInvestigatorCount()
+        if extraUses ~= nil and extraUses[type] ~= nil then
+          tokenCount = tokenCount + extraUses[type]
+        end
+        log("Spawning use array tokens for "..card.getName()..'['..card.getDescription()..']: '..tokenCount.."x "..token)
+        -- Shift each spawned group after the first down so they don't pile on each other
+        TokenManager.spawnTokenGroup(card, token, tokenCount, (i - 1) * 0.6)
+      end
+    end
+    tokenSpawnTracker.markTokensSpawned(card.getGUID())
+  end
+
+  -- Spawn tokens for a card based on the data helper data.  This will consider the face up/down state
+  -- of the card for both locations and standard cards.
+  ---@param card Object Card to maybe spawn tokens for
+  internal.spawnTokensFromDataHelper = function(card)
+    internal.initDataHelperData()
+    local playerData = internal.getPlayerCardData(card)
+    if playerData ~= nil then
+      internal.spawnPlayerCardTokensFromDataHelper(card, playerData)
+    end
+    local locationData = internal.getLocationData(card)
+    if locationData ~= nil then
+      internal.spawnLocationTokensFromDataHelper(card, locationData)
+    end
+  end
+
+  -- Spawn tokens for a player card using data retrieved from the Data Helper.
+  ---@param card Object Card to maybe spawn tokens for
+  ---@param playerData Table Player card data structure retrieved from the DataHelper.  Should be
+  --     the right data for this card.
+  internal.spawnPlayerCardTokensFromDataHelper = function(card, playerData)
+    token = playerData.tokenType
+    tokenCount = playerData.tokenCount
+    log("Spawning data helper tokens for "..card.getName()..'['..card.getDescription()..']: '..tokenCount.."x "..token)
+    TokenManager.spawnTokenGroup(card, token, tokenCount)
+    tokenSpawnTracker.markTokensSpawned(card.getGUID())
+  end
+
+  -- Spawn tokens for a location using data retrieved from the Data Helper.
+  ---@param card Object Card to maybe spawn tokens for
+  ---@param playerData Table Location data structure retrieved from the DataHelper.  Should be
+  --     the right data for this card.
+  internal.spawnLocationTokensFromDataHelper = function(card, locationData)
+    local clueCount = internal.getClueCountFromData(card, locationData)
+    if clueCount > 0 then
+      TokenManager.spawnTokenGroup(card, "clue", clueCount)
+      tokenSpawnTracker.markTokensSpawned(card.getGUID())
+    end
+  end
+
+  internal.getPlayerCardData = function(card)
+    return playerCardData[card.getName()..':'..card.getDescription()]
+        or playerCardData[card.getName()]
+  end
+
+  internal.getLocationData = function(card)
+    return locationData[card.getName() .. '_' .. card.getGUID()] or locationData[card.getName()]
+  end
+
+  internal.getClueCountFromData = function(card, locationData)
+    -- Return the number of clues to spawn on this location
+    if locationData == nil then
+      error('attempted to get clue for unexpected object: ' .. card.getName())
+      return 0
+    end
+
+    log(card.getName() .. ' : ' .. locationData.type .. ' : ' .. locationData.value .. ' : ' .. locationData.clueSide)
+    if ((card.is_face_down and locationData.clueSide == 'back')
+        or (not card.is_face_down and locationData.clueSide == 'front')) then
+      if locationData.type == 'fixed' then
+        return locationData.value
+      elseif locationData.type == 'perPlayer' then
+        return locationData.value * playAreaApi.getInvestigatorCount()
+      end
+      error('unexpected location type: ' .. locationData.type)
+    end
+    return 0
+  end
+
+  -- Gets the right uses structure for this card, based on metadata and face up/down state
+  ---@param card Object Card to pull the uses from
+  internal.getUses = function(card)
+    local metadata = JSON.decode(card.getGMNotes()) or { }
+    if metadata.type == "Location" then
+      if card.is_face_down and metadata.locationBack ~= nil then
+        return metadata.locationBack.uses
+      elseif not card.is_face_down and metadata.locationFront ~= nil then
+        return metadata.locationFront.uses
+      end
+    elseif not card.is_face_down then
+      return metadata.uses
+    end
+
+    return nil
+  end
+
+  -- Dynamically create positions for clues on a card.
+  ---@param card Object Card the clues will be placed on
+  ---@param count Integer How many clues?
+  ---@return Table Array of global positions to spawn the clues at
+  internal.buildClueOffsets = function(card, count)
+    local pos = card.getPosition()
+    local cluePositions = { }
+    for i = 1, count do
+      local row = math.floor(1 + (i - 1) / 4)
+      local column = (i - 1) % 4
+      table.insert(cluePositions, Vector(pos.x + 1.5 - 0.55 * row, pos.y + 0.15, pos.z - 0.825 + 0.55 * column))
+    end
+
+    return cluePositions
+  end
+
+  return TokenManager
+
+end

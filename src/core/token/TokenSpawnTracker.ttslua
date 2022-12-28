@@ -1,0 +1,85 @@
+local spawnedCardGuids = { }
+
+local HAND_ZONES = { }
+HAND_ZONES["c506bf"] = true -- White
+HAND_ZONES["67ce9a"] = true -- Green
+HAND_ZONES["cbc751"] = true -- Orange
+HAND_ZONES["57c22c"] = true -- Red
+
+function onLoad(saveState)
+  if saveState ~= nil then
+    local saveTable = JSON.decode(saveState) or { }
+    spawnedCardGuids = saveTable.cards or { }
+  end
+
+  createResetMenuItems()
+end
+
+function onSave()
+  return JSON.encode({
+    cards = spawnedCardGuids
+  })
+end
+
+function createResetMenuItems()
+  self.addContextMenuItem("Reset All", resetAll)
+  self.addContextMenuItem("Reset Locations", resetAllLocations)
+  self.addContextMenuItem("Reset Player Cards", resetAllAssetAndEvents)
+end
+
+function hasSpawnedTokens(cardGuid)
+  return spawnedCardGuids[cardGuid] == true
+end
+
+function markTokensSpawned(cardGuid)
+  spawnedCardGuids[cardGuid] = true
+end
+
+function resetTokensSpawned(cardGuid)
+  spawnedCardGuids[cardGuid] = nil
+end
+
+function resetAllAssetAndEvents()
+  local resetList = { }
+  for cardGuid, _ in pairs(spawnedCardGuids) do
+    local card = getObjectFromGUID(cardGuid)
+    if card ~= nil then
+      local cardMetadata = JSON.decode(card.getGMNotes()) or { }
+      -- Check this by type rather than the PlayerCard tag so we don't reset weaknesses
+      if cardMetadata.type == "Asset" or cardMetadata.type == "Event" then
+        resetList[cardGuid] = true
+      end
+    end
+  end
+  for cardGuid, _ in pairs(resetList) do
+    spawnedCardGuids[cardGuid] = nil
+  end
+end
+
+function resetAllLocations()
+  local resetList = { }
+  for cardGuid, _ in pairs(spawnedCardGuids) do
+    local card = getObjectFromGUID(cardGuid)
+    if card ~= nil then
+      local cardMetadata = JSON.decode(card.getGMNotes()) or { }
+      -- Check this by type rather than the PlayerCard tag so we don't reset weaknesses
+      if cardMetadata.type == "Location" then
+        resetList[cardGuid] = true
+      end
+    end
+  end
+  for cardGuid, _ in pairs(resetList) do
+    spawnedCardGuids[cardGuid] = nil
+  end
+end
+
+function resetAll()
+  spawnedCardGuids = { }
+end
+
+-- Listener to reset card token spawns when they enter a hand.
+function onObjectEnterZone(zone, enterObject)
+  if HAND_ZONES[zone.getGUID()] then
+    resetTokensSpawned(enterObject.getGUID())
+  end
+end
