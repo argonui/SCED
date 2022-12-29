@@ -107,6 +107,9 @@ do
     }
   }
 
+  local TOKEN_SOURCE_GUID = "124381"
+  local tokenTemplates
+
   local SOURCE_BAG_GUIDS = {
     damage = "480bda",
     horror = "c3ecf4",
@@ -234,24 +237,25 @@ do
   --     x and z will use the default rotation from the source bag
   ---@param callback A callback function triggered after the new token is spawned
   TokenManager.spawnToken = function(position, tokenType, rotation, callback)
-    if SOURCE_BAG_GUIDS[tokenType] == nil then
+    internal.initTokenTemplates()
+    if tokenTemplates[tokenType] == nil then
       error("Unknown token type '" .. tokenType .. "'")
       return
     end
-    local sourceBag = getObjectFromGUID(SOURCE_BAG_GUIDS[tokenType])
-    if sourceBag == nil then
-      error("No token source for '" .. tokenType .. "'")
-      return
-    end
-    -- All the source bags are infinite, so we just grab the first object
-    local tokenTemplate = sourceBag.getData().ContainedObjects[1]
+    local tokenTemplate = tokenTemplates[tokenType]
     -- Take ONLY the Y-value for rotation, so we don't flip the token coming out of the bag
-    local tokenRotation  = rotation or { x = 0, y = 270, z = 0 }
-    tokenTemplate.Transform.rotY = tokenRotation.y
-    log("x=" .. tokenTemplate.Transform.rotX .. ",y=" .. tokenTemplate.Transform.rotY .. "z=" .. tokenTemplate.Transform.rotZ)
+    local rot = Vector(tokenTemplate.Transform.rotX,
+        tokenTemplate.Transform.rotY,
+        tokenTemplate.Transform.rotZ)
+    if rotation ~= nil then
+      rot.y = rotation.y
+    else
+      rot.y = 270
+    end
     return spawnObjectData({
       data = tokenTemplate,
       position = position,
+      rotation = rot,
       callback_function = callback
     })
   end
@@ -286,6 +290,19 @@ do
   ---@return Boolean True if this card has data in the helper, false otherwise
   TokenManager.hasLocationData = function(card)
     return internal.getLocationData(card) ~= nil
+  end
+
+  internal.initTokenTemplates = function()
+    if tokenTemplates ~= nil then
+      return
+    end
+    tokenTemplates = { }
+    local tokenSource = getObjectFromGUID(TOKEN_SOURCE_GUID)
+    for _, tokenTemplate in ipairs(tokenSource.getData().ContainedObjects) do
+      local tokenName = tokenTemplate.GMNotes
+      tokenTemplate.GMNotes = ""
+      tokenTemplates[tokenName] = tokenTemplate
+    end
   end
 
   -- Copies the data from the DataHelper.  Will only happen once.
