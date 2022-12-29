@@ -1,4 +1,14 @@
-local playAreaApi = require("core/PlayAreaApi")
+local playArea = require("core/PlayAreaApi")
+local tokenSpawnTracker = require("core/token/TokenSpawnTrackerApi")
+
+local ENCOUNTER_DECK_AREA = {
+  upperLeft = { x = 0.9, z = 0.42 },
+  lowerRight = { x = 0.86, z = 0.38 },
+}
+local ENCOUNTER_DISCARD_AREA = {
+  upperLeft = { x = 1.62, z = 0.42 },
+  lowerRight = { x = 1.58, z = 0.38 },
+}
 
 local currentScenario
 
@@ -15,8 +25,7 @@ function onSave()
   })
 end
 
--- TTS event handler.  Checks for a scenrio card, extracts the scenario name from the description,
--- and fires it to the relevant listeners.
+-- TTS event handler.  Handles scenario name event triggering and encounter card token resets.
 function onCollisionEnter(collisionInfo)
   local object = collisionInfo.collision_object
   if object.getName() == "Scenario" then
@@ -25,9 +34,38 @@ function onCollisionEnter(collisionInfo)
       fireScenarioChangedEvent()
     end
   end
+
+  local localPos = self.positionToLocal(object.getPosition())
+  if inArea(localPos, ENCOUNTER_DECK_AREA) or inArea(localPos, ENCOUNTER_DISCARD_AREA) then
+    tokenSpawnTracker.resetTokensSpawned(object.getGUID())
+  end
+end
+
+-- Listens for cards entering the encounter deck or encounter discard, and resets the spawn state
+-- for the cards when they do.
+function onObjectEnterContainer(container, object)
+  Wait.frames(function() resetTokensIfInDeckZone(container, object) end, 1)
+end
+
+function resetTokensIfInDeckZone(container, object)
+  local localPos = self.positionToLocal(container.getPosition())
+  if inArea(localPos, ENCOUNTER_DECK_AREA) or inArea(localPos, ENCOUNTER_DISCARD_AREA) then
+    tokenSpawnTracker.resetTokensSpawned(object.getGUID())
+  end
 end
 
 function fireScenarioChangedEvent()
-  log("Firing")
-  playAreaApi.onScenarioChanged(currentScenario)
+  playArea.onScenarioChanged(currentScenario)
+end
+
+-- Simple method to check if the given point is in a specified area.  Local use only,
+---@param point Vector.  Point to check, only x and z values are relevant
+---@param bounds Table.  Defined area to see if the point is within.  See MAIN_PLAY_AREA for sample
+--     bounds definition.
+---@return Boolean.  True if the point is in the area defined by bounds
+function inArea(point, bounds)
+  return (point.x < bounds.upperLeft.x
+      and point.x > bounds.lowerRight.x
+      and point.z < bounds.upperLeft.z
+      and point.z > bounds.lowerRight.z)
 end

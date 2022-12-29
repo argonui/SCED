@@ -1,3 +1,5 @@
+local tokenManager = require("core/token/TokenManager")
+
 -- set true to enable debug logging and show Physics.cast()
 local DEBUG = false
 
@@ -36,6 +38,16 @@ local INVESTIGATOR_AREA = {
     z = -0.0805,
   }
 }
+local THREAT_AREA = {
+  upperLeft = {
+    x = 1.53,
+    z = -0.34
+  },
+  lowerRight = {
+    x = -1.13,
+    z = -0.92,
+  }
+}
 
 local PLAY_ZONE_ROTATION = self.getRotation()
 
@@ -58,9 +70,6 @@ end
 
 function onLoad(save_state)
   self.interactable = DEBUG
-  DATA_HELPER = getObjectFromGUID('708279')
-  PLAYER_CARDS = DATA_HELPER.getTable('PLAYER_CARD_DATA')
-  PLAYER_CARD_TOKEN_OFFSETS = DATA_HELPER.getTable('PLAYER_CARD_TOKEN_OFFSETS')
 
   TRASHCAN = getObjectFromGUID(TRASHCAN_GUID)
   STAT_TRACKER = getObjectFromGUID(STAT_TRACKER_GUID)
@@ -387,38 +396,6 @@ function shuffleDiscardIntoDeck()
   discardPile = nil
 end
 
-function spawnTokenOn(object, offsets, tokenType)
-  local tokenPosition = object.positionToWorld(offsets)
-  spawnToken(tokenPosition, tokenType)
-end
-
--- Spawn a group of tokens of the given type on the object
--- @param object Object to spawn the tokens on
--- @param tokenType Type of token to be spawned
--- @param tokenCount Number of tokens to spawn
--- @param shiftDown Amount to shift this group down to avoid spawning multiple token groups on
---     top of each other.  Negative values are allowed, and will move the group up instead.  This is
---     a static value and is unaware of how many tokens were spawned previously; callers should
---     ensure the proper shift.
-function spawnTokenGroup(object, tokenType, tokenCount, shiftDown)
-  if (tokenCount < 1 or tokenCount > 12) then return end
-  local offsets = PLAYER_CARD_TOKEN_OFFSETS[tokenCount]
-  if shiftDown ~= nil then
-    -- Copy the offsets to make sure we don't change the static values
-    local baseOffsets = offsets
-    offsets = { }
-    for i, baseOffset in ipairs(baseOffsets) do
-      offsets[i] = baseOffset
-      offsets[i][3] = offsets[i][3] + shiftDown
-    end
-  end
-  if offsets == nil then error("couldn't find offsets for " .. tokenCount .. ' tokens') end
-
-  for i = 1, tokenCount do
-    spawnTokenOn(object, offsets[i], tokenType)
-  end
-end
-
 ---------------------------------------------------------
 -- playmat token spawning
 ---------------------------------------------------------
@@ -457,131 +434,100 @@ function replenishTokens(card, count, replenish)
 
   local newCount = foundTokens + replenish
   if newCount > count then newCount = count end
-  spawnTokenGroup(card, "resource", newCount)
+  tokenManager.spawnTokenGroup(card, "resource", newCount)
 end
 
-function getPlayerCardData(object)
-  return PLAYER_CARDS[object.getName()..':'..object.getDescription()] or PLAYER_CARDS[object.getName()]
-end
-
-function shouldSpawnTokens(object)
-  -- don't spawn tokens if in doubt, this should only ever happen onLoad and prevents respawns
-  local spawned = DATA_HELPER.call('getSpawnedPlayerCardGuid', {object.getGUID()})
-  local hasDataHelperData = getPlayerCardData(object)
-  local cardMetadata = JSON.decode(object.getGMNotes()) or {}
-  local hasUses = cardMetadata.uses ~= nil
-  return not spawned and (hasDataHelperData or hasUses)
-end
-
-function markSpawned(object)
-  local saved = DATA_HELPER.call('setSpawnedPlayerCardGuid', {object.getGUID(), true})
-  if not saved then error('attempt to mark player card spawned before data loaded') end
-end
-
--- contains position and amount of boxes for the upgradesheets that change uses
--- Alchemical Distillation, Damning Testimony, Living Ink and Hyperphysical Shotcaster
-local customizationsTable = {
-  ["09040"] = {5, 2},
-  ["09059"] = {2, 2},
-  ["09079"] = {3, 2},
-  ["09119"] = {6, 4}
-}
-
-function spawnTokensFor(object)
-  local cardMetadata = JSON.decode(object.getGMNotes()) or {}
-  local type = nil
-  local token = nil
-  local tokenCount = 0
-  if cardMetadata.uses ~= nil then
-    -- Uses structure underwent a breaking change in 2.4.0, have to check to see if this is
-    -- a single entry or an array.  This is ugly and duplicated, but impossible to replicate the
-    -- multi-spawn vs. single spawn otherwise.  TODO: Clean this up when 2.4.0 has been out long
-    -- enough that saved decks don't have old data
-    if cardMetadata.uses.count != nil then
-      type = cardMetadata.uses.type
-      token = cardMetadata.uses.token
-      tokenCount = cardMetadata.uses.count
-      if activeInvestigatorId == "03004" and type == "Charge" then tokenCount = tokenCount + 1 end
-
-      log("Spawning tokens for "..object.getName()..'['..object.getDescription()..']: '..tokenCount.."x "..token)
-      spawnTokenGroup(object, token, tokenCount)
-    else
-      for i, useInfo in ipairs(cardMetadata.uses) do
-        type = useInfo.type
-        token = useInfo.token
-        tokenCount = useInfo.count
-
-        -- additional uses for certain customizable cards (by checking the upgradesheets)
-        if customizationsTable[cardMetadata.id] ~= nil then
-          for _, obj in ipairs(searchArea(PLAY_ZONE_POSITION, PLAY_ZONE_SCALE)) do
-            local obj = obj.hit_object
-            if obj.tag == "Card" then
-              local notes = JSON.decode(obj.getGMNotes()) or {}
-              if notes.id == (cardMetadata.id .. "-c") then
-                local pos = customizationsTable[cardMetadata.id][1]
-                local boxes = customizationsTable[cardMetadata.id][2]
-                if obj.getVar("markedBoxes")[pos] == boxes then tokenCount = tokenCount + 2 end
-                break
-              end
-            end
+function syncCustomizableMetadata(card)
+  local cardMetadata = JSON.decode(card.getGMNotes()) or { }
+  if cardMetadata ~= nil and cardMetadata.customizations ~= nil then
+    for _, obj in ipairs(searchArea(PLAY_ZONE_POSITION, PLAY_ZONE_SCALE)) do
+      local obj = obj.hit_object
+      local notes = JSON.decode(obj.getGMNotes()) or { }
+      if notes.id == (cardMetadata.id .. "-c") then
+        for i, customization in ipairs(cardMetadata.customizations) do
+          if obj.getVar("markedBoxes")[i] == customization.xp
+              and customization.replaces ~= nil
+              and customization.replaces.uses ~= nil then
+            cardMetadata.uses = customization.replaces.uses
+            card.setGMNotes(JSON.encode(cardMetadata))
           end
         end
-
-        -- additional charge for Akachi
-        if activeInvestigatorId == "03004" and type == "Charge" then tokenCount = tokenCount + 1 end
-
-        log("Spawning tokens for "..object.getName()..'['..object.getDescription()..']: '..tokenCount.."x "..token)
-        -- Shift each spawned group after the first down so they don't pile on each other
-        spawnTokenGroup(object, token, tokenCount, (i - 1) * 0.6)
-      end
-    end
-  else
-    local data = getPlayerCardData(object)
-    token = data['tokenType']
-    tokenCount = data['tokenCount']
-    log("Spawning tokens for "..object.getName()..'['..object.getDescription()..']: '..tokenCount.."x "..token)
-    spawnTokenGroup(object, token, tokenCount)
-  end
-  markSpawned(object)
-end
-
-function resetSpawnState()
-  local zone = getObjectFromGUID(zoneID)
-  if zone == nil then return end
-
-  for _, object in ipairs(zone.getObjects()) do
-    if object.tag == "Card" then
-      unmarkSpawned(object.getGUID(), true)
-    elseif object.tag == "Deck" then
-      local cards = object.getObjects()
-      for _, v in ipairs(cards) do
-        unmarkSpawned(v.guid)
       end
     end
   end
 end
 
-function unmarkSpawned(guid, force)
-  if not force and getObjectFromGUID(guid) ~= nil then return end
-  DATA_HELPER.call('setSpawnedPlayerCardGuid', {guid, false})
+function spawnTokensFor(object)
+  local extraUses = { }
+  if activeInvestigatorId == "03004" then
+    extraUses["Charge"] = 1
+  end
+
+  tokenManager.spawnForCard(object, extraUses)
 end
 
 function onCollisionEnter(collision_info)
   if not COLLISION_ENABLED then return end
-  Wait.time(resetSpawnState, 1)
   local object = collision_info.collision_object
-
   -- only continue for cards
   if object.name ~= "Card" and object.name ~= "CardCustom" then return end
   maybeUpdateActiveInvestigator(object)
 
-  -- don't spawn tokens for cards in discard pile / threat area
-  local localpos = self.positionToLocal(object.getPosition())
-  if localpos.x < -0.7 or localpos.z < -0.3 then
-    log('Not spawning tokens, relative coordinates are x: ' .. localpos.x .. ' z: ' .. localpos.z)
-  elseif not object.is_face_down and shouldSpawnTokens(object) then
+  syncCustomizableMetadata(object)
+  if isInDeckZone(object) then
+    tokenManager.resetTokensSpawned(object)
+  elseif shouldSpawnTokens(object) then
     spawnTokensFor(object)
   end
+end
+
+function shouldSpawnTokens(card)
+  if card.is_face_down then
+    return false
+  end
+  local localCardPos = self.positionToLocal(card.getPosition())
+  local metadata = JSON.decode(card.getGMNotes())
+  -- If no metadata we don't know the type, so only spawn in the main area
+  if metadata == nil then
+    return inArea(localCardPos, MAIN_PLAY_AREA)
+  end
+  -- Spawn tokens for assets and events on the main area, and all encounter types in the threat area
+  if inArea(localCardPos, MAIN_PLAY_AREA)
+      and (metadata.type == "Asset"
+      or metadata.type == "Event") then
+    return true
+  end
+  if inArea(localCardPos, THREAT_AREA)
+      and (metadata.type == "Treachery"
+      or metadata.type == "Enemy"
+      or metadata.weakness) then
+    return true
+  end
+  return false
+end
+
+function onObjectEnterContainer(container, object)
+  Wait.frames(function() resetTokensIfInDeckZone(container, object) end, 1)
+end
+
+function resetTokensIfInDeckZone(container, object)
+  if isInDeckZone(container) then
+    tokenManager.resetTokensSpawned(object)
+  end
+end
+
+function isInDeckZone(checkObject)
+  local deckZone = getObjectFromGUID(zoneID)
+  if deckZone == nil then
+    return false
+  end
+  for _, obj in ipairs(deckZone.getObjects()) do
+    if obj == checkObject then
+      return true
+    end
+  end
+
+  return false
 end
 
 ---------------------------------------------------------
@@ -655,10 +601,6 @@ function drawEncountercard(_, _, isRightClick)
   Global.call("drawEncountercard", {self.positionToWorld(DRAWN_ENCOUNTER_CARD_OFFSET), self.getRotation(), isRightClick})
 end
 
-function spawnToken(position, tokenType)
-  Global.call('spawnToken', {position, tokenType, PLAY_ZONE_ROTATION})
-end
-
 -- Sets this playermat's draw 1 button to visible
 ---@param visible Boolean.  Whether the draw 1 button should be visible
 function showDrawButton(visible)
@@ -680,7 +622,7 @@ function showDrawButton(visible)
   -- remove the "Draw 1" button
   else
     local buttons = self.getButtons()
-    for i = 1, #buttons do 
+    for i = 1, #buttons do
       if buttons[i].label == "Draw 1" then
         self.removeButton(buttons[i].index)
       end
@@ -721,7 +663,7 @@ function clickableClues(showCounter)
     local pos = self.positionToWorld({x = -1.12, y = 0.05, z = 0.7})
     for i = 1, clueCount do
       pos.y = pos.y + 0.045 * i
-      spawnToken(pos, "clue")
+      TokenManager.spawnToken(pos, "clue", PLAY_ZONE_ROTATION)
     end
   end
 end
@@ -802,9 +744,7 @@ end
 -- called by custom data helpers to add player card data
 ---@param args table Contains only one entry, the GUID of the custom data helper
 function updatePlayerCards(args)
-  local custom_data_helper = getObjectFromGUID(args[1])
-  data_player_cards = custom_data_helper.getTable("PLAYER_CARD_DATA")
-  for k, v in pairs(data_player_cards) do
-    PLAYER_CARDS[k] = v
-  end
+  local customDataHelper = getObjectFromGUID(args[1])
+  local playerCardData = customDataHelper.getTable("PLAYER_CARD_DATA")
+  tokenManager.addPlayerCardData(playerCardData)
 end
