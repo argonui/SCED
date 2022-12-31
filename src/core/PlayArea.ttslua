@@ -35,6 +35,10 @@ local SHIFT_EXCLUSION = {
   ["f182ee"] = true,
   ["721ba2"] = true
 }
+local LOC_LINK_EXCLUDE_SCENARIOS = {
+  ["Devil Reef"] = true,
+  ["The Witching Hour"] = true,
+}
 
 local INVESTIGATOR_COUNTER_GUID = "f182ee"
 local PLAY_AREA_ZONE_GUID = "a2f932"
@@ -119,7 +123,7 @@ end
 function onObjectPickUp(player, object)
   -- onCollisionExit fires first, so we have to check the card to see if it's a location we should
   -- be tracking
-  if isInPlayArea(object) and object.getGMNotes() ~= nil and object.getGMNotes() ~= "" then
+  if showLocationLinks() and isInPlayArea(object) and object.getGMNotes() ~= nil and object.getGMNotes() ~= "" then
     local pickedUpGuid = object.getGUID()
     local metadata = JSON.decode(object.getGMNotes())
     if (metadata.type == "Location") then
@@ -157,7 +161,7 @@ end
 function maybeTrackLocation(card)
   -- Collision checks for any part of the card overlap, but our other tracking is centerpoint
   -- Ignore any collision where the centerpoint isn't in the area
-  if isInPlayArea(card) then
+  if showLocationLinks() and isInPlayArea(card) then
     local metadata = JSON.decode(card.getGMNotes()) or { }
     if metadata.type == "Location" then
       locations[card.getGUID()] = metadata
@@ -187,6 +191,11 @@ end
 -- but does not draw those connections.  This should often be followed by a call to
 -- drawConnections()
 function rebuildConnectionList()
+  if not showLocationLinks() then
+    locationConnections = { }
+    return
+  end
+
   local iconCardList = { }
 
   -- Build a list of cards with each icon as their location ID
@@ -268,6 +277,10 @@ end
 
 -- Draws the lines for connections currently in locationConnections.
 function drawConnections()
+  if not showLocationLinks() then
+    locationConnections = { }
+    return
+  end
   local cardConnectionLines = { }
 
   for originGuid, targetGuids in pairs(locationConnections) do
@@ -422,4 +435,11 @@ end
 
 function onScenarioChanged(scenarioName)
   currentScenario = scenarioName
+  if not showLocationLinks() then
+    broadcastToAll("Automatic location connections not available for this scenario")
+  end
+end
+
+function showLocationLinks()
+  return not LOC_LINK_EXCLUDE_SCENARIOS[currentScenario]
 end
