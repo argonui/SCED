@@ -7,6 +7,8 @@ local WEAKNESS_CHECK_Z = 37
 local cardIdIndex = { }
 local classAndLevelIndex = { }
 local basicWeaknessList = { }
+local uniqueWeaknessList = { }
+local cycleIndex = { }
 
 local indexingDone = false
 local allowRemoval = false
@@ -45,7 +47,9 @@ function clearIndexes()
   classAndLevelIndex["Survivor-level0"] = { }
   classAndLevelIndex["Rogue-level0"] = { }
   classAndLevelIndex["Neutral-level0"] = { }
+  cycleIndex = { }
   basicWeaknessList = { }
+  uniqueWeaknessList = { }
 end
 
 -- Clears the bag indexes and starts the coroutine to rebuild the indexes
@@ -121,27 +125,27 @@ function buildSupplementalIndexes()
     local cardMetadata = card.metadata
     -- If the ID key and the metadata ID don't match this is a duplicate card created by an
     -- alternate_id, and we should skip it
-    if (cardId == cardMetadata.id) then
+    if cardId == cardMetadata.id then
       -- Add card to the basic weakness list, if appropriate.  Some weaknesses have
       -- multiple copies, and are added multiple times
-      if (cardMetadata.weakness and cardMetadata.basicWeaknessCount ~= nil) then
+      if cardMetadata.weakness and cardMetadata.basicWeaknessCount ~= nil then
+        table.insert(uniqueWeaknessList, cardMetadata.id)
         for i = 1, cardMetadata.basicWeaknessCount do
           table.insert(basicWeaknessList, cardMetadata.id)
+        end
       end
-    end
-    table.sort(basicWeaknessList, cardComparator)
 
-  -- Add the card to the appropriate class and level indexes
-    local isGuardian = false
-    local isSeeker = false
-    local isMystic = false
-    local isRogue = false
-    local isSurvivor = false
-    local isNeutral = false
-    local upgradeKey
-    -- Excludes signature cards (which have no class or level) and alternate
-    -- ID entries
-    if (cardMetadata.class ~= nil and cardMetadata.level ~= nil) then
+      -- Add the card to the appropriate class and level indexes
+      local isGuardian = false
+      local isSeeker = false
+      local isMystic = false
+      local isRogue = false
+      local isSurvivor = false
+      local isNeutral = false
+      local upgradeKey
+      -- Excludes signature cards (which have no class or level) and alternate
+      -- ID entries
+      if (cardMetadata.class ~= nil and cardMetadata.level ~= nil) then
         isGuardian = string.match(cardMetadata.class, "Guardian")
         isSeeker = string.match(cardMetadata.class, "Seeker")
         isMystic = string.match(cardMetadata.class, "Mystic")
@@ -171,12 +175,32 @@ function buildSupplementalIndexes()
         if (isNeutral) then
           table.insert(classAndLevelIndex["Neutral"..upgradeKey], cardMetadata.id)
         end
+
+        local cycleName = cardMetadata.cycle
+        if cycleName ~= nil then
+          cycleName = string.lower(cycleName)
+          if string.match(cycleName, "return") then
+            cycleName = string.sub(cycleName, 11)
+          end
+          if cycleName == "the night of the zealot" then
+            cycleName = "core"
+          end
+          if cycleIndex[cycleName] == nil then
+            cycleIndex[cycleName] = { }
+          end
+          table.insert(cycleIndex[cycleName], cardMetadata.id)
+        end
       end
     end
   end
   for _, indexTable in pairs(classAndLevelIndex) do
     table.sort(indexTable, cardComparator)
   end
+  for _, indexTable in pairs(cycleIndex) do
+    table.sort(indexTable)
+  end
+  table.sort(basicWeaknessList, cardComparator)
+  table.sort(uniqueWeaknessList, cardComparator)
 end
 
 -- Comparison function used to sort the class card bag indexes.  Sorts by card
@@ -233,6 +257,14 @@ function getCardsByClassAndLevel(params)
     upgradeKey = "-level0"
   end
   return classAndLevelIndex[params.class..upgradeKey];
+end
+
+function getCardsByCycle(cycleName)
+  if (not indexingDone) then
+    broadcastToAll("Still loading player cards, please try again in a few seconds", {0.9, 0.2, 0.2})
+    return { }
+  end
+  return cycleIndex[string.lower(cycleName)]
 end
 
 -- Searches the bag for cards which match the given name and returns a list.  Note that this is
@@ -303,6 +335,10 @@ function getBasicWeaknesses()
   return basicWeaknessList
 end
 
+function getUniqueWeaknesses()
+  return uniqueWeaknessList
+end
+
 -- Helper function that adds one to the table entry for the number of weaknesses in play
 function incrementWeaknessCount(table, cardMetadata)
   if (isBasicWeakness(cardMetadata)) then
@@ -322,6 +358,7 @@ function isInPlayArea(object)
   return position.x < WEAKNESS_CHECK_X
       and position.z < WEAKNESS_CHECK_Z
 end
+
 function isBasicWeakness(cardMetadata)
   return cardMetadata ~= nil
     and cardMetadata.weakness
