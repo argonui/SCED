@@ -1,5 +1,3 @@
-local tokenManager = require("core/token/TokenManager")
-
 ---------------------------------------------------------
 -- general setup
 ---------------------------------------------------------
@@ -25,9 +23,10 @@ local SHIFT_EXCLUSION = {
   ["721ba2"] = true
 }
 
+local tokenManager = require("core/token/TokenManager")
 local INVESTIGATOR_COUNTER_GUID = "f182ee"
 local PLAY_AREA_ZONE_GUID = "a2f932"
-
+local lastCollisionObject
 local currentScenario
 
 ---------------------------------------------------------
@@ -64,19 +63,24 @@ function updateLocations(args)
 end
 
 function onCollisionEnter(collision_info)
-  if not COLLISION_ENABLED then return end
+  local obj = collision_info.collision_object
+
+  -- only trigger the following once every 0.1s for each object
+  -- (otherwise TTS fires this event 20 times and that causes 20 JSON decodes)
+  if not COLLISION_ENABLED or lastCollisionObject == obj then return end
+  lastCollisionObject = obj
+  Wait.time(function() lastCollisionObject = nil end, 0.1)
 
   -- check if we should spawn clues here and do so according to playercount
-  local card = collision_info.collision_object
-  if shouldSpawnTokens(card) then
-    tokenManager.spawnForCard(card)
+  if shouldSpawnTokens(obj) then
+    tokenManager.spawnForCard(obj)
   end
 end
 
 function shouldSpawnTokens(card)
   local metadata = JSON.decode(card.getGMNotes())
   if metadata == nil then
-    return tokenManager.hasLocationData(card) ~= nil
+    return tokenManager.hasLocationData(card)
   end
   return metadata.type == "Location"
       or metadata.type == "Enemy"
@@ -85,9 +89,8 @@ function shouldSpawnTokens(card)
 end
 
 -- Move all contents on the play area (cards, tokens, etc) one slot in the given direction.  Certain
--- fixed objects will be ignored, as will anything the player has tagged with
--- 'displacement_excluded'
----@param playerColor Color of the player requesting the shift.  Used solely to send an error
+-- fixed objects will be ignored, as will anything the player has tagged with 'displacement_excluded'
+---@param playerColor String Color of the player requesting the shift.  Used solely to send an error
 ---    message in the unlikely case that the scripting zone has been deleted
 function shiftContentsUp(playerColor)
   shiftContents(playerColor, "up")
