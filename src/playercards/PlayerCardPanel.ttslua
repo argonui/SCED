@@ -2,23 +2,48 @@ require("playercards/PlayerCardPanelData")
 local spawnBag = require("playercards/spawnbag/SpawnBag")
 local arkhamDb = require("arkhamdb/ArkhamDb")
 
--- TODO: Update when the real UI image is in place
-local BUTTON_WIDTH = 150
-local BUTTON_HEIGHT = 550
+-- Size and position information for the three rows of class buttons
+local CIRCLE_BUTTON_SIZE = 250
+local CLASS_BUTTONS_X_OFFSET = 0.1325
+local INVESTIGATOR_ROW_START = Vector(0.125, 0.1, -0.447)
+local LEVEL_ZERO_ROW_START = Vector(0.125, 0.1, -0.007)
+local UPGRADED_ROW_START = Vector(0.125, 0.1, 0.333)
+
+-- Size and position information for the two blocks of other buttons
+local MISC_BUTTONS_X_OFFSET = 0.155
+local WEAKNESS_ROW_START = Vector(0.157, 0.1, 0.666)
+local OTHER_ROW_START = Vector(0.605, 0.1, 0.666)
+
+-- Size and position information for the Cycle (box) buttons
+local CYCLE_BUTTON_SIZE = 468
+local CYCLE_BUTTON_START = Vector(-0.716, 0.1, -0.39)
+local CYCLE_COLUMN_COUNT = 3
+local CYCLE_BUTTONS_X_OFFSET = 0.267
+local CYCLE_BUTTONS_Z_OFFSET = 0.2665
 
 local ALL_CARDS_BAG_GUID = "15bb07"
+
+local STARTER_DECK_MODE_SELECTED_COLOR = { 0.2, 0.2, 0.2, 0.8 }
+local TRANSPARENT = { 0, 0, 0, 0 }
+local STARTER_DECK_MODE_STARTERS = "starters"
+local STARTER_DECK_MODE_CARDS_ONLY = "cards"
 
 local FACE_UP_ROTATION = { x = 0, y = 270, z = 0}
 local FACE_DOWN_ROTATION = { x = 0, y = 270, z = 180}
 
--- Coordinates to begin laying out cards to match the reserved areas of the
--- table.  Cards will lay out horizontally, then create additional rows
+-- Coordinates to begin laying out cards.  These vary based on the cards that are being placed
 local START_POSITIONS = {
-  skill = Vector(58.384, 1.36, 92.4),
-  event = Vector(53.229, 1.36, 92.4),
-  asset = Vector(40.960, 1.36, 92.4),
-  investigator = Vector(60, 1.36, 80)
+  classCards = Vector(58.384, 1.36, 92.4),
+  investigator = Vector(60, 1.36, 86),
+  cycle = Vector(48, 1.36, 92.4),
+  other = Vector(56, 1.36, 86),
+  summonedServitor = Vector(55.5, 1.36, 60.2),
+  randomWeakness = Vector(55, 1.36, 75)
 }
+
+-- Shifts to move rows of cards, and groups of rows, as different groupings are laid out
+local CARD_ROW_OFFSET = 3.7
+local CARD_GROUP_OFFSET = 2
 
 -- Position offsets for investigator decks in investigator mode, defines the spacing for how the
 -- rows and columns are laid out
@@ -31,7 +56,21 @@ local INVESTIGATOR_MAX_COLS = 6
 local INVESTIGATOR_CARD_OFFSET = Vector(-2.55, 0, 0)
 local INVESTIGATOR_SIGNATURE_OFFSET = Vector(-5.75, 0, 0)
 
-local spawnStarterDecks = false
+local CLASS_LIST = { "Guardian", "Seeker", "Rogue", "Mystic", "Survivor", "Neutral" }
+local CYCLE_LIST = {
+  "Core",
+  "The Dunwich Legacy",
+  "The Path to Carcosa",
+  "The Forgotten Age",
+  "The Circle Undone",
+  "The Dream-Eaters",
+  "The Innsmouth Conspiracy",
+  "Edge of the Earth",
+  "The Scarlet Keys",
+  "Investigator Packs"
+}
+
+local starterDeckMode = STARTER_DECK_MODE_CARDS_ONLY
 
 function onSave()
   local saveState = {
@@ -48,232 +87,223 @@ function onLoad(savedData)
       spawnBag.loadFromSave(saveState.spawnBagState)
     end
   end
+  createButtons()
+end
 
-  self.createButton({
-      label="Guardian", click_function="spawnInvestigatorsGuardian", function_owner=self,
-      position={-0.3,0.2,-0.5}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
-      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
-  })
-  self.createButton({
-      label="Seeker", click_function="spawnInvestigatorsSeeker", function_owner=self,
-      position={0,0.2,-0.5}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
-      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
-  })
-  self.createButton({
-      label="Mystic", click_function="spawnInvestigatorsMystic", function_owner=self,
-      position={0.3,0.2,-0.5}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
-      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
-  })
-  self.createButton({
-      label="Rogue", click_function="spawnInvestigatorsRogue", function_owner=self,
-      position={-0.3,0.2,-0.4}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
-      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
-  })
-  self.createButton({
-      label="Survivor", click_function="spawnSurvivor", function_owner=self,
-      position={0,0.2,-0.4}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
-      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
-  })
-  self.createButton({
-      label="Neutral", click_function="spawnNeutral", function_owner=self,
-      position={0.3,0.2,-0.4}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
-      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
-  })
+function createButtons()
+  createInvestigatorButtons()
+  createLevelZeroButtons()
+  createUpgradedButtons()
+  createWeaknessButtons()
+  createOtherButtons()
+  createCycleButtons()
+  createClearButton()
+  -- Create investigator mode buttons last so the indexes are set when we need to update them
+  createInvestigatorModeButtons()
+end
 
-  self.createButton({
-      label="Core", click_function="spawnCore", function_owner=self,
-      position={-0.3,0.2,-0.2}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
-      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
-  })
-  self.createButton({
-      label="Dunwich", click_function="spawnDunwich", function_owner=self,
-      position={0,0.2,-0.2}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
-      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
-  })
-  self.createButton({
-      label="Carcosa", click_function="spawnCarcosa", function_owner=self,
-      position={0.3,0.2,-0.2}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
-      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
-  })
-  self.createButton({
-      label="Forgotten Age", click_function="spawnForgottenAge", function_owner=self,
-      position={-0.3,0.2,-0.1}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
-      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
-  })
-  self.createButton({
-      label="Circle Undone", click_function="spawnCircleUndone", function_owner=self,
-      position={0,0.2,-0.1}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
-      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
-  })
-  self.createButton({
-      label="Dream Eaters", click_function="spawnDreamEaters", function_owner=self,
-      position={0.3,0.2,-0.1}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
-      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
-  })
-  self.createButton({
-      label="Innsmouth", click_function="spawnInnsmouth", function_owner=self,
-      position={-0.3,0.2,0}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
-      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
-  })
-  self.createButton({
-      label="EotE", click_function="spawnEotE", function_owner=self,
-      position={0,0.2,0}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
-      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
-  })
-  self.createButton({
-      label="Scarlet Keys", click_function="spawnScarletKeys", function_owner=self,
-      position={0.3,0.2,0}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
-      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
-  })
-  self.createButton({
-      label="InvPacks", click_function="spawnInvestigatorDecks", function_owner=self,
-      position={-0.3,0.2,0.1}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
-      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
-  })
-  self.createButton({
-      label="Investigators", click_function="setInvestigators", function_owner=self,
-      position={-0.15,0.2,-0.6}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
-      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
-  })
-  self.createButton({
-      label="Starters", click_function="setStarters", function_owner=self,
-      position={0.15,0.2,-0.6}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
-      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
-  })
-
-  self.createButton({
-      label="L0 Guardian", click_function="spawnBasicGuardian", function_owner=self,
-      position={-0.15,0.2,0.3}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
-      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
-  })
-  self.createButton({
-      label="L1-5 Guardian", click_function="spawnUpgradedGuardian", function_owner=self,
-      position={0.15,0.2,0.3}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
-      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
-  })
-  self.createButton({
-      label="L0 Seeker", click_function="spawnBasicSeeker", function_owner=self,
-      position={-0.15,0.2,0.4}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
-      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
-  })
-  self.createButton({
-      label="L1-5 Seeker", click_function="spawnUpgradedSeeker", function_owner=self,
-      position={0.15,0.2,0.4}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
-      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
-  })
-  self.createButton({
-      label="L0 Mystic", click_function="spawnBasicMystic", function_owner=self,
-      position={-0.15,0.2,0.5}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
-      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
-  })
-  self.createButton({
-      label="L1-5 Mystic", click_function="spawnUpgradedGuardian", function_owner=self,
-      position={0.15,0.2,0.5}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
-      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
-  })
-  self.createButton({
-      label="L0 Rogue", click_function="spawnBasicRogue", function_owner=self,
-      position={-0.15,0.2,0.6}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
-      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
-  })
-  self.createButton({
-      label="L1-5 Rogue", click_function="spawnUpgradedRogue", function_owner=self,
-      position={0.15,0.2,0.6}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
-      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
-  })
-  self.createButton({
-      label="L0 Survivor", click_function="spawnBasicSurvivor", function_owner=self,
-      position={-0.15,0.2,0.7}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
-      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
-  })
-  self.createButton({
-      label="L1-5 Survivor", click_function="spawnUpgradedSurvivor", function_owner=self,
-      position={0.15,0.2,0.7}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
-      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
-  })
-  self.createButton({
-      label="L0 Neutral", click_function="spawnBasicNeutral", function_owner=self,
-      position={-0.15,0.2,0.8}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
-      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
-  })
-  self.createButton({
-      label="L1-5 Neutral", click_function="spawnUpgradedNeutral", function_owner=self,
-      position={0.15,0.2,0.8}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
-      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
-  })
-  self.createButton({
-      label="Clear", click_function="deleteAll", function_owner=self,
-      position={0.5,0.2,0.9}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
-      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
-  })
-  self.createButton({
-      label="Weaknesses", click_function="spawnWeaknesses", function_owner=self,
-      position={-0.5,0.2,0.9}, rotation={0,0,0}, height=BUTTON_WIDTH, width=BUTTON_HEIGHT,
-      font_size=64, color={0,0,0}, font_color={1,1,1}, scale={0.25, 0.25, 0.25}
-  })
-  local classList = { "Guardian", "Seeker", "Mystic", "Rogue", "Survivor", "Neutral" }
-  for _, className in ipairs(classList) do
-    local funcName = "spawnInvestigators"..className
-    self.setVar(funcName, function(_, _, _) spawnGroup(className) end)
-    funcName = "spawnBasic"..className
-    self.setVar(funcName, function(_, _, _) spawnClassCards(className, false) end)
-    funcName = "spawnUpgraded"..className
-    self.setVar(funcName, function(_, _, _) spawnClassCards(className, true) end)
+function createInvestigatorButtons()
+  local invButtonParams = {
+    function_owner = self,
+    rotation = Vector(0, 0, 0),
+    height = CIRCLE_BUTTON_SIZE,
+    width = CIRCLE_BUTTON_SIZE,
+    scale = Vector(0.25, 1, 0.25),
+    color = TRANSPARENT,
+  }
+  local buttonPos = INVESTIGATOR_ROW_START:copy()
+  for _, class in ipairs(CLASS_LIST) do
+    invButtonParams.click_function = "spawnInvestigators" .. class
+    invButtonParams.position = buttonPos
+    self.createButton(invButtonParams)
+    buttonPos.x = buttonPos.x + CLASS_BUTTONS_X_OFFSET
+    self.setVar(invButtonParams.click_function, function(_, _, _) spawnInvestigatorGroup(class) end)
   end
 end
 
--- TODO: Replace these with something less manual once the full data in in place so we know what
--- keys to use
-function placeCore()
-  spawnGroup("Core")
+function createLevelZeroButtons()
+  local l0ButtonParams = {
+    function_owner = self,
+    rotation = Vector(0, 0, 0),
+    height = CIRCLE_BUTTON_SIZE,
+    width = CIRCLE_BUTTON_SIZE,
+    scale = Vector(0.25, 1, 0.25),
+    color = TRANSPARENT,
+  }
+  local buttonPos = LEVEL_ZERO_ROW_START:copy()
+  for _, class in ipairs(CLASS_LIST) do
+    l0ButtonParams.click_function = "spawnBasic" .. class
+    l0ButtonParams.position = buttonPos
+    self.createButton(l0ButtonParams)
+    buttonPos.x = buttonPos.x + CLASS_BUTTONS_X_OFFSET
+    self.setVar(l0ButtonParams.click_function, function(_, _, _) spawnClassCards(class, false) end)
+  end
 end
 
-function placeDunwich()
-  spawnGroup("Dunwich")
+function createUpgradedButtons()
+  local upgradedButtonParams = {
+    function_owner = self,
+    rotation = Vector(0, 0, 0),
+    height = CIRCLE_BUTTON_SIZE,
+    width = CIRCLE_BUTTON_SIZE,
+    scale = Vector(0.25, 1, 0.25),
+    color = TRANSPARENT,
+  }
+  local buttonPos = UPGRADED_ROW_START:copy()
+  for _, class in ipairs(CLASS_LIST) do
+    upgradedButtonParams.click_function = "spawnUpgraded" .. class
+    upgradedButtonParams.position = buttonPos
+    self.createButton(upgradedButtonParams)
+    buttonPos.x = buttonPos.x + CLASS_BUTTONS_X_OFFSET
+    self.setVar(upgradedButtonParams.click_function, function(_, _, _) spawnClassCards(class, true) end)
+  end
 end
 
-function placeCarcosa()
-  spawnGroup("Carcosa")
+function createWeaknessButtons()
+  local weaknessButtonParams = {
+    function_owner = self,
+    rotation = Vector(0, 0, 0),
+    height = CIRCLE_BUTTON_SIZE,
+    width = CIRCLE_BUTTON_SIZE,
+    scale = Vector(0.25, 1, 0.25),
+    color = TRANSPARENT,
+  }
+  local buttonPos = WEAKNESS_ROW_START:copy()
+  weaknessButtonParams.click_function = "spawnWeaknesses"
+  weaknessButtonParams.tooltip = "Basic Weaknesses"
+  weaknessButtonParams.position = buttonPos
+  self.createButton(weaknessButtonParams)
+  buttonPos.x = buttonPos.x + MISC_BUTTONS_X_OFFSET
+  weaknessButtonParams.click_function = "spawnRandomWeakness"
+  weaknessButtonParams.tooltip = "Random Weakness"
+  weaknessButtonParams.position = buttonPos
+  self.createButton(weaknessButtonParams)
 end
 
-function placeForgottenAge()
-  spawnGroup("ForgottenAge")
+function createOtherButtons()
+  local otherButtonParams = {
+    function_owner = self,
+    rotation = Vector(0, 0, 0),
+    height = CIRCLE_BUTTON_SIZE,
+    width = CIRCLE_BUTTON_SIZE,
+    scale = Vector(0.25, 1, 0.25),
+    color = TRANSPARENT,
+  }
+  local buttonPos = OTHER_ROW_START:copy()
+  otherButtonParams.click_function = "spawnBonded"
+  otherButtonParams.tooltip = "Bonded Cards"
+  otherButtonParams.position = buttonPos
+  self.createButton(otherButtonParams)
+  buttonPos.x = buttonPos.x + MISC_BUTTONS_X_OFFSET
+  otherButtonParams.click_function = "spawnUpgradeSheets"
+  otherButtonParams.tooltip = "Customization Upgrade Sheets"
+  otherButtonParams.position = buttonPos
+  self.createButton(otherButtonParams)
 end
 
-function placeCircleUndone()
-  spawnGroup("CircleUndone")
+function createCycleButtons()
+  local cycleButtonParams = {
+    function_owner = self,
+    rotation = Vector(0, 0, 0),
+    height = CYCLE_BUTTON_SIZE,
+    width = CYCLE_BUTTON_SIZE,
+    scale = Vector(0.25, 1, 0.25),
+    color = TRANSPARENT,
+  }
+  local buttonPos = CYCLE_BUTTON_START:copy()
+  local rowCount = 0
+  local colCount = 0
+  for _, cycle in ipairs(CYCLE_LIST) do
+    cycleButtonParams.click_function = "spawnCycle" .. cycle
+    cycleButtonParams.position = buttonPos
+    cycleButtonParams.tooltip = cycle
+    self.createButton(cycleButtonParams)
+    self.setVar(cycleButtonParams.click_function, function(_, _, _) spawnCycle(cycle) end)
+    colCount = colCount + 1
+    -- If we've reached the end of a row, shift down and back to the first column
+    if colCount >= CYCLE_COLUMN_COUNT then
+      buttonPos = CYCLE_BUTTON_START:copy()
+      rowCount = rowCount + 1
+      colCount = 0
+      buttonPos.z = buttonPos.z + CYCLE_BUTTONS_Z_OFFSET * rowCount
+      if rowCount == 3 then
+        -- Account for centered button on the final row
+        buttonPos.x = buttonPos.x + CYCLE_BUTTONS_X_OFFSET
+      end
+    else
+      buttonPos.x = buttonPos.x + CYCLE_BUTTONS_X_OFFSET
+    end
+  end
 end
 
-function placeDreamEaters()
-  spawnGroup("DreamEaters")
+function createClearButton()
+  self.createButton({
+    function_owner = self,
+    click_function = "deleteAll",
+    position = Vector(0, 0.1, 0.852),
+    rotation = Vector(0, 0, 0),
+    height = 170,
+    width = 750,
+    scale = Vector(0.25, 1, 0.25),
+    color = TRANSPARENT,
+  })
 end
 
-function placeInnsmouth()
-  spawnGroup("Innsmouth")
+function createInvestigatorModeButtons()
+  local starterMode = starterDeckMode == STARTER_DECK_MODE_STARTERS
+
+  self.createButton({
+    function_owner = self,
+    click_function = "setCardsOnlyMode",
+    position = Vector(0.251, 0.1, -0.322),
+    rotation = Vector(0, 0, 0),
+    height = 170,
+    width = 760,
+    scale = Vector(0.25, 1, 0.25),
+    color = starterMode and TRANSPARENT or STARTER_DECK_MODE_SELECTED_COLOR
+  })
+  self.createButton({
+    function_owner = self,
+    click_function = "setStarterDeckMode",
+    position = Vector(0.66, 0.1, -0.322),
+    rotation = Vector(0, 0, 0),
+    height = 170,
+    width = 760,
+    scale = Vector(0.25, 1, 0.25),
+    color = starterMode and STARTER_DECK_MODE_SELECTED_COLOR or TRANSPARENT
+  })
+  local checkX = starterMode and 0.52 or 0.11
+  self.createButton({
+    function_owner = self,
+    label = "✓",
+    click_function = "doNothing",
+    position = Vector(checkX, 0.11, -0.317),
+    rotation = Vector(0, 0, 0),
+    height = 0,
+    width = 0,
+    scale = Vector(0.3, 1, 0.3),
+    font_color = { 0, 0, 0 },
+    color = { 1, 1, 1 }
+  })
 end
 
-function placeEotE()
-  spawnGroup("EotE")
+function setStarterDeckMode()
+  starterDeckMode = STARTER_DECK_MODE_STARTERS
+  updateStarterModeButtons()
 end
 
-function placeScarletKeys()
-  spawnGroup("ScarletKeys")
+function setCardsOnlyMode()
+  starterDeckMode = STARTER_DECK_MODE_CARDS_ONLY
+  updateStarterModeButtons()
 end
 
-function placeInvestigatorDecks()
-  spawnGroup("InvestigatorDecks")
-end
-
--- UI handler to put the investigator spawn in investigator mode.
-function setInvestigators()
-  spawnStarterDecks = false
-  printToAll("Spawning investigator piles")
-end
-
--- UI handler to put the investigator spawn in starter deck mode.
-function setStarters()
-  spawnStarterDecks = true
-  printToAll("Spawning starter decks")
+function updateStarterModeButtons()
+  local buttonCount = #self.getButtons()
+  -- Buttons are 0-indexed, so the last three are -1, -2, and -3 from the size
+  self.removeButton(buttonCount - 1)
+  self.removeButton(buttonCount - 2)
+  self.removeButton(buttonCount - 3)
+  createInvestigatorModeButtons()
 end
 
 -- Deletes all cards currently placed on the table
@@ -284,10 +314,11 @@ end
 -- Spawn an investigator group, based on the current UI setting for either investigators or starter
 -- decks.
 ---@param groupName String.  Name of the group to spawn, matching a key in InvestigatorPanelData
-function spawnGroup(groupName)
+function spawnInvestigatorGroup(groupName)
+  local starterMode = starterDeckMode == STARTER_DECK_MODE_STARTERS
   spawnBag.recall(true)
   Wait.frames(function()
-    if spawnStarterDecks then
+    if starterMode then
       spawnStarters(groupName)
     else
       spawnInvestigators(groupName)
@@ -359,13 +390,13 @@ function buildCommonSpawnSpec(investigatorName, investigatorData, position, oneC
   return {
       {
         name = investigatorName.."minicards",
-        cards = oneCardOnly and investigatorData.minicards[1] or investigatorData.minicards,
+        cards = oneCardOnly and { investigatorData.minicards[1] } or investigatorData.minicards,
         globalPos = position,
         rotation = FACE_UP_ROTATION,
       },
       {
         name = investigatorName.."cards",
-        cards = oneCardOnly and investigatorData.cards[1] or investigatorData.cards,
+        cards = oneCardOnly and { investigatorData.cards[1] } or investigatorData.cards,
         globalPos = cardPos,
         rotation = FACE_UP_ROTATION,
       },
@@ -452,31 +483,34 @@ function placeClassCards(cardClass, isUpgraded)
       table.insert(assetList, cardId)
     end
   end
+  local groupPos = Vector(START_POSITIONS.classCards)
   if #skillList > 0 then
     spawnBag.spawn({
       name = cardClass .. (isUpgraded and "upgraded" or "basic"),
       cards = skillList,
-      globalPos = START_POSITIONS.skill,
+      globalPos = groupPos,
       rotation = FACE_UP_ROTATION,
       spread = true,
       spreadCols = 20
     })
+    groupPos.x = groupPos.x - math.ceil(#skillList / 20) * CARD_ROW_OFFSET - CARD_GROUP_OFFSET
   end
   if #eventList > 0 then
     spawnBag.spawn({
       name = cardClass .. "event" .. (isUpgraded and "upgraded" or "basic"),
       cards = eventList,
-      globalPos = START_POSITIONS.event,
+      globalPos = groupPos,
       rotation = FACE_UP_ROTATION,
       spread = true,
       spreadCols = 20
     })
+    groupPos.x = groupPos.x - math.ceil(#eventList / 20) * CARD_ROW_OFFSET - CARD_GROUP_OFFSET
   end
   if #assetList > 0 then
     spawnBag.spawn({
       name = cardClass .. "asset" .. (isUpgraded and "upgraded" or "basic"),
       cards = assetList,
-      globalPos = START_POSITIONS.asset,
+      globalPos = groupPos,
       rotation = FACE_UP_ROTATION,
       spread = true,
       spreadCols = 20
@@ -484,26 +518,108 @@ function placeClassCards(cardClass, isUpgraded)
   end
 end
 
--- Clears the current cards, and places all basic weaknesses on the table.
-function spawnWeaknesses()
-  spawnBag.recall(fast)
+-- Spawns the investigator sets and all cards for the given cycle
+---@param cycle String Name of a cycle, should match the standard used in card metadata
+function spawnCycle(cycle)
+  spawnBag.recall(true)
+  spawnInvestigators(cycle)
   local allCardsBag = getObjectFromGUID(ALL_CARDS_BAG_GUID)
   local indexReady = allCardsBag.call("isIndexReady")
   if (not indexReady) then
     broadcastToAll("Still loading player cards, please try again in a few seconds", {0.9, 0.2, 0.2})
     return
   end
-  local weaknessIdList = allCardsBag.call("getBasicWeaknesses")
+  local cycleCardList = allCardsBag.call("getCardsByCycle", cycle)
+  local copiedList = { }
+  for i, id in ipairs(cycleCardList) do
+    copiedList[i] = id
+  end
+  spawnBag.spawn({
+    name = "cycle"..cycle,
+    cards = copiedList,
+    globalPos = START_POSITIONS.cycle,
+    rotation = FACE_UP_ROTATION,
+    spread = true,
+    spreadCols = 20
+  })
+end
+
+function spawnBonded()
+  spawnBag.recall(true)
+  spawnBag.spawn({
+    name = "bonded",
+    cards = BONDED_CARD_LIST,
+    globalPos = START_POSITIONS.classCards,
+    rotation = FACE_UP_ROTATION,
+    spread = true,
+    spreadCols = 20
+  })
+end
+
+function spawnUpgradeSheets()
+  spawnBag.recall(true)
+  spawnBag.spawn({
+    name = "upgradeSheets",
+    cards = UPGRADE_SHEET_LIST,
+    globalPos = START_POSITIONS.classCards,
+    rotation = FACE_UP_ROTATION,
+    spread = true,
+    spreadCols = 20
+  })
+  spawnBag.spawn({
+    name = "servitor",
+    cards = { "09080-m" },
+    globalPos = START_POSITIONS.summonedServitor,
+    rotation = FACE_UP_ROTATION,
+  })
+end
+
+-- Clears the current cards, and places all basic weaknesses on the table.
+function spawnWeaknesses()
+  spawnBag.recall(true)
+  local allCardsBag = getObjectFromGUID(ALL_CARDS_BAG_GUID)
+  local indexReady = allCardsBag.call("isIndexReady")
+  if (not indexReady) then
+    broadcastToAll("Still loading player cards, please try again in a few seconds", {0.9, 0.2, 0.2})
+    return
+  end
+  local weaknessIdList = allCardsBag.call("getUniqueWeaknesses")
   local copiedList = { }
   for i, id in ipairs(weaknessIdList) do
     copiedList[i] = id
   end
+  local groupPos = Vector(START_POSITIONS.classCards)
   spawnBag.spawn({
     name = "weaknesses",
     cards = copiedList,
-    globalPos = START_POSITIONS.asset,
+    globalPos = groupPos,
     rotation = FACE_UP_ROTATION,
     spread = true,
     spreadCols = 20
+  })
+  groupPos.x = groupPos.x - math.ceil(#copiedList / 20) * CARD_ROW_OFFSET - CARD_GROUP_OFFSET
+  spawnBag.spawn({
+    name = "evolvedWeaknesses",
+    cards = EVOLVED_WEAKNESSES,
+    globalPos = groupPos,
+    rotation = FACE_UP_ROTATION,
+    spread = true,
+    spreadCols = 20
+  })
+end
+
+function spawnRandomWeakness()
+  spawnBag.recall(true)
+  local allCardsBag = getObjectFromGUID(ALL_CARDS_BAG_GUID)
+  local weaknessId = allCardsBag.call("getRandomWeaknessId")
+  if (weaknessId == nil) then
+    broadcastToAll("All basic weaknesses are in play!", {0.9, 0.2, 0.2})
+    return
+  end
+  spawnBag.spawn({
+    name = "randomWeakness",
+    cards = { weaknessId },
+    globalPos = START_POSITIONS.randomWeakness,
+    rotation = FACE_UP_ROTATION,
   })
 end
