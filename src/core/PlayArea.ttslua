@@ -443,3 +443,56 @@ end
 function showLocationLinks()
   return not LOC_LINK_EXCLUDE_SCENARIOS[currentScenario]
 end
+
+-- Sets this playmat's snap points to limit snapping to locations or not.
+-- If matchTypes is false, snap points will be reset to snap all cards.
+---@param matchTypes Boolean  Whether snap points should only snap for the matching card types.
+function setLimitSnapsByType(matchTypes)
+  local snaps = self.getSnapPoints()
+  for i, snap in ipairs(snaps) do
+    local snapTags = snaps[i].tags
+    if matchTypes then
+      if snapTags == nil then
+        snaps[i].tags = { "Location" }
+      else
+        table.insert(snaps[i].tags, "Location")
+      end
+    else
+      snaps[i].tags = nil
+    end
+  end
+  self.setSnapPoints(snaps)
+end
+
+-- rebuilds local snap points (could be useful in the future again)
+function buildSnaps()
+  local upperleft = { x = 1.53, z = -1.09}
+  local lowerright = {x = -1.53, z = 1.55}
+  local snaps = {}
+
+  -- creates 81 snap points, for uneven rows + columns it makes a rotation snap point
+  for i = 1, 9 do
+    for j = 1, 9 do
+      local snap = {}
+      snap.position = {}
+      snap.position.x = round(upperleft.x - (upperleft.x - lowerright.x) * (i - 1) / 8, 3)
+      snap.position.y = 0.1
+      snap.position.z = round(upperleft.z - (upperleft.z - lowerright.z) * (j - 1) / 8, 3)
+
+      -- enable rotation snaps for uneven rows / columns
+      if (i % 2 ~= 0) and (j % 2 ~= 0) then
+        snap.rotation = {0, 0, 0}
+        snap.rotation_snap = true
+      end
+
+      table.insert(snaps, snap)
+    end
+  end
+  self.setSnapPoints(snaps)
+end
+
+-- utility function
+function round(num, numDecimalPlaces)
+  local mult = 10^(numDecimalPlaces or 0)
+  return math.floor(num * mult + 0.5) / mult
+end
