@@ -1,0 +1,36 @@
+local playmatAPI = require("playermat/PlaymatApi")
+
+function onLoad()
+  self.addContextMenuItem("Discard 10 cards", shortSupply)
+end
+
+-- called by context menu entry
+function shortSupply(color)
+  local matColor = playmatAPI.getMatColorByPosition(self.getPosition())
+
+  -- get draw deck and discard position
+  local drawDeck = playmatAPI.getDrawDeck(matColor)
+  local discardPos = playmatAPI.getDiscardPosition(matColor)
+
+  -- error handling
+  if discardPos == nil then
+    broadcastToColor("Couldn't retrieve discard position from playermat!", color, "Red")
+    return
+  end
+
+  if drawDeck == nil then
+    broadcastToColor("Deck not found!", color, "Yellow")
+    return
+  elseif drawDeck.tag ~= "Deck" then
+    broadcastToColor("Deck only contains a single card!", color, "Yellow")
+    return
+  end
+
+  -- discard cards
+  broadcastToColor("Discarding top 10 cards for player color '" .. matColor .. "'.", color, "White")
+  discardPos.y = 0.5
+  for i = 1, 10 do
+    discardPos.y = discardPos.y + 0.05 * i
+    drawDeck.takeObject({ flip = true, position = discardPos })
+  end
+end

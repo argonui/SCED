@@ -34,6 +34,7 @@ local chaosTokens = {}
 local chaosTokensLastMat = nil
 local IS_RESHUFFLING = false
 local bagSearchers = {}
+local hideTitleSplashWaitFunctionId = nil
 local playmatAPI = require("playermat/PlaymatApi")
 
 ---------------------------------------------------------
@@ -818,6 +819,10 @@ function applyOptionPanelChange(id, state)
     -- update master clue counter
     getObjectFromGUID("4a3aa4").setVar("useClickableCounters", state)
 
+  -- option: Show Title on placing scenarios
+  elseif id == "showTitleSplash" then
+    optionPanel[id] = state
+
   -- option: Show token arranger
   elseif id == "showTokenArranger" then
     -- delete previously pulled out tokens
@@ -833,8 +838,8 @@ function applyOptionPanelChange(id, state)
   elseif id == "showHandHelper" then
     optionPanel[id][1] = spawnOrRemoveHelper(state, "Hand Helper", {-50.84, 1.6, 7.02}, {0, 270, 0}, "White")
     optionPanel[id][2] = spawnOrRemoveHelper(state, "Hand Helper", {-50.90, 1.6, -25.10}, {0, 270, 0}, "Orange")
-    optionPanel[id][3] = spawnOrRemoveHelper(state, "Hand Helper", {-34.38, 1.6, 22.44}, {0, 000, 0}, "Green")
-    optionPanel[id][4] = spawnOrRemoveHelper(state, "Hand Helper", {-16.69, 1.6, -22.42}, {0, 180, 0}, "Red")
+    optionPanel[id][3] = spawnOrRemoveHelper(state, "Hand Helper", {-39.27, 1.6, 22.44}, {0, 000, 0}, "Green")
+    optionPanel[id][4] = spawnOrRemoveHelper(state, "Hand Helper", {-21.51, 1.6, -22.44}, {0, 180, 0}, "Red")
 
   -- option: Show chaos bag manager
   elseif id == "showChaosBagManager" then
@@ -951,7 +956,7 @@ function onClick_defaultSettings()
   for id, _ in pairs(optionPanel) do
     local state = false
     -- override for settings that are enabled by default
-    if id == "useSnapTags" then
+    if id == "useSnapTags" or id == "showTitleSplash" then
       state = true
     end
     applyOptionPanelChange(id, state)
@@ -962,6 +967,7 @@ function onClick_defaultSettings()
     useSnapTags = true,
     showDrawButton = false,
     useClueClickers = false,
+    showTitleSplash = true,
     showTokenArranger = false,
     showCleanUpHelper = false,
     showHandHelper = {},
@@ -971,4 +977,26 @@ function onClick_defaultSettings()
 
   -- update UI
   updateOptionPanelState()
+end
+
+-- splash scenario title on setup
+function titleSplash(scenarioName)
+  if optionPanel['showTitleSplash'] then
+
+    -- if there's any ongoing title being displayed, hide it and cancel the waiting function
+    if hideTitleSplashWaitFunctionId then
+      Wait.stop(hideTitleSplashWaitFunctionId)
+      hideTitleSplashWaitFunctionId = nil
+      UI.setAttribute('title_splash', 'active', false)
+    end
+
+    -- display scenario name and set a 4 seconds (2 seconds animation and 2 seconds on screen)
+    -- wait timer to hide the scenario name
+    UI.setValue('title_splash', scenarioName)
+    UI.show('title_splash')
+    hideTitleSplashWaitFunctionId = Wait.time(function()
+      UI.hide('title_splash')
+      hideTitleSplashWaitFunctionId = nil
+    end, 4)
+  end
 end
