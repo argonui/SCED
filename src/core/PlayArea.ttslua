@@ -3,10 +3,24 @@
 ---------------------------------------------------------
 
 -- set true to enable debug logging
-DEBUG = false
+local DEBUG = false
+
+-- Location connection directional options
+local BIDIRECTIONAL = 0
+local ONE_WAY = 1
+
+-- Connector draw parameters
+local CONNECTION_THICKNESS = 0.015
+local CONNECTION_COLOR = { 0.4, 0.4, 0.4, 1 }
+local DIRECTIONAL_ARROW_DISTANCE = 3.5
+local ARROW_ARM_LENGTH = 0.9
+local ARROW_ANGLE = 25
+
+-- Height to draw the connector lines, places them just above the table and always below cards
+local CONNECTION_LINE_Y = 1.529
 
 -- we use this to turn off collision handling until onLoad() is complete
-COLLISION_ENABLED = false
+local collisionEnabled = false
 
 -- used for recreating the link to a custom data helper after image change
 customDataHelper = nil
@@ -22,10 +36,24 @@ local SHIFT_EXCLUSION = {
   ["f182ee"] = true,
   ["721ba2"] = true
 }
+local LOC_LINK_EXCLUDE_SCENARIOS = {
+  ["Devil Reef"] = true,
+  ["The Witching Hour"] = true,
+}
 
 local tokenManager = require("core/token/TokenManager")
 local INVESTIGATOR_COUNTER_GUID = "f182ee"
 local PLAY_AREA_ZONE_GUID = "a2f932"
+
+local clueData = {}
+local spawnedLocationGUIDs = {}
+
+local locations = { }
+local locationConnections = { }
+local draggingGuids = { }
+
+local locationData
+
 local currentScenario
 
 ---------------------------------------------------------
@@ -34,17 +62,19 @@ local currentScenario
 
 function onSave()
   return JSON.encode({
-    currentScenario = currentScenario
+    trackedLocations = locations,
+    currentScenario = currentScenario,
   })
 end
 
 function onLoad(saveState)
   -- records locations we have spawned clues for
-  local saveData = JSON.decode(saveState) or {}
-  currentScenario = saveData.currentScenario
+  local save = JSON.decode(saveState) or { }
+  locations = save.trackedLocations or { }
+  currentScenario = save.currentScenario
 
   self.interactable = DEBUG
-  Wait.time(function() COLLISION_ENABLED = true end, 1)
+  Wait.time(function() collisionEnabled = true end, 1)
 end
 
 function log(message)
@@ -61,17 +91,20 @@ function updateLocations(args)
   end
 end
 
-function onCollisionEnter(collision_info)
-  local obj = collision_info.collision_object
+function onCollisionEnter(collisionInfo)
+  local obj = collisionInfo.collision_object
   local objType = obj.name
   
   -- only continue for cards
-  if not COLLISION_ENABLED or (objType ~= "Card" and objType ~= "CardCustom") then return end
+  if not collisionEnabled or (objType ~= "Card" and objType ~= "CardCustom") then return end
 
   -- check if we should spawn clues here and do so according to playercount
-  if shouldSpawnTokens(obj) then
-    tokenManager.spawnForCard(obj)
+  local card = collisionInfo.collision_object
+  if shouldSpawnTokens(card) then
+    tokenManager.spawnForCard(card)
   end
+  draggingGuids[card.getGUID()] = nil
+  maybeTrackLocation(card)
 end
 
 function shouldSpawnTokens(card)
@@ -83,6 +116,267 @@ function shouldSpawnTokens(card)
       or metadata.type == "Enemy"
       or metadata.type == "Treachery"
       or metadata.weakness
+end
+
+function onCollisionExit(collisionInfo)
+  maybeUntrackLocation(collisionInfo.collision_object)
+end
+
+-- Destroyed objects don't trigger onCollisionExit(), so check on destruction to untrack as well
+function onObjectDestroy(object)
+  maybeUntrackLocation(object)
+end
+
+function onObjectPickUp(player, object)
+  -- onCollisionExit fires first, so we have to check the card to see if it's a location we should
+  -- be tracking
+  if showLocationLinks() and isInPlayArea(object) and object.getGMNotes() ~= nil and object.getGMNotes() ~= "" then
+    local pickedUpGuid = object.getGUID()
+    local metadata = JSON.decode(object.getGMNotes())
+    if (metadata.type == "Location") then
+      draggingGuids[pickedUpGuid] = metadata
+      rebuildConnectionList()
+    end
+  end
+end
+
+function onUpdate()
+  -- Due to the frequence of onUpdate calls, ensure that we only process any changes to the
+  -- connection list once, and only redraw once
+  local needsConnectionRebuild = false
+  local needsConnectionDraw = false
+  for guid, _ in pairs(draggingGuids) do
+    local obj = getObjectFromGUID(guid)
+    if obj == nil or not isInPlayArea(obj) then
+      draggingGuids[guid] = nil
+      needsConnectionRebuild = true
+    end
+    -- Even if the last location left the play area, need one last draw to clear the lines
+    needsConnectionDraw = true
+  end
+  if (needsConnectionRebuild) then
+    rebuildConnectionList()
+  end
+  if needsConnectionDraw then
+    drawConnections()
+  end
+end
+
+-- Checks the given card and adds it to the list of locations tracked for connection purposes.
+-- A card will be added to the tracking if it is a location in the play area (based on centerpoint).
+-- @param A card object, possibly a location.
+function maybeTrackLocation(card)
+  -- Collision checks for any part of the card overlap, but our other tracking is centerpoint
+  -- Ignore any collision where the centerpoint isn't in the area
+  if showLocationLinks() and isInPlayArea(card) then
+    local metadata = JSON.decode(card.getGMNotes()) or { }
+    if metadata.type == "Location" then
+      locations[card.getGUID()] = metadata
+      rebuildConnectionList()
+      drawConnections()
+    end
+  end
+end
+
+-- Stop tracking a location for connection drawing.  This should be called for both collision exit
+-- and destruction, as a destroyed object does not trigger collision exit.  An object can also be
+-- deleted mid-drag, but the ordering for drag events means we can't clear those here and those will
+-- be cleared in the next onUpdate() cycle.
+-- @param card Card to (maybe) stop tracking
+function maybeUntrackLocation(card)
+  -- Locked objects no longer collide (hence triggering an exit event) but are still in the play
+  -- area.  If the object is now locked, don't remove it.
+  if locations[card.getGUID()] ~= nil and not card.locked then
+    locations[card.getGUID()] = nil
+    rebuildConnectionList()
+    drawConnections()
+  end
+end
+
+-- Builds a list of GUID to GUID connection information based on the currently tracked locations.
+-- This will update the connection information and store it in the locationConnections data member,
+-- but does not draw those connections.  This should often be followed by a call to
+-- drawConnections()
+function rebuildConnectionList()
+  if not showLocationLinks() then
+    locationConnections = { }
+    return
+  end
+
+  local iconCardList = { }
+
+  -- Build a list of cards with each icon as their location ID
+  for cardId, metadata in pairs(draggingGuids) do
+    buildLocListByIcon(cardId, iconCardList)
+  end
+  for cardId, metadata in pairs(locations) do
+    buildLocListByIcon(cardId, iconCardList)
+  end
+
+  -- Pair up all the icons
+  locationConnections = { }
+  for cardId, metadata in pairs(draggingGuids) do
+    buildConnection(cardId, iconCardList)
+  end
+  for cardId, metadata in pairs(locations) do
+    if draggingGuids[cardId] == nil then
+      buildConnection(cardId, iconCardList)
+    end
+  end
+end
+
+-- Extracts the card's icon string into a list of individual location icons
+-- @param cardID GUID of the card to pull the icon data from
+-- @param iconCardList A table of icon->GUID list.  Mutable, will be updated by this method
+function buildLocListByIcon(cardId, iconCardList)
+  local card = getObjectFromGUID(cardId)
+  local locData = getLocationData(card)
+  if locData ~= nil and locData.icons ~= nil then
+    for icon in string.gmatch(locData.icons, "%a+") do
+      if iconCardList[icon] == nil then
+        iconCardList[icon] = { }
+      end
+      table.insert(iconCardList[icon], card.getGUID())
+    end
+  end
+end
+
+-- Builds the connections for the given cardID by finding matching icons and adding them to the
+-- Playarea's locationConnections table.
+-- @param cardId GUID of the card to build the connections for
+-- @param iconCardList A table of icon->GUID List.  Used to find matching icons for connections.
+function buildConnection(cardId, iconCardList)
+  local card = getObjectFromGUID(cardId)
+  local locData = getLocationData(card)
+  if locData ~= nil and locData.connections ~= nil then
+    locationConnections[card.getGUID()] = { }
+    for icon in string.gmatch(locData.connections, "%a+") do
+      if iconCardList[icon] ~= nil then
+        for _, connectedGuid in ipairs(iconCardList[icon]) do
+          -- If the reciprocal exists, convert it to BiDi, otherwise add as a one-way
+          if locationConnections[connectedGuid] ~= nil
+              and locationConnections[connectedGuid][card.getGUID()] ~= nil then
+            locationConnections[connectedGuid][card.getGUID()] = BIDIRECTIONAL
+          else
+            locationConnections[card.getGUID()][connectedGuid] = ONE_WAY
+          end
+        end
+      end
+    end
+  end
+end
+
+-- Helper method to extract the location metadata from a card based on whether it's front or back
+-- is showing.
+-- @param card Card object to extract data from
+-- @return Table with either the locationFront or locationBack metadata structure, or nil if the
+--     metadata doesn't exist
+function getLocationData(card)
+  if card == nil then
+    return nil
+  end
+  if card.is_face_down then
+    return JSON.decode(card.getGMNotes()).locationBack
+  else
+    return JSON.decode(card.getGMNotes()).locationFront
+  end
+end
+
+-- Draws the lines for connections currently in locationConnections.
+function drawConnections()
+  if not showLocationLinks() then
+    locationConnections = { }
+    return
+  end
+  local cardConnectionLines = { }
+
+  for originGuid, targetGuids in pairs(locationConnections) do
+    -- Objects should reliably exist at this point, but since this can be called during onUpdate the
+    -- object checks are conservative just to make sure.
+    local origin = getObjectFromGUID(originGuid)
+    if origin != nil then
+      for targetGuid, direction in pairs(targetGuids) do
+        local target = getObjectFromGUID(targetGuid)
+        if target != nil then
+          if direction == BIDIRECTIONAL then
+            addBidirectionalVector(origin, target, cardConnectionLines)
+          elseif direction == ONE_WAY then
+            addOneWayVector(origin, target, cardConnectionLines)
+          end
+        end
+      end
+    end
+  end
+  self.setVectorLines(cardConnectionLines)
+end
+
+-- Draws a bidirectional location connection between the two cards, adding the lines to do so to the
+-- given lines list.
+-- @param card1 One of the card objects to connect
+-- @param card2 The other card object to connect
+-- @param lines List of vector line elements.  Mutable, will be updated to add this connector
+function addBidirectionalVector(card1, card2, lines)
+  local cardPos1 = card1.getPosition()
+  local cardPos2 = card2.getPosition()
+  cardPos1.y = CONNECTION_LINE_Y
+  cardPos2.y = CONNECTION_LINE_Y
+  local pos1 = self.positionToLocal(cardPos1)
+  local pos2 = self.positionToLocal(cardPos2)
+  table.insert(lines, {
+      points = { pos1, pos2 },
+      color = CONNECTION_COLOR,
+      thickness = CONNECTION_THICKNESS,
+  })
+end
+
+-- Draws a one-way location connection between the two cards, adding the lines to do so to the
+-- given lines list.  Arrows will point towards the target card.
+-- @param origin Origin card in the connection
+-- @param target Target card object to connect
+-- @param lines List of vector line elements.  Mutable, will be updated to add this connector
+function addOneWayVector(origin, target, lines)
+  -- Start with the BiDi then add the arrow lines to it
+  addBidirectionalVector(origin, target, lines)
+  local originPos = origin.getPosition()
+  local targetPos = target.getPosition()
+  originPos.y = CONNECTION_LINE_Y
+  targetPos.y = CONNECTION_LINE_Y
+
+  -- Calculate card distance to be closer for horizontal positions than vertical, since cards are
+  -- taller than they are wide
+  local heading = Vector(originPos):sub(targetPos):heading("y")
+  local distanceFromCard = DIRECTIONAL_ARROW_DISTANCE * 0.7 + DIRECTIONAL_ARROW_DISTANCE * 0.3 * math.abs(math.sin(math.rad(heading)))
+
+  -- Calculate the three possible arrow positions.  These are offset by half the arrow length to
+  -- make them visually balanced by keeping the arrows centered, not tracking the point
+  local midpoint = Vector(originPos):add(targetPos):scale(Vector(0.5, 0.5, 0.5)):moveTowards(targetPos, ARROW_ARM_LENGTH / 2)
+  local closeToOrigin = Vector(originPos):moveTowards(targetPos, distanceFromCard + ARROW_ARM_LENGTH / 2)
+  local closeToTarget = Vector(targetPos):moveTowards(originPos, distanceFromCard - ARROW_ARM_LENGTH / 2)
+
+  if (originPos:distance(closeToOrigin) > originPos:distance(closeToTarget)) then
+    addArrowLines(midpoint, originPos, lines)
+  else
+    addArrowLines(closeToOrigin, originPos, lines)
+    addArrowLines(closeToTarget, originPos, lines)
+  end
+end
+
+-- Draws an arrowhead at the given position.
+-- @param arrowheadPosition Centerpoint of the arrowhead to draw (NOT the tip of the arrow)
+-- @param originPos Origin point of the connection, used to position the arrow arms
+-- @param lines List of vector line elements.  Mutable, will be updated to add this arrow
+function addArrowLines(arrowheadPos, originPos, lines)
+  local arrowArm1 = Vector(arrowheadPos):moveTowards(originPos, ARROW_ARM_LENGTH):sub(arrowheadPos):rotateOver("y", -1 * ARROW_ANGLE):add(arrowheadPos)
+  local arrowArm2 = Vector(arrowheadPos):moveTowards(originPos, ARROW_ARM_LENGTH):sub(arrowheadPos):rotateOver("y", ARROW_ANGLE):add(arrowheadPos)
+
+  local head = self.positionToLocal(arrowheadPos)
+  local arm1 = self.positionToLocal(arrowArm1)
+  local arm2 = self.positionToLocal(arrowArm2)
+  table.insert(lines, {
+    points = { arm1, head, arm2},
+    color = CONNECTION_COLOR,
+    thickness = CONNECTION_THICKNESS
+  })
 end
 
 -- Move all contents on the play area (cards, tokens, etc) one slot in the given direction.  Certain
@@ -126,6 +420,20 @@ function getInvestigatorCount()
   return investigatorCounter.getVar("val")
 end
 
+-- Check to see if the given object is within the bounds of the play area, based solely on the X and
+-- Z coordinates, ignoring height
+-- @param object Object to check
+-- @return True if the object is inside the play area
+function isInPlayArea(object)
+  local bounds = self.getBounds()
+  local position = object.getPosition()
+  -- Corners are arbitrary since it's all global - c1 goes down both axes, c2 goes up
+  local c1 = { x = bounds.center.x - bounds.size.x / 2, z = bounds.center.z - bounds.size.z / 2}
+  local c2 = { x = bounds.center.x + bounds.size.x / 2, z = bounds.center.z + bounds.size.z / 2}
+
+  return position.x > c1.x and position.x < c2.x and position.z > c1.z and position.z < c2.z
+end
+
 -- Reset the play area's tracking of which cards have had tokens spawned.
 function resetSpawnedCards()
   spawnedLocationGUIDs = {}
@@ -133,4 +441,11 @@ end
 
 function onScenarioChanged(scenarioName)
   currentScenario = scenarioName
+  if not showLocationLinks() then
+    broadcastToAll("Automatic location connections not available for this scenario")
+  end
+end
+
+function showLocationLinks()
+  return not LOC_LINK_EXCLUDE_SCENARIOS[currentScenario]
 end
