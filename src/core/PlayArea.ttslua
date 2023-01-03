@@ -1,5 +1,3 @@
-local tokenManager = require("core/token/TokenManager")
-
 ---------------------------------------------------------
 -- general setup
 ---------------------------------------------------------
@@ -24,6 +22,9 @@ local CONNECTION_LINE_Y = 1.529
 -- we use this to turn off collision handling until onLoad() is complete
 local collisionEnabled = false
 
+-- used for recreating the link to a custom data helper after image change
+customDataHelper = nil
+
 local SHIFT_OFFSETS = {
   left  = { x = 0.00, y = 0, z = 7.67 },
   right = { x = 0.00, y = 0, z = -7.67 },
@@ -40,6 +41,7 @@ local LOC_LINK_EXCLUDE_SCENARIOS = {
   ["The Witching Hour"] = true,
 }
 
+local tokenManager = require("core/token/TokenManager")
 local INVESTIGATOR_COUNTER_GUID = "f182ee"
 local PLAY_AREA_ZONE_GUID = "a2f932"
 
@@ -83,14 +85,19 @@ end
 -- data to the local token manager instance.
 ---@param args Table Single-value array holding the GUID of the Custom Data Helper making the call
 function updateLocations(args)
-  local customDataHelper = getObjectFromGUID(args[1])
+  customDataHelper = getObjectFromGUID(args[1])
   if customDataHelper ~= nil then
     tokenManager.addLocationData(customDataHelper.getTable("LOCATIONS_DATA"))
   end
 end
 
 function onCollisionEnter(collisionInfo)
-  if not collisionEnabled then return end
+  local obj = collisionInfo.collision_object
+  local objType = obj.name
+  
+  -- only continue for cards
+  if not collisionEnabled or (objType ~= "Card" and objType ~= "CardCustom") then return end
+
   -- check if we should spawn clues here and do so according to playercount
   local card = collisionInfo.collision_object
   if shouldSpawnTokens(card) then
@@ -103,7 +110,7 @@ end
 function shouldSpawnTokens(card)
   local metadata = JSON.decode(card.getGMNotes())
   if metadata == nil then
-    return tokenManager.hasLocationData(card) ~= nil
+    return tokenManager.hasLocationData(card)
   end
   return metadata.type == "Location"
       or metadata.type == "Enemy"
@@ -373,9 +380,8 @@ function addArrowLines(arrowheadPos, originPos, lines)
 end
 
 -- Move all contents on the play area (cards, tokens, etc) one slot in the given direction.  Certain
--- fixed objects will be ignored, as will anything the player has tagged with
--- 'displacement_excluded'
----@param playerColor Color of the player requesting the shift.  Used solely to send an error
+-- fixed objects will be ignored, as will anything the player has tagged with 'displacement_excluded'
+---@param playerColor String Color of the player requesting the shift.  Used solely to send an error
 ---    message in the unlikely case that the scripting zone has been deleted
 function shiftContentsUp(playerColor)
   shiftContents(playerColor, "up")
