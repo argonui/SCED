@@ -34,6 +34,7 @@ local chaosTokens = {}
 local chaosTokensLastMat = nil
 local IS_RESHUFFLING = false
 local bagSearchers = {}
+local hideTitleSplashWaitFunctionId = nil
 local playmatAPI = require("playermat/PlaymatApi")
 
 ---------------------------------------------------------
@@ -818,6 +819,10 @@ function applyOptionPanelChange(id, state)
     -- update master clue counter
     getObjectFromGUID("4a3aa4").setVar("useClickableCounters", state)
 
+  -- option: Show Title on placing scenarios
+  elseif id == "showTitleSplash" then
+    optionPanel[id] = state
+
   -- option: Show token arranger
   elseif id == "showTokenArranger" then
     -- delete previously pulled out tokens
@@ -840,9 +845,25 @@ function applyOptionPanelChange(id, state)
   elseif id == "showChaosBagManager" then
     optionPanel[id] = spawnOrRemoveHelper(state, "Chaos Bag Manager", {-67.8, 1.6, -49.5})
 
+  -- option: Show attachment helper
+  elseif id == "showAttachmentHelper" then
+    optionPanel[id] = spawnOrRemoveHelper(state, "Attachment Helper", {-64, 1.4, 0})
+
   -- option: Show navigation overlay
   elseif id == "showNavigationOverlay" then
     optionPanel[id] = spawnOrRemoveHelper(state, "jaqenZann's Navigation Overlay", {-11.7, 1.6, -15})
+
+  -- option: Show CYOA campaign guides
+  elseif id == "showCYOA" then
+    optionPanel[id] = spawnOrRemoveHelper(state, "CYOA Campaign Guides", {21.2, 1.4, -65.7})
+    
+  -- option: Show custom playmat images
+  elseif id == "showCustomPlaymatImages" then
+    optionPanel[id] = spawnOrRemoveHelper(state, "Custom Playmat Images", {12, 1.4, -46.5})
+
+  -- option: Show displacement tool
+  elseif id == "showDisplacementTool" then
+    optionPanel[id] = spawnOrRemoveHelper(state, "Displacement Tool", {-60.7, 1.4, -49.5})
   end
 end
 
@@ -851,8 +872,8 @@ end
 ---@param name String Name of the helper object
 ---@param position Vector Position of the object (where it will spawn)
 ---@param rotation Vector Rotation of the object for spawning (default: {0, 270, 0})
----@param color Color This is only needed for correctly setting the color of the "Hand Helper"
--- returns the GUID of the spawnedObj (or nil if object was removed)
+---@param color String This is only needed for correctly setting the color of the "Hand Helper"
+---@return. GUID of the spawnedObj (or nil if object was removed)
 function spawnOrRemoveHelper(state, name, position, rotation, color)
   if state then
     Player.getPlayers()[1].pingTable(position)
@@ -864,7 +885,7 @@ end
 
 -- copies the specified tool (by name) from the barrel
 ---@param name String Name of the object that should be copied
----@param position Position Desired position of the object
+---@param position Table Desired position of the object
 function spawnHelperObject(name, position, rotation, color)
   local barrel = getObjectFromGUID(BARREL_GUID)
 
@@ -907,7 +928,11 @@ function removeHelperObject(name)
     ["Clean Up Helper"]                = "showCleanUpHelper",
     ["Hand Helper"]                    = "showHandHelper",
     ["Chaos Bag Manager"]              = "showChaosBagManager",
-    ["jaqenZann's Navigation Overlay"] = "showNavigationOverlay"
+    ["jaqenZann's Navigation Overlay"] = "showNavigationOverlay",
+    ["Displacement Tool"]              = "showDisplacementTool",
+    ["Custom Playmat Images"]          = "showCustomPlaymatImages",
+    ["Attachment Helper"]              = "showAttachmentHelper",
+    ["CYOA Campaign Guides"]           = "showCYOA"
   }
 
   local data = optionPanel[referenceTable[name]]
@@ -931,7 +956,7 @@ function onClick_defaultSettings()
   for id, _ in pairs(optionPanel) do
     local state = false
     -- override for settings that are enabled by default
-    if id == "useSnapTags" then
+    if id == "useSnapTags" or id == "showTitleSplash" then
       state = true
     end
     applyOptionPanelChange(id, state)
@@ -939,16 +964,43 @@ function onClick_defaultSettings()
 
   -- clean reset of variable
   optionPanel = {
-    useSnapTags = true,
-    showDrawButton = false,
-    useClueClickers = false,
-    showTokenArranger = false,
+    showAttachmentHelper = false,
     showCleanUpHelper = false,
-    showHandHelper = {},
     showChaosBagManager = false,
-    showNavigationOverlay = false
+    showCustomPlaymatImages = false,
+    showCYOA = false,
+    showDisplacementTool = false,
+    showDrawButton = false,
+    showHandHelper = {},
+    showNavigationOverlay = false,
+    showTitleSplash = true,
+    showTokenArranger = false,
+    useClueClickers = false,
+    useSnapTags = true
   }
 
   -- update UI
   updateOptionPanelState()
+end
+
+-- splash scenario title on setup
+function titleSplash(scenarioName)
+  if optionPanel['showTitleSplash'] then
+
+    -- if there's any ongoing title being displayed, hide it and cancel the waiting function
+    if hideTitleSplashWaitFunctionId then
+      Wait.stop(hideTitleSplashWaitFunctionId)
+      hideTitleSplashWaitFunctionId = nil
+      UI.setAttribute('title_splash', 'active', false)
+    end
+
+    -- display scenario name and set a 4 seconds (2 seconds animation and 2 seconds on screen)
+    -- wait timer to hide the scenario name
+    UI.setValue('title_splash', scenarioName)
+    UI.show('title_splash')
+    hideTitleSplashWaitFunctionId = Wait.time(function()
+      UI.hide('title_splash')
+      hideTitleSplashWaitFunctionId = nil
+    end, 4)
+  end
 end
