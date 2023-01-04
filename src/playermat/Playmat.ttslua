@@ -237,9 +237,9 @@ function doUpkeep(_, color, alt_click)
     local obj = v.hit_object
     if obj.getDescription() == "Action Token" and obj.is_face_down then
       obj.flip()
-    elseif obj.tag == "Card" and not obj.is_face_down then
+    elseif obj.tag == "Card" and not obj.is_face_down and not inArea(self.positionToLocal(obj.getPosition()), INVESTIGATOR_AREA) then
       local cardMetadata = JSON.decode(obj.getGMNotes()) or {}
-      if not doNotReady(obj) and cardMetadata.type ~= "Investigator" then
+      if not doNotReady(obj) then
         obj.setRotation(PLAY_ZONE_ROTATION)
       end
       if cardMetadata.id == "08031" then
@@ -480,11 +480,13 @@ end
 function onCollisionEnter(collision_info)
   if not COLLISION_ENABLED then return end
   local object = collision_info.collision_object
+
   -- only continue for cards
   if object.name ~= "Card" and object.name ~= "CardCustom" then return end
-  maybeUpdateActiveInvestigator(object)
 
+  maybeUpdateActiveInvestigator(object)
   syncCustomizableMetadata(object)
+
   if isInDeckZone(object) then
     tokenManager.resetTokensSpawned(object)
   elseif shouldSpawnTokens(object) then
@@ -542,58 +544,63 @@ function isInDeckZone(checkObject)
 end
 
 ---------------------------------------------------------
--- investigator ID grabbing and stat tracker
+-- investigator ID grabbing and skill tracker
 ---------------------------------------------------------
 
 function maybeUpdateActiveInvestigator(card)
+  if not inArea(self.positionToLocal(card.getPosition()), INVESTIGATOR_AREA) then return end
+
   local notes = JSON.decode(card.getGMNotes())
-  if notes ~= nil and notes.type == "Investigator" and notes.id ~= activeInvestigatorId then
+  local class
+
+  if notes ~= nil and notes.type == "Investigator" and notes.id ~= nil then
+    if notes.id == activeInvestigatorId then return end
+    class = notes.class
     activeInvestigatorId = notes.id
     STAT_TRACKER.call("updateStats", {notes.willpowerIcons, notes.intellectIcons, notes.combatIcons, notes.agilityIcons})
+  elseif activeInvestigatorId ~= "00000" then
+    class = "Neutral"
+    activeInvestigatorId = "00000"
+    STAT_TRACKER.call("updateStats", {1, 1, 1, 1})
+  else
+    return
+  end
 
-    -- change state of action tokens
-    local search = searchArea(self.positionToWorld({-1.1, 0.05, -0.27}), {4, 1, 1})
-    local small_token = nil
-    local state_table = {
-      ["Guardian"] = 1,
-      ["Seeker"]   = 2,
-      ["Rogue"]    = 3,
-      ["Mystic"]   = 4,
-      ["Survivor"] = 5,
-      ["Neutral"]  = 6
-    }
+  -- change state of action tokens
+  local search = searchArea(self.positionToWorld({-1.1, 0.05, -0.27}), {4, 1, 1})
+  local smallToken = nil
+  local STATE_TABLE = {
+    ["Guardian"] = 1,
+    ["Seeker"]   = 2,
+    ["Rogue"]    = 3,
+    ["Mystic"]   = 4,
+    ["Survivor"] = 5,
+    ["Neutral"]  = 6
+  }
 
-    for _, obj in ipairs(search) do
-      local obj = obj.hit_object
-      if obj.getDescription() == "Action Token" and obj.getStateId() > 0 then
-        if obj.getScale().x < 0.4 then
-          small_token = obj
-        else
-          setObjectState(obj, state_table[notes.class])
-        end
+  for _, obj in ipairs(search) do
+    local obj = obj.hit_object
+    if obj.getDescription() == "Action Token" and obj.getStateId() > 0 then
+      if obj.getScale().x < 0.4 then
+        smallToken = obj
+      else
+        setObjectState(obj, STATE_TABLE[class])
       end
     end
-
-    -- update the small token with special action for certain investigators
-    -- Ursula Downs: Investigate action
-    if activeInvestigatorId == "04002" then
-      setObjectState(small_token, 8)
-    -- Daisy Walker (only for normal front, not parallel): Tome action
-    elseif activeInvestigatorId == "01002" or activeInvestigatorId == "01502" or activeInvestigatorId == "01002-pb" then
-      setObjectState(small_token, 9)
-    -- Tony Morgan: Engage/Fight action
-    elseif activeInvestigatorId == "06003" then
-      setObjectState(small_token, 10)
-    -- Finn Edwards: Evade action
-    elseif activeInvestigatorId == "04003" then
-      setObjectState(small_token, 11)
-    -- Bob Jenkins: Play Item action
-    elseif activeInvestigatorId == "08016" then
-      setObjectState(small_token, 14)
-    else
-      setObjectState(small_token, state_table[notes.class])
-    end
   end
+
+  -- update the small token with special action for certain investigators
+  local SPECIAL_ACTIONS = {
+    ["04002"]    = 8,  -- Ursula Downs
+    ["01002"]    = 9,  -- Daisy Walker
+    ["01502"]    = 9,  -- Daisy Walker
+    ["01002-pb"] = 9,  -- Daisy Walker
+    ["06003"]    = 10, -- Tony Morgan
+    ["04003"]    = 11, -- Finn Edwards
+    ["08016"]    = 14  -- Bob Jenkins
+  }
+
+  setObjectState(smallToken, SPECIAL_ACTIONS[activeInvestigatorId] or STATE_TABLE[class])
 end
 
 function setObjectState(obj, stateId)
