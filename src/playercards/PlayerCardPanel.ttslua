@@ -70,7 +70,10 @@ local CYCLE_LIST = {
   "Investigator Packs"
 }
 
+local excludedNonBasicWeaknesses
+
 local starterDeckMode = STARTER_DECK_MODE_CARDS_ONLY
+local helpVisibleToPlayers = { }
 
 function onSave()
   local saveState = {
@@ -87,10 +90,26 @@ function onLoad(savedData)
       spawnBag.loadFromSave(saveState.spawnBagState)
     end
   end
+  buildExcludedWeaknessList()
   createButtons()
 end
 
+-- Build a list of non-basic weaknesses which should be excluded from the last weakness set,
+-- including all signature cards and evolved weaknesses.
+function buildExcludedWeaknessList()
+  excludedNonBasicWeaknesses = { }
+  for _, investigator in pairs(INVESTIGATORS) do
+    for _, signatureId in ipairs(investigator.signatures) do
+      excludedNonBasicWeaknesses[signatureId] = true
+    end
+  end
+  for _, weaknessId in ipairs(EVOLVED_WEAKNESSES) do
+    excludedNonBasicWeaknesses[weaknessId] = true
+  end
+end
+
 function createButtons()
+  createHelpButton()
   createInvestigatorButtons()
   createLevelZeroButtons()
   createUpgradedButtons()
@@ -100,6 +119,19 @@ function createButtons()
   createClearButton()
   -- Create investigator mode buttons last so the indexes are set when we need to update them
   createInvestigatorModeButtons()
+end
+
+function createHelpButton()
+  self.createButton({
+    function_owner = self,
+    click_function = "toggleHelp",
+    position = Vector(0.845, 0.1, -0.855),
+    rotation = Vector(0, 0, 0),
+    height = 180,
+    width = 180,
+    scale = Vector(0.25, 1, 0.25),
+    color = TRANSPARENT,
+  })
 end
 
 function createInvestigatorButtons()
@@ -170,12 +202,12 @@ function createWeaknessButtons()
   }
   local buttonPos = WEAKNESS_ROW_START:copy()
   weaknessButtonParams.click_function = "spawnWeaknesses"
-  weaknessButtonParams.tooltip = "Basic Weaknesses"
+  weaknessButtonParams.tooltip = "All Weaknesses"
   weaknessButtonParams.position = buttonPos
   self.createButton(weaknessButtonParams)
   buttonPos.x = buttonPos.x + MISC_BUTTONS_X_OFFSET
   weaknessButtonParams.click_function = "spawnRandomWeakness"
-  weaknessButtonParams.tooltip = "Random Weakness"
+  weaknessButtonParams.tooltip = "Random Basic Weakness"
   weaknessButtonParams.position = buttonPos
   self.createButton(weaknessButtonParams)
 end
@@ -285,6 +317,29 @@ function createInvestigatorModeButtons()
     font_color = { 0, 0, 0 },
     color = { 1, 1, 1 }
   })
+end
+
+function toggleHelp(_, playerColor, _)
+  if helpVisibleToPlayers[playerColor] then
+    helpVisibleToPlayers[playerColor] = nil
+  else
+    helpVisibleToPlayers[playerColor] = true
+  end
+  updateHelpVisibility()
+end
+
+function updateHelpVisibility()
+  local visibility = ""
+  for player, _ in pairs(helpVisibleToPlayers) do
+    if string.len(visibility) > 0 then
+      visibility = visibility .. "|" .. player
+    else
+      visibility = player
+    end
+  end
+  self.UI.setAttribute("helpText", "visibility", visibility)
+  self.UI.setAttribute("helpPanel", "visibility", visibility)
+  self.UI.setAttribute("helpPanel", "active", string.len(visibility) > 0)
 end
 
 function setStarterDeckMode()
@@ -584,23 +639,38 @@ function spawnWeaknesses()
     return
   end
   local weaknessIdList = allCardsBag.call("getUniqueWeaknesses")
-  local copiedList = { }
+  local basicWeaknessList = { }
+  local campaignWeaknessList = { }
   for i, id in ipairs(weaknessIdList) do
-    copiedList[i] = id
+    local cardMetadata = allCardsBag.call("getCardById", { id = id }).metadata
+    if cardMetadata.basicWeaknessCount ~= nil and cardMetadata.basicWeaknessCount > 0 then
+      table.insert(basicWeaknessList, id)
+    elseif excludedNonBasicWeaknesses[id] == nil then
+      table.insert(campaignWeaknessList, id)
+    end
   end
   local groupPos = Vector(START_POSITIONS.classCards)
   spawnBag.spawn({
-    name = "weaknesses",
-    cards = copiedList,
+    name = "basicWeaknesses",
+    cards = basicWeaknessList,
     globalPos = groupPos,
     rotation = FACE_UP_ROTATION,
     spread = true,
     spreadCols = 20
   })
-  groupPos.x = groupPos.x - math.ceil(#copiedList / 20) * CARD_ROW_OFFSET - CARD_GROUP_OFFSET
+  groupPos.x = groupPos.x - math.ceil(#basicWeaknessList / 20) * CARD_ROW_OFFSET - CARD_GROUP_OFFSET
   spawnBag.spawn({
     name = "evolvedWeaknesses",
     cards = EVOLVED_WEAKNESSES,
+    globalPos = groupPos,
+    rotation = FACE_UP_ROTATION,
+    spread = true,
+    spreadCols = 20
+  })
+  groupPos.x = groupPos.x - math.ceil(#EVOLVED_WEAKNESSES / 20) * CARD_ROW_OFFSET - CARD_GROUP_OFFSET
+  spawnBag.spawn({
+    name = "campaignWeaknesses",
+    cards = campaignWeaknessList,
     globalPos = groupPos,
     rotation = FACE_UP_ROTATION,
     spread = true,
