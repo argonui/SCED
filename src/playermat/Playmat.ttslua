@@ -1,4 +1,5 @@
 local tokenManager = require("core/token/TokenManager")
+local tokenChecker = require("core/token/TokenChecker")
 
 -- set true to enable debug logging and show Physics.cast()
 local DEBUG = false
@@ -180,6 +181,10 @@ function makeDiscardHandlerFor(searchPosition, discardPosition)
           obj.setPositionSmooth(discardPosition, false, true)
           obj.setRotation({0, -90, 0})
         end
+      -- put chaos tokens back into bag (e.g. Unrelenting)
+      elseif tokenChecker.isChaosToken(obj) then
+        local chaosBag = Global.call("findChaosBag")
+        chaosBag.putObject(obj)
       -- don't touch the table or this playmat itself
       elseif obj.guid ~= "4ee1f2" and obj ~= self then
         TRASHCAN.putObject(obj)
@@ -602,7 +607,9 @@ function maybeUpdateActiveInvestigator(card)
     ["08016"]    = 14  -- Bob Jenkins
   }
 
-  setObjectState(smallToken, SPECIAL_ACTIONS[activeInvestigatorId] or STATE_TABLE[class])
+  if smallToken ~= nil then
+    setObjectState(smallToken, SPECIAL_ACTIONS[activeInvestigatorId] or STATE_TABLE[class])
+  end
 end
 
 function setObjectState(obj, stateId)
@@ -635,7 +642,7 @@ function showDrawButton(visible)
     self.createButton({
         label = "Draw 1",
         click_function = "doDrawOne",
-        function_owner = mat,
+        function_owner = self,
         position = { 1.84, 0.1, -0.36 },
         scale = { 0.12, 0.12, 0.12 },
         width = 800,
