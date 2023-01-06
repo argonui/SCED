@@ -1,13 +1,17 @@
--- Search Assistant
--- made by:         Chr1Z
--- original by:     Tikatoy
--- description:     search the top X cards of your deck
-information = {
-    version = "1.4",
-    last_updated = "12.11.2022"
-}
+local playmatAPI = require("playermat/PlaymatApi")
 
-MAT_GUIDS = { "8b081b", "bd0ff4", "383d8b", "0840d5" }
+-- forward declaration of variables that are used across functions
+local matColor
+local setAsidePosition
+local setAsideRotation
+local drawDeckPosition
+
+local quickParameters          = {}
+quickParameters.function_owner = self
+quickParameters.font_size      = 150
+quickParameters.width          = 275
+quickParameters.height         = 275
+quickParameters.color          = "White"
 
 -- common parameters
 local buttonParameters          = {}
@@ -15,11 +19,12 @@ buttonParameters.function_owner = self
 buttonParameters.font_size      = 125
 buttonParameters.width          = 650
 buttonParameters.height         = 225
+buttonParameters.color          = "White"
 
 local inputParameters          = {}
 inputParameters.function_owner = self
 inputParameters.input_function = "updateSearchNumber"
-inputParameters.tooltip        = "number of cards to search"
+inputParameters.tooltip        = "custom search amount"
 inputParameters.label          = "#"
 inputParameters.font_size      = 175
 inputParameters.width          = 400
@@ -28,236 +33,158 @@ inputParameters.position       = { 0, 0.11, 0 }
 inputParameters.alignment      = 3
 inputParameters.validation     = 2
 
-function onSave() return JSON.encode(playerColor) end
-
-function onLoad(save_state)
-    if save_state ~= nil then
-        playerColor = JSON.decode(save_state)
-    end
-
-    if playerColor == nil then
-        playerColor = Player.getAvailableColors()[1]
-    end
-
-    normalView()
-
-    self.addContextMenuItem("More Information", function()
-        printToAll("------------------------------", "White")
-        printToAll("Search Assistant v" .. information["version"] .. " by Chr1Z", "Orange")
-        printToAll("last updated: " .. information["last_updated"], "White")
-        printToAll("original concept by Tikatoy", "White")
-    end)
+function onLoad()
+  normalView()
 end
 
--- regular view with search box and color switcher
+-- regular view with search box
 function normalView()
-    self.clearButtons()
-    self.clearInputs()
+  self.clearButtons()
+  self.clearInputs()
+  self.createInput(inputParameters)
 
-    createSearchButton()
-    changeColor("initialize")
-    self.createInput(inputParameters)
+  -- create custom search button
+  buttonParameters.click_function = "searchCustom"
+  buttonParameters.tooltip        = "Search the entered number of cards"
+  buttonParameters.position       = { 0, 0.11, 0.65 }
+  buttonParameters.label          = "Search"
+  self.createButton(buttonParameters)
+
+  -- create buttons to search 3, 6 or 9 cards
+  for i = 3, 9, 3 do
+    _G["search" .. i] = function(_, playerColor)
+      _G["startSearch"](playerColor, i)
+    end
+
+    self.createButton({
+      function_owner = self,
+      click_function = "search" .. i,
+      label          = i,
+      font_size      = 165,
+      width          = 275,
+      height         = 275,
+      color          = "White",
+      position       = { (i - 6) / 4.5, 0.11, -0.65 }
+    })
+  end
 end
 
 -- view during a search with "done" buttons
 function searchView()
-    self.clearButtons()
-    self.clearInputs()
+  self.clearButtons()
+  self.clearInputs()
 
-    createDoneButton(true)
-    createDoneButton(false)
-end
-
--- change color (or initialize button)
-function changeColor(arg, _, isRightClick)
-    if arg ~= "initialize" then
-        -- update table with colors
-        COLORS = Player.getAvailableColors()
-        local pos = indexOf(COLORS, playerColor)
-
-        if isRightClick then
-            if pos == nil or pos == 1 then pos = #COLORS
-            else pos = pos - 1 end
-        else
-            if pos == nil or pos == #COLORS then pos = 1
-            else pos = pos + 1 end
-        end
-
-        -- update playerColor
-        playerColor = COLORS[pos]
-
-        -- remove button and recreate it afterwards
-        self.removeButton(1)
-    end
-
-    buttonParameters.click_function = "changeColor"
-    buttonParameters.tooltip        = "change color"
-    buttonParameters.position       = { 0, 0.11, -0.65 }
-    buttonParameters.label          = playerColor
-    buttonParameters.color          = Color.fromString(playerColor)
-    buttonParameters.hover_color    = buttonParameters.color
-    self.createButton(buttonParameters)
-end
-
--- create the search button
-function createSearchButton()
-    buttonParameters.click_function = "startSearch"
-    buttonParameters.tooltip        = "start the search"
-    buttonParameters.position       = { 0, 0.11, 0.65 }
-    buttonParameters.label          = "Search"
-    buttonParameters.color          = Color.fromString("White")
-    buttonParameters.hover_color    = nil
-    self.createButton(buttonParameters)
-end
-
--- create the done buttons (with and without shuffle)
-function createDoneButton(arg)
-    if arg then
-        buttonParameters.click_function = "endSearch1"
-        buttonParameters.tooltip        = "Done (Shuffle)"
-        buttonParameters.position       = { 0, 0.11, -0.65 }
-        buttonParameters.label          = "Shuffle"
-    else
-        buttonParameters.click_function = "endSearch2"
-        buttonParameters.tooltip        = "Done (No Shuffle)"
-        buttonParameters.position       = { 0, 0.11, 0.65 }
-        buttonParameters.label          = "No Shuffle"
-    end
-
-    buttonParameters.color       = Color.fromString("White")
-    buttonParameters.hover_color = nil
-    self.createButton(buttonParameters)
-end
-
--- get the draw deck from the player mat
-function getDrawDeck()
-    mat.call("getDrawDiscardDecks")
-    return mat.getVar("drawDeck")
+  -- create the "End Search" button
+  buttonParameters.click_function = "endSearch"
+  buttonParameters.tooltip        = "Left-click: Return cards and shuffle\nRight-click: Return cards without shuffling"
+  buttonParameters.position       = { 0, 0.11, 0 }
+  buttonParameters.label          = "End Search"
+  self.createButton(buttonParameters)
 end
 
 -- input_function to get number of cards to search
 function updateSearchNumber(_, _, input)
-    inputParameters.value = tonumber(input)
+  inputParameters.value = tonumber(input)
 end
 
--- start the search (change UI, set hand aside, draw cards)
-function startSearch(_, color)
-    if inputParameters.value == nil then
-        printToColor("Enter the number of cards to search in the textbox.", color, "Orange")
-        return
-    end
-
-    local hand_data = Player[playerColor].getHandTransform()
-
-    -- make distinction between players based on hand position
-    if hand_data.position.x < -30 then
-        if hand_data.position.z > 0 then
-            playerNumber = 1
-        else
-            playerNumber = 2
-        end
-    else
-        if hand_data.position.z > 0 then
-            playerNumber = 3
-        else
-            playerNumber = 4
-        end
-    end
-
-    mat = getObjectFromGUID(MAT_GUIDS[playerNumber])
-    local zoneID = mat.getVar("zoneID")
-
-    drawDeck = getDrawDeck()
-    if drawDeck == nil then
-        printToColor("Draw pile could not be found!", color, "Red")
-        return
-    end
-
-    drawDeckPos = drawDeck.getPosition()
-    printToColor("Place target(s) of search on set aside hand.", color, "Green")
-
-    -- get position for set aside cards
-    local hand = Player[playerColor].getHandObjects()
-    deck_rotation = { hand_data.rotation.x, hand_data.rotation.y + 180, 180 }
-
-    -- for left players (p1 and p3) move to the left, for right players (p2 and p4) to the right
-    if playerNumber == 1 or playerNumber == 3 then
-        set_aside_pos = hand_data.position - 15 * hand_data.right
-    else
-        set_aside_pos = hand_data.position + 15 * hand_data.right
-    end
-
-    for i = #hand, 1, -1 do
-        hand[i].setPosition(set_aside_pos - Vector(0, i * 0.3, 0))
-        hand[i].setRotation(deck_rotation)
-    end
-
-    searchView()
-
-    -- handling for Norman Withers
-    for _, object in ipairs(getObjectFromGUID(zoneID).getObjects()) do
-        local pos = self.positionToLocal(object.getPosition())
-        if pos.z < -0.5 and object.tag == "Card" and not object.is_face_down then
-            object.flip()
-            Wait.time(function() drawDeck = getDrawDeck() end, 1)
-            break
-        end
-    end
-
-    Wait.time(function() drawDeck.deal(inputParameters.value, playerColor) end, 1)
+-- starts the search with the number from the input field
+function searchCustom(_, messageColor)
+  local number = inputParameters.value
+  if number ~= nil then
+    startSearch(messageColor, number)
+  else
+    printToColor("Enter the number of cards to search in the textbox.", messageColor, "Orange")
+  end
 end
 
--- place hand back into deck and optionally shuffle
-function endSearch1() endSearch(true) end
+-- start the search (change UI, set handCards aside, draw cards)
+function startSearch(messageColor, number)
+  matColor = playmatAPI.getMatColorByPosition(self.getPosition())
 
-function endSearch2() endSearch(false) end
+  -- get draw deck
+  local drawDeck = playmatAPI.getDrawDeck(matColor)
+  if drawDeck == nil then
+    printToColor(matColor .. " draw deck could not be found!", messageColor, "Red")
+    return
+  end
 
-function endSearch(shuffle)
-    local hand = Player[playerColor].getHandObjects()
+  drawDeckPosition = drawDeck.getPosition()
+  printToColor("Place target(s) of search on set aside hand.", messageColor, "Green")
 
-    for i = #hand, 1, -1 do
-        hand[i].setPosition(drawDeckPos + Vector(0, 6 - i * 0.3, 0))
-        hand[i].setRotation(deck_rotation)
+  -- get playmat orientation
+  local offset = -15
+  if matColor == "Orange" or matColor == "Red" then
+    offset = 15
+  end
+
+  -- get position and rotation for set aside cards
+  local handData   = Player[matColor].getHandTransform()
+  local handCards  = Player[matColor].getHandObjects()
+  setAsidePosition = handData.position + offset * handData.right
+  setAsideRotation = { handData.rotation.x, handData.rotation.y + 180, 180 }
+
+  for i = #handCards, 1, -1 do
+    handCards[i].setPosition(setAsidePosition - Vector(0, i * 0.3, 0))
+    handCards[i].setRotation(setAsideRotation)
+  end
+
+  -- handling for Norman Withers
+  for _, v in ipairs(searchArea(drawDeckPosition)) do
+    local object = v.hit_object
+    if object.tag == "Card" and not object.is_face_down then
+      object.flip()
+      Wait.time(function() drawDeck = playmatAPI.getDrawDeck(matColor) end, 1)
+      break
     end
+  end
 
-    if shuffle then
-        Wait.time(function()
-            local deck = getDrawDeck()
-            if deck ~= nil then
-                deck.shuffle()
-            end
-        end, 2)
-    end
-
-    -- draw set aside cards (from the ground!)
-    local objs = Physics.cast({
-        origin = set_aside_pos - Vector(0, 5, 0),
-        direction = { 0, 1, 0 },
-        type = 3,
-        size = { 2, 2, 2 },
-        max_distance = 0
-    })
-
-    for _, v in ipairs(objs) do
-        local obj = v.hit_object
-        if obj.tag == "Deck" then
-            Wait.time(function()
-                obj.deal(#obj.getObjects(), playerColor)
-            end, 1)
-            break
-        elseif obj.tag == "Card" then
-            obj.setPosition(Player[playerColor].getHandTransform().position)
-            obj.flip()
-            break
-        end
-    end
-
-    normalView()
+  Wait.time(function() drawDeck.deal(number, matColor) end, 1)
+  searchView()
 end
 
--- helper to search array
-function indexOf(array, value)
-    for i, v in ipairs(array) do
-        if v == value then return i end
+-- place handCards back into deck and optionally shuffle
+function endSearch(_, _, isRightClick)
+  local handCards = Player[matColor].getHandObjects()
+
+  for i = #handCards, 1, -1 do
+    handCards[i].setPosition(drawDeckPosition + Vector(0, 6 - i * 0.3, 0))
+    handCards[i].setRotation(setAsideRotation)
+  end
+
+  if not isRightClick then
+    Wait.time(function()
+      local deck = playmatAPI.getDrawDeck(matColor)
+      if deck ~= nil then
+        deck.shuffle()
+      end
+    end, 2)
+  end
+
+  -- draw set aside cards (from the ground!)
+  for _, v in ipairs(searchArea(setAsidePosition - Vector(0, 5, 0))) do
+    local obj = v.hit_object
+    if obj.tag == "Deck" then
+      Wait.time(function()
+        obj.deal(#obj.getObjects(), matColor)
+      end, 1)
+      break
+    elseif obj.tag == "Card" then
+      obj.setPosition(Player[matColor].getHandTransform().position)
+      obj.flip()
+      break
     end
+  end
+
+  normalView()
+end
+
+-- utility function
+function searchArea(position)
+  return Physics.cast({
+    origin = position,
+    direction = { 0, 1, 0 },
+    type = 3,
+    size = { 2, 2, 2 },
+    max_distance = 0
+  })
 end
