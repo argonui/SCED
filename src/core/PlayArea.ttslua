@@ -47,13 +47,10 @@ local PLAY_AREA_ZONE_GUID = "a2f932"
 
 local clueData = {}
 local spawnedLocationGUIDs = {}
-
-local locations = { }
-local locationConnections = { }
-local draggingGuids = { }
-
+local locations = {}
+local locationConnections = {}
+local draggingGuids = {}
 local locationData
-
 local currentScenario
 
 ---------------------------------------------------------
@@ -128,6 +125,9 @@ function onObjectDestroy(object)
 end
 
 function onObjectPickUp(player, object)
+  -- only continue for cards
+  if objType ~= "Card" and objType ~= "CardCustom" then return end
+
   -- onCollisionExit fires first, so we have to check the card to see if it's a location we should
   -- be tracking
   if showLocationLinks() and isInPlayArea(object) and object.getGMNotes() ~= nil and object.getGMNotes() ~= "" then
@@ -164,7 +164,7 @@ end
 
 -- Checks the given card and adds it to the list of locations tracked for connection purposes.
 -- A card will be added to the tracking if it is a location in the play area (based on centerpoint).
--- @param A card object, possibly a location.
+---@param card Object A card object, possibly a location.
 function maybeTrackLocation(card)
   -- Collision checks for any part of the card overlap, but our other tracking is centerpoint
   -- Ignore any collision where the centerpoint isn't in the area
@@ -182,7 +182,7 @@ end
 -- and destruction, as a destroyed object does not trigger collision exit.  An object can also be
 -- deleted mid-drag, but the ordering for drag events means we can't clear those here and those will
 -- be cleared in the next onUpdate() cycle.
--- @param card Card to (maybe) stop tracking
+---@param card Object Card to (maybe) stop tracking
 function maybeUntrackLocation(card)
   -- Locked objects no longer collide (hence triggering an exit event) but are still in the play
   -- area.  If the object is now locked, don't remove it.
@@ -226,8 +226,8 @@ function rebuildConnectionList()
 end
 
 -- Extracts the card's icon string into a list of individual location icons
--- @param cardID GUID of the card to pull the icon data from
--- @param iconCardList A table of icon->GUID list.  Mutable, will be updated by this method
+---@param cardID String GUID of the card to pull the icon data from
+---@param iconCardList Table A table of icon->GUID list.  Mutable, will be updated by this method
 function buildLocListByIcon(cardId, iconCardList)
   local card = getObjectFromGUID(cardId)
   local locData = getLocationData(card)
@@ -243,8 +243,8 @@ end
 
 -- Builds the connections for the given cardID by finding matching icons and adding them to the
 -- Playarea's locationConnections table.
--- @param cardId GUID of the card to build the connections for
--- @param iconCardList A table of icon->GUID List.  Used to find matching icons for connections.
+---@param cardId String GUID of the card to build the connections for
+---@param iconCardList Table A table of icon->GUID List.  Used to find matching icons for connections.
 function buildConnection(cardId, iconCardList)
   local card = getObjectFromGUID(cardId)
   local locData = getLocationData(card)
@@ -268,8 +268,8 @@ end
 
 -- Helper method to extract the location metadata from a card based on whether it's front or back
 -- is showing.
--- @param card Card object to extract data from
--- @return Table with either the locationFront or locationBack metadata structure, or nil if the
+---@param card String Card object to extract data from
+---@return. Table with either the locationFront or locationBack metadata structure, or nil if the
 --     metadata doesn't exist
 function getLocationData(card)
   if card == nil then
@@ -312,9 +312,9 @@ end
 
 -- Draws a bidirectional location connection between the two cards, adding the lines to do so to the
 -- given lines list.
--- @param card1 One of the card objects to connect
--- @param card2 The other card object to connect
--- @param lines List of vector line elements.  Mutable, will be updated to add this connector
+---@param card1 Object One of the card objects to connect
+---@param card2 Object The other card object to connect
+---@param lines Table List of vector line elements.  Mutable, will be updated to add this connector
 function addBidirectionalVector(card1, card2, lines)
   local cardPos1 = card1.getPosition()
   local cardPos2 = card2.getPosition()
@@ -331,9 +331,9 @@ end
 
 -- Draws a one-way location connection between the two cards, adding the lines to do so to the
 -- given lines list.  Arrows will point towards the target card.
--- @param origin Origin card in the connection
--- @param target Target card object to connect
--- @param lines List of vector line elements.  Mutable, will be updated to add this connector
+---@param origin Object Origin card in the connection
+---@param target Object Target card object to connect
+---@param lines Table List of vector line elements.  Mutable, will be updated to add this connector
 function addOneWayVector(origin, target, lines)
   -- Start with the BiDi then add the arrow lines to it
   addBidirectionalVector(origin, target, lines)
@@ -362,9 +362,9 @@ function addOneWayVector(origin, target, lines)
 end
 
 -- Draws an arrowhead at the given position.
--- @param arrowheadPosition Centerpoint of the arrowhead to draw (NOT the tip of the arrow)
--- @param originPos Origin point of the connection, used to position the arrow arms
--- @param lines List of vector line elements.  Mutable, will be updated to add this arrow
+---@param arrowheadPosition Table Centerpoint of the arrowhead to draw (NOT the tip of the arrow)
+---@param originPos Table Origin point of the connection, used to position the arrow arms
+---@param lines Table List of vector line elements.  Mutable, will be updated to add this arrow
 function addArrowLines(arrowheadPos, originPos, lines)
   local arrowArm1 = Vector(arrowheadPos):moveTowards(originPos, ARROW_ARM_LENGTH):sub(arrowheadPos):rotateOver("y", -1 * ARROW_ANGLE):add(arrowheadPos)
   local arrowArm2 = Vector(arrowheadPos):moveTowards(originPos, ARROW_ARM_LENGTH):sub(arrowheadPos):rotateOver("y", ARROW_ANGLE):add(arrowheadPos)
@@ -414,7 +414,7 @@ function shiftContents(playerColor, direction)
 end
 
 -- Returns the current value of the investigator counter from the playmat
----@return Integer.  Number of investigators currently set on the counter
+---@return. Number of investigators currently set on the counter
 function getInvestigatorCount()
   local investigatorCounter = getObjectFromGUID("f182ee")
   return investigatorCounter.getVar("val")
@@ -422,8 +422,8 @@ end
 
 -- Check to see if the given object is within the bounds of the play area, based solely on the X and
 -- Z coordinates, ignoring height
--- @param object Object to check
--- @return True if the object is inside the play area
+---@param object Object Object to check
+---@return. True if the object is inside the play area
 function isInPlayArea(object)
   local bounds = self.getBounds()
   local position = object.getPosition()
