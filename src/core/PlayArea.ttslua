@@ -103,7 +103,12 @@ function onCollisionEnter(collisionInfo)
   if shouldSpawnTokens(card) then
     tokenManager.spawnForCard(card)
   end
-  draggingGuids[card.getGUID()] = nil
+  -- If this card was being dragged, clear the dragging connections.  A multi-drag/drop may send
+  -- the dropped card immediately into a deck, so this has to be done here
+  if draggingGuids[card.getGUID()] ~= nil then
+    card.setVectorLines(nil)
+    draggingGuids[card.getGUID()] = nil
+  end
   maybeTrackLocation(card)
 end
 
@@ -199,6 +204,18 @@ function maybeUntrackLocation(card)
     locations[card.getGUID()] = nil
     rebuildConnectionList()
     drawBaseConnections()
+  end
+end
+
+-- Global event handler, delegated from Global.  Clears any connection lines from dragged cards
+-- before they are destroyed by entering a deck.  Removal of the card from the dragging list will
+-- be handled during the next onUpdate() call.
+function tryObjectEnterContainer(params)
+  for draggedGuid, _ in pairs(draggingGuids) do
+    local draggedObj = getObjectFromGUID(draggedGuid)
+    if draggedObj ~= nil then
+      draggedObj.setVectorLines(nil)
+    end
   end
 end
 
