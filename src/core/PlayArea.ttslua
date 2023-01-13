@@ -136,17 +136,24 @@ function onObjectPickUp(player, object)
   local objType = object.name
   if objType ~= "Card" and objType ~= "CardCustom" then return end
 
-  -- onCollisionExit fires first, so we have to check the card to see if it's a location we should
-  -- be tracking
+  -- onCollisionExit USUALLY fires first, so we have to check the card to see if it's a location we
+  -- should be tracking
   if showLocationLinks() and isInPlayArea(object) and object.getGMNotes() ~= nil and object.getGMNotes() ~= "" then
     local pickedUpGuid = object.getGUID()
     local metadata = JSON.decode(object.getGMNotes())
     if (metadata.type == "Location") then
-      draggingGuids[pickedUpGuid] = metadata
-      rebuildConnectionList()
+      -- onCollisionExit sometimes comes 1 frame after onObjectPickUp (rather than before it or in
+      -- the same frame).  This causes a mismatch in the data between dragging the on-table, and
+      -- that one frame draws connectors on the card which then show up as shadows for snap points.
+      -- Waiting ensures we always do thing in the expected Exit->PickUp order
+      Wait.frames(function()
+          draggingGuids[pickedUpGuid] = metadata
+          rebuildConnectionList()
+        end, 2)
     end
   end
 end
+
 
 function onUpdate()
   -- Due to the frequence of onUpdate calls, ensure that we only process any changes to the
@@ -356,7 +363,7 @@ function drawDraggingConnections()
     -- Objects should reliably exist at this point, but since this can be called during onUpdate the
     -- object checks are conservative just to make sure.
     local origin = getObjectFromGUID(originGuid)
-    if draggingGuids[originGuid] and origin != nil then
+    if draggingGuids[originGuid] and origin ~= nil and targetGuids ~= nil then
       ownedVectors[originGuid] = { }
       for targetGuid, direction in pairs(targetGuids) do
         local target = getObjectFromGUID(targetGuid)
