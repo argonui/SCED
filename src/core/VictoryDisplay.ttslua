@@ -1,0 +1,131 @@
+function onLoad()
+  local buttonParameters          = {}
+  buttonParameters.label          = "0 (Display) + 0 (Play Area) = 0 VP"
+  buttonParameters.click_function = "none"
+  buttonParameters.function_owner = self
+  buttonParameters.position       = { x = -0.5, y = 0.11, z = -0.8 }
+  buttonParameters.scale          = { 0.15, 0.15, 0.15 }
+  buttonParameters.width          = 0
+  buttonParameters.height         = 0
+  buttonParameters.font_size      = 600
+  buttonParameters.font_color     = { 1, 1, 1 }
+
+  -- index 0: VP calculation
+  self.createButton(buttonParameters)
+
+  -- index 1: title
+  buttonParameters.position       = { x = 0, y = 0.11, z = -1.15 }
+  buttonParameters.label          = "Victory Display"
+  buttonParameters.font_size      = 1000
+  self.createButton(buttonParameters)
+
+  -- index 2: refresh button
+  buttonParameters.position       = { x = 1.65, y = 0.11, z = -0.8 }
+  buttonParameters.label          = "Refresh!"
+  buttonParameters.click_function = "updateCount"
+  buttonParameters.width          = 2400
+  buttonParameters.height         = 800
+  buttonParameters.font_color     = { 0, 0, 0 }
+  buttonParameters.font_size      = 600
+  self.createButton(buttonParameters)
+
+  -- update the display label once
+  Wait.time(updateCount, 1)
+end
+
+-- automatically update when cards are dropped or removed
+function onCollisionEnter() updateCount() end
+function onCollisionExit() Wait.time(updateCount, 0.1) end
+
+function updateCount()
+  local victoryPoints = {
+    display = 0,
+    playArea = 0
+  }
+
+  -- count cards in victory display
+  for _, v in ipairs(searchOnObj(self)) do
+    local obj = v.hit_object
+    local cardVP = 0
+
+    -- check metadata for VP
+    if obj.tag == "Card" then
+      cardVP = getCardVP(obj.is_face_down, JSON.decode(obj.getGMNotes()))
+      victoryPoints.display = victoryPoints.display + cardVP
+
+      -- handling for stacked cards
+    elseif obj.tag == "Deck" then
+      for _, deepObj in ipairs(obj.getObjects()) do
+        cardVP = getCardVP(true, JSON.decode(deepObj.gm_notes))
+        victoryPoints.display = victoryPoints.display + cardVP
+      end
+    end
+  end
+
+  -- count locations in playArea
+  local playArea = getObjectFromGUID("721ba2")
+  for _, v in ipairs(searchOnObj(playArea)) do
+    local obj = v.hit_object
+    local cardVP = 0
+
+    if obj.hasTag("Location") then
+      cardVP = getCardVP(obj.is_face_down, JSON.decode(obj.getGMNotes()))
+      if cardVP and not cardHasClues(obj) then
+        victoryPoints.playArea = victoryPoints.playArea + cardVP
+      end
+    end
+  end
+
+  self.editButton({
+    index = 0,
+    label = victoryPoints.display .. " (Display) + "
+        .. victoryPoints.playArea .. " (Play Area) = "
+        .. victoryPoints.display + victoryPoints.playArea .. " VP"
+  })
+end
+
+-- checks if a card has clues on it
+function cardHasClues(card)
+  for _, v in ipairs(searchOnObj(card)) do
+    local obj = v.hit_object
+    if obj.tag == "Tile" then
+      local props = obj.getCustomObject()
+      if obj.is_face_down == false and
+          props.image == "http://cloud-3.steamusercontent.com/ugc/1758068501357164917/1D06F1DC4D6888B6F57124BD2AFE20D0B0DA15A8/" and
+          props.image_bottom == "https://i.imgur.com/EoL7yaZ.png" then
+        return true
+      end
+    end
+  end
+  return false
+end
+
+-- gets the VP count from the notes
+function getCardVP(faceDown, notes)
+  local cardVP
+  if notes ~= nil then
+    -- enemy, treachery etc.
+    cardVP = tonumber(notes.victory)
+
+    -- location
+    if not cardVP then
+      if not faceDown then
+        cardVP = tonumber(notes.locationFront.victory)
+      else
+        cardVP = tonumber(notes.locationBack.victory)
+      end
+    end
+  end
+  return cardVP or 0
+end
+
+function searchOnObj(obj)
+  return Physics.cast({
+    direction    = { 0, 1, 0 },
+    max_distance = 0.5,
+    type         = 3,
+    size         = obj.getBounds().size,
+    origin       = obj.getPosition()
+  })
+end
+
