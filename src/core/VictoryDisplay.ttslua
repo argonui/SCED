@@ -1,3 +1,5 @@
+local messageSent = {}
+
 function onLoad()
   local buttonParameters          = {}
   buttonParameters.label          = "0 (Display) + 0 (Play Area) = 0 VP"
@@ -51,13 +53,13 @@ function updateCount()
     -- check metadata for VP
     if obj.tag == "Card" then
       cardVP = getCardVP(obj.is_face_down, JSON.decode(obj.getGMNotes()))
-      victoryPoints.display = victoryPoints.display + cardVP
+      victoryPoints.display = victoryPoints.display + AddOrSendMessage(cardVP, obj.getName())
 
       -- handling for stacked cards
     elseif obj.tag == "Deck" then
       for _, deepObj in ipairs(obj.getObjects()) do
         cardVP = getCardVP(true, JSON.decode(deepObj.gm_notes))
-        victoryPoints.display = victoryPoints.display + cardVP
+        victoryPoints.display = victoryPoints.display + AddOrSendMessage(cardVP, deepObj.nickname)
       end
     end
   end
@@ -69,7 +71,7 @@ function updateCount()
     local cardVP = 0
 
     if obj.hasTag("Location") then
-      cardVP = getCardVP(obj.is_face_down, JSON.decode(obj.getGMNotes()))
+      cardVP = getCardVP(obj.is_face_down, JSON.decode(obj.getGMNotes())) or 0
       if cardVP and not cardHasClues(obj) then
         victoryPoints.playArea = victoryPoints.playArea + cardVP
       end
@@ -82,6 +84,16 @@ function updateCount()
         .. victoryPoints.playArea .. " (Play Area) = "
         .. victoryPoints.display + victoryPoints.playArea .. " VP"
   })
+end
+
+function AddOrSendMessage(addition, name)
+  if tonumber(addition) ~= nil then
+    return tonumber(addition)
+  elseif not tableContains(messageSent, name) then
+    printToAll("Info: No victory points counted for '" .. name .. "'.", "White")
+    table.insert(messageSent, name)
+  end
+  return 0
 end
 
 -- checks if a card has clues on it
@@ -109,14 +121,14 @@ function getCardVP(faceDown, notes)
 
     -- location
     if not cardVP then
-      if not faceDown then
+      if not faceDown and notes.locationFront ~= nil then
         cardVP = tonumber(notes.locationFront.victory)
-      else
+      elseif notes.locationBack ~= nil then
         cardVP = tonumber(notes.locationBack.victory)
       end
     end
   end
-  return cardVP or 0
+  return cardVP
 end
 
 function searchOnObj(obj)
@@ -129,3 +141,12 @@ function searchOnObj(obj)
   })
 end
 
+-- search a table for a value, return true if found (else returns false)
+function tableContains(table, value)
+  for _, v in ipairs(table) do
+    if v == value then
+      return true
+    end
+  end
+  return false
+end
