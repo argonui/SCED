@@ -1,6 +1,8 @@
+local pendingCall = false
 local messageSent = {}
 
 function onLoad()
+  -- index 0: VP - "Display"
   local buttonParameters          = {}
   buttonParameters.label          = "0"
   buttonParameters.click_function = "none"
@@ -10,27 +12,15 @@ function onLoad()
   buttonParameters.height         = 0
   buttonParameters.font_size      = 600
   buttonParameters.font_color     = { 1, 1, 1 }
-
-  -- index 0: VP - "Display"
-  buttonParameters.position = { x = -0.71, y = 0.06, z = -0.69 }
+  buttonParameters.position       = { x = -0.71, y = 0.06, z = -0.69 }
   self.createButton(buttonParameters)
 
   -- index 1: VP - "Play Area"
-  buttonParameters.position = { x = 0.65, y = 0.06, z = -0.69 }
+  buttonParameters.position.x = 0.65
   self.createButton(buttonParameters)
 
   -- index 2: VP - "Total"
-  buttonParameters.position = { x = 1.685, y = 0.06, z = -0.69 }
-  self.createButton(buttonParameters)
-
-  -- index 3: refresh button
-  buttonParameters.position       = { x = 1.55, y = 0.06, z = -1.25 }
-  buttonParameters.label          = "Refresh!"
-  buttonParameters.click_function = "updateCount"
-  buttonParameters.width          = 2200
-  buttonParameters.height         = 720
-  buttonParameters.font_color     = { 0, 0, 0 }
-  buttonParameters.font_size      = 540
+  buttonParameters.position.x = 1.685
   self.createButton(buttonParameters)
 
   -- update the display label once
@@ -38,10 +28,48 @@ function onLoad()
 end
 
 -- automatically update when cards are dropped or removed
-function onCollisionEnter() updateCount() end
-function onCollisionExit() Wait.time(updateCount, 0.1) end
+function onCollisionEnter()
+  updateCount()
+end
 
+function onCollisionExit()
+  updateCount()
+end
+
+function onObjectPickUp(_, obj)
+  maybeUpdate(obj)
+end
+
+function onObjectDrop(_, obj)
+  Wait.time(function() maybeUpdate(obj) end, 1)
+end
+
+function onObjectDestroy(obj)
+  maybeUpdate(obj)
+end
+
+function maybeUpdate(obj)
+  if obj == nil then return end
+  if obj.tag == "Tile" then
+    local props = obj.getCustomObject()
+    if obj.is_face_down == false and
+        props.image ==
+        "http://cloud-3.steamusercontent.com/ugc/1758068501357164917/1D06F1DC4D6888B6F57124BD2AFE20D0B0DA15A8/" and
+        props.image_bottom == "https://i.imgur.com/EoL7yaZ.png" then
+      updateCount()
+    end
+  end
+end
+
+-- works as a sinkhole for all refresh calls
 function updateCount()
+  if not pendingCall then
+    pendingCall = true
+    Wait.time(function() updateCountNow() end, 0.1)
+  end
+end
+
+function updateCountNow()
   local victoryPoints = {
     display = 0,
     playArea = 0
@@ -55,13 +83,13 @@ function updateCount()
     -- check metadata for VP
     if obj.tag == "Card" then
       cardVP = getCardVP(obj.is_face_down, JSON.decode(obj.getGMNotes()))
-      victoryPoints.display = victoryPoints.display + AddOrSendMessage(cardVP, obj.getName())
+      victoryPoints.display = victoryPoints.display + addOrSendMessage(cardVP, obj.getName())
 
       -- handling for stacked cards
     elseif obj.tag == "Deck" then
       for _, deepObj in ipairs(obj.getObjects()) do
         cardVP = getCardVP(true, JSON.decode(deepObj.gm_notes))
-        victoryPoints.display = victoryPoints.display + AddOrSendMessage(cardVP, deepObj.nickname)
+        victoryPoints.display = victoryPoints.display + addOrSendMessage(cardVP, deepObj.nickname)
       end
     end
   end
@@ -94,9 +122,10 @@ function updateCount()
     index = 2,
     label = victoryPoints.display + victoryPoints.playArea
   })
+  pendingCall = false
 end
 
-function AddOrSendMessage(addition, name)
+function addOrSendMessage(addition, name)
   if tonumber(addition) ~= nil then
     return tonumber(addition)
   elseif not tableContains(messageSent, name) then
