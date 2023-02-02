@@ -1,5 +1,10 @@
+local playAreaApi = require("core/PlayAreaApi")
 local pendingCall = false
 local messageSent = {}
+local victoryPoints = {
+  display = 0,
+  playArea = 0
+}
 
 function onLoad()
   -- index 0: VP - "Display"
@@ -41,24 +46,29 @@ function onObjectPickUp(_, obj)
 end
 
 function onObjectDrop(_, obj)
-  Wait.time(function() maybeUpdate(obj) end, 1)
+  maybeUpdate(obj, 1)
+end
+
+function onObjectRotate(obj, _, flip, _, _, oldFlip)
+  if flip == oldFlip then return end
+  maybeUpdate(obj, 1, true)
 end
 
 function onObjectDestroy(obj)
   maybeUpdate(obj)
 end
 
-function maybeUpdate(obj)
+function maybeUpdate(obj, delay, flipped)
   if obj == nil then return end
-  if obj.tag == "Tile" then
-    local props = obj.getCustomObject()
-    if obj.is_face_down == false and
-        props.image ==
-        "http://cloud-3.steamusercontent.com/ugc/1758068501357164917/1D06F1DC4D6888B6F57124BD2AFE20D0B0DA15A8/" and
-        props.image_bottom == "https://i.imgur.com/EoL7yaZ.png" then
-      updateCount()
-    end
-  end
+  if not obj.memo == "clueDoom" then return end
+  if obj.is_face_down == true and flipped ~= true then return end
+  if not playAreaApi.isInPlayArea(obj) then return end
+  delay = tonumber(delay) or 0
+  Wait.time(function() updateCount() end, delay)
+end
+
+function isClue(obj)
+  return obj.memo == "clueDoom" and obj.is_face_down == false
 end
 
 -- works as a sinkhole for all refresh calls
@@ -70,10 +80,8 @@ function updateCount()
 end
 
 function updateCountNow()
-  local victoryPoints = {
-    display = 0,
-    playArea = 0
-  }
+  victoryPoints.display  = 0
+  victoryPoints.playArea = 0
 
   -- count cards in victory display
   for _, v in ipairs(searchOnObj(self)) do
@@ -85,7 +93,7 @@ function updateCountNow()
       cardVP = getCardVP(obj.is_face_down, JSON.decode(obj.getGMNotes()))
       victoryPoints.display = victoryPoints.display + addOrSendMessage(cardVP, obj.getName())
 
-      -- handling for stacked cards
+    -- handling for stacked cards
     elseif obj.tag == "Deck" then
       for _, deepObj in ipairs(obj.getObjects()) do
         cardVP = getCardVP(true, JSON.decode(deepObj.gm_notes))
@@ -102,27 +110,19 @@ function updateCountNow()
 
     if obj.hasTag("Location") then
       cardVP = getCardVP(obj.is_face_down, JSON.decode(obj.getGMNotes())) or 0
-      if cardVP and not cardHasClues(obj) then
+      if cardVP ~= 0 and not cardHasClues(obj) then
         victoryPoints.playArea = victoryPoints.playArea + cardVP
       end
     end
   end
-
-  self.editButton({
-    index = 0,
-    label = victoryPoints.display
-  })
-
-  self.editButton({
-    index = 1,
-    label = victoryPoints.playArea
-  })
-
-  self.editButton({
-    index = 2,
-    label = victoryPoints.display + victoryPoints.playArea
-  })
   pendingCall = false
+  updateVP()
+end
+
+function updateVP()
+  self.editButton({ index = 0, label = victoryPoints.display })
+  self.editButton({ index = 1, label = victoryPoints.playArea })
+  self.editButton({ index = 2, label = victoryPoints.display + victoryPoints.playArea })
 end
 
 function addOrSendMessage(addition, name)
@@ -139,13 +139,8 @@ end
 function cardHasClues(card)
   for _, v in ipairs(searchOnObj(card)) do
     local obj = v.hit_object
-    if obj.tag == "Tile" then
-      local props = obj.getCustomObject()
-      if obj.is_face_down == false and
-          props.image == "http://cloud-3.steamusercontent.com/ugc/1758068501357164917/1D06F1DC4D6888B6F57124BD2AFE20D0B0DA15A8/" and
-          props.image_bottom == "https://i.imgur.com/EoL7yaZ.png" then
-        return true
-      end
+    if isClue(obj) then
+      return true
     end
   end
   return false
