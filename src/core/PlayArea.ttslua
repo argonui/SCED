@@ -141,13 +141,17 @@ function onObjectPickUp(player, object)
   if showLocationLinks() and isInPlayArea(object) and object.getGMNotes() ~= nil and object.getGMNotes() ~= "" then
     local pickedUpGuid = object.getGUID()
     local metadata = JSON.decode(object.getGMNotes()) or { }
-    if (metadata.type == "Location") then
+    if metadata.type == "Location" then
       -- onCollisionExit sometimes comes 1 frame after onObjectPickUp (rather than before it or in
       -- the same frame).  This causes a mismatch in the data between dragging the on-table, and
       -- that one frame draws connectors on the card which then show up as shadows for snap points.
       -- Waiting ensures we always do thing in the expected Exit->PickUp order
       Wait.frames(function()
-          draggingGuids[pickedUpGuid] = metadata
+          if object.is_face_down then
+            draggingGuids[pickedUpGuid] = metadata.locationBack
+          else
+            draggingGuids[pickedUpGuid] = metadata.locationFront
+          end
           rebuildConnectionList()
         end, 2)
     end
@@ -187,12 +191,20 @@ end
 function maybeTrackLocation(card)
   -- Collision checks for any part of the card overlap, but our other tracking is centerpoint
   -- Ignore any collision where the centerpoint isn't in the area
-  if showLocationLinks() and isInPlayArea(card) then
+  if isInPlayArea(card) then
     local metadata = JSON.decode(card.getGMNotes()) or { }
     if metadata.type == "Location" then
-      locations[card.getGUID()] = metadata
-      rebuildConnectionList()
-      drawBaseConnections()
+      if card.is_face_down then
+        locations[card.getGUID()] = metadata.locationBack
+      else
+        locations[card.getGUID()] = metadata.locationFront
+      end
+
+      -- only draw connection lines for not-excluded scenarios
+      if showLocationLinks() then
+        rebuildConnectionList()
+        drawBaseConnections()
+      end
     end
   end
 end
@@ -238,20 +250,20 @@ function rebuildConnectionList()
 
   -- Build a list of cards with each icon as their location ID
   for cardId, metadata in pairs(draggingGuids) do
-    buildLocListByIcon(cardId, iconCardList)
+    buildLocListByIcon(cardId, iconCardList, metadata)
   end
   for cardId, metadata in pairs(locations) do
-    buildLocListByIcon(cardId, iconCardList)
+    buildLocListByIcon(cardId, iconCardList, metadata)
   end
 
   -- Pair up all the icons
   locationConnections = { }
   for cardId, metadata in pairs(draggingGuids) do
-    buildConnection(cardId, iconCardList)
+    buildConnection(cardId, iconCardList, metadata)
   end
   for cardId, metadata in pairs(locations) do
     if draggingGuids[cardId] == nil then
-      buildConnection(cardId, iconCardList)
+      buildConnection(cardId, iconCardList, metadata)
     end
   end
 end
@@ -259,15 +271,14 @@ end
 -- Extracts the card's icon string into a list of individual location icons
 ---@param cardID String GUID of the card to pull the icon data from
 ---@param iconCardList Table A table of icon->GUID list.  Mutable, will be updated by this method
-function buildLocListByIcon(cardId, iconCardList)
-  local card = getObjectFromGUID(cardId)
-  local locData = getLocationData(card)
+---@param locData Table A table containing the metadata for the card (for the correct side)
+function buildLocListByIcon(cardId, iconCardList, locData)
   if locData ~= nil and locData.icons ~= nil then
     for icon in string.gmatch(locData.icons, "%a+") do
       if iconCardList[icon] == nil then
         iconCardList[icon] = { }
       end
-      table.insert(iconCardList[icon], card.getGUID())
+      table.insert(iconCardList[icon], cardId)
     end
   end
 end
@@ -276,45 +287,28 @@ end
 -- Playarea's locationConnections table.
 ---@param cardId String GUID of the card to build the connections for
 ---@param iconCardList Table A table of icon->GUID List.  Used to find matching icons for connections.
-function buildConnection(cardId, iconCardList)
-  local card = getObjectFromGUID(cardId)
-  local locData = getLocationData(card)
+---@param locData Table A table containing the metadata for the card (for the correct side)
+function buildConnection(cardId, iconCardList, locData)
   if locData ~= nil and locData.connections ~= nil then
-    locationConnections[card.getGUID()] = { }
+    locationConnections[cardId] = { }
     for icon in string.gmatch(locData.connections, "%a+") do
       if iconCardList[icon] ~= nil then
         for _, connectedGuid in ipairs(iconCardList[icon]) do
           -- If the reciprocal exists, convert it to BiDi, otherwise add as a one-way
           if locationConnections[connectedGuid] ~= nil
-              and locationConnections[connectedGuid][card.getGUID()] == ONE_WAY then
-            locationConnections[connectedGuid][card.getGUID()] = BIDIRECTIONAL
-            locationConnections[card.getGUID()][connectedGuid] = nil
+              and locationConnections[connectedGuid][cardId] == ONE_WAY then
+            locationConnections[connectedGuid][cardId] = BIDIRECTIONAL
+            locationConnections[cardId][connectedGuid] = nil
           else
             if locationConnections[connectedGuid] == nil then
               locationConnections[connectedGuid] = { }
             end
-            locationConnections[card.getGUID()][connectedGuid] = ONE_WAY
-            locationConnections[connectedGuid][card.getGUID()] = INCOMING_ONE_WAY
+            locationConnections[cardId][connectedGuid] = ONE_WAY
+            locationConnections[connectedGuid][cardId] = INCOMING_ONE_WAY
           end
         end
       end
     end
-  end
-end
-
--- Helper method to extract the location metadata from a card based on whether it's front or back
--- is showing.
----@param card String Card object to extract data from
----@return. Table with either the locationFront or locationBack metadata structure, or nil if the
---     metadata doesn't exist
-function getLocationData(card)
-  if card == nil then
-    return nil
-  end
-  if card.is_face_down then
-    return JSON.decode(card.getGMNotes()).locationBack
-  else
-    return JSON.decode(card.getGMNotes()).locationFront
   end
 end
 
@@ -550,6 +544,48 @@ function setLimitSnapsByType(matchTypes)
     end
   end
   self.setSnapPoints(snaps)
+end
+
+-- count victory points on locations in play area
+---@return. Returns the total amount of VP found in the play area
+function countVP()
+  local totalVP = 0
+
+  for cardId, metadata in pairs(locations) do
+    if metadata ~= nil then
+      local cardVP = tonumber(metadata.victory) or 0
+      if cardVP ~= 0 and not cardHasClues(cardId) then
+        totalVP = totalVP + cardVP
+      end
+    end
+  end
+
+  return totalVP
+end
+
+-- checks if a card has clues on it, returns true if clues are on it
+---@param cardId String GUID of the card to check for clues
+function cardHasClues(cardId)
+  local card = getObjectFromGUID(cardId)
+  for _, v in ipairs(searchOnObj(card)) do
+    local obj = v.hit_object
+    if obj.memo == "clueDoom" and obj.is_face_down == false then
+      return true
+    end
+  end
+  return false
+end
+
+-- searches on an object (by using its bounds)
+---@param obj Object Object to search on
+function searchOnObj(obj)
+  return Physics.cast({
+    direction    = { 0, 1, 0 },
+    max_distance = 0.5,
+    type         = 3,
+    size         = obj.getBounds().size,
+    origin       = obj.getPosition()
+  })
 end
 
 -- rebuilds local snap points (could be useful in the future again)

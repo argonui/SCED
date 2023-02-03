@@ -1,11 +1,8 @@
 local playAreaApi = require("core/PlayAreaApi")
 local pendingCall = false
 local messageSent = {}
-local victoryPoints = {
-  display = 0,
-  playArea = 0
-}
 
+-- button creation when loading the game
 function onLoad()
   -- index 0: VP - "Display"
   local buttonParameters          = {}
@@ -17,7 +14,7 @@ function onLoad()
   buttonParameters.height         = 0
   buttonParameters.font_size      = 600
   buttonParameters.font_color     = { 1, 1, 1 }
-  buttonParameters.position       = { x = -0.71, y = 0.06, z = -0.69 }
+  buttonParameters.position       = { x = -0.72, y = 0.06, z = -0.69 }
   self.createButton(buttonParameters)
 
   -- index 1: VP - "Play Area"
@@ -25,63 +22,91 @@ function onLoad()
   self.createButton(buttonParameters)
 
   -- index 2: VP - "Total"
-  buttonParameters.position.x = 1.685
+  buttonParameters.position.x = 1.69
   self.createButton(buttonParameters)
 
   -- update the display label once
   Wait.time(updateCount, 1)
 end
 
--- automatically update when cards are dropped or removed
+---------------------------------------------------------
+-- events with descriptions
+---------------------------------------------------------
+
+-- dropping an object on the victory display
 function onCollisionEnter()
-  updateCount()
+  -- stop if there is already an update call running
+  if pendingCall then return end
+  pendingCall = true
+  Wait.time(updateCount, 0.2)
 end
 
+-- removing an object from the victory display
 function onCollisionExit()
-  updateCount()
+  -- stop if there is already an update call running
+  if pendingCall then return end
+  pendingCall = true
+  Wait.time(updateCount, 0.2)
 end
 
+-- picking a clue or location up
 function onObjectPickUp(_, obj)
   maybeUpdate(obj)
 end
 
+-- dropping a clue or location
 function onObjectDrop(_, obj)
   maybeUpdate(obj, 1)
 end
 
+-- flipping a clue/doom or location
 function onObjectRotate(obj, _, flip, _, _, oldFlip)
   if flip == oldFlip then return end
   maybeUpdate(obj, 1, true)
 end
 
+-- destroying a clue or location
 function onObjectDestroy(obj)
   maybeUpdate(obj)
 end
 
+---------------------------------------------------------
+-- main functionality
+---------------------------------------------------------
+
 function maybeUpdate(obj, delay, flipped)
+  -- stop if there is already an update call running
+  if pendingCall then return end
+
+  -- stop if obj is nil (by e.g. dropping a clue onto another and making a stack)
   if obj == nil then return end
-  if obj.memo ~= "clueDoom" then return end
-  if obj.is_face_down == true and flipped ~= true then return end
-  if not playAreaApi.isInPlayArea(obj) then return end
-  delay = tonumber(delay) or 0
-  Wait.time(function() updateCount() end, delay)
-end
 
-function isClue(obj)
-  return obj.memo == "clueDoom" and obj.is_face_down == false
-end
-
--- works as a sinkhole for all refresh calls
-function updateCount()
-  if not pendingCall then
-    pendingCall = true
-    Wait.time(function() updateCountNow() end, 0.2)
+  -- only continue for clues / doom tokens or locations
+  if obj.hasTag("Location") then
+  elseif obj.memo == "clueDoom" then
+    -- only continue if the clue side is up or a doom token is being flipped
+    if obj.is_face_down == true and flipped ~= true then return end
+  else
+    return
   end
+
+  -- only continue if the obj in in the play area
+  if not playAreaApi.isInPlayArea(obj) then return end
+
+  -- set this flag to limit function calls (will be reset by "updateCount")
+  pendingCall = true
+
+  -- update the count with delay (or 0 if no delay is provided)
+  -- this is needed to let tokens drop on the card
+  delay = tonumber(delay) or 0
+  Wait.time(updateCount, delay + 0.2)
 end
 
-function updateCountNow()
+-- counts the VP in the victory display and request the VP count from the play area
+function updateCount()
+  local victoryPoints    = {}
   victoryPoints.display  = 0
-  victoryPoints.playArea = 0
+  victoryPoints.playArea = playAreaApi.countVP()
 
   -- count cards in victory display
   for _, v in ipairs(searchOnObj(self)) do
@@ -102,29 +127,16 @@ function updateCountNow()
     end
   end
 
-  -- count locations in playArea
-  local playArea = getObjectFromGUID("721ba2")
-  for _, v in ipairs(searchOnObj(playArea)) do
-    local obj = v.hit_object
-    local cardVP = 0
-
-    if obj.hasTag("Location") then
-      cardVP = getCardVP(obj.is_face_down, JSON.decode(obj.getGMNotes())) or 0
-      if cardVP ~= 0 and not cardHasClues(obj) then
-        victoryPoints.playArea = victoryPoints.playArea + cardVP
-      end
-    end
-  end
-  pendingCall = false
-  updateVP()
-end
-
-function updateVP()
+  -- update the buttons that are used as labels
   self.editButton({ index = 0, label = victoryPoints.display })
   self.editButton({ index = 1, label = victoryPoints.playArea })
   self.editButton({ index = 2, label = victoryPoints.display + victoryPoints.playArea })
+
+  -- allow new update calls
+  pendingCall = false
 end
 
+-- sends a message for cards in the victory display that don't have VP
 function addOrSendMessage(addition, name)
   if tonumber(addition) ~= nil then
     return tonumber(addition)
@@ -133,17 +145,6 @@ function addOrSendMessage(addition, name)
     table.insert(messageSent, name)
   end
   return 0
-end
-
--- checks if a card has clues on it
-function cardHasClues(card)
-  for _, v in ipairs(searchOnObj(card)) do
-    local obj = v.hit_object
-    if isClue(obj) then
-      return true
-    end
-  end
-  return false
 end
 
 -- gets the VP count from the notes
@@ -155,6 +156,7 @@ function getCardVP(faceDown, notes)
 
     -- location
     if not cardVP then
+      -- check the correct side of the location
       if not faceDown and notes.locationFront ~= nil then
         cardVP = tonumber(notes.locationFront.victory)
       elseif notes.locationBack ~= nil then
@@ -165,6 +167,11 @@ function getCardVP(faceDown, notes)
   return cardVP
 end
 
+---------------------------------------------------------
+-- utility functions
+---------------------------------------------------------
+
+-- searches on an object
 function searchOnObj(obj)
   return Physics.cast({
     direction    = { 0, 1, 0 },
