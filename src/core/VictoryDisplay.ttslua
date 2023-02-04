@@ -1,6 +1,8 @@
 local playAreaApi = require("core/PlayAreaApi")
 local pendingCall = false
 local messageSent = {}
+local currentlyHighlighting = false
+local missingData = {}
 
 -- button creation when loading the game
 function onLoad()
@@ -25,6 +27,20 @@ function onLoad()
   buttonParameters.position.x = 1.69
   self.createButton(buttonParameters)
 
+  -- index 3: hightling button
+  self.createButton({
+    label          = "!",
+    click_function = "highlightMissingData",
+    tooltip        = "Enable / Disable highlighting of cards without metadata (VP on these is not counted).",
+    function_owner = self,
+    scale          = { 0.15, 0.15, 0.15 },
+    color          = { 1, 0, 0 },
+    width          = 700,
+    height         = 800,
+    font_size      = 700,
+    font_color     = { 1, 1, 1 },
+    position       = { x = 1.82, y = 0.06, z = -1.32 }
+  })
   -- update the display label once
   Wait.time(updateCount, 1)
 end
@@ -104,6 +120,7 @@ end
 
 -- counts the VP in the victory display and request the VP count from the play area
 function updateCount()
+  missingData            = {}
   local victoryPoints    = {}
   victoryPoints.display  = 0
   victoryPoints.playArea = playAreaApi.countVP()
@@ -111,18 +128,15 @@ function updateCount()
   -- count cards in victory display
   for _, v in ipairs(searchOnObj(self)) do
     local obj = v.hit_object
-    local cardVP = 0
 
     -- check metadata for VP
     if obj.tag == "Card" then
-      cardVP = getCardVP(obj.is_face_down, JSON.decode(obj.getGMNotes()))
-      victoryPoints.display = victoryPoints.display + addOrSendMessage(cardVP, obj.getName())
+      victoryPoints.display = victoryPoints.display + getCardVP(obj, JSON.decode(obj.getGMNotes()))
 
     -- handling for stacked cards
     elseif obj.tag == "Deck" then
       for _, deepObj in ipairs(obj.getObjects()) do
-        cardVP = getCardVP(true, JSON.decode(deepObj.gm_notes))
-        victoryPoints.display = victoryPoints.display + addOrSendMessage(cardVP, deepObj.nickname)
+        victoryPoints.display = victoryPoints.display + getCardVP(obj, JSON.decode(deepObj.gm_notes))
       end
     end
   end
@@ -136,19 +150,8 @@ function updateCount()
   pendingCall = false
 end
 
--- sends a message for cards in the victory display that don't have VP
-function addOrSendMessage(addition, name)
-  if tonumber(addition) ~= nil then
-    return tonumber(addition)
-  elseif not tableContains(messageSent, name) then
-    printToAll("No VP counted for '" .. name .. "'.", "White")
-    table.insert(messageSent, name)
-  end
-  return 0
-end
-
 -- gets the VP count from the notes
-function getCardVP(faceDown, notes)
+function getCardVP(obj, notes)
   local cardVP
   if notes ~= nil then
     -- enemy, treachery etc.
@@ -157,14 +160,31 @@ function getCardVP(faceDown, notes)
     -- location
     if not cardVP then
       -- check the correct side of the location
-      if not faceDown and notes.locationFront ~= nil then
+      if not obj.is_face_down and notes.locationFront ~= nil then
         cardVP = tonumber(notes.locationFront.victory)
       elseif notes.locationBack ~= nil then
         cardVP = tonumber(notes.locationBack.victory)
       end
     end
+  else
+    table.insert(missingData, obj)
   end
-  return cardVP
+  return cardVP or 0
+end
+
+-- toggles the highlight for objects with missing metadata
+function highlightMissingData()
+  for _, obj in pairs(missingData) do
+    if obj ~= nil then
+      if currentlyHighlighting then
+        obj.highlightOff("Red")
+      else
+        obj.highlightOn("Red")
+      end
+    end
+  end
+  playAreaApi.highlightMissingData(currentlyHighlighting)
+  currentlyHighlighting = not currentlyHighlighting
 end
 
 ---------------------------------------------------------

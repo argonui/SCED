@@ -55,6 +55,8 @@ local draggingGuids = {}
 local locationData
 local currentScenario
 
+local missingData = {}
+
 ---------------------------------------------------------
 -- general code
 ---------------------------------------------------------
@@ -95,7 +97,12 @@ function onCollisionEnter(collisionInfo)
   local objType = obj.name
 
   -- only continue for cards
-  if not collisionEnabled or (objType ~= "Card" and objType ~= "CardCustom") then return end
+  if not collisionEnabled or (objType ~= "Card" and objType ~= "CardCustom") then
+    if objType == "Deck" then
+      table.insert(missingData, obj)
+    end
+    return
+  end
 
   -- check if we should spawn clues here and do so according to playercount
   local card = collisionInfo.collision_object
@@ -192,18 +199,22 @@ function maybeTrackLocation(card)
   -- Collision checks for any part of the card overlap, but our other tracking is centerpoint
   -- Ignore any collision where the centerpoint isn't in the area
   if isInPlayArea(card) then
-    local metadata = JSON.decode(card.getGMNotes()) or { }
-    if metadata.type == "Location" then
-      if card.is_face_down then
-        locations[card.getGUID()] = metadata.locationBack
-      else
-        locations[card.getGUID()] = metadata.locationFront
-      end
+    local metadata = JSON.decode(card.getGMNotes())
+    if metadata == nil then
+      table.insert(missingData, card)
+    else
+      if metadata.type == "Location" then
+        if card.is_face_down then
+          locations[card.getGUID()] = metadata.locationBack
+        else
+          locations[card.getGUID()] = metadata.locationFront
+        end
 
-      -- only draw connection lines for not-excluded scenarios
-      if showLocationLinks() then
-        rebuildConnectionList()
-        drawBaseConnections()
+        -- only draw connection lines for not-excluded scenarios
+        if showLocationLinks() then
+          rebuildConnectionList()
+          drawBaseConnections()
+        end
       end
     end
   end
@@ -586,6 +597,20 @@ function searchOnObj(obj)
     size         = obj.getBounds().size,
     origin       = obj.getPosition()
   })
+end
+
+-- highlights all locations in the play area without metadata
+---@param state Boolean True if highlighting should be enabled
+function highlightMissingData(state)
+  for _, obj in pairs(missingData) do
+    if obj ~= nil then
+      if state then
+        obj.highlightOff("Red")
+      else
+        obj.highlightOn("Red")
+      end
+    end
+  end
 end
 
 -- rebuilds local snap points (could be useful in the future again)
