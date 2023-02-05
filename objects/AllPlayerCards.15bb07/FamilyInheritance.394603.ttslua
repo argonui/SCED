@@ -1,0 +1,76 @@
+local tokenManager = require("core/token/TokenManager")
+local playmatApi = require("playermat/PlaymatApi")
+
+local clickableResourceCounter = nil
+local foundTokens = 0
+
+function onLoad()
+  self.addContextMenuItem("Add 4 resources", function(playerColor) add4(playerColor) end)
+  self.addContextMenuItem("Take all resources", function(playerColor) takeAll(playerColor) end)
+  self.addContextMenuItem("Discard all resources", function(playerColor) loseAll(playerColor) end)
+end
+
+function searchSelf()
+  clickableResourceCounter = nil
+  foundTokens = 0
+
+  for _, obj in ipairs(searchArea(self.getPosition(), { 2.5, 0.5, 3.5 })) do
+    local obj = obj.hit_object
+    if obj.getCustomObject().image ==
+        "http://cloud-3.steamusercontent.com/ugc/1758068501357192910/11DDDC7EF621320962FDCF3AE3211D5EDC3D1573/" then
+      foundTokens = foundTokens + math.abs(obj.getQuantity())
+      obj.destruct()
+    elseif obj.getMemo() == "resourceCounter" then
+      foundTokens = obj.getVar("val")
+      clickableResourceCounter = obj
+      return
+    end
+  end
+end
+
+function add4(playerColor)
+  searchSelf()
+
+  local newCount = foundTokens + 4
+  if clickableResourceCounter then
+    clickableResourceCounter.call("updateVal", newCount)
+  else
+    if newCount > 12 then
+      printToColor("Count increased to " .. newCount .. " resources. Spawning clickable counter instead.", playerColor)
+      tokenManager.spawnResourceCounterToken(self, newCount)
+    else
+      tokenManager.spawnTokenGroup(self, "resource", newCount)
+    end
+  end
+end
+
+function takeAll(playerColor)
+  searchSelf()
+  local matColor = playmatApi.getMatColorByPosition(self.getPosition())
+  playmatApi.gainResources(foundTokens, matColor)
+
+  if clickableResourceCounter then
+    clickableResourceCounter.call("updateVal", 0)
+  end
+  printToColor("Moved " .. foundTokens .. " resource(s) to " .. matColor .. "'s resource pool.", playerColor)
+end
+
+function loseAll(playerColor)
+  searchSelf()
+
+  if clickableResourceCounter then
+    clickableResourceCounter.call("updateVal", 0)
+  end
+  printToColor("Discarded " .. foundTokens .. " resource(s).", playerColor)
+end
+
+function searchArea(origin, size)
+  return Physics.cast({
+    origin       = origin,
+    direction    = { 0, 1, 0 },
+    orientation  = PLAY_ZONE_ROTATION,
+    type         = 3,
+    size         = size,
+    max_distance = 1
+  })
+end
