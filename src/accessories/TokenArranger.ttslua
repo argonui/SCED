@@ -1,4 +1,4 @@
--- names of tokens in order
+local TOKEN_PRECEDENCE          = {}
 local TOKEN_NAMES = {
     "Elder Sign",
     "Skull",
@@ -10,21 +10,6 @@ local TOKEN_NAMES = {
     "Curse",
     "Frost",
     ""
-}
-
--- token modifiers for sorting (and order for same modifier)
--- order starts at 2 because there is a "+1" token
-local TOKEN_PRECEDENCE = {
-    ["Elder Sign"]  = { 100, 2 },
-    ["Skull"]       = { -1, 3 },
-    ["Cultist"]     = { -2, 4 },
-    ["Tablet"]      = { -3, 5 },
-    ["Elder Thing"] = { -4, 6 },
-    ["Auto-fail"]   = { -100, 7 },
-    ["Bless"]       = { 101, 8 },
-    ["Curse"]       = { -101, 9 },
-    ["Frost"]       = { -99, 10 },
-    [""]            = { 0, 11 }
 }
 
 -- common parameters
@@ -52,13 +37,15 @@ function onSave() return JSON.encode(TOKEN_PRECEDENCE) end
 function onLoad(saveState)
     if saveState ~= nil then
         TOKEN_PRECEDENCE = JSON.decode(saveState)
+    else
+        loadDefaultValues()
     end
 
     -- create UI
     local offset = 0.725
     local pos = { x = { -1.067, 0.377 }, z = -2.175 }
 
-    -- button and inputs index 1-10
+    -- button and inputs index 0-9
     for i = 1, 10 do
         if i < 6 then
             buttonParameters.position = { pos.x[1], 0, pos.z + i * offset }
@@ -76,7 +63,7 @@ function onLoad(saveState)
         self.createInput(inputParameters)
     end
 
-    -- index 11: "Update / Hide" button
+    -- index 10: "Update / Hide" button
     buttonParameters.label          = "Update / Hide"
     buttonParameters.click_function = "layout"
     buttonParameters.tooltip        = "Left-Click: Update!\nRight-Click: Hide Tokens!"
@@ -85,60 +72,82 @@ function onLoad(saveState)
     buttonParameters.width          = 675
     buttonParameters.height         = 175
     self.createButton(buttonParameters)
-    -- send object reference to bless/curse manager
-    Wait.time(function() getObjectFromGUID("5933fb").setVar("tokenArranger", self) end, 1)
+
+    -- reset context menu
+    self.addContextMenuItem("Load default values", function()
+        loadDefaultValues()
+        updateUI()
+        layout()
+    end)
 end
 
--- delete tokens and remove reference from bless/curse manager
-function onDestroy()
-    deleteCopiedTokens()
-    -- remove object reference from bless/curse manager
-    getObjectFromGUID("5933fb").setVar("tokenArranger", nil)
-end
+-- delete temporary tokens when destroyed
+function onDestroy() deleteCopiedTokens() end
 
 -- layout tokens when dropped (after 2 seconds)
 function onDrop() Wait.time(layout, 2) end
 
--- delete tokens when picked up
+-- delete temporary tokens when picked up
 function onPickUp() deleteCopiedTokens() end
 
 -- helper functions to carry index
 function attachIndex(click_function, index)
     local fn_name = click_function .. index
-    _G[fn_name] = function(obj, player_color, isRightClick)
-        _G[click_function](obj, player_color, isRightClick, index)
+    _G[fn_name] = function(_, _, isRightClick)
+        _G[click_function](isRightClick, index)
     end
     return fn_name
 end
 
 function attachIndex2(input_function, index)
     local fn_name = input_function .. index
-    _G[fn_name] = function(obj, player_color, input, selected)
-        _G[input_function](obj, player_color, input, selected, index)
+    _G[fn_name] = function(_, _, input, selected)
+        _G[input_function](input, selected, index)
     end
     return fn_name
 end
 
 -- click_function for buttons on chaos tokens
-function tokenClick(_, _, isRightClick, index)
-    if not updating then
-        updating = true
-        local change = tonumber(isRightClick and "-1" or "1")
-        TOKEN_PRECEDENCE[TOKEN_NAMES[index]][1] = TOKEN_PRECEDENCE[TOKEN_NAMES[index]][1] + change
-        self.editInput({ index = index - 1, value = TOKEN_PRECEDENCE[TOKEN_NAMES[index]][1] })
-        layout()
-    end
+function tokenClick(isRightClick, index)
+    local change = tonumber(isRightClick and "-1" or "1")
+    TOKEN_PRECEDENCE[TOKEN_NAMES[index]][1] = TOKEN_PRECEDENCE[TOKEN_NAMES[index]][1] + change
+    self.editInput({ index = index - 1, value = TOKEN_PRECEDENCE[TOKEN_NAMES[index]][1] })
+    layout()
 end
 
 -- input_function for input_boxes
-function tokenInput(_, _, input, selected, index)
-    if selected == false and not updating then
-        updating = true
+function tokenInput(input, selected, index)
+    if selected == false then
         local num = tonumber(input)
         if num ~= nil then
             TOKEN_PRECEDENCE[TOKEN_NAMES[index]][1] = num
         end
         layout()
+    end
+end
+
+-- loads the default precedence table
+function loadDefaultValues()
+    -- token modifiers for sorting (and order for same modifier)
+    -- order starts at 2 because there is a "+1" token
+    TOKEN_PRECEDENCE = {
+        ["Elder Sign"]  = { 100, 2 },
+        ["Skull"]       = { -1, 3 },
+        ["Cultist"]     = { -2, 4 },
+        ["Tablet"]      = { -3, 5 },
+        ["Elder Thing"] = { -4, 6 },
+        ["Auto-fail"]   = { -100, 7 },
+        ["Bless"]       = { 101, 8 },
+        ["Curse"]       = { -101, 9 },
+        ["Frost"]       = { -99, 10 },
+        [""]            = { 0, 11 }
+    }
+end
+
+-- update input fields
+function updateUI()
+    for i = 1, 10 do
+        self.editInput({ index = i-1, value = TOKEN_PRECEDENCE[TOKEN_NAMES[i]][1] })
     end
 end
 
@@ -152,49 +161,35 @@ function token_value_comparator(left, right)
     end
 end
 
--- get chaos bag from scripting zone and description
-function getChaosBag()
-    local chaosbag = nil
-    local chaosbag_zone = getObjectFromGUID("83ef06")
-
-    -- error handling: scripting zone not found
-    if chaosbag_zone == nil then
-        printToAll("Zone for chaos bag detection couldn't be found.", "Red")
-        return nil
-    end
-
-    for _, v in ipairs(chaosbag_zone.getObjects()) do
-        if v.getDescription() == "Chaos Bag" then
-            chaosbag = getObjectFromGUID(v.getGUID())
-            break
+-- checks scripting zone for chaos bag
+function findChaosBag()
+    for _, item in ipairs(getObjectFromGUID("83ef06").getObjects()) do
+        if item.getDescription() == "Chaos Bag" then
+            return item
         end
     end
-
-    -- error handling: chaos bag not found
-    if chaosbag == nil then
-        printToAll("Chaos bag couldn't be found.", "Red")
-    end
-    return chaosbag
 end
 
 -- deletes previously placed tokens
 function deleteCopiedTokens()
-    for _, token in ipairs(getObjectsWithTag("to_be_deleted")) do token.destruct() end
+    for _, token in ipairs(getObjectsWithTag("tempToken")) do token.destruct() end
 end
 
 -- main function (delete old tokens, clone chaos bag content, sort it and position it)
 function layout(_, _, isRightClick)
+    if updating then return end
+    updating = true
     deleteCopiedTokens()
 
     -- stop here if right-clicked
     if isRightClick then return end
 
-    local chaosBag = getChaosBag()
+    local chaosBag = findChaosBag()
     local data = {}
 
     -- clone tokens from chaos bag (default position above trash can)
     for i, obj in ipairs(chaosBag.getData().ContainedObjects) do
-        obj["Tags"] = { "to_be_deleted" }
+        obj["Tags"] = { "tempToken" }
         local spawnedObj = spawnObjectData({
             data = obj,
             position = { 0.49, 3, 0 }
@@ -220,7 +215,7 @@ function layout(_, _, isRightClick)
 
     -- error handling for removal of token arranger
     if self == nil then
-        for _, token in ipairs(getObjectsWithTag("to_be_deleted")) do token.destruct() end
+        for _, token in ipairs(getObjectsWithTag("tempToken")) do token.destruct() end
         return
     end
     
@@ -239,28 +234,17 @@ function layout(_, _, isRightClick)
         item.token.setRotation(self.getRotation())
         location.z = location.z - 1.75
     end
-    updating = false
+    Wait.time(function() updating = false end, 0.1)
 end
 
 -- called from outside to set default values for tokens
 function onTokenDataChanged(tokenData)
-    -- Skull
-    local table = tokenData["Skull"] or {}
-    local skullModifier = table.modifier or ""
-    print("Skull: " .. skullModifier)
-
-    -- Cultist
-    local table = tokenData.Cultist or {}
-    local cultistModifier = table.modifier or ""
-    print("Cultist: " .. cultistModifier)
-
-    -- Tablet
-    local table = tokenData.Tablet or {}
-    local tabletModifier = table.modifier or ""
-    print("Tablet: " .. tabletModifier)
-
-    -- Elder Thing
-    local table = tokenData.ElderThing or {}
-    local elderThingModifier = table.modifier or ""
-    print("Elder Thing: " .. elderThingModifier)
+    -- update token precedence
+    for key, table in pairs(tokenData) do
+        local modifier = table.modifier
+        if modifier == -999 then modifier = 0 end
+        TOKEN_PRECEDENCE[key][1] = modifier
+    end
+    updateUI()
+    layout()
 end
