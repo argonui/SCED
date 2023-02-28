@@ -1,5 +1,6 @@
-local playArea = require("core/PlayAreaApi")
-local tokenSpawnTracker = require("core/token/TokenSpawnTrackerApi")
+local playAreaApi = require("core/PlayAreaApi")
+local tokenArrangerApi = require("accessories/TokenArrangerApi")
+local tokenSpawnTrackerApi = require("core/token/TokenSpawnTrackerApi")
 
 local ENCOUNTER_DECK_AREA = {
   upperLeft = { x = 0.9, z = 0.42 },
@@ -11,39 +12,60 @@ local ENCOUNTER_DISCARD_AREA = {
 }
 
 local currentScenario
+local useFrontData
 -- we use this to turn off collision handling until onLoad() is complete
-local COLLISION_ENABLED = false
+local collisionEnabled = false
 
 function onLoad(saveState)
   if saveState ~= nil then
     local loadedState = JSON.decode(saveState) or { }
-    currentScenario = loadedState.currentScenario
+    currentScenario   = loadedState.currentScenario or ""
+    useFrontData      = loadedState.useFrontData or true
   end
-  COLLISION_ENABLED = true
+  collisionEnabled = true
 end
 
 function onSave()
   return JSON.encode({
-    currentScenario = currentScenario
+    currentScenario = currentScenario,
+    useFrontData    = useFrontData
   })
 end
 
 -- TTS event handler.  Handles scenario name event triggering and encounter card token resets.
 function onCollisionEnter(collisionInfo)
-  if not COLLISION_ENABLED then
+  if not collisionEnabled then
     return
   end
   local object = collisionInfo.collision_object
   if object.getName() == "Scenario" then
-    if currentScenario ~= object.getDescription() then
-      currentScenario = object.getDescription()
+    local updateNeeded = false
+    local description = object.getDescription()
+
+    -- detect if orientation of scenario card changed (flipped to other side)
+    if object.is_face_down == useFrontData then
+      useFrontData = not useFrontData
+      updateNeeded = true
+    end
+
+    -- detect if another scenario card is placed down
+    if currentScenario ~= description then
+      currentScenario = description
+      updateNeeded = true
       fireScenarioChangedEvent()
+    end
+    -- trigger update if a change was detected and push new data
+    if updateNeeded then
+      local metadata = JSON.decode(object.getGMNotes()) or {}
+      if not metadata["tokens"] then return end
+      local tokenData = metadata["tokens"][(useFrontData and "front" or "back")]
+      fireTokenDataChangedEvent(tokenData)
     end
   end
 
   local localPos = self.positionToLocal(object.getPosition())
   if inArea(localPos, ENCOUNTER_DECK_AREA) or inArea(localPos, ENCOUNTER_DISCARD_AREA) then
-    tokenSpawnTracker.resetTokensSpawned(object.getGUID())
+    tokenSpawnTrackerApi.resetTokensSpawned(object.getGUID())
   end
 end
 
@@ -52,13 +74,17 @@ end
 function onObjectEnterContainer(container, object)
   local localPos = self.positionToLocal(container.getPosition())
   if inArea(localPos, ENCOUNTER_DECK_AREA) or inArea(localPos, ENCOUNTER_DISCARD_AREA) then
-    tokenSpawnTracker.resetTokensSpawned(object.getGUID())
+    tokenSpawnTrackerApi.resetTokensSpawned(object.getGUID())
   end
 end
 
 function fireScenarioChangedEvent()
   Wait.frames(function() Global.call('titleSplash', currentScenario) end, 20)
-  playArea.onScenarioChanged(currentScenario)
+  playAreaApi.onScenarioChanged(currentScenario)
+end
+
+function fireTokenDataChangedEvent(tokenData)
+  tokenArrangerApi.onTokenDataChanged(tokenData)
 end
 
 -- Simple method to check if the given point is in a specified area.  Local use only,
