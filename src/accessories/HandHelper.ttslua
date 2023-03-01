@@ -1,194 +1,114 @@
 local playmatAPI = require("playermat/PlaymatApi")
+local matColor, handColor, loopId, hovering
 
-local buttonParamaters          = {}
-buttonParamaters.function_owner = self
+function onLoad()
+  local buttonParamaters          = {}
+  buttonParamaters.function_owner = self
 
--- saving "playerColor" and "des"
-function onSave() return JSON.encode({ playerColor, des}) end
+  -- index 0: button as hand size label
+  buttonParamaters.hover_color    = "White"
+  buttonParamaters.click_function = "none"
+  buttonParamaters.position       = { 0, 0.11, -0.4 }
+  buttonParamaters.height         = 0
+  buttonParamaters.width          = 0
+  buttonParamaters.font_size      = 500
+  buttonParamaters.font_color     = "White"
+  self.createButton(buttonParamaters)
 
-function onLoad(saved_data)
-    -- loading saved data
-    local loaded_data = JSON.decode(saved_data)
-    playerColor       = loaded_data[1] or Player.getAvailableColors()[1]
-    des               = loaded_data[2] or false
+  -- index 1: button to toggle "des"
+  buttonParamaters.label          = "DES: ✗"
+  buttonParamaters.click_function = "none"
+  buttonParamaters.position       = { 0, 0.11, 0.25 }
+  buttonParamaters.height         = 0
+  buttonParamaters.width          = 0
+  buttonParamaters.font_size      = 120
+  self.createButton(buttonParamaters)
 
-    -- index 0: button as hand size label
-    buttonParamaters.hover_color    = "White"
-    buttonParamaters.click_function = "none"
-    buttonParamaters.position       = { 0, 0.11, -0.4 }
-    buttonParamaters.height         = 0
-    buttonParamaters.width          = 0
-    buttonParamaters.font_size      = 500
-    buttonParamaters.font_color     = "White"
-    self.createButton(buttonParamaters)
+  -- index 2: button to discard a card
+  buttonParamaters.label          = "discard random card"
+  buttonParamaters.click_function = "discardRandom"
+  buttonParamaters.position       = { 0, 0.11, 0.7 }
+  buttonParamaters.height         = 175
+  buttonParamaters.width          = 900
+  buttonParamaters.font_size      = 90
+  buttonParamaters.font_color     = "Black"
+  self.createButton(buttonParamaters)
 
-    -- index 1: button to toggle "des"
-    buttonParamaters.label          = "DES: " .. (des and "✓" or "✗")
-    buttonParamaters.click_function = "toggleDES"
-    buttonParamaters.position       = { 0.475, 0.11, 0.25 }
-    buttonParamaters.height         = 175
-    buttonParamaters.width          = 440
-    buttonParamaters.font_size      = 90
-    buttonParamaters.font_color     = "Black"
-    self.createButton(buttonParamaters)
+  updateColors()
 
-    -- index 2: button to discard a card
-    buttonParamaters.label          = "discard random card"
-    buttonParamaters.click_function = "discardRandom"
-    buttonParamaters.position       = { 0, 0.11, 0.7 }
-    buttonParamaters.width          = 900
-    self.createButton(buttonParamaters)
-
-    -- index 3: button to select color
-    buttonParamaters.label          = playerColor
-    buttonParamaters.color          = playerColor
-    buttonParamaters.hover_color    = playerColor
-    buttonParamaters.click_function = "changeColor"
-    buttonParamaters.tooltip        = "change color"
-    buttonParamaters.position       = { -0.475, 0.11, 0.25 }
-    buttonParamaters.width          = 440
-    self.createButton(buttonParamaters)
-
-    -- start loop to update card count
-    loopId = Wait.time(||updateValue(), 1, -1)
-
-    -- context menu to quickly bind color
-    self.addContextMenuItem("Bind to my color", function(color)
-        changeColor(_, _, _, color)
-    end)
-
-    -- context menu to display additional information
-    self.addContextMenuItem("More Information", function()
-        printToAll("------------------------------", "White")
-        printToAll("Hand Helper by Chr1Z", "Orange")
-        printToAll("original by Tikatoy", "White")
-        printToAll("Note: 'Hidden' cards can't be randomly discarded.", "Yellow")
-        printToAll("Set them aside beforehand!", "Yellow")
-    end)
-
-    -- initialize the pseudo random number generator
-    math.randomseed(os.time())
+  -- start loop to update card count
+  loopId = Wait.time(updateValue, 1, -1)
 end
 
+-- updates colors when object is dropped somewhere
+function onDrop() updateColors() end
+
+-- toggles counting method briefly
 function onObjectHover(hover_color, obj)
-    -- only continue if correct player hovers over "self"
-    if obj ~= self or hover_color ~= playerColor then return end
+  -- only continue if correct player hovers over "self"
+  if obj ~= self or hover_color ~= handColor or hovering then return end
 
-    -- stop loop, toggle "des" and displayed value briefly, then start new loop
-    Wait.stop(loopId)
-    des = not des
-    updateValue()
-    des = not des
-    loopId = Wait.time(||updateValue(), 1, -1)
+  -- toggle this flag so this doesn't get executed multiple times during the delay
+  hovering = true
+
+  -- stop loop, toggle "des" and displayed value briefly, then start new loop after 2s
+  Wait.stop(loopId)
+  updateValue(true)
+  Wait.time(function()
+    loopId = Wait.time(updateValue, 1, -1)
+    hovering = false
+  end, 1)
 end
 
--- toggle "des" and update button label
-function toggleDES()
-    des = not des
-    self.editButton({index = 1, label = "DES: " .. (des and "✓" or "✗")})
-    updateValue()
+-- updates the matcolor and handcolor variable
+function updateColors()
+  matColor = playmatAPI.getMatColorByPosition(self.getPosition())
+  handColor = playmatAPI.getHandColor(matColor)
+  self.setName(handColor .. " Hand Helper")
 end
 
 -- count cards in hand (by name for DES)
-function updateValue()
-    if not playerExists(playerColor) then return end
+function updateValue(toggle)
+  -- update colors if handColor doesn't own a handzone
+  if Player[handColor].getHandCount() == 0 then
+    updateColors()
+  end
 
-    local hand = Player[playerColor].getHandObjects()
-    local size = 0
+  -- if there is still no handzone, then end here
+  if Player[handColor].getHandCount() == 0 then return end
 
-    if des then
-        local cardHash = {}
-        for _, obj in pairs(hand) do
-            if obj.tag == "Card" then
-                local name = obj.getName()
-                local title = string.match(name, '(.+)(%s%(%d+%))') or name
-                cardHash[title] = obj
-            end
-        end
-        for _, obj in pairs(cardHash) do
-            size = size + 1
-        end
-    else
-        for _, obj in pairs(hand) do
-            if obj.tag == "Card" then size = size + 1 end
-        end
+  -- get state of "Dream-Enhancing Serum" from playermat and update button label
+  local des = playmatAPI.isDES(matColor)
+  if toggle then des = not des end
+  self.editButton({ index = 1, label = "DES: " .. (des and "✓" or "✗") })
+
+  -- count cards in hand
+  local hand = Player[handColor].getHandObjects()
+  local size = 0
+
+  if des then
+    local cardHash = {}
+    for _, obj in pairs(hand) do
+      if obj.tag == "Card" then
+        local name = obj.getName()
+        local title = string.match(name, '(.+)(%s%(%d+%))') or name
+        cardHash[title] = true
+      end
     end
-    -- change button label and color
-    self.editButton({index = 0, font_color = des and "Green" or "White", label = size})
-end
-
--- allows change of color via external call
-function externalColorChange(newColor)
-    changeColor(_, _, _, newColor)
-end
-
--- get index of current color and move up one step (or down for right-click)
-function changeColor(_, _, isRightClick, color)
-    if color then
-        playerColor = color
-    else
-        local COLORS = Player.getAvailableColors()
-        local pos = indexOf(COLORS, playerColor)
-
-        if isRightClick then
-            if pos == nil or pos == 1 then pos = #COLORS
-            else pos = pos - 1 end
-        else
-            if pos == nil or pos == #COLORS then pos = 1
-            else pos = pos + 1 end
-        end
-
-        -- update playerColor
-        playerColor = COLORS[pos]
+    for _, title in pairs(cardHash) do
+      size = size + 1
     end
+  else
+    for _, obj in pairs(hand) do
+      if obj.tag == "Card" then size = size + 1 end
+    end
+  end
 
-    -- update "change color" button (note: remove and create instantly updates hover_color)
-    buttonParamaters.label          = playerColor
-    buttonParamaters.color          = playerColor
-    buttonParamaters.hover_color    = playerColor
-    self.removeButton(3)
-    self.createButton(buttonParamaters)
+  -- update button label and color
+  self.editButton({ index = 0, font_color = des and "Green" or "White", label = size })
 end
 
----------------------------------------------------------
--- discards a random card from hand
----------------------------------------------------------
-
+-- discards a random non-hidden card from hand
 function discardRandom()
-    if not playerExists(playerColor) then return end
-
-    -- error handling: hand is empty
-    local hand = Player[playerColor].getHandObjects()
-    if #hand == 0 then
-        broadcastToAll("Cannot discard from empty hand!", "Red")
-    else
-        local searchPos = Player[playerColor].getHandTransform().position
-
-        local discardPos = playmatAPI.getDiscardPosition(playmatAPI.getMatColorByPosition(searchPos))
-        if discardPos == nil then
-            broadcastToAll("Couldn't retrieve discard position from playermat!", "Red")
-            return
-        end
-
-        local num = math.random(1, #hand)
-        hand[num].setPosition(discardPos)
-        broadcastToAll(playerColor .. " randomly discarded card " .. num .. "/" .. #hand .. ".", "White")
-    end
-end
-
----------------------------------------------------------
--- helper functions
----------------------------------------------------------
-
--- helper to search array
-function indexOf(array, value)
-    for i, v in ipairs(array) do
-        if v == value then return i end
-    end
-end
-
--- helper to check if player exists
-function playerExists(color)
-    local COLORS = Player.getAvailableColors()
-    return indexOf(COLORS, color) and true or false
+  playmatAPI.doDiscardOne(matColor)
 end
