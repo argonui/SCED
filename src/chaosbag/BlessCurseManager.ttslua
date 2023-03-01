@@ -1,11 +1,4 @@
--- Bless / Curse Manager
--- updated by:      Chr1Z
--- made by:         Tikatoy
--- description:     helps with adding / removing and sealing of bless and curse tokens
-information = {
-    version = "3.5",
-    last_updated = "12.11.2022"
-}
+local tokenArrangerApi          = require("accessories/TokenArrangerApi")
 
 local IMAGE_URL = {
     Bless = "http://cloud-3.steamusercontent.com/ugc/1655601092778627699/339FB716CB25CA6025C338F13AFDFD9AC6FA8356/",
@@ -24,9 +17,6 @@ local MODE         = { [false] = "Add / Remove", [true] = "Take / Return" }
 local BUTTON_COLOR = { [false] = { 0.4, 0.4, 0.4 }, [true] = { 0.9, 0.9, 0.9 } }
 local FONT_COLOR   = { [false] = { 1, 1, 1 }, [true] = { 0, 0, 0 } }
 local whitespace   = "     "
-
--- variable will be set by outside call
-tokenArranger = nil
 
 ---------------------------------------------------------
 -- creating buttons and menus + initializing tables
@@ -67,12 +57,6 @@ function onLoad(saved_state)
     -- context menu
     self.addContextMenuItem("Remove all", doRemove)
     self.addContextMenuItem("Reset", doReset)
-    self.addContextMenuItem("More Information", function()
-        printToAll("------------------------------", "White")
-        printToAll("Bless / Curse Manager v" .. information["version"] .. " by Chr1Z", "Orange")
-        printToAll("last updated: " .. information["last_updated"], "White")
-        printToAll("original by Tikatoy", "White")
-    end)
 
     -- hotkeys
     addHotkey("Bless Curse Status", printStatus, false)
@@ -173,15 +157,13 @@ end
 -- context menu function 2
 function doReset(color)
     -- delete previously pulled out tokens by the token arranger
-    if tokenArranger then
-        tokenArranger.call("deleteCopiedTokens")
-    end
+    tokenArrangerApi.deleteCopiedTokens()
 
     playerColor = color
     numInPlay = { Bless = 0, Curse = 0 }
     tokensTaken = { Bless = {}, Curse = {} }
     initializeState()
-    updateTokenArranger()
+    tokenArrangerApi.layout()
 end
 
 ---------------------------------------------------------
@@ -263,18 +245,7 @@ function callFunctions(token, isRightClick)
             success = takeToken(token, false)
         end
     end
-    if success ~= 0 then updateTokenArranger() end
-end
-
-UPDATING = false
-function updateTokenArranger()
-    if tokenArranger and not UPDATING then
-        UPDATING = true
-        Wait.time(function()
-            UPDATING = false
-            tokenArranger.call("layout")
-        end, 1.5)
-    end
+    if success ~= 0 then tokenArrangerApi.layout() end
 end
 
 function getChaosBag()
@@ -405,22 +376,22 @@ function addMenuOptions(playerColor, hoveredObject)
 
     hoveredObject.addContextMenuItem("Seal Bless", function(color)
         sealToken("Bless", color, hoveredObject)
-        updateTokenArranger()
+        tokenArrangerApi.layout()
     end, true)
 
     hoveredObject.addContextMenuItem("Release Bless", function(color)
         releaseToken("Bless", color, hoveredObject)
-        updateTokenArranger()
+        tokenArrangerApi.layout()
     end, true)
 
     hoveredObject.addContextMenuItem("Seal Curse", function(color)
         sealToken("Curse", color, hoveredObject)
-        updateTokenArranger()
+        tokenArrangerApi.layout()
     end, true)
 
     hoveredObject.addContextMenuItem("Release Curse", function(color)
         releaseToken("Curse", color, hoveredObject)
-        updateTokenArranger()
+        tokenArrangerApi.layout()
     end, true)
 
     broadcastToColor("Right-click seal options added to " .. hoveredObject.getName(), playerColor)
