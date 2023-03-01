@@ -13,14 +13,17 @@ local ENCOUNTER_DISCARD_AREA = {
 
 local currentScenario
 local useFrontData
+local tokenData
+
 -- we use this to turn off collision handling until onLoad() is complete
 local collisionEnabled = false
 
 function onLoad(saveState)
   if saveState ~= nil then
-    local loadedState = JSON.decode(saveState) or { }
+    local loadedState = JSON.decode(saveState) or {}
     currentScenario   = loadedState.currentScenario or ""
     useFrontData      = loadedState.useFrontData or true
+    tokenData         = loadedState.tokenData or {}
   end
   collisionEnabled = true
 end
@@ -28,7 +31,8 @@ end
 function onSave()
   return JSON.encode({
     currentScenario = currentScenario,
-    useFrontData    = useFrontData
+    useFrontData    = useFrontData,
+    tokenData       = tokenData
   })
 end
 
@@ -54,12 +58,13 @@ function onCollisionEnter(collisionInfo)
       updateNeeded = true
       fireScenarioChangedEvent()
     end
+
     -- trigger update if a change was detected and push new data
     if updateNeeded then
       local metadata = JSON.decode(object.getGMNotes()) or {}
       if not metadata["tokens"] then return end
-      local tokenData = metadata["tokens"][(useFrontData and "front" or "back")]
-      fireTokenDataChangedEvent(tokenData)
+      tokenData = metadata["tokens"][(useFrontData and "front" or "back")]
+      fireTokenDataChangedEvent()
     end
   end
 
@@ -78,13 +83,15 @@ function onObjectEnterContainer(container, object)
   end
 end
 
+-- fires if the scenario title changes
 function fireScenarioChangedEvent()
   Wait.frames(function() Global.call('titleSplash', currentScenario) end, 20)
   playAreaApi.onScenarioChanged(currentScenario)
 end
 
-function fireTokenDataChangedEvent(tokenData)
-  tokenArrangerApi.onTokenDataChanged(tokenData)
+-- fires if the scenario title or the difficulty changes
+function fireTokenDataChangedEvent()
+  tokenArrangerApi.onTokenDataChanged(tokenData, currentScenario, tostring(useFrontData))
 end
 
 -- Simple method to check if the given point is in a specified area.  Local use only,
