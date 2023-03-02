@@ -1,10 +1,5 @@
 local tokenArrangerApi          = require("accessories/TokenArrangerApi")
 
-local IMAGE_URL = {
-    Bless = "http://cloud-3.steamusercontent.com/ugc/1655601092778627699/339FB716CB25CA6025C338F13AFDFD9AC6FA8356/",
-    Curse = "http://cloud-3.steamusercontent.com/ugc/1655601092778636039/2A25BD38E8C44701D80DD96BF0121DA21843672E/"
-}
-
 -- common button parameters
 local buttonParamaters          = {}
 buttonParamaters.function_owner = self
@@ -71,8 +66,7 @@ end
 
 function initializeState()
     -- count tokens in the bag
-    local chaosbag = getChaosBag()
-    if chaosbag == nil then return end
+    local chaosbag = Global.call("findChaosBag")
     local tokens = {}
     for _, v in ipairs(chaosbag.getObjects()) do
         if v.name == "Bless" then
@@ -113,11 +107,7 @@ end
 
 -- context menu function 1
 function doRemove(color)
-    local chaosbag = getChaosBag()
-    if chaosbag == nil then
-        broadcastToAll("Chaos bag not found!", "Red")
-        return
-    end
+    local chaosbag = Global.call("findChaosBag")
 
     -- remove tokens from chaos bag
     local count = { Bless = 0, Curse = 0 }
@@ -134,20 +124,6 @@ function doRemove(color)
 
     broadcastToColor("Removed " .. count["Bless"] .. " Bless and " ..
         count["Curse"] .. " Curse tokens from the chaos bag.", color, "White")
-
-    -- removing tokens that were 'taken'
-    local function removeType(type)
-        local count = 0
-        for _, guid in ipairs(tokensTaken[type]) do
-            local token = getObjectFromGUID(guid)
-            if token ~= nil then
-                token.destruct()
-                count = count + 1
-            end
-        end
-        return count
-    end
-
     broadcastToColor("Removed " .. removeType("Bless") .. " Bless and " ..
         removeType("Curse") .. " Curse tokens from play.", color, "White")
 
@@ -156,14 +132,24 @@ end
 
 -- context menu function 2
 function doReset(color)
-    -- delete previously pulled out tokens by the token arranger
-    tokenArrangerApi.deleteCopiedTokens()
-
     playerColor = color
     numInPlay = { Bless = 0, Curse = 0 }
     tokensTaken = { Bless = {}, Curse = {} }
     initializeState()
     tokenArrangerApi.layout()
+end
+
+-- removing tokens that were 'taken'
+function removeType(type)
+    local count = 0
+    for _, guid in ipairs(tokensTaken[type]) do
+        local token = getObjectFromGUID(guid)
+        if token ~= nil then
+            token.destruct()
+            count = count + 1
+        end
+    end
+    return count
 end
 
 ---------------------------------------------------------
@@ -248,22 +234,6 @@ function callFunctions(token, isRightClick)
     if success ~= 0 then tokenArrangerApi.layout() end
 end
 
-function getChaosBag()
-    local zone = getObjectFromGUID("83ef06")
-    if zone == nil then printToAll("Zone for chaosbag not found!", "Red") return end
-
-    local items = zone.getObjects()
-    local chaosbag = nil
-    for _, v in ipairs(items) do
-        if v.getDescription() == "Chaos Bag" then
-            chaosbag = getObjectFromGUID(v.getGUID())
-            break
-        end
-    end
-    if chaosbag == nil then printToColor("No chaos bag found", playerColor) end
-    return chaosbag
-end
-
 function getTokenCount(type)
     if type == nil then type = mode end
     return "(" .. (numInPlay[type] - #tokensTaken[type]) .. "/" .. #tokensTaken[type] .. ")"
@@ -278,39 +248,13 @@ function addToken(type)
         printToColor("10 tokens already in play, not adding any.", playerColor)
         return 0
     end
-    return spawnToken(type)
-end
-
-function spawnToken(type)
-    local chaosbag = getChaosBag()
-    if chaosbag == nil then
-        return 0
-    end
-    local pos = chaosbag.getPosition()
-    local obj = spawnObject({
-        type = 'Custom_Tile',
-        position = { pos.x, pos.y + 1, pos.z },
-        callback_function = function(obj)
-            obj.setName(type)
-            chaosbag.putObject(obj)
-            numInPlay[type] = numInPlay[type] + 1
-            printToAll("Adding " .. type .. " token " .. getTokenCount(type))
-        end
-    })
-    obj.setCustomObject({
-        type = 2,
-        image = IMAGE_URL[type],
-        thickness = 0.1,
-    })
-    obj.scale { 0.81, 1, 0.81 }
+    numInPlay[type] = numInPlay[type] + 1
+    printToAll("Adding " .. type .. " token " .. getTokenCount(type))
+    return Global.call("spawnChaosToken", type)
 end
 
 function takeToken(type, remove)
-    local chaosbag = getChaosBag()
-    if chaosbag == nil then
-        broadcastToAll("Chaos bag not found!", "Red")
-        return 0
-    end
+    local chaosbag = Global.call("findChaosBag")
     if not remove and not SEAL_CARD_MESSAGE then
         broadcastToColor("For sealing tokens on cards try right-clicking on the card for seal options.", playerColor)
         SEAL_CARD_MESSAGE = true
@@ -355,7 +299,7 @@ function returnToken(type)
         printToColor("Couldn't find token " .. guid .. ", not returning to bag", playerColor)
         return 0
     end
-    local chaosbag = getChaosBag()
+    local chaosbag = Global.call("findChaosBag")
     if chaosbag == nil then
         return 0
     end
@@ -400,7 +344,7 @@ function addMenuOptions(playerColor, hoveredObject)
 end
 
 function sealToken(type, playerColor, enemy)
-    local chaosbag = getChaosBag()
+    local chaosbag = Global.call("findChaosBag")
     if chaosbag == nil then return end
     local pos = enemy.getPosition()
 
@@ -425,7 +369,7 @@ function sealToken(type, playerColor, enemy)
 end
 
 function releaseToken(type, playerColor, enemy)
-    local chaosbag = getChaosBag()
+    local chaosbag = Global.call("findChaosBag")
     if chaosbag == nil then return end
     local tokens = sealedTokens[enemy.getGUID()]
     if tokens == nil or #tokens == 0 then return end
