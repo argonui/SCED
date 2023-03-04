@@ -8,10 +8,11 @@ buttonParamaters.width          = 700
 buttonParamaters.height         = 700
 
 local altState     = false
-local MODE         = { [false] = "Add / Remove", [true] = "Take / Return" }
-local BUTTON_COLOR = { [false] = { 0.4, 0.4, 0.4 }, [true] = { 0.9, 0.9, 0.9 } }
-local FONT_COLOR   = { [false] = { 1, 1, 1 }, [true] = { 0, 0, 0 } }
+local MODE = { [false] = "Add / Remove",[true] = "Take / Return" }
+local BUTTON_COLOR = { [false] = { 0.4, 0.4, 0.4 },[true] = { 0.9, 0.9, 0.9 } }
+local FONT_COLOR = { [false] = { 1, 1, 1 },[true] = { 0, 0, 0 } }
 local whitespace   = "     "
+local updating
 
 ---------------------------------------------------------
 -- creating buttons and menus + initializing tables
@@ -122,8 +123,8 @@ function doRemove(color)
         end
     end
 
-    broadcastToColor("Removed " .. count["Bless"] .. " Bless and " ..
-        count["Curse"] .. " Curse tokens from the chaos bag.", color, "White")
+    broadcastToColor("Removed " .. count.Bless .. " Bless and " ..
+        count.Curse .. " Curse tokens from the chaos bag.", color, "White")
     broadcastToColor("Removed " .. removeType("Bless") .. " Bless and " ..
         removeType("Curse") .. " Curse tokens from play.", color, "White")
 
@@ -237,6 +238,31 @@ end
 function getTokenCount(type)
     if type == nil then type = mode end
     return "(" .. (numInPlay[type] - #tokensTaken[type]) .. "/" .. #tokensTaken[type] .. ")"
+end
+
+-- called by cards that seal bless/curse tokens
+---@param param Table This contains the type and guid of the sealed token
+function sealedToken(param)
+    table.insert(tokensTaken[param.type], param.guid)
+    broadcastCount(param.type)
+end
+
+-- called by cards that seal bless/curse tokens
+---@param param Table This contains the type and guid of the released token
+function releasedToken(param)
+    for i, v in ipairs(tokensTaken[param.type]) do
+        if v == param.guid then
+            table.remove(tokensTaken[param.type], i)
+            break
+        end
+    end
+    if not updating then
+        updating = true
+        Wait.time(function()
+            broadcastCount(param.type)
+            updating = false
+        end, 0.1)
+    end
 end
 
 ---------------------------------------------------------
