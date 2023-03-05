@@ -1,28 +1,90 @@
+--[[ Library for cards that seal tokens
+This file is used to add sealing option to cards' context menu.
+Valid options (set before requiring this file):
+SHOW_READ_BAG       -- boolean
+SHOW_SINGLE_RELEASE -- boolean
+SHOW_MULTI_RELEASE  -- number (amount of tokens to release at once)
+VALID_TOKENS        -- table ([tokenName] = true)
+INVALID_TOKENS      -- table ([tokenName] = true)]]
+
 local blessCurseManagerApi = require("chaosbag/BlessCurseManagerApi")
+local tokenArrangerApi = require("accessories/TokenArrangerApi")
 
 function onSave() return JSON.encode(sealedTokens) end
 
 function onLoad(savedData)
   sealedTokens = JSON.decode(savedData) or {}
   ID_URL_MAP = Global.getTable("ID_URL_MAP")
+  generateContextMenu()
+end
 
-  -- add menu items
+-- builds the context menu
+function generateContextMenu()
+  self.clearContextMenu()
+
+  -- only show this for cards that need a dynamic list of tokens (for example 'Unrelenting')
+  if SHOW_READ_BAG then
+    self.addContextMenuItem("Update list", generateContextMenu)
+    readBag()
+  end
+
+  -- conditional single or multi release options
   if SHOW_SINGLE_RELEASE then
     self.addContextMenuItem("Release token", releaseOneToken)
   elseif SHOW_MULTI_RELEASE then
     self.addContextMenuItem("Release " .. SHOW_MULTI_RELEASE .. " token(s)", function(playerColor)
-      for i = 1, SHOW_MULTI_RELEASE do
-        releaseOneToken(playerColor)
+      if SHOW_MULTI_RELEASE >= #sealedTokens then
+        for i = 1, SHOW_MULTI_RELEASE do
+          releaseOneToken(playerColor)
+        end
+      else
+        printToColor("Not enough " .. name .. " tokens sealed.", playerColor)
       end
     end)
   else
     self.addContextMenuItem("Release token(s)", releaseTokens)
   end
 
+  -- main context menu options to seal tokens
   for _, map in pairs(ID_URL_MAP) do
-    if VALID_TOKENS[map.name] ~= nil then
-      self.addContextMenuItem("Seal " .. map.name, function(playerColor) sealToken(map.name, playerColor) end)
+    if (VALID_TOKENS[map.name] ~= nil) or (SHOW_READ_BAG and tokensInBag[map.name] and not INVALID_TOKENS[map.name]) then
+      if not SHOW_MULTI_SEAL then
+        self.addContextMenuItem("Seal " .. map.name, function(playerColor)
+          sealToken(map.name, playerColor)
+        end)
+      else
+        self.addContextMenuItem("Seal " .. SHOW_MULTI_SEAL .. " " .. map.name, function(playerColor)
+          readBag()
+          local allowed = true
+          local notFound
+
+          for name, _ in pairs(VALID_TOKENS) do
+            if (tokensInBag[name] or 0) < SHOW_MULTI_SEAL then
+              allowed = false
+              notFound = name
+            end
+          end
+
+          if allowed then
+            for i = 1, SHOW_MULTI_SEAL do
+              sealToken(map.name, playerColor)
+            end
+          else
+            printToColor("Not enough " .. notFound .. " tokens in the chaos bag.", playerColor)
+          end
+        end)
+      end
     end
+  end
+end
+
+-- generates a list of chaos tokens that is in the chaos bag
+function readBag()
+  local chaosbag = Global.call("findChaosBag")
+  tokensInBag = {}
+
+  for _, token in ipairs(chaosbag.getObjects()) do
+    tokensInBag[token.name] = (tokensInBag[token.name] or 0) + 1
   end
 end
 
@@ -39,7 +101,7 @@ function sealToken(name, playerColor)
         callback_function = function(token)
           local guid = token.getGUID()
           table.insert(sealedTokens, guid)
-
+          tokenArrangerApi.layout()
           if name == "Bless" or name == "Curse" then
             blessCurseManagerApi.sealedToken(name, guid)
           end
@@ -53,18 +115,11 @@ end
 
 -- release the last sealed token
 function releaseOneToken(playerColor)
-  if sealedTokens == {} then
+  if sealedTokens == {} or #sealedTokens == 0 then
     printToColor("No sealed token(s) found", playerColor)
   else
     printToColor("Releasing token", playerColor)
-    local chaosbag = Global.call("findChaosBag")
-    local guid = table.remove(sealedTokens)
-    local token = getObjectFromGUID(guid)
-    local name = token.getName()
-    chaosbag.putObject(token)
-    if name == "Bless" or name == "Curse" then
-      blessCurseManagerApi.releasedToken(name, guid)
-    end
+    putTokenAway(table.remove(sealedTokens))
   end
 end
 
@@ -74,15 +129,23 @@ function releaseTokens(playerColor)
     printToColor("No sealed token(s) found", playerColor)
   else
     printToColor("Releasing token(s)", playerColor)
-    local chaosbag = Global.call("findChaosBag")
     for _, guid in ipairs(sealedTokens) do
-      local token = getObjectFromGUID(guid)
-      local name = token.getName()
-      chaosbag.putObject(token)
-      if name == "Bless" or name == "Curse" then
-        blessCurseManagerApi.releasedToken(name, guid)
-      end
+      putTokenAway(guid)
     end
     sealedTokens = {}
+  end
+end
+
+-- returns the token (referenced by GUID) to the chaos bag
+function putTokenAway(guid)
+  local token = getObjectFromGUID(guid)
+  if not token then return end
+
+  local name = token.getName()
+  local chaosbag = Global.call("findChaosBag")
+  chaosbag.putObject(token)
+  tokenArrangerApi.layout()
+  if name == "Bless" or name == "Curse" then
+    blessCurseManagerApi.releasedToken(name, guid)
   end
 end
