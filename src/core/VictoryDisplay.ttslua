@@ -1,8 +1,10 @@
 local playAreaApi = require("core/PlayAreaApi")
 local pendingCall = false
 local messageSent = {}
-local currentlyHighlighting = false
 local missingData = {}
+local countedVP   = {}
+local highlightMissing = false
+local highlightCounted = false
 
 -- button creation when loading the game
 function onLoad()
@@ -27,7 +29,7 @@ function onLoad()
   buttonParameters.position.x = 1.69
   self.createButton(buttonParameters)
 
-  -- index 3: highlighting button
+  -- index 3: highlighting button (missing data)
   self.createButton({
     label          = "!",
     click_function = "highlightMissingData",
@@ -41,6 +43,22 @@ function onLoad()
     font_color     = { 1, 1, 1 },
     position       = { x = 1.82, y = 0.06, z = -1.32 }
   })
+
+  -- index 4: highlighting button (counted VP)
+  self.createButton({
+    label          = "?",
+    click_function = "highlightCountedVP",
+    tooltip        = "Enable highlighting of cards with VP.",
+    function_owner = self,
+    scale          = { 0.15, 0.15, 0.15 },
+    color          = { 0, 1, 0 },
+    width          = 700,
+    height         = 800,
+    font_size      = 700,
+    font_color     = { 1, 1, 1 },
+    position       = { x = 1.5, y = 0.06, z = -1.32 }
+  })
+
   -- update the display label once
   Wait.time(updateCount, 1)
 end
@@ -121,6 +139,7 @@ end
 -- counts the VP in the victory display and request the VP count from the play area
 function updateCount()
   missingData            = {}
+  countedVP              = {}
   local victoryPoints    = {}
   victoryPoints.display  = 0
   victoryPoints.playArea = playAreaApi.countVP()
@@ -131,12 +150,24 @@ function updateCount()
 
     -- check metadata for VP
     if obj.tag == "Card" then
-      victoryPoints.display = victoryPoints.display + getCardVP(obj, JSON.decode(obj.getGMNotes()))
+      local VP = getCardVP(obj, JSON.decode(obj.getGMNotes()))
+      victoryPoints.display = victoryPoints.display + VP
+      if VP > 0 then
+        table.insert(countedVP, obj)
+      end
 
     -- handling for stacked cards
     elseif obj.tag == "Deck" then
+      local VP = 0
       for _, deepObj in ipairs(obj.getObjects()) do
-        victoryPoints.display = victoryPoints.display + getCardVP(obj, JSON.decode(deepObj.gm_notes))
+        local deepVP = getCardVP(obj, JSON.decode(deepObj.gm_notes))
+        victoryPoints.display = victoryPoints.display + deepVP
+        if deepVP > 0 then
+          VP = VP + 1
+        end
+      end
+      if VP > 0 then
+        table.insert(countedVP, obj)
       end
     end
   end
@@ -166,6 +197,9 @@ function getCardVP(obj, notes)
         cardVP = tonumber(notes.locationBack.victory)
       end
     end
+    if cardVP > 0 then
+      table.insert(countedVP, obj)
+    end
   else
     table.insert(missingData, obj)
   end
@@ -176,20 +210,40 @@ end
 function highlightMissingData()
   self.editButton({
     index = 3,
-    tooltip = (currentlyHighlighting and "Enable" or "Disable") ..
+    tooltip = (highlightMissing and "Enable" or "Disable") ..
         " highlighting of cards without metadata (VP on these is not counted)."
   })
   for _, obj in pairs(missingData) do
     if obj ~= nil then
-      if currentlyHighlighting then
+      if highlightMissing then
         obj.highlightOff("Red")
       else
         obj.highlightOn("Red")
       end
     end
   end
-  playAreaApi.highlightMissingData(currentlyHighlighting)
-  currentlyHighlighting = not currentlyHighlighting
+  playAreaApi.highlightMissingData(highlightMissing)
+  highlightMissing = not highlightMissing
+end
+
+-- toggles the highlight for objects that were counted
+function highlightCountedVP()
+  self.editButton({
+    index = 4,
+    tooltip = (highlightCounted and "Enable" or "Disable") ..
+    " highlighting of cards with VP."
+  })
+  for _, obj in pairs(countedVP) do
+    if obj ~= nil then
+      if highlightCounted then
+        obj.highlightOff("Green")
+      else
+        obj.highlightOn("Green")
+      end
+    end
+  end
+  playAreaApi.highlightCountedVP(highlightCounted)
+  highlightCounted = not highlightCounted
 end
 
 ---------------------------------------------------------
