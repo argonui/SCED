@@ -5,7 +5,7 @@ local tokenChecker = require("core/token/TokenChecker")
 local DEBUG = false
 
 -- we use this to turn off collision handling until onLoad() is complete
-local COLLISION_ENABLED = false
+local collisionEnabled = false
 
 -- position offsets relative to mat [x, y, z]
 local DRAWN_ENCOUNTER_CARD_OFFSET = {1.365, 0.5, -0.635}
@@ -61,6 +61,9 @@ local RESOURCE_COUNTER
 -- global variable so it can be reset by the Clean Up Helper
 activeInvestigatorId = "00000"
 local isDrawButtonVisible = false
+
+-- global variable to report "Dream-Enhancing Serum" status
+isDES = false
 
 function onSave()
   return JSON.encode({
@@ -122,7 +125,9 @@ function onLoad(save_state)
   showDrawButton(isDrawButtonVisible)
 
   if getObjectFromGUID(zoneID) == nil then spawnDeckZone() end
-  COLLISION_ENABLED = true
+  collisionEnabled = true
+
+  math.randomseed(os.time())
 end
 
 ---------------------------------------------------------
@@ -287,13 +292,12 @@ function doUpkeep(_, color, alt_click)
     end
   end
 
-  -- gain a resource
-  RESOURCE_COUNTER.call("addOrSubtract")
-
-  -- gain an additional resource for Jenny Barnes
+  -- gain a resource (or two if playing Jenny Barnes)
   if string.match(activeInvestigatorId, "%d%d%d%d%d") == "02003" then
-    RESOURCE_COUNTER.call("addOrSubtract")
+    gainResources(2)
     printToColor("Gaining 2 resources (Jenny)", messageColor)
+  else
+    gainResources(1)
   end
 
   -- draw a card (with handling for Patrice and Forced Learning)
@@ -314,6 +318,13 @@ function doUpkeep(_, color, alt_click)
   else
     drawCardsWithReshuffle(1)
   end
+end
+
+-- adds the specified amount of resources to the resource counter
+function gainResources(amount)
+  local count = RESOURCE_COUNTER.getVar("val")
+  local add = tonumber(amount) or 0
+  RESOURCE_COUNTER.call("updateVal", count + add)
 end
 
 -- function for "draw 1 button" (that can be added via option panel)
@@ -403,6 +414,51 @@ function shuffleDiscardIntoDeck()
   discardPile = nil
 end
 
+-- discard a random non-hidden card from hand
+function doDiscardOne()
+  local handColor = getHandColor()
+  local hand = Player[handColor].getHandObjects()
+  if #hand == 0 then
+    broadcastToAll("Cannot discard from empty hand!", "Red")
+  else
+    local choices = {}
+    for i = 1, #hand do
+      local notes = JSON.decode(hand[i].getGMNotes())
+      if notes ~= nil then
+        if notes.hidden ~= true then
+          table.insert(choices, i)
+        end
+      else
+        table.insert(choices, i)
+      end
+    end
+
+    if #choices == 0 then
+      broadcastToAll("Hidden cards can't be randomly discarded.", "Orange")
+      return
+    end
+
+    -- get a random non-hidden card (from the "choices" table)
+    local num = math.random(1, #choices)
+    hand[choices[num]].setPosition(returnGlobalDiscardPosition())
+    broadcastToAll(handColor .. " randomly discarded card " .. choices[num] .. "/" .. #hand .. ".", "White")
+  end
+end
+
+-- gets the hand color of the closest seated player (by roughly cutting the table into quarters)
+function getHandColor()
+  for _, handColor in ipairs(Player.getAvailableColors()) do
+    local handPosition = Player[handColor].getHandTransform().position
+
+    if (PLAYER_COLOR == "White" and handPosition.x < -42 and handPosition.z > 0)
+        or (PLAYER_COLOR == "Orange" and handPosition.x < -42 and handPosition.z < 0)
+        or (PLAYER_COLOR == "Green" and handPosition.x > -42 and handPosition.z > 0)
+        or (PLAYER_COLOR == "Red" and handPosition.x > -42 and handPosition.z < 0) then
+          return handColor
+    end
+  end
+end
+
 ---------------------------------------------------------
 -- playmat token spawning
 ---------------------------------------------------------
@@ -487,8 +543,13 @@ function spawnTokensFor(object)
 end
 
 function onCollisionEnter(collision_info)
-  if not COLLISION_ENABLED then return end
   local object = collision_info.collision_object
+
+  -- detect if "Dream-Enhancing Serum" is placed
+  if object.getName() == "Dream-Enhancing Serum" then isDES = true end
+
+  -- only continue if loading is completed
+  if not collisionEnabled then return end
 
   -- only continue for cards
   if object.name ~= "Card" and object.name ~= "CardCustom" then return end
@@ -501,6 +562,11 @@ function onCollisionEnter(collision_info)
   elseif shouldSpawnTokens(object) then
     spawnTokensFor(object)
   end
+end
+
+-- detect if "Dream-Enhancing Serum" is removed
+function onCollisionExit(collision_info)
+  if collision_info.collision_object.getName() == "Dream-Enhancing Serum" then isDES = false end
 end
 
 function shouldSpawnTokens(card)

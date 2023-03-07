@@ -11,9 +11,6 @@ optionPanel = {}
 -- GUID of data helper
 DATA_HELPER_GUID = "708279"
 
--- GUID of fan-made accessories bag (also just called "barrel")
-BARREL_GUID = "aa8b38"
-
 -- GUIDs that will not be interactable (e.g. parts of the table)
 local NOT_INTERACTABLE = {
   "6161b4", -- Decoration-Map
@@ -845,9 +842,6 @@ function applyOptionPanelChange(id, state)
 
   -- option: Show token arranger
   elseif id == "showTokenArranger" then
-    -- delete previously pulled out tokens
-    for _, token in ipairs(getObjectsWithTag("to_be_deleted")) do token.destruct() end
-
     optionPanel[id] = spawnOrRemoveHelper(state, "Token Arranger", {-42.3, 1.6, -46.5})
 
   -- option: Show clean up helper
@@ -856,10 +850,10 @@ function applyOptionPanelChange(id, state)
 
   -- option: Show hand helper for each player
   elseif id == "showHandHelper" then
-    optionPanel[id][1] = spawnOrRemoveHelper(state, "Hand Helper", {-50.85, 1.6, 7.32}, {0, 270, 0}, "White")
-    optionPanel[id][2] = spawnOrRemoveHelper(state, "Hand Helper", {-50.85, 1.6, -24.88}, {0, 270, 0}, "Orange")
-    optionPanel[id][3] = spawnOrRemoveHelper(state, "Hand Helper", {-39.13, 1.6, 22.45}, {0, 000, 0}, "Green")
-    optionPanel[id][4] = spawnOrRemoveHelper(state, "Hand Helper", {-21.57, 1.6, -22.45}, {0, 180, 0}, "Red")
+    optionPanel[id][1] = spawnOrRemoveHelper(state, "Hand Helper", {-50.85, 1.6, 7.32}, {0, 270, 0})
+    optionPanel[id][2] = spawnOrRemoveHelper(state, "Hand Helper", {-50.85, 1.6, -24.88}, {0, 270, 0})
+    optionPanel[id][3] = spawnOrRemoveHelper(state, "Hand Helper", {-39.13, 1.6, 22.45}, {0, 000, 0})
+    optionPanel[id][4] = spawnOrRemoveHelper(state, "Hand Helper", {-21.57, 1.6, -22.45}, {0, 180, 0})
 
   -- option: Show search assistant for each player
   elseif id == "showSearchAssistant" then
@@ -899,46 +893,37 @@ end
 ---@param name String Name of the helper object
 ---@param position Vector Position of the object (where it will spawn)
 ---@param rotation Vector Rotation of the object for spawning (default: {0, 270, 0})
----@param color String This is only needed for correctly setting the color of the "Hand Helper"
 ---@return. GUID of the spawnedObj (or nil if object was removed)
-function spawnOrRemoveHelper(state, name, position, rotation, color)
+function spawnOrRemoveHelper(state, name, position, rotation)
   if state then
     Player.getPlayers()[1].pingTable(position)
-    return spawnHelperObject(name, position, rotation, color).getGUID()
+    return spawnHelperObject(name, position, rotation).getGUID()
   else
     return removeHelperObject(name)
   end
 end
 
--- copies the specified tool (by name) from the barrel
+-- copies the specified tool (by name) from the option panel source bag
 ---@param name String Name of the object that should be copied
 ---@param position Table Desired position of the object
-function spawnHelperObject(name, position, rotation, color)
-  local barrel = getObjectFromGUID(BARREL_GUID)
+function spawnHelperObject(name, position, rotation)
 
-  -- error handling for missing barrel
-  if not barrel then
-    broadcastToAll("'Barrel' with fan-made accessories could not be found!", "Red")
+  local sourceBag = getObjectFromGUID("830bd0")
+
+  -- error handling for missing sourceBag
+  if not sourceBag then
+    broadcastToAll("Option panel source bag could not be found!", "Red")
     return
   end
 
-  local spawnTable = {
-    position = position,
-    callback_function = function(object)
-      if name == "Hand Helper" then
-        Wait.time(function() object.call("externalColorChange", color) end, 0.1)
-      elseif name == "Token Arranger" then
-        Wait.time(function() object.call("layout") end, 0.1)
-      end
-    end
-  }
+  local spawnTable = {position = position}
 
   -- only overrride rotation if there is one provided (object's rotation used instead)
   if rotation then
     spawnTable.rotation = rotation
   end
 
-  for _, obj in ipairs(barrel.getData().ContainedObjects) do
+  for _, obj in ipairs(sourceBag.getData().ContainedObjects) do
     if obj["Nickname"] == name then
       spawnTable.data = obj
       return spawnObjectData(spawnTable)

@@ -1,28 +1,45 @@
-local OPTION_TEXT = {
-  "Ancestral Knowledge",
-  "Astronomical Atlas",
-  "Crystallizer of Dreams",
-  "Diana Stanley",
-  "Gloria Goldberg",
-  "Sefina Rousseau",
-  "Wooden Sledge"
-}
-
-local IMAGE_LIST = {
-  -- Ancestral Knowledge
-  "http://cloud-3.steamusercontent.com/ugc/1915746489207287888/2F9F6F211ED0F98E66C9D35D93221E4C7FB6DD3C/",
-  -- Astronomical Atlas
-  "http://cloud-3.steamusercontent.com/ugc/1754695853007989004/9153BC204FC707AE564ECFAC063A11CB8C2B5D1E/",
-  -- Crystallizer of Dreams
-  "http://cloud-3.steamusercontent.com/ugc/1915746489207280958/100F16441939E5E23818651D1EB5C209BF3125B9/",
-  -- Diana Stanley
-  "http://cloud-3.steamusercontent.com/ugc/1754695635919071208/1AB7222850201630826BFFBA8F2BD0065E2D572F/",
-  -- Gloria Goldberg
-  "http://cloud-3.steamusercontent.com/ugc/1754695635919102502/453D4426118C8A6DE2EA281184716E26CA924C84/",
-  -- Sefina Rousseau
-  "http://cloud-3.steamusercontent.com/ugc/1754695635919099826/3C3CBFFAADB2ACA9957C736491F470AE906CC953/",
-  -- Wooden Sledge
-  "http://cloud-3.steamusercontent.com/ugc/1750192233783143973/D526236AAE16BDBB98D3F30E27BAFC1D3E21F4AC/"
+local fontColor
+local BACKGROUNDS = {
+  {
+    title     = "Ancestral Knowledge",
+    url       = "http://cloud-3.steamusercontent.com/ugc/1915746489207287888/2F9F6F211ED0F98E66C9D35D93221E4C7FB6DD3C/",
+    fontcolor = { 1, 1, 1 }
+  },
+  {
+    title     = "Astronomical Atlas",
+    url       = "http://cloud-3.steamusercontent.com/ugc/1754695853007989004/9153BC204FC707AE564ECFAC063A11CB8C2B5D1E/",
+    fontcolor = { 1, 1, 1 }
+  },
+  {
+    title     = "Backpack",
+    url       = "http://cloud-3.steamusercontent.com/ugc/2018212896278691928/F55BEFFC2540109C6333179532F583B367FF2EBC/",
+    fontcolor = { 0, 0, 0 }
+  },
+  {
+    title     = "Crystallizer of Dreams",
+    url       = "http://cloud-3.steamusercontent.com/ugc/1915746489207280958/100F16441939E5E23818651D1EB5C209BF3125B9/",
+    fontcolor = { 1, 1, 1 }
+  },
+  {
+    title     = "Diana Stanley",
+    url       = "http://cloud-3.steamusercontent.com/ugc/1754695635919071208/1AB7222850201630826BFFBA8F2BD0065E2D572F/",
+    fontcolor = { 1, 1, 1 }
+  },
+  {
+    title     = "Gloria Goldberg",
+    url       = "http://cloud-3.steamusercontent.com/ugc/1754695635919102502/453D4426118C8A6DE2EA281184716E26CA924C84/",
+    fontcolor = { 1, 1, 1 }
+  },
+  {
+    title     = "Sefina Rousseau",
+    url       = "http://cloud-3.steamusercontent.com/ugc/1754695635919099826/3C3CBFFAADB2ACA9957C736491F470AE906CC953/",
+    fontcolor = { 0, 0, 0 }
+  },
+  {
+    title     = "Wooden Sledge",
+    url       = "http://cloud-3.steamusercontent.com/ugc/1750192233783143973/D526236AAE16BDBB98D3F30E27BAFC1D3E21F4AC/",
+    fontcolor = { 0, 0, 0 }
+  }
 }
 
 -- save state and options to restore onLoad
@@ -34,7 +51,7 @@ function onLoad(savedData)
   cardsInBag       = loadedData[1] or {}
   showCost         = loadedData[2] or true
   showIcons        = loadedData[3] or true
-
+  fontColor        = getFontColor()
   recreateButtons()
 
   self.addContextMenuItem("Select image", selectImage)
@@ -49,33 +66,54 @@ function onLoad(savedData)
     printToColor("Show skill icons of cards: " .. tostring(showIcons), color, "White")
     refresh()
   end)
-
-  self.addContextMenuItem("More Information", function()
-    printToAll("------------------------------", "White")
-    printToAll("Attachment Helper by Chr1Z", "Orange")
-    printToAll("original by bankey", "White")
-  end)
 end
 
+-- gets the font color based on background url
+function getFontColor()
+  local customInfo = self.getCustomObject()
+  for i = 1, #BACKGROUNDS do
+    if BACKGROUNDS[i].url == customInfo.diffuse then
+      return BACKGROUNDS[i].fontcolor
+    end
+  end
+  return { 1, 1, 1 }
+end
+
+-- called by context menu to change background image
 function selectImage(color)
-  Player[color].showOptionsDialog("Select image:", OPTION_TEXT, 1, function(_, option_index)
+  -- generate list of options
+  local options = {}
+  for i = 1, #BACKGROUNDS do
+    options[i] = BACKGROUNDS[i].title
+  end
+
+  -- prompt user to select option
+  Player[color].showOptionsDialog("Select image:", options, 1, function(_, optionIndex)
     local customInfo = self.getCustomObject()
-    customInfo.diffuse = IMAGE_LIST[option_index]
+    customInfo.diffuse = BACKGROUNDS[optionIndex].url
     self.setCustomObject(customInfo)
     self.reload()
   end)
 end
 
--- called for every card that enters
+-- only allow cards to enter, split decks and reject other objects
 function onObjectEnterContainer(container, object)
-  if container == self then
-    if object.tag ~= "Card" then
-      broadcastToAll("The 'Attachment Helper' is meant to be used for single cards.", "White")
-    else
-      findCard(object.getGUID(), object.getName(), object.getGMNotes())
-    end
-    -- TODO: implement splitting of decks that get thrown in here
+  if container ~= self then return end
+  if object.tag == "Deck" then
+    takeDeckOut(object.getGUID(), self.getPosition() + Vector(0, 0.1, 0))
+  elseif object.tag ~= "Card" then
+    broadcastToAll("The 'Attachment Helper' is meant to be used for cards.", "White")
+  else
+    findCard(object.getGUID(), object.getName(), object.getGMNotes())
     recreateButtons()
+  end
+end
+
+-- takes the deck out and splits in into single cards
+function takeDeckOut(guid, pos)
+  local deck = self.takeObject({ guid = guid, position = pos, smooth = false })
+  for i = 1, #deck.getObjects() do
+    self.putObject(deck.takeObject({ position = pos + Vector(0, 0.1 * i, 0), smooth = false }))
   end
 end
 
@@ -168,7 +206,7 @@ function recreateButtons()
       label          = card.displayName,
       click_function = funcName,
       function_owner = self,
-      position       = { 0, 0, verticalPosition },
+      position       = { 0, -0.1, verticalPosition },
       height         = 200,
       width          = 1200,
       font_size      = string.len(card.displayName) > 20 and 75 or 100
@@ -176,18 +214,22 @@ function recreateButtons()
     verticalPosition = verticalPosition - 0.5
   end
 
-  local countLabel = "Attachment\nHelper"
-  if #cardsInBag ~= 0 then countLabel = #cardsInBag end
+  local countLabel = #cardsInBag
+  local fontSize = 250
+  if #cardsInBag == 0 then
+    countLabel = "Attachment Helper"
+    fontSize   = 150
+  end
 
   self.createButton({
     label          = countLabel,
     click_function = "none",
     function_owner = self,
-    position       = { 0, 0, -1.35 },
+    position       = { 0, -0.1, -1.7 },
     height         = 0,
     width          = 0,
-    font_size      = 225,
-    font_color     = { 1, 1, 1 }
+    font_size      = fontSize,
+    font_color     = fontColor
   })
 end
 
