@@ -31,16 +31,13 @@ existingBoxes = { 1, 1, 1, 1, 1, 2, 3, 5 }
 
 inputBoxes = {}
 
--- Locations of the skill selectors
+-- Locations of the slot selectors
 local SLOT_ICON_POSITIONS = {
     arcane = { x = 0.160, z = 0.65},
     ally = { x = -0.073, z = 0.65}
   }
   
-  local selectedSlots = {
-    arcane = false,
-    ally = false
-  }
+local selectedSlot = ""
 
 -- override 'marked boxes' for debugging ('all' or 'none')
 markDEBUG = ""
@@ -48,15 +45,7 @@ markDEBUG = ""
 -- save state when going into bags / decks
 function onDestroy() self.script_state = onSave() end
 
-function onSave()
-    local slotArray = { }
-    for slot, isSelected in pairs(selectedSlots) do
-      if (isSelected) then
-        table.insert(slotArray, slot)
-      end
-    end
-    return JSON.encode({ markedBoxes, inputValues, slotArray })
-  end
+function onSave() return JSON.encode({ markedBoxes, inputValues, selectedSlot }) end
 
 -- Startup procedure
 function onLoad(saved_data)
@@ -64,12 +53,10 @@ function onLoad(saved_data)
         local loaded_data = JSON.decode(saved_data)
         markedBoxes = loaded_data[1]
         inputValues = loaded_data[2]
-        log(loaded_data[3])
-        for _, slot in ipairs(loaded_data[3]) do
-          if (slot ~= "") then
-            log("Slot from load "..slot)
-            selectedSlots[slot] = true
-          end
+        if #loaded_data > 2 then
+            selectedSlot = loaded_data[3]
+        else
+            selectedSlot = ""
         end
     else
         markedBoxes = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }
@@ -210,7 +197,7 @@ function createButtonsAndBoxes()
     makeSlotSelectionButtons()
 end
 
--- Creates the invisible buttons overlaying the skill icons
+-- Creates the invisible buttons overlaying the slot words
 function makeSlotSelectionButtons()
     local buttonPositions = { x = -1 * SLOT_ICON_POSITIONS.arcane.x, y = 0.2, z = SLOT_ICON_POSITIONS.arcane.z }
     local buttonData = {
@@ -230,45 +217,33 @@ function makeSlotSelectionButtons()
   end
 
 function click_arcane()
-    selectedSlots.arcane = not selectedSlots.arcane
-    updateSlotDisplay()
-  end
-  
-  function click_ally()
-    selectedSlots.ally = not selectedSlots.ally
-    updateSlotDisplay()
-  end
-
--- Refresh the vector circles indicating a slot is selected.  Since we can only have one table of
--- vectors set, have to refresh all 2 at once
-function updateSlotDisplay()
-    local circles = { }
-    for slot, isSelected in pairs(selectedSlots) do
-      if isSelected then
-        local circle = getCircleVector(SLOT_ICON_POSITIONS[slot], slot)
-        if circle ~= nil then
-          table.insert(circles, circle)
-        end
-      end
+    if selectedSlot ~= "arcane" then
+        selectedSlot = "arcane"
+    else
+        selectedSlot = ""
     end
-    self.setVectorLines(circles)
+    updateSlotDisplay()
   end
   
-  function getCircleVector(center, slot)
-    -- local diameter = Vector(0, 0, 0.1)
-    -- local pointOfOrigin = Vector(center.x, 0.3, center.z)
+function click_ally()
+    if selectedSlot ~= "ally" then
+        selectedSlot = "ally"
+    else
+        selectedSlot = ""
+    end
+    updateSlotDisplay()
+end
+
+-- Refresh the vector circles indicating a slot is selected.
+function updateSlotDisplay()
+    local box = {}
+    if selectedSlot ~= "" then
+        box = getBoxVector(SLOT_ICON_POSITIONS[selectedSlot], selectedSlot)
+    end 
+    self.setVectorLines({box}) 
+  end
   
-    -- -- Declare Results vectors
-    -- local vec = Vector(0, 0, 0)
-    -- local vecList = {}
-  
-    -- local arcStep = 5
-    -- for i = 0, 360, arcStep do
-    --   diameter:rotateOver('y', arcStep)
-    --   vec = pointOfOrigin + diameter
-    --   vec.y = pointOfOrigin.y
-    --   table.insert(vecList, vec)
-    -- end
+  function getBoxVector(center, slot)
     local vecList = {}
     if slot == "arcane" then
         vecList = {
