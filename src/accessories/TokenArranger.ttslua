@@ -20,6 +20,8 @@ inputParameters.tab             = 2
 
 local latestLoad = "XXX"
 local updating = false
+local percentage = false
+local cumulative = false
 local tokenPrecedence = {}
 local TOKEN_NAMES = {
   "Elder Sign",
@@ -51,37 +53,7 @@ function onLoad(saveState)
     loadDefaultValues()
   end
 
-  -- create UI
-  local offset = 0.725
-  local pos = { x = { -1.067, 0.377 }, z = -2.175 }
-
-  -- button and inputs index 0-9
-  for i = 1, 10 do
-    if i < 6 then
-      buttonParameters.position = { pos.x[1], 0, pos.z + i * offset }
-      inputParameters.position  = { pos.x[1] + offset, 0.1, pos.z + i * offset }
-    else
-      buttonParameters.position = { pos.x[2], 0, pos.z + (i - 5) * offset }
-      inputParameters.position  = { pos.x[2] + offset, 0.1, pos.z + (i - 5) * offset }
-    end
-
-    buttonParameters.click_function = attachIndex("tokenClick", i)
-    inputParameters.input_function  = attachIndex2("tokenInput", i)
-    inputParameters.value           = tokenPrecedence[TOKEN_NAMES[i]][1]
-
-    self.createButton(buttonParameters)
-    self.createInput(inputParameters)
-  end
-
-  -- index 10: "Update / Hide" button
-  buttonParameters.label          = "Update / Hide"
-  buttonParameters.click_function = "layout"
-  buttonParameters.tooltip        = "Left-Click: Update!\nRight-Click: Hide Tokens!"
-  buttonParameters.position       = { 0.725, 0.1, 2.025 }
-  buttonParameters.color          = { 1, 1, 1 }
-  buttonParameters.width          = 675
-  buttonParameters.height         = 175
-  self.createButton(buttonParameters)
+  createDefaultButtons(true)
 
   -- reset context menu
   self.addContextMenuItem("Load default values", function()
@@ -89,7 +61,23 @@ function onLoad(saveState)
     updateUI()
     layout()
   end)
-
+  self.addContextMenuItem("Toggle Percentages", function() 
+    percentage = not percentage
+    layout()
+  end)
+  self.addContextMenuItem("Toggle Cumulative\n______Percentages", function() 
+    if percentage then
+      cumulative = not cumulative
+    else
+      percentage = true
+      cumulative = true
+    end
+    if cumulative then
+      broadcastToAll("Cumulative percentages are unreliable when using tokens that draw other tokens (bless or curse for example)", Color.Yellow)
+    end   
+    layout()
+  end)
+  layout()
   -- grab token metadata from mythos area
   Wait.time(function() onTokenDataChanged(mythosAreaApi.returnTokenData()) end, 0.5)
 end
@@ -157,6 +145,56 @@ function loadDefaultValues()
   }
 end
 
+-- creates all starting buttons and inputs
+function createDefaultButtons(loadInputs)
+  loadInputs = loadInputs or false
+
+  buttonParameters.function_owner = self
+  buttonParameters.label          = ""
+  buttonParameters.tooltip        = "Add / Remove"
+  buttonParameters.color          = { 0, 0, 0, 0 }
+  buttonParameters.width          = 325
+  buttonParameters.height         = 325
+  -- create UI
+  local offset = 0.725
+  local pos = { x = { -1.067, 0.377 }, z = -2.175 }
+
+  -- button and inputs index 0-9
+  for i = 1, 10 do
+    if i < 6 then
+      buttonParameters.position = { pos.x[1], 0, pos.z + i * offset }
+      if loadInputs then
+        inputParameters.position  = { pos.x[1] + offset, 0.1, pos.z + i * offset }
+      end  
+    else
+      buttonParameters.position = { pos.x[2], 0, pos.z + (i - 5) * offset }
+      if loadInputs then
+        inputParameters.position  = { pos.x[2] + offset, 0.1, pos.z + (i - 5) * offset }
+      end     
+    end
+
+    buttonParameters.click_function = attachIndex("tokenClick", i)
+    self.createButton(buttonParameters)
+
+    if loadInputs then
+      inputParameters.input_function  = attachIndex2("tokenInput", i)
+      inputParameters.value           = tokenPrecedence[TOKEN_NAMES[i]][1]
+      self.createInput(inputParameters)
+    end
+    
+  end
+
+  -- index 10: "Update / Hide" button
+  buttonParameters.label          = "Update / Hide"
+  buttonParameters.click_function = "layout"
+  buttonParameters.tooltip        = "Left-Click: Update!\nRight-Click: Hide Tokens!"
+  buttonParameters.position       = { 0.725, 0.1, 2.025 }
+  buttonParameters.color          = { 1, 1, 1 }
+  buttonParameters.width          = 675
+  buttonParameters.height         = 175
+  self.createButton(buttonParameters)
+end
+
 -- update input fields
 function updateUI()
   for i = 1, 10 do
@@ -188,8 +226,10 @@ function findChaosBag()
   end
 end
 
--- deletes previously placed tokens
+-- deletes previously placed tokens AND percentage buttons
 function deleteCopiedTokens()
+  self.clearButtons()
+  createDefaultButtons()
   for _, token in ipairs(getObjectsWithTag("tempToken")) do token.destruct() end
 end
 
@@ -244,17 +284,70 @@ function layout(_, _, isRightClick)
   local pos           = self.getPosition() + Vector(3.55, -0.05, -3.95)
   local location      = { x = pos.x, y = pos.y, z = pos.z }
   local current_value = data[1].value
+  local token_count = 0
+	local value_count = 1
+	local cumulative_percentage = 0
 
   for _, item in ipairs(data) do
     if item.value ~= current_value then
+      if percentage then
+				cumulative_percentage = cumulative_percentage + math.floor((token_count / #data) * 10000) / 100
+				self.createButton({
+					label = string.format("%s", string.format("%05.2f", math.floor((token_count / #data) * 10000) / 100) .. "%"),
+					click_function = "print",
+					width = 0,
+					height = 0,
+					scale = {2, 2, 2},
+					font_color = {r=1,g=1,b=1},
+					position = (Vector(2.2, -0.05, -2.675) + Vector((0.875 * token_count) + 0.1, 0, 0.875 * value_count))
+				})
+        if cumulative then
+          self.createButton({
+            label = string.format("%s", "(" .. string.format("%05.2f", cumulative_percentage) .. "%)"),
+            click_function = "print",
+            width = 0,
+            height = 0,
+            scale = {2, 2, 2},
+            font_color = {r=1,g=1,b=1},
+            position = (Vector(3.8, -0.05, -2.675) + Vector((0.875 * token_count) + 0.1, 0, 0.875 * value_count))
+          })
+        end       
+			end
       location.x = location.x - 1.75
       location.z = pos.z
       current_value = item.value
+      value_count = value_count + 1
+			token_count = 0
     end
     item.token.setPosition(location)
     item.token.setRotation(self.getRotation())
     location.z = location.z - 1.75
+    token_count = token_count + 1
   end
+  if percentage then
+    cumulative_percentage = cumulative_percentage + math.floor((token_count / #data) * 10000) / 100
+		self.createButton({
+      label = string.format("%s", string.format("%05.2f", math.floor((token_count / #data) * 10000) / 100) .. "%"),
+      click_function = "print",
+      width = 0,
+      height = 0,
+      scale = {2, 2, 2},
+      font_color = {r=1,g=1,b=1},
+      position = (Vector(2.2, -0.05, -2.675) + Vector((0.875 * token_count) + 0.1, 0, 0.875 * value_count))
+    })
+    if cumulative then
+      self.createButton({
+        label = string.format("%s", "(" .. string.format("%05.1f", cumulative_percentage) .. "%)"),
+        click_function = "print",
+        width = 0,
+        height = 0,
+        scale = {2, 2, 2},
+        font_color = {r=1,g=1,b=1},
+        position = (Vector(3.8, -0.05, -2.675) + Vector((0.875 * token_count) + 0.1, 0, 0.875 * value_count))
+      })
+    end
+    
+	end
   Wait.time(function() updating = false end, 0.1)
 end
 
