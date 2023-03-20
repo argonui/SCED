@@ -31,27 +31,39 @@ existingBoxes = { 1, 1, 1, 1, 1, 2, 3, 5 }
 
 inputBoxes = {}
 
+-- Locations of the slot selectors
+local SLOT_ICON_POSITIONS = {
+    arcane = { x = 0.160, z = 0.65},
+    ally = { x = -0.073, z = 0.65}
+}
+
+-- These match with ArkhamDB's way of storing the data in the dropdown menu
+local slotIndices = {arcane = "1", ally = "0", none = ""}
+
+local selectedSlot = slotIndices.none
+
 -- override 'marked boxes' for debugging ('all' or 'none')
 markDEBUG = ""
 
 -- save state when going into bags / decks
 function onDestroy() self.script_state = onSave() end
 
-function onSave() return JSON.encode({ markedBoxes, inputValues }) end
+function onSave() return JSON.encode({ markedBoxes, {selectedSlot} }) end
 
 -- Startup procedure
 function onLoad(saved_data)
     if saved_data ~= "" and markDEBUG == "" then
         local loaded_data = JSON.decode(saved_data)
         markedBoxes = loaded_data[1]
-        inputValues = loaded_data[2]
+        selectedSlot = loaded_data[2][1]
     else
         markedBoxes = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }
-        inputValues = { "", "", "", "", "" }
+        selectedSlot = ""
     end
 
     makeData()
     createButtonsAndBoxes()
+    updateSlotDisplay()
 
     self.addContextMenuItem("Reset Inputs", function() updateState() end)
     self.addContextMenuItem("Scale: normal", function() self.setScale({ 1, 1, 1 }) end)
@@ -63,6 +75,7 @@ function updateState(markedBoxesNew)
     if markedBoxesNew then markedBoxes = markedBoxesNew end
     makeData()
     createButtonsAndBoxes()
+    updateSlotDisplay()
 end
 
 -- create Data
@@ -178,4 +191,86 @@ function createButtonsAndBoxes()
             value          = box_data.value
         })
     end
+
+    makeSlotSelectionButtons()
+end
+
+-- Creates the invisible buttons overlaying the slot words
+function makeSlotSelectionButtons()
+    local buttonPositions = { x = -1 * SLOT_ICON_POSITIONS.arcane.x, y = 0.2, z = SLOT_ICON_POSITIONS.arcane.z }
+    local buttonData = {
+          click_function = "click_arcane",
+          function_owner = self,
+          position       = buttonPositions,
+          height         = 130,
+          width          = 130,
+          scale          = { 1, 1, 1 },
+          color          = { 0, 0, 0, 0 },
+    }
+    self.createButton(buttonData)
+    buttonData.click_function = "click_ally"
+    buttonPositions.x = -1 * SLOT_ICON_POSITIONS.ally.x
+    buttonData.position = buttonPositions
+    self.createButton(buttonData)
+end
+
+function click_arcane()
+    if selectedSlot == slotIndices.arcane then
+        selectedSlot = slotIndices.none
+    else
+        selectedSlot = slotIndices.arcane
+    end
+    updateSlotDisplay()
+end
+  
+function click_ally()
+    if selectedSlot == slotIndices.ally then
+        selectedSlot = slotIndices.none
+    else
+        selectedSlot = slotIndices.ally
+    end
+    updateSlotDisplay()
+end
+
+-- Refresh the vector circles indicating a slot is selected.
+function updateSlotDisplay()
+    local box = {}
+    local center = {}
+    center = SLOT_ICON_POSITIONS["arcane"]
+    local arcaneVecList = {
+        Vector(center.x + 0.12, 0.3, center.z + 0.05),
+        Vector(center.x - 0.12, 0.3, center.z + 0.05),
+        Vector(center.x - 0.12, 0.3, center.z - 0.05),
+        Vector(center.x + 0.12, 0.3, center.z - 0.05),
+        Vector(center.x + 0.12, 0.3, center.z + 0.05),
+    }
+    center = SLOT_ICON_POSITIONS["ally"]
+    local allyVecList = {
+        Vector(center.x + 0.07, 0.3, center.z + 0.05),
+        Vector(center.x - 0.07, 0.3, center.z + 0.05),
+        Vector(center.x - 0.07, 0.3, center.z - 0.05),
+        Vector(center.x + 0.07, 0.3, center.z - 0.05),
+        Vector(center.x + 0.07, 0.3, center.z + 0.05),
+    }
+    local arcaneVecColor = {0.5, 0.5, 0.5, 0.75}
+    local allyVecColor = {0.5, 0.5, 0.5, 0.75}
+    if selectedSlot == slotIndices.arcane then
+        arcaneVecColor = {0.597, 0.195, 0.796}
+    elseif selectedSlot == slotIndices.ally then
+        allyVecColor = {0.597, 0.195, 0.796}
+    end
+
+    self.setVectorLines({
+        {
+            points    = arcaneVecList,
+            color     = arcaneVecColor,
+            thickness = 0.02,
+        },
+        {
+            points    = allyVecList,
+            color     = allyVecColor,
+            thickness = 0.02,
+        },
+        
+    })
 end
