@@ -21,7 +21,6 @@ inputParameters.tab             = 2
 local latestLoad = "XXX"
 local updating = false
 local percentage = false
-local cumulative = false
 local tokenPrecedence = {}
 local TOKEN_NAMES = {
   "Elder Sign",
@@ -62,19 +61,20 @@ function onLoad(saveState)
     layout()
   end)
   self.addContextMenuItem("Toggle Percentages", function() 
-    percentage = not percentage
+    if percentage then
+      percentage = false
+    else
+      percentage = "basic"
+    end
     layout()
   end)
   self.addContextMenuItem("Toggle Cumulative\n______Percentages", function() 
-    if percentage then
-      cumulative = not cumulative
-    else
-      percentage = true
-      cumulative = true
-    end
-    if cumulative then
+    if percentage == "basic" or not percentage then
+      percentage = "cumulative"
       broadcastToAll("Cumulative percentages are unreliable when using tokens that draw other tokens (bless or curse for example)", Color.Yellow)
-    end   
+    else
+      percentage = "basic"
+    end 
     layout()
   end)
   layout()
@@ -233,6 +233,28 @@ function deleteCopiedTokens()
   for _, token in ipairs(getObjectsWithTag("tempToken")) do token.destruct() end
 end
 
+-- creates percentage representation buttons
+function createPercentageButton(token_count, value_count, data, cumulative_percentage)
+  local cumulative_percentage = cumulative_percentage or false
+  local offset = 2.2
+  local label_string = string.format("%s", string.format("%05.2f", math.floor((token_count / #data) * 10000) / 100) .. "%")
+
+  if cumulative_percentage then
+    offset = 3.8
+    label_string = string.format("%s", "(" .. string.format("%05.2f", cumulative_percentage) .. "%)")
+  end
+
+  self.createButton({
+    label = label_string,
+    click_function = "print",
+    width = 0,
+    height = 0,
+    scale = {2, 2, 2},
+    font_color = {r=1,g=1,b=1},
+    position = (Vector(offset, -0.05, -2.675) + Vector((0.875 * token_count) + 0.1, 0, 0.875 * value_count))
+  })
+end
+
 -- main function (delete old tokens, clone chaos bag content, sort it and position it)
 function layout(_, _, isRightClick)
   if updating then return end
@@ -292,25 +314,9 @@ function layout(_, _, isRightClick)
     if item.value ~= current_value then
       if percentage then
 				cumulative_percentage = cumulative_percentage + math.floor((token_count / #data) * 10000) / 100
-				self.createButton({
-					label = string.format("%s", string.format("%05.2f", math.floor((token_count / #data) * 10000) / 100) .. "%"),
-					click_function = "print",
-					width = 0,
-					height = 0,
-					scale = {2, 2, 2},
-					font_color = {r=1,g=1,b=1},
-					position = (Vector(2.2, -0.05, -2.675) + Vector((0.875 * token_count) + 0.1, 0, 0.875 * value_count))
-				})
-        if cumulative then
-          self.createButton({
-            label = string.format("%s", "(" .. string.format("%05.2f", cumulative_percentage) .. "%)"),
-            click_function = "print",
-            width = 0,
-            height = 0,
-            scale = {2, 2, 2},
-            font_color = {r=1,g=1,b=1},
-            position = (Vector(3.8, -0.05, -2.675) + Vector((0.875 * token_count) + 0.1, 0, 0.875 * value_count))
-          })
+				createPercentageButton(token_count, value_count, data)
+        if percentage == "cumulative" then
+          createPercentageButton(token_count, value_count, data, cumulative_percentage)
         end       
 			end
       location.x = location.x - 1.75
@@ -326,25 +332,9 @@ function layout(_, _, isRightClick)
   end
   if percentage then
     cumulative_percentage = cumulative_percentage + math.floor((token_count / #data) * 10000) / 100
-		self.createButton({
-      label = string.format("%s", string.format("%05.2f", math.floor((token_count / #data) * 10000) / 100) .. "%"),
-      click_function = "print",
-      width = 0,
-      height = 0,
-      scale = {2, 2, 2},
-      font_color = {r=1,g=1,b=1},
-      position = (Vector(2.2, -0.05, -2.675) + Vector((0.875 * token_count) + 0.1, 0, 0.875 * value_count))
-    })
-    if cumulative then
-      self.createButton({
-        label = string.format("%s", "(" .. string.format("%05.1f", cumulative_percentage) .. "%)"),
-        click_function = "print",
-        width = 0,
-        height = 0,
-        scale = {2, 2, 2},
-        font_color = {r=1,g=1,b=1},
-        position = (Vector(3.8, -0.05, -2.675) + Vector((0.875 * token_count) + 0.1, 0, 0.875 * value_count))
-      })
+		createPercentageButton(token_count, value_count, data)
+    if percentage == "cumulative" then
+      createPercentageButton(token_count, value_count, data, cumulative_percentage)
     end
     
 	end
