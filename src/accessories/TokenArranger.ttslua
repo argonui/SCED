@@ -39,7 +39,8 @@ local TOKEN_NAMES = {
 function onSave()
   return JSON.encode({
     tokenPrecedence = tokenPrecedence,
-    latestLoad      = latestLoad
+    latestLoad      = latestLoad,
+    percentage      = percentage
   })
 end
 
@@ -48,11 +49,12 @@ function onLoad(saveState)
     local loadedData = JSON.decode(saveState)
     tokenPrecedence  = loadedData.tokenPrecedence
     latestLoad       = loadedData.latestLoad or "XXX"
+    percentage       = loadedData.percentage
   else
     loadDefaultValues()
   end
 
-  createDefaultButtons(true)
+  createDefaultButtonsAndInputs(true)
 
   -- reset context menu
   self.addContextMenuItem("Load default values", function()
@@ -68,7 +70,7 @@ function onLoad(saveState)
     end
     layout()
   end)
-  self.addContextMenuItem("Toggle Cumulative\n______Percentages", function() 
+  self.addContextMenuItem("Toggle Cumulative", function() 
     if percentage == "basic" or not percentage then
       percentage = "cumulative"
       broadcastToAll("Cumulative percentages are unreliable when using tokens that draw other tokens (bless or curse for example)", Color.Yellow)
@@ -146,12 +148,12 @@ function loadDefaultValues()
 end
 
 -- creates all starting buttons and inputs
-function createDefaultButtons(loadInputs)
+function createDefaultButtonsAndInputs(loadInputs)
   loadInputs = loadInputs or false
 
   buttonParameters.function_owner = self
   buttonParameters.label          = ""
-  buttonParameters.tooltip        = "Add / Remove"
+  buttonParameters.tooltip        = "Increase / Decrease"
   buttonParameters.color          = { 0, 0, 0, 0 }
   buttonParameters.width          = 325
   buttonParameters.height         = 325
@@ -229,24 +231,37 @@ end
 -- deletes previously placed tokens AND percentage buttons
 function deleteCopiedTokens()
   self.clearButtons()
-  createDefaultButtons()
+  createDefaultButtonsAndInputs()
   for _, token in ipairs(getObjectsWithTag("tempToken")) do token.destruct() end
 end
 
 -- creates percentage representation buttons
-function createPercentageButton(token_count, value_count, data, cumulative_percentage)
+function createPercentageButton(token_count, value_count, data, token_name, cumulative_percentage)
   local offset = -2.675
   local label_string = string.format("%s", string.format("%05.2f", math.floor((token_count / #data) * 10000) / 100) .. "%")
   local buttonScale = {2, 2, 2}
+  local textColor = {1, 1, 1}
   if percentage == "cumulative" then
+    
     buttonScale = {1.5, 1.5, 1.5}
-    offset = -2.9
+    offset = -2.85
   end
   if cumulative_percentage then
-    offset = -2.5
-    label_string = string.format("%s", "(" .. string.format("%05.2f", cumulative_percentage) .. "%)")
+    offset = -2.45
+    textColor = {1, 1, 1}
+    label_string = string.format("%s", string.format("%05.2f", cumulative_percentage) .. "%")
     if cumulative_percentage == 100 then
-      label_string = string.format("%s", "(" .. string.format("%05.1f", cumulative_percentage) .. "%)")
+      label_string = string.format("%s", string.format("%05.1f", cumulative_percentage) .. "%")
+    end
+  else
+    if token_name == "Elder Sign" then
+      textColor = {0.35, 0.71, 0.85}
+    elseif token_name == "Auto-fail" then
+      textColor = {0.86, 0.1, 0.1}
+    elseif token_name then
+      textColor = {0.68, 0.53, 0.86}
+    else
+      textColor = {0.85, 0.67, 0.33}
     end
   end
 
@@ -256,7 +271,7 @@ function createPercentageButton(token_count, value_count, data, cumulative_perce
     width = 0,
     height = 0,
     scale = buttonScale,
-    font_color = {r=1,g=1,b=1},
+    font_color = textColor,
     position = (Vector(2.2, -0.05, offset) + Vector(0.1, 0, 0.875 * value_count))
   })
 end
@@ -318,14 +333,15 @@ function layout(_, _, isRightClick)
   local token_count = 0
 	local value_count = 1
 	local cumulative_percentage = 0
+  local current_token = false
 
   for _, item in ipairs(data) do
     if item.value ~= current_value then
       if percentage then
 				cumulative_percentage = cumulative_percentage + math.floor((token_count / #data) * 10000) / 100
-				createPercentageButton(token_count, value_count, data)
+				createPercentageButton(token_count, value_count, data, current_token)
         if percentage == "cumulative" then
-          createPercentageButton(token_count, value_count, data, cumulative_percentage)
+          createPercentageButton(token_count, value_count, data, current_token, cumulative_percentage)
         end       
 			end
       location.x = location.x - 1.75
@@ -333,6 +349,10 @@ function layout(_, _, isRightClick)
       current_value = item.value
       value_count = value_count + 1
 			token_count = 0
+      current_token = false
+    end
+    if string.match(item.token.getName(), "%a") ~= nil then
+      current_token = item.token.getName()
     end
     item.token.setPosition(location)
     item.token.setRotation(self.getRotation())
@@ -341,9 +361,9 @@ function layout(_, _, isRightClick)
   end
   if percentage then
     cumulative_percentage = cumulative_percentage + math.floor((token_count / #data) * 10000) / 100
-		createPercentageButton(token_count, value_count, data)
+		createPercentageButton(token_count, value_count, data, current_token)
     if percentage == "cumulative" then
-      createPercentageButton(token_count, value_count, data, cumulative_percentage)
+      createPercentageButton(token_count, value_count, data, current_token, cumulative_percentage)
     end
     
 	end
