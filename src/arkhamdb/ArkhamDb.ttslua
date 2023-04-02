@@ -77,7 +77,7 @@ do
         return false, "Deck not found!"
       end
 
-      return true, JSON.decode(status.text)
+      return true, json
     end)
 
     deck:with(internal.onDeckResult, playerColor, loadNewest, loadInvestigators, callback)
@@ -139,8 +139,9 @@ do
     -- investigator may have bonded cards or taboo entries, and should be present
     local slots = deck.slots
     internal.maybeDrawRandomWeakness(slots, playerColor)
+    local loadAltInvestigator = "normal"
     if loadInvestigators then
-      internal.addInvestigatorCards(deck, slots)
+      loadAltInvestigator = internal.addInvestigatorCards(deck, slots)
     end
     internal.maybeAddCustomizeUpgradeSheets(slots)
     internal.maybeAddSummonedServitor(slots)
@@ -149,13 +150,12 @@ do
     internal.checkTaboos(deck.taboo_id, slots, playerColor)
 
     -- get upgrades for customizable cards
-    local meta = deck.meta
     local customizations = {}
-    if meta then
-      customizations = JSON.decode(meta)
+    if deck.meta then
+      customizations = JSON.decode(deck.meta)
     end
 
-    callback(slots, deck.investigator_code, bondList, customizations, playerColor)
+    callback(slots, deck.investigator_code, bondList, customizations, playerColor, loadAltInvestigator)
   end
 
   -- Checks to see if the slot list includes the random weakness ID. If it does,
@@ -186,25 +186,54 @@ do
   ---@param deck Table The processed ArkhamDB deck response
   ---@param slots Table The slot list for cards in this deck.  Table key is the cardId, value is the
   ---    number of those cards which will be spawned
+  ---@return string: Contains the name of the art that should be loaded ("normal", "promo" or "revised")
   internal.addInvestigatorCards = function(deck, slots)
     local investigatorId = deck.investigator_code
     slots[investigatorId .. "-m"] = 1
     local deckMeta = JSON.decode(deck.meta)
-    local parallelFront = deckMeta ~= nil and deckMeta.alternate_front ~= nil and deckMeta.alternate_front ~= ""
-    local parallelBack = deckMeta ~= nil and deckMeta.alternate_back ~= nil and deckMeta.alternate_back ~= ""
-    if parallelFront and parallelBack then
-      investigatorId = investigatorId .. "-p"
-    elseif parallelFront then
-      local alternateNum = tonumber(deckMeta.alternate_front)
-      if alternateNum >= 01501 and alternateNum <= 01506 then
-        investigatorId = investigatorId .. "-r"
-      else
-        investigatorId = investigatorId .. "-pf"
+    -- handling alternative investigator art and parallel investigators
+    local loadAltInvestigator = "normal"
+    if deckMeta ~= nil then
+      local altFrontId = tonumber(deckMeta.alternate_front) or 0
+      local altBackId  = tonumber(deckMeta.alternate_back) or 0
+      local altArt     = { front = "normal", back = "normal" }
+
+      -- translating front ID
+      if altFrontId > 90000 and altFrontId < 90006 then
+        altArt.front = "parallel"
+      elseif altFrontId > 01500 and altFrontId < 01506 then
+        altArt.front = "revised"
+      elseif altFrontId > 98000 then
+        altArt.front = "promo"
       end
-    elseif parallelBack then
-      investigatorId = investigatorId .. "-pb"
+
+      -- translating back ID
+      if altBackId > 90000 and altBackId < 90006 then
+        altArt.back = "parallel"
+      elseif altBackId > 01500 and altBackId < 01506 then
+        altArt.back = "revised"
+      elseif altBackId > 98000 then
+        altArt.back = "promo"
+      end
+
+      -- updating investigatorID based on alt investigator selection
+      -- precedence: parallel > promo > revised
+      if altArt.front == "parallel" then
+        if altArt.back == "parallel" then
+          investigatorId = investigatorId .. "-p"
+        else
+          investigatorId = investigatorId .. "-pf"
+        end
+      elseif altArt.back == "parallel" then
+        investigatorId = investigatorId .. "-pb"
+      elseif altArt.front == "promo" or altArt.back == "promo" then
+        loadAltInvestigator = "promo"
+      elseif altArt.front == "revised" or altArt.back == "revised" then
+        loadAltInvestigator = "revised"
+      end
     end
     slots[investigatorId] = 1
+    return loadAltInvestigator
   end
 
   -- Process the card list looking for the customizable cards, and add their upgrade sheets if needed
