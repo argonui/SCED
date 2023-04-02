@@ -4,7 +4,7 @@ local mythosAreaApi             = require("core/MythosAreaApi")
 local buttonParameters          = {}
 buttonParameters.function_owner = self
 buttonParameters.label          = ""
-buttonParameters.tooltip        = "Add / Remove"
+buttonParameters.tooltip        = "Increase / Decrease"
 buttonParameters.color          = { 0, 0, 0, 0 }
 buttonParameters.width          = 325
 buttonParameters.height         = 325
@@ -18,11 +18,14 @@ inputParameters.alignment       = 3
 inputParameters.validation      = 2
 inputParameters.tab             = 2
 
-local latestLoad = "XXX"
-local updating = false
-local percentage = false
+-- variables with save function
 local tokenPrecedence = {}
-local TOKEN_NAMES = {
+local latestLoad      = "XXX"
+local percentage      = false
+
+-- variables without save function
+local updating        = false
+local TOKEN_NAMES     = {
   "Elder Sign",
   "Skull",
   "Cultist",
@@ -44,6 +47,7 @@ function onSave()
   })
 end
 
+-- loading data, button creation and initial layouting
 function onLoad(saveState)
   if saveState ~= nil and saveState ~= "" then
     local loadedData = JSON.decode(saveState)
@@ -54,15 +58,18 @@ function onLoad(saveState)
     loadDefaultValues()
   end
 
-  createDefaultButtonsAndInputs(true)
+  createButtonsAndInputs(true)
+  layout()
 
-  -- reset context menu
+  -- context menu items
   self.addContextMenuItem("Load default values", function()
+    latestLoad = "XXX"
     loadDefaultValues()
     updateUI()
     layout()
   end)
-  self.addContextMenuItem("Toggle Percentages", function() 
+
+  self.addContextMenuItem("Toggle percentages", function() 
     if percentage then
       percentage = false
     else
@@ -70,25 +77,26 @@ function onLoad(saveState)
     end
     layout()
   end)
-  self.addContextMenuItem("Toggle Cumulative", function() 
-    if percentage == "basic" or not percentage then
-      percentage = "cumulative"
-      broadcastToAll("Cumulative percentages are unreliable when using tokens that draw other tokens (bless or curse for example)", Color.Yellow)
-    else
+
+  self.addContextMenuItem("Toggle cumulative", function() 
+    if percentage == "cumulative" then
       percentage = "basic"
+    else
+      percentage = "cumulative"
+      broadcastToAll("Cumulative percentages are unreliable when using tokens that draw other tokens (bless or curse for example).", Color.Yellow)
     end 
     layout()
   end)
-  layout()
+
   -- grab token metadata from mythos area
-  Wait.time(function() onTokenDataChanged(mythosAreaApi.returnTokenData()) end, 0.5)
+  Wait.time(function() onTokenDataChanged(mythosAreaApi.returnTokenData()) end, 0.2)
 end
 
 -- delete temporary tokens when destroyed
 function onDestroy() deleteCopiedTokens() end
 
--- layout tokens when dropped (after 2 seconds)
-function onDrop() Wait.time(layout, 2) end
+-- layout tokens when dropped (after 1.5 seconds)
+function onDrop() Wait.time(layout, 1.5) end
 
 -- delete temporary tokens when picked up
 function onPickUp() deleteCopiedTokens() end
@@ -114,7 +122,10 @@ end
 function tokenClick(isRightClick, index)
   local change = tonumber(isRightClick and "-1" or "1")
   tokenPrecedence[TOKEN_NAMES[index]][1] = tokenPrecedence[TOKEN_NAMES[index]][1] + change
-  self.editInput({ index = index - 1, value = tokenPrecedence[TOKEN_NAMES[index]][1] })
+  self.editInput({
+    index = index - 1,
+    value = tokenPrecedence[TOKEN_NAMES[index]][1]
+  })
   layout()
 end
 
@@ -131,81 +142,73 @@ end
 
 -- loads the default precedence table
 function loadDefaultValues()
-  -- token modifiers for sorting (and order for same modifier)
-  -- order starts at 2 because there is a "+1" token
+  -- 1st value: token modifiers for sorting
+  -- 2nd value: order for equivalent tokens (starts at 2 because of "+1" token)
   tokenPrecedence = {
-    ["Elder Sign"]  = { 100, 2 },
-    ["Skull"]       = { -1, 3 },
-    ["Cultist"]     = { -2, 4 },
-    ["Tablet"]      = { -3, 5 },
-    ["Elder Thing"] = { -4, 6 },
-    ["Auto-fail"]   = { -100, 7 },
-    ["Bless"]       = { 101, 8 },
-    ["Curse"]       = { -101, 9 },
-    ["Frost"]       = { -99, 10 },
-    [""]            = { 0, 11 }
+    ["Elder Sign"]  = { 100,  2},
+    ["Skull"]       = { -1,   3},
+    ["Cultist"]     = { -2,   4},
+    ["Tablet"]      = { -3,   5},
+    ["Elder Thing"] = { -4,   6},
+    ["Auto-fail"]   = { -100, 7},
+    ["Bless"]       = { 101,  8},
+    ["Curse"]       = { -101, 9},
+    ["Frost"]       = { -99, 10},
+    [""]            = { 0,   11}
   }
 end
 
--- creates all starting buttons and inputs
-function createDefaultButtonsAndInputs(loadInputs)
-  loadInputs = loadInputs or false
-
-  buttonParameters.function_owner = self
-  buttonParameters.label          = ""
-  buttonParameters.tooltip        = "Increase / Decrease"
-  buttonParameters.color          = { 0, 0, 0, 0 }
-  buttonParameters.width          = 325
-  buttonParameters.height         = 325
-  -- create UI
+-- creates buttons and inputs (if argument is true)
+function createButtonsAndInputs(loadInputs)
   local offset = 0.725
-  local pos = { x = { -1.067, 0.377 }, z = -2.175 }
+  local pos    = { x = { -1.067, 0.377 }, z = -2.175 }
 
   -- button and inputs index 0-9
   for i = 1, 10 do
     if i < 6 then
       buttonParameters.position = { pos.x[1], 0, pos.z + i * offset }
-      if loadInputs then
-        inputParameters.position  = { pos.x[1] + offset, 0.1, pos.z + i * offset }
-      end  
+      inputParameters.position  = { pos.x[1] + offset, 0.1, pos.z + i * offset }
     else
       buttonParameters.position = { pos.x[2], 0, pos.z + (i - 5) * offset }
-      if loadInputs then
-        inputParameters.position  = { pos.x[2] + offset, 0.1, pos.z + (i - 5) * offset }
-      end     
+      inputParameters.position  = { pos.x[2] + offset, 0.1, pos.z + (i - 5) * offset }  
     end
 
-    buttonParameters.click_function = attachIndex("tokenClick", i)
+    buttonParameters.click_function  = attachIndex("tokenClick", i)
     self.createButton(buttonParameters)
 
+    -- only create inputs on initial load
     if loadInputs then
-      inputParameters.input_function  = attachIndex2("tokenInput", i)
-      inputParameters.value           = tokenPrecedence[TOKEN_NAMES[i]][1]
+      inputParameters.input_function = attachIndex2("tokenInput", i)
+      inputParameters.value          = tokenPrecedence[TOKEN_NAMES[i]][1]
       self.createInput(inputParameters)
     end
-    
   end
 
   -- index 10: "Update / Hide" button
-  buttonParameters.label          = "Update / Hide"
-  buttonParameters.click_function = "layout"
-  buttonParameters.tooltip        = "Left-Click: Update!\nRight-Click: Hide Tokens!"
-  buttonParameters.position       = { 0.725, 0.1, 2.025 }
-  buttonParameters.color          = { 1, 1, 1 }
-  buttonParameters.width          = 675
-  buttonParameters.height         = 175
-  self.createButton(buttonParameters)
+  self.createButton({
+    function_owner = self,
+    label          = "Update / Hide",
+    click_function = "layout",
+    tooltip        = "Left-Click: Update!\nRight-Click: Hide Tokens!",
+    position       = { 0.725, 0.1, 2.025 },
+    color          = { 1, 1, 1 },
+    width          = 675,
+    height         = 175
+  })
 end
 
 -- update input fields
 function updateUI()
   for i = 1, 10 do
-    self.editInput({ index = i - 1, value = tokenPrecedence[TOKEN_NAMES[i]][1] })
+    self.editInput({
+      index = i - 1,
+      value = tokenPrecedence[TOKEN_NAMES[i]][1]
+    })
   end
 end
 
 -- order function for data sorting
-function token_value_comparator(left, right)
+function tokenValueComparator(left, right)
   if left.value > right.value then
     return true
   elseif right.value > left.value then
@@ -219,46 +222,47 @@ function token_value_comparator(left, right)
   end
 end
 
--- checks scripting zone for chaos bag
-function findChaosBag()
-  for _, item in ipairs(getObjectFromGUID("83ef06").getObjects()) do
-    if item.getDescription() == "Chaos Bag" then
-      return item
-    end
-  end
-end
-
--- deletes previously placed tokens AND percentage buttons
+-- deletes previously placed tokens
 function deleteCopiedTokens()
+  for _, token in ipairs(getObjectsWithTag("tempToken")) do
+    token.destruct()
+  end
+
+  -- this removes the percentage buttons
   self.clearButtons()
-  createDefaultButtonsAndInputs()
-  for _, token in ipairs(getObjectsWithTag("tempToken")) do token.destruct() end
+  createButtonsAndInputs()
 end
 
 -- creates percentage representation buttons
-function createPercentageButton(token_count, value_count, data, token_name, cumulative_percentage)
-  local offset = -2.675
-  local label_string = string.format("%s", string.format("%05.2f", math.floor((token_count / #data) * 10000) / 100) .. "%")
-  local buttonScale = {2, 2, 2}
-  local textColor = {1, 1, 1}
+function createPercentageButton(basePercentage, valueCount, tokenName, cumulativePercentage)
+  local buttonScale, offset, textColor, labelString
+
   if percentage == "cumulative" then
-    
     buttonScale = {1.5, 1.5, 1.5}
     offset = -2.85
+  else
+    buttonScale = {2, 2, 2}
+    offset = -2.675
   end
-  if cumulative_percentage then
+
+  -- if this is a cumulative button (bottom one of the two created buttons)
+  if cumulativePercentage then
     offset = -2.45
     textColor = {1, 1, 1}
-    label_string = string.format("%s", string.format("%05.2f", cumulative_percentage) .. "%")
-    if cumulative_percentage == 100 then
-      label_string = string.format("%s", string.format("%05.1f", cumulative_percentage) .. "%")
+    
+    -- only display one digit for 100%
+    if cumulativePercentage == 100 then
+      labelString = string.format("%s", string.format("%05.1f", cumulativePercentage) .. "%")
+    else
+      labelString = string.format("%s", string.format("%05.2f", cumulativePercentage) .. "%")
     end
   else
-    if token_name == "Elder Sign" then
+    labelString = string.format("%s", string.format("%05.2f", basePercentage) .. "%")
+    if tokenName == "Elder Sign" then
       textColor = {0.35, 0.71, 0.85}
-    elseif token_name == "Auto-fail" then
+    elseif tokenName == "Auto-fail" then
       textColor = {0.86, 0.1, 0.1}
-    elseif token_name then
+    elseif tokenName then
       textColor = {0.68, 0.53, 0.86}
     else
       textColor = {0.85, 0.67, 0.33}
@@ -266,13 +270,13 @@ function createPercentageButton(token_count, value_count, data, token_name, cumu
   end
 
   self.createButton({
-    label = label_string,
-    click_function = "print",
+    label = labelString,
+    click_function = "none",
     width = 0,
     height = 0,
     scale = buttonScale,
     font_color = textColor,
-    position = (Vector(2.2, -0.05, offset) + Vector(0.1, 0, 0.875 * value_count))
+    position = Vector(2.3, -0.05, offset + 0.875 * valueCount)
   })
 end
 
@@ -288,7 +292,7 @@ function layout(_, _, isRightClick)
     return
   end
 
-  local chaosBag = findChaosBag()
+  local chaosBag = Global.call("findChaosBag")
   local data = {}
 
   -- clone tokens from chaos bag (default position above trash can)
@@ -299,14 +303,15 @@ function layout(_, _, isRightClick)
       position = { 0.49, 3, 0 }
     })
 
-    local value = tonumber(obj["Nickname"])
-    local precedence = tokenPrecedence[obj["Nickname"]]
+    local value = tonumber(obj.Nickname)
+    local precedence = tokenPrecedence[obj.Nickname]
 
     data[i] = {
       token = spawnedObj,
       value = value or precedence[1]
     }
 
+    -- order for comparator function
     if precedence ~= nil then
       data[i].order = precedence[2]
     else
@@ -315,58 +320,60 @@ function layout(_, _, isRightClick)
   end
 
   -- sort table by value (symbols last if same value)
-  table.sort(data, token_value_comparator)
-
-  -- error handling for removal of token arranger
-  if self == nil then
-    for _, token in ipairs(getObjectsWithTag("tempToken")) do token.destruct() end
-    return
-  end
+  table.sort(data, tokenValueComparator)
 
   -- laying out the tokens
-  local pos           = self.getPosition() + Vector(3.55, -0.05, -3.95)
-  if percentage then
-    pos.z = self.getPosition().z - 7
-  end
-  local location      = { x = pos.x, y = pos.y, z = pos.z }
-  local current_value = data[1].value
-  local token_count = 0
-	local value_count = 1
-	local cumulative_percentage = 0
-  local current_token = false
+  local pos = self.getPosition() + Vector(3.55, -0.05, -3.95)
+  if percentage then pos.z = pos.z - 3.05 end
+
+  local location = { x = pos.x, y = pos.y, z = pos.z }
+  local currentValue = data[1].value
+  local tokenCount = 0
+	local valueCount = 1
+	local cumulativePercentage = 0
+  local tokenName = false
 
   for _, item in ipairs(data) do
-    if item.value ~= current_value then
+    if item.value ~= currentValue then
       if percentage then
-				cumulative_percentage = cumulative_percentage + math.floor((token_count / #data) * 10000) / 100
-				createPercentageButton(token_count, value_count, data, current_token)
+        local basePercentage = math.floor((tokenCount / #data) * 10000) / 100
+        createPercentageButton(basePercentage, valueCount, tokenName)
         if percentage == "cumulative" then
-          createPercentageButton(token_count, value_count, data, current_token, cumulative_percentage)
-        end       
-			end
-      location.x = location.x - 1.75
-      location.z = pos.z
-      current_value = item.value
-      value_count = value_count + 1
-			token_count = 0
-      current_token = false
+          cumulativePercentage = cumulativePercentage + basePercentage
+          createPercentageButton(basePercentage, valueCount, tokenName, cumulativePercentage)
+        end
+      end
+
+      location.x   = location.x - 1.75
+      location.z   = pos.z
+      currentValue = item.value
+      valueCount   = valueCount + 1
+      tokenCount   = 0
     end
-    if string.match(item.token.getName(), "%a") ~= nil then
-      current_token = item.token.getName()
-    end
+    
     item.token.setPosition(location)
     item.token.setRotation(self.getRotation())
     location.z = location.z - 1.75
-    token_count = token_count + 1
-  end
-  if percentage then
-    cumulative_percentage = cumulative_percentage + math.floor((token_count / #data) * 10000) / 100
-		createPercentageButton(token_count, value_count, data, current_token)
-    if percentage == "cumulative" then
-      createPercentageButton(token_count, value_count, data, current_token, cumulative_percentage)
+    tokenCount = tokenCount + 1
+    tokenName  = item.token.getName()
+
+    -- set tokenName to false if it does not contain letters
+    if string.match(tokenName, "%a") == nil then
+      tokenName = false
     end
-    
-	end
+  end
+
+  -- this is repeated to create the button for the last token
+  if percentage then
+    local basePercentage = math.floor((tokenCount / #data) * 10000) / 100
+    createPercentageButton(basePercentage, valueCount, tokenName)
+    if percentage == "cumulative" then
+      cumulativePercentage = cumulativePercentage + basePercentage
+      createPercentageButton(basePercentage, valueCount, tokenName, cumulativePercentage)
+    end
+  end
+
+  -- introducing a small delay to limit update calls
   Wait.time(function() updating = false end, 0.1)
 end
 
@@ -374,7 +381,7 @@ end
 function onTokenDataChanged(parameters)
   local tokenData = parameters.tokenData or {}
   local currentScenario = parameters.currentScenario or ""
-  local useFrontData = parameters.useFrontData or true
+  local useFrontData = parameters.useFrontData
 
   -- only update if this data is new
   local info = currentScenario .. tostring(useFrontData)
