@@ -1,10 +1,7 @@
-local playmatAPI = require("playermat/PlaymatApi")
+local playmatApi                = require("playermat/PlaymatApi")
 
 -- forward declaration of variables that are used across functions
-local matColor
-local setAsidePosition
-local setAsideRotation
-local drawDeckPosition
+local matColor, handColor, setAsidePosition, setAsideRotation, drawDeckPosition
 
 local quickParameters          = {}
 quickParameters.function_owner = self
@@ -102,10 +99,11 @@ end
 
 -- start the search (change UI, set handCards aside, draw cards)
 function startSearch(messageColor, number)
-  matColor = playmatAPI.getMatColorByPosition(self.getPosition())
+  matColor = playmatApi.getMatColorByPosition(self.getPosition())
+  handColor = playmatApi.getPlayerColor(matColor)
 
   -- get draw deck
-  local drawDeck = playmatAPI.getDrawDeck(matColor)
+  local drawDeck = playmatApi.getDrawDeck(matColor)
   if drawDeck == nil then
     printToColor(matColor .. " draw deck could not be found!", messageColor, "Red")
     return
@@ -121,8 +119,8 @@ function startSearch(messageColor, number)
   end
 
   -- get position and rotation for set aside cards
-  local handData   = Player[matColor].getHandTransform()
-  local handCards  = Player[matColor].getHandObjects()
+  local handData   = Player[handColor].getHandTransform()
+  local handCards  = Player[handColor].getHandObjects()
   setAsidePosition = handData.position + offset * handData.right
   setAsideRotation = { handData.rotation.x, handData.rotation.y + 180, 180 }
 
@@ -136,18 +134,18 @@ function startSearch(messageColor, number)
     local object = v.hit_object
     if object.tag == "Card" and not object.is_face_down then
       object.flip()
-      Wait.time(function() drawDeck = playmatAPI.getDrawDeck(matColor) end, 1)
+      Wait.time(function() drawDeck = playmatApi.getDrawDeck(matColor) end, 1)
       break
     end
   end
 
-  Wait.time(function() drawDeck.deal(number, matColor) end, 1)
+  Wait.time(function() drawDeck.deal(number, handColor) end, 1)
   searchView()
 end
 
 -- place handCards back into deck and optionally shuffle
 function endSearch(_, _, isRightClick)
-  local handCards = Player[matColor].getHandObjects()
+  local handCards = Player[handColor].getHandObjects()
 
   for i = #handCards, 1, -1 do
     handCards[i].setPosition(drawDeckPosition + Vector(0, 6 - i * 0.3, 0))
@@ -156,7 +154,7 @@ function endSearch(_, _, isRightClick)
 
   if not isRightClick then
     Wait.time(function()
-      local deck = playmatAPI.getDrawDeck(matColor)
+      local deck = playmatApi.getDrawDeck(matColor)
       if deck ~= nil then
         deck.shuffle()
       end
@@ -168,11 +166,11 @@ function endSearch(_, _, isRightClick)
     local obj = v.hit_object
     if obj.tag == "Deck" then
       Wait.time(function()
-        obj.deal(#obj.getObjects(), matColor)
+        obj.deal(#obj.getObjects(), handColor)
       end, 1)
       break
     elseif obj.tag == "Card" then
-      obj.setPosition(Player[matColor].getHandTransform().position)
+      obj.setPosition(Player[handColor].getHandTransform().position)
       obj.flip()
       break
     end

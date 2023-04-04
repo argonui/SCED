@@ -2,13 +2,10 @@
 Cleans up the table for the next scenario in a campaign:
 - sets counters to default values (resources and doom) or trauma values (health and sanity, if not disabled) from campaign log
 - puts everything on playmats and hands into respective trashcans
-- use the IGNORE_TAG to exclude objects from tidying (default: "CleanUpHelper_Ignore")
---]]
+- use the IGNORE_TAG to exclude objects from tidying (default: "CleanUpHelper_Ignore")]]
 
 local tokenSpawnTrackerApi = require("core/token/TokenSpawnTrackerApi")
-
--- enable this for debugging
-local SHOW_RAYS = false
+local playmatApi = require("playermat/PlaymatApi")
 
 -- these objects will be ignored
 local IGNORE_GUIDS = {
@@ -81,9 +78,7 @@ buttonParameters.function_owner = self
 ---------------------------------------------------------
 
 function onSave()
-  return JSON.encode({
-    options = options
-  })
+  return JSON.encode({ options = options })
 end
 
 function onLoad(savedData)
@@ -213,7 +208,7 @@ function resetSkillTrackers()
     if obj ~= nil then
       obj.call("updateStats", { 1, 1, 1, 1 })
     else
-      printToAll("Skill tracker number " .. i .. " could not be found.", "Yellow")
+      printToAll("Skill tracker for " .. COLORS[i] .. " playmat could not be found.", "Yellow")
     end
   end
 end
@@ -296,7 +291,7 @@ function discardHands()
   for i = 1, 4 do
     local trashcan = getObjectFromGUID(TRASHCAN_GUIDS[i])
     if trashcan == nil then return end
-    local hand = Player[COLORS[i]].getHandObjects()
+    local hand = Player[playmatApi.getPlayerColor(COLORS[i])].getHandObjects()
     for j = #hand, 1, -1 do
       trashcan.putObject(hand[j])
     end
@@ -339,7 +334,7 @@ function tidyPlayerMatCoroutine()
       local trashcan = getObjectFromGUID(TRASHCAN_GUIDS[i])
       if trashcan == nil then
         printToAll("Trashcan for " .. COLORS[i] .. " playmat could not be found!", "Red")
-        return
+        return 1
       end
 
       for _, entry in ipairs(findObjects(i)) do
@@ -390,7 +385,7 @@ function findObjects(num)
     size         = PHYSICS_SCALE[num],
     origin       = PHYSICS_POSITION[num],
     orientation  = { 0, PHYSICS_ROTATION[num], 0 },
-    debug        = SHOW_RAYS
+    debug        = false
   })
 end
 
