@@ -1,0 +1,59 @@
+local blessCurseManagerApi = require("chaosbag/BlessCurseManagerApi")
+local playmatApi = require("playermat/PlaymatApi")
+
+function onLoad()
+  addHotkey("Upkeep", triggerUpkeep)
+  addHotkey("Upkeep (Multi-handed)", triggerUpkeepMultihanded)
+  addHotkey("Add Doom to Agenda", addDoomToAgenda)
+  addHotkey("Move card to Victory Display", moveCardToVictoryDisplay)
+  addHotkey("Bless/Curse Status", showBlessCurseStatus)
+  addHotkey("Wendy's Menu", addWendysMenu)
+end
+
+-- triggers the "Upkeep" function of the calling player's playmat
+function triggerUpkeep(playerColor)
+  if playerColor == "Black" then
+    broadcastToColor("Triggering 'Upkeep (Multihanded)' instead", playerColor, "Yellow")
+    triggerUpkeepMultihanded(playerColor)
+    return
+  end
+  local matColor = playmatApi.getMatColor(playerColor)
+  playmatApi.doUpkeepFromHotkey(matColor, playerColor)
+end
+
+-- triggers the "Upkeep" function of the calling player's playmat AND
+-- for all playmats that don't have a seated player, but a investigator card
+function triggerUpkeepMultihanded(playerColor)
+  if playerColor ~= "Black" then
+    triggerUpkeep(playerColor)
+  end
+  local colors = Player.getAvailableColors()
+  for _, handColor in ipairs(colors) do
+    local matColor = playmatApi.getMatColor(handColor)
+    if playmatApi.returnInvestigatorId(matColor) ~= "00000" and Player[handColor].seated == false then
+      playmatApi.doUpkeepFromHotkey(matColor, playerColor)
+    end
+  end
+end
+
+-- adds 1 doom to the agenda
+function addDoomToAgenda()
+  getObjectFromGUID("85c4c6").call("addVal", 1)
+end
+
+-- moves the hovered card to the victory display
+function moveCardToVictoryDisplay(playerColor, hoveredObject)
+  -- check if the provided object is a card
+  if hoveredObject == nil or hoveredObject.tag ~= "Card" then return end
+  getObjectFromGUID("6ccd6d").call("placeCard", hoveredObject)
+end
+
+-- broadcasts the bless/curse status to the calling player
+function showBlessCurseStatus(playerColor)
+  blessCurseManagerApi.broadcastStatus(playerColor)
+end
+
+-- adds Wendy's menu to the hovered card
+function addWendysMenu(playerColor, hoveredObject)
+  blessCurseManagerApi.addWendysMenu(playerColor, hoveredObject)
+end
