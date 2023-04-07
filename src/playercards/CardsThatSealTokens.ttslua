@@ -2,8 +2,8 @@
 This file is used to add sealing option to cards' context menu.
 Valid options (set before requiring this file):
 
-SHOW_READ_BAG       --@type: boolean
-  - enables an entry in the context menu
+UPDATE_ON_HOVER     --@type: boolean
+  - automatically updates the context menu options when the card is hovered
   - the "Read Bag" function reads the content of the chaos bag to update the context menu
   - example usage: "Unrelenting" (to only display valid tokens)
 
@@ -49,7 +49,7 @@ Thus it should be implemented like this:
 >   ["+1"] = true,
 >   ["Elder Sign"] = true
 > }
-> require("playercards/CardsThatSealTokens")
+> require ("playercards/CardsThatSealTokens") -- includes a space after "require" to not executing bundling
 ----------------------------------------------------------
 Example 2: Holy Spear
 This card features the following abilities (just listing the relevant parts):
@@ -62,7 +62,7 @@ Thus it should be implemented like this:
 > }
 > SHOW_SINGLE_RELEASE = true
 > SHOW_MULTI_SEAL = 2
-> require("playercards/CardsThatSealTokens")
+> require ("playercards/CardsThatSealTokens") -- includes a space after "require" to not executing bundling
 ----------------------------------------------------------]]
 
 local blessCurseManagerApi = require("chaosbag/BlessCurseManagerApi")
@@ -81,14 +81,6 @@ end
 
 -- builds the context menu
 function generateContextMenu()
-  self.clearContextMenu()
-
-  -- only show this for cards that need a dynamic list of tokens (for example 'Unrelenting')
-  if SHOW_READ_BAG then
-    self.addContextMenuItem("Update list", generateContextMenu)
-    readBag()
-  end
-
   -- conditional single or multi release options
   if SHOW_SINGLE_RELEASE then
     self.addContextMenuItem("Release token", releaseOneToken)
@@ -100,7 +92,7 @@ function generateContextMenu()
 
   -- main context menu options to seal tokens
   for _, map in pairs(ID_URL_MAP) do
-    if (VALID_TOKENS[map.name] ~= nil) or (SHOW_READ_BAG and tokensInBag[map.name] and not INVALID_TOKENS[map.name]) then
+    if (VALID_TOKENS[map.name] ~= nil) or (UPDATE_ON_HOVER and tokensInBag[map.name] and not INVALID_TOKENS[map.name]) then
       if not SHOW_MULTI_SEAL then
         self.addContextMenuItem("Seal " .. map.name, function(playerColor)
           sealToken(map.name, playerColor)
@@ -143,8 +135,9 @@ end
 
 -- native event from TTS - used to update the context menu for cards like "Unrelenting"
 function onHover()
-  if SHOW_READ_BAG then
+  if UPDATE_ON_HOVER then
     readBag()
+    self.clearContextMenu()
     generateContextMenu()
   end
 end
