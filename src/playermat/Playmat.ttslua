@@ -67,7 +67,7 @@ isDES = false
 function onSave()
   return JSON.encode({
     zoneID = zoneID,
-    playerColor = PLAYER_COLOR,
+    playerColor = playerColor,
     activeInvestigatorId = activeInvestigatorId,
     isDrawButtonVisible = isDrawButtonVisible
   })
@@ -80,6 +80,7 @@ function onLoad(save_state)
   STAT_TRACKER = getObjectFromGUID(STAT_TRACKER_GUID)
   RESOURCE_COUNTER = getObjectFromGUID(RESOURCE_COUNTER_GUID)
 
+  -- button creation
   for i = 1, 6 do
     makeDiscardButton(DISCARD_BUTTON_OFFSETS[i], {-3.85, 3, 10.38}, i)
   end
@@ -94,7 +95,7 @@ function onLoad(save_state)
   })
 
   self.createButton({
-    click_function = "drawChaostokenButton",
+    click_function = "drawChaosTokenButton",
     function_owner = self,
     position = {1.85, 0, -0.74},
     rotation = {0, -45, 0},
@@ -113,10 +114,11 @@ function onLoad(save_state)
     font_size = 180
   })
 
+  -- save state loading
   local state = JSON.decode(save_state)
   if state ~= nil then
     zoneID = state.zoneID
-    PLAYER_COLOR = state.playerColor
+    playerColor = state.playerColor
     activeInvestigatorId = state.activeInvestigatorId
     isDrawButtonVisible = state.isDrawButtonVisible
   end
@@ -132,15 +134,6 @@ end
 ---------------------------------------------------------
 -- utility functions
 ---------------------------------------------------------
-
-function log(message)
-  if DEBUG then print(message) end
-end
-
--- send messages to player who clicked button if no seated player found
-function setMessageColor(color)
-  messageColor = Player[PLAYER_COLOR].seated and PLAYER_COLOR or color
-end
 
 function spawnDeckZone()
   spawnObject({
@@ -165,7 +158,9 @@ function searchArea(origin, size)
   })
 end
 
-function doNotReady(card) return card.getVar("do_not_ready") or false end
+function doNotReady(card)
+  return card.getVar("do_not_ready") or false
+end
 
 ---------------------------------------------------------
 -- Discard buttons
@@ -231,19 +226,18 @@ end
 -- Upkeep button
 ---------------------------------------------------------
 
-function doUpkeep(_, color, alt_click)
-  setMessageColor(color)
-
-  -- right-click binds to new player color
-  if alt_click then
-    PLAYER_COLOR = color
-    printToColor("Upkeep button bound to " .. color, color)
+function doUpkeep(_, clickedByColor, isRightClick)
+  -- right-click allow color changing
+  if isRightClick then
+    changeColor(clickedByColor)
     return
   end
 
-  local forcedLearning = false
+  -- send messages to player who clicked button if no seated player found
+  messageColor = Player[playerColor].seated and playerColor or clickedByColor
 
   -- unexhaust cards in play zone, flip action tokens and find forcedLearning
+  local forcedLearning = false
   for _, v in ipairs(searchArea(PLAY_ZONE_POSITION, PLAY_ZONE_SCALE)) do
     local obj = v.hit_object
     if obj.getDescription() == "Action Token" and obj.is_face_down then
@@ -304,7 +298,7 @@ function doUpkeep(_, color, alt_click)
     if forcedLearning then
       printToColor("Wow, did you really take 'Versatile' to play Patrice with 'Forced Learning'? Choose which draw replacement effect takes priority and draw cards accordingly.", messageColor)
     else
-      local handSize = #Player[PLAYER_COLOR].getHandObjects()
+      local handSize = #Player[playerColor].getHandObjects()
       if handSize < 5 then
         local cardsToDraw = 5 - handSize
         printToColor("Drawing " .. cardsToDraw .. " cards (Patrice)", messageColor)
@@ -328,7 +322,8 @@ end
 
 -- function for "draw 1 button" (that can be added via option panel)
 function doDrawOne(_, color)
-  setMessageColor(color)
+  -- send messages to player who clicked button if no seated player found
+  messageColor = Player[playerColor].seated and playerColor or color
   drawCardsWithReshuffle(1)
 end
 
@@ -351,7 +346,7 @@ function drawCardsWithReshuffle(numCards)
     end
 
     if topCard ~= nil then
-      topCard.deal(numCards, PLAYER_COLOR)
+      topCard.deal(numCards, playerColor)
       numCards = numCards - 1
       if numCards == 0 then return end
     end
@@ -402,7 +397,7 @@ end
 
 function drawCards(numCards)
   if drawDeck == nil then return end
-  drawDeck.deal(numCards, PLAYER_COLOR)
+  drawDeck.deal(numCards, playerColor)
 end
 
 function shuffleDiscardIntoDeck()
@@ -415,8 +410,7 @@ end
 
 -- discard a random non-hidden card from hand
 function doDiscardOne()
-  local handColor = getHandColor()
-  local hand = Player[handColor].getHandObjects()
+  local hand = Player[playerColor].getHandObjects()
   if #hand == 0 then
     broadcastToAll("Cannot discard from empty hand!", "Red")
   else
@@ -444,18 +438,72 @@ function doDiscardOne()
   end
 end
 
--- gets the hand color of the closest seated player (by roughly cutting the table into quarters)
-function getHandColor()
-  for _, handColor in ipairs(Player.getAvailableColors()) do
-    local handPosition = Player[handColor].getHandTransform().position
+---------------------------------------------------------
+-- color related functions
+---------------------------------------------------------
 
-    if (PLAYER_COLOR == "White" and handPosition.x < -42 and handPosition.z > 0)
-        or (PLAYER_COLOR == "Orange" and handPosition.x < -42 and handPosition.z < 0)
-        or (PLAYER_COLOR == "Green" and handPosition.x > -42 and handPosition.z > 0)
-        or (PLAYER_COLOR == "Red" and handPosition.x > -42 and handPosition.z < 0) then
-          return handColor
+-- changes the player color
+function changeColor(clickedByColor)
+  local colorList = {
+    "White",
+    "Brown",
+    "Red",
+    "Orange",
+    "Yellow",
+    "Green",
+    "Teal",
+    "Blue",
+    "Purple",
+    "Pink"
+  }
+
+  -- remove existing colors from the list of choices
+  for _, existingColor in ipairs(Player.getAvailableColors()) do
+    for i, newColor in ipairs(colorList) do
+      if existingColor == newColor then
+        table.remove(colorList, i)
+      end
     end
   end
+
+  -- show the option dialog for color selection to the player that triggered this
+  Player[clickedByColor].showOptionsDialog("Select a new color:", colorList, _, function(color)
+    local HAND_ZONE_GUIDS = {
+      "a70eee", -- White
+      "5fe087", -- Orange
+      "0285cc", -- Green
+      "be2f17"  -- Red
+    }
+    local index
+    local startPos = self.getPosition()
+
+    -- get respective hand zone by position
+    if startPos.x < -42 then
+      if startPos.z > 0 then
+        index = 1
+      else
+        index = 2
+      end
+    else
+      if startPos.z > 0 then
+        index = 3
+      else
+        index = 4
+      end
+    end
+
+    -- update the color of the hand zone
+    local handZone = getObjectFromGUID(HAND_ZONE_GUIDS[index])
+    handZone.setValue(color)
+
+    -- if the seated player clicked this, reseat him to the new color
+    if clickedByColor == playerColor then
+      Player[playerColor].changeColor(color)
+    end
+
+    -- update the internal variable
+    playerColor = color
+  end)
 end
 
 ---------------------------------------------------------
@@ -722,8 +770,8 @@ end
 -- calls to 'Global' / functions for calls from outside
 ---------------------------------------------------------
 
-function drawChaostokenButton(_, _, isRightClick)
-  Global.call("drawChaostoken", {self, DRAWN_CHAOS_TOKEN_OFFSET, isRightClick})
+function drawChaosTokenButton(_, _, isRightClick)
+  Global.call("drawChaosToken", {self, DRAWN_CHAOS_TOKEN_OFFSET, isRightClick})
 end
 
 function drawEncountercard(_, _, isRightClick)

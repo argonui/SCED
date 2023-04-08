@@ -34,6 +34,9 @@ local hideTitleSplashWaitFunctionId = nil
 local playmatApi = require("playermat/PlaymatApi")
 local tokenManager = require("core/token/TokenManager")
 local playAreaAPI = require("core/PlayAreaApi")
+local mythosAreaApi = require("core/MythosAreaApi")
+local tokenArrangerApi = require("accessories/TokenArrangerApi")
+local blessCurseManagerApi = require("chaosbag/BlessCurseManagerApi")
 
 ---------------------------------------------------------
 -- data for tokens
@@ -47,87 +50,46 @@ TOKEN_DATA = {
   clue     = {image = "http://cloud-3.steamusercontent.com/ugc/1758068501357164917/1D06F1DC4D6888B6F57124BD2AFE20D0B0DA15A8/", scale = {0.15, 0.15, 0.15}}
 }
 
-IMAGE_TOKEN_MAP = {
-  ["https://i.imgur.com/nEmqjmj.png"] = "Elder Sign",
-  ["https://i.imgur.com/uIx8jbY.png"] = "+1",
-  ["https://i.imgur.com/btEtVfd.png"] = "0",
-  ["https://i.imgur.com/w3XbrCC.png"] = "-1",
-  ["https://i.imgur.com/bfTg2hb.png"] = "-2",
-  ["https://i.imgur.com/yfs8gHq.png"] = "-3",
-  ["https://i.imgur.com/qrgGQRD.png"] = "-4",
-  ["https://i.imgur.com/3Ym1IeG.png"] = "-5",
-  ["https://i.imgur.com/c9qdSzS.png"] = "-6",
-  ["https://i.imgur.com/4WRD42n.png"] = "-7",
-  ["https://i.imgur.com/9t3rPTQ.png"] = "-8",
-  ["https://i.imgur.com/stbBxtx.png"] = "Skull",
-  ["https://i.imgur.com/VzhJJaH.png"] = "Cultist",
-  ["https://i.imgur.com/1plY463.png"] = "Tablet",
-  ["https://i.imgur.com/ttnspKt.png"] = "Elder Thing",
-  ["https://i.imgur.com/lns4fhz.png"] = "Auto-fail",
-  ["http://cloud-3.steamusercontent.com/ugc/1655601092778627699/339FB716CB25CA6025C338F13AFDFD9AC6FA8356/"] = "Bless",
-  ["http://cloud-3.steamusercontent.com/ugc/1655601092778636039/2A25BD38E8C44701D80DD96BF0121DA21843672E/"] = "Curse",
-  ["http://cloud-3.steamusercontent.com/ugc/1858293462583104677/195F93C063A8881B805CE2FD4767A9718B27B6AE/"] = "Frost"
+ID_URL_MAP = {
+  ['blue']    = {name = "Elder Sign", url = 'https://i.imgur.com/nEmqjmj.png'},
+  ['p1']      = {name = "+1", url = 'https://i.imgur.com/uIx8jbY.png'},
+  ['0']       = {name = "0", url = 'https://i.imgur.com/btEtVfd.png'},
+  ['m1']      = {name = "-1", url = 'https://i.imgur.com/w3XbrCC.png'},
+  ['m2']      = {name = "-2", url = 'https://i.imgur.com/bfTg2hb.png'},
+  ['m3']      = {name = "-3", url = 'https://i.imgur.com/yfs8gHq.png'},
+  ['m4']      = {name = "-4", url = 'https://i.imgur.com/qrgGQRD.png'},
+  ['m5']      = {name = "-5", url = 'https://i.imgur.com/3Ym1IeG.png'},
+  ['m6']      = {name = "-6", url = 'https://i.imgur.com/c9qdSzS.png'},
+  ['m7']      = {name = "-7", url = 'https://i.imgur.com/4WRD42n.png'},
+  ['m8']      = {name = "-8", url = 'https://i.imgur.com/9t3rPTQ.png'},
+  ['skull']   = {name = "Skull", url = 'https://i.imgur.com/stbBxtx.png'},
+  ['cultist'] = {name = "Cultist", url = 'https://i.imgur.com/VzhJJaH.png'},
+  ['tablet']  = {name = "Tablet", url = 'https://i.imgur.com/1plY463.png'},
+  ['elder']   = {name = "Elder Thing", url = 'https://i.imgur.com/ttnspKt.png'},
+  ['red']     = {name = "Auto-fail", url = 'https://i.imgur.com/lns4fhz.png'},
+  ['bless']   = {name = "Bless", url = 'http://cloud-3.steamusercontent.com/ugc/1655601092778627699/339FB716CB25CA6025C338F13AFDFD9AC6FA8356/'},
+  ['curse']   = {name = "Curse", url = 'http://cloud-3.steamusercontent.com/ugc/1655601092778636039/2A25BD38E8C44701D80DD96BF0121DA21843672E/'},
+	['frost']   = {name = "Frost", url = 'http://cloud-3.steamusercontent.com/ugc/1858293462583104677/195F93C063A8881B805CE2FD4767A9718B27B6AE/'}
 }
 
 ---------------------------------------------------------
 -- data for chaos token stat tracker
 ---------------------------------------------------------
 
-local maxSquid = 0
-
-MAT_GUID_TO_COLOUR = {
-  ["8b081b"] = "White",
-  ["bd0ff4"] = "Orange",
-  ["383d8b"] = "Green",
-  ["0840d5"] = "Red"
+local MAT_GUID_TO_COLOR = {
+  ["Overall"] = "Overall",
+  ["8b081b"]  = "White",
+  ["bd0ff4"]  = "Orange",
+  ["383d8b"]  = "Green",
+  ["0840d5"]  = "Red"
 }
 
-local personalStats = {
-  ["8b081b"] = {},
-  ["bd0ff4"] = {},
-  ["383d8b"] = {},
-  ["0840d5"] = {}
-}
-
-local overallStats = {
-  -- cultist
-  ["https://i.imgur.com/VzhJJaH.png"] = 0,
-  -- skull
-  ["https://i.imgur.com/stbBxtx.png"] = 0,
-  -- tablet
-  ["https://i.imgur.com/1plY463.png"] = 0,
-  -- curse
-  ["http://cloud-3.steamusercontent.com/ugc/1655601092778636039/2A25BD38E8C44701D80DD96BF0121DA21843672E/"] = 0,
-  -- tentacle
-  ["https://i.imgur.com/lns4fhz.png"] = 0,
-  -- minus eight
-  ["https://i.imgur.com/9t3rPTQ.png"] = 0,
-  -- minus seven
-  ["https://i.imgur.com/4WRD42n.png"] = 0,
-  -- minus six
-  ["https://i.imgur.com/c9qdSzS.png"] = 0,
-  -- minus five
-  ["https://i.imgur.com/3Ym1IeG.png"] = 0,
-  -- minus four
-  ["https://i.imgur.com/qrgGQRD.png"] = 0,
-  -- minus three
-  ["https://i.imgur.com/yfs8gHq.png"] = 0,
-  -- minus two
-  ["https://i.imgur.com/bfTg2hb.png"] = 0,
-  -- minus one
-  ["https://i.imgur.com/w3XbrCC.png"] = 0,
-  -- zero
-  ["https://i.imgur.com/btEtVfd.png"] = 0,
-  -- plus one
-  ["https://i.imgur.com/uIx8jbY.png"] = 0,
-  -- elder thing
-  ["https://i.imgur.com/ttnspKt.png"] = 0,
-  -- bless
-  ["http://cloud-3.steamusercontent.com/ugc/1655601092778627699/339FB716CB25CA6025C338F13AFDFD9AC6FA8356/"] = 0,
-  -- elder sign
-  ["https://i.imgur.com/nEmqjmj.png"] = 0,
-  -- frost
-  ["http://cloud-3.steamusercontent.com/ugc/1858293462583104677/195F93C063A8881B805CE2FD4767A9718B27B6AE/"] = 0,
+local tokenDrawingStats = {
+  ["Overall"] = {},
+  ["8b081b"]  = {},
+  ["bd0ff4"]  = {},
+  ["383d8b"]  = {},
+  ["0840d5"]  = {}
 }
 
 ---------------------------------------------------------
@@ -270,13 +232,24 @@ end
 -- chaos token drawing
 ---------------------------------------------------------
 
--- checks scripting zone for chaos bag
+-- checks scripting zone for chaos bag (also called by a lot of objects!)
 function findChaosBag()
-  for _, item in ipairs(getObjectFromGUID("83ef06").getObjects()) do
+  local chaosbag_zone = getObjectFromGUID("83ef06")
+
+  -- error handling: scripting zone not found
+  if chaosbag_zone == nil then
+    printToAll("Zone for chaos bag detection couldn't be found.", "Red")
+    return
+  end
+
+  for _, item in ipairs(chaosbag_zone.getObjects()) do
     if item.getDescription() == "Chaos Bag" then
       return item
     end
   end
+
+  -- error handling: chaos bag not found
+  printToAll("Chaos bag couldn't be found.", "Red")
 end
 
 function returnChaosTokens()
@@ -290,22 +263,20 @@ end
 -- are drawn or replaced a TTS bug can cause those tokens to vanish.  Any functions which change the
 -- contents of the bag should check this method before doing so.
 -- This method will broadcast a message to all players if the bag is being searched.
--- @return Boolean.  True if the bag is manipulated, false if it should be blocked.
+---@return Boolean.  True if the bag is manipulated, false if it should be blocked.
 function canTouchChaosTokens()
   for color, searching in pairs(bagSearchers) do
     if searching then
-      broadcastToAll("Someone is searching the chaos bag, can't touch the tokens", "Red")
+      broadcastToAll("Someone is searching the chaos bag, can't touch the tokens.", "Red")
       return false
     end
   end
-
   return true
 end
 
-function drawChaostoken(params)
-  if not canTouchChaosTokens() then
-    return
-  end
+-- called by playermats (by the "Draw chaos token" button)
+function drawChaosToken(params)
+  if not canTouchChaosTokens() then return end
 
   local mat = params[1]
   local tokenOffset = params[2]
@@ -320,6 +291,7 @@ function drawChaostoken(params)
   end
 
   chaosTokensLastMat = mat
+
   -- if we have left clicked and have no tokens OR if we have right clicked
   if isRightClick or #chaosTokens == 0 then
     if #chaosbag.getObjects() == 0 then return end
@@ -328,11 +300,18 @@ function drawChaostoken(params)
     -- add the token to the list, compute new position based on list length
     tokenOffset[1] = tokenOffset[1] + (0.17 * #chaosTokens)
     local token = chaosbag.takeObject({
-      index = 0,
       position = mat.positionToWorld(tokenOffset),
-      rotation = mat.getRotation(),
-	    callback_function = function(obj) trackChaosToken(obj, mat.getGUID()) end
+      rotation = mat.getRotation()
     })
+
+    -- get data for token description
+    local name = token.getName()
+    local tokenData = mythosAreaApi.returnTokenData().tokenData or {}
+    local specificData = tokenData[name] or {}
+    token.setDescription(specificData.description or "")
+
+    -- track the chaos token (for stat tracker and future returning)
+    trackChaosToken(name, mat.getGUID())
     chaosTokens[#chaosTokens + 1] = token
     return
   else
@@ -355,64 +334,50 @@ end
 -- chaos token stat tracker
 ---------------------------------------------------------
 
-function trackChaosToken(token, matGUID)
-  local image = token.getCustomObject().image
-  overallStats[image]           = (overallStats[image] or 0) + 1
-  personalStats[matGUID][image] = (personalStats[matGUID][image] or 0) + 1
+function trackChaosToken(tokenName, matGUID)
+  tokenDrawingStats["Overall"][tokenName] = (tokenDrawingStats["Overall"][tokenName] or 0) + 1
+  tokenDrawingStats[matGUID][tokenName]   = (tokenDrawingStats[matGUID][tokenName] or 0) + 1
 end
 
+-- Left-click: print stats, Right-click: reset stats
 function handleStatTrackerClick(_, _, isRightClick)
   if isRightClick then
-    resetChaosTokenStats()
+    for key, _ in pairs(tokenDrawingStats) do
+      tokenDrawingStats[key] = {}
+    end
   else
-    printChaosTokenStats()
-  end
-end
+    local squidKing = "Nobody"
+    local maxSquid  = 0
+    local playerColor, playerName
+ 
+    for key, personalStats in pairs(tokenDrawingStats) do
+      if personalStats ~= {} then
+        if key == "Overall" then
+          playerColor = "White"
+          playerName = "Overall"
+        else
+          playerColor = playmatApi.getPlayerColor(MAT_GUID_TO_COLOR[key])
+          playerName = Player[playerColor].steam_name or playerColor
 
-function resetChaosTokenStats()
-  for key, _ in pairs(overallStats) do
-    overallStats[key] = 0
-  end
-  for playerKey, _ in pairs(personalStats) do
-    for key, value in pairs(overallStats) do
-      personalStats[playerKey][key] = value
+          local playerSquidCount = personalStats["Auto-fail"] or 0
+          if playerSquidCount > maxSquid then
+            squidKing = playerName
+            maxSquid = playerSquidCount
+          end
+        end
+      
+        printToAll("------------------------------")
+        printToAll(playerName ..  " Stats", playerColor)
+      
+        for tokenName, value in pairs(personalStats) do
+          if value then
+            printToAll(tokenName .. ': ' .. tostring(value))
+          end
+        end
+      end
     end
-  end
-end
-
-function printChaosTokenStats()
-  local squidKing = "Nobody"
-  printToAll("")
-  printToAll("Overall Stats")
-  printToAll("------------------------------")
-  printNonZeroTokenPairs(overallStats)
-  printToAll("")
-  printToAll("Individual Stats")
-  printToAll("------------------------------")
-  for matGUID, _ in pairs(personalStats) do
-    local playerColour = MAT_GUID_TO_COLOUR[matGUID]
-    local playerSquidCount = personalStats[matGUID]["https://i.imgur.com/lns4fhz.png"] or 0
-    local playerName = playerColour
-    if Player[playerColour].seated then
-      playerName = Player[playerColour].steam_name
-    end
-
-    printToAll(playerName ..  " Stats", playerColour)
-    printNonZeroTokenPairs(personalStats[matGUID])
-
-    if playerSquidCount > maxSquid then
-      squidKing = playerName
-      maxSquid = playerSquidCount
-    end
-  end
-  printToAll(squidKing .. " is an auto-fail magnet.", {255, 0, 0})
-end
-
-function printNonZeroTokenPairs(theTable)
-  for key, value in pairs(theTable) do
-    if value ~= 0 then
-      printToAll(IMAGE_TOKEN_MAP[key] .. ': ' .. tostring(value))
-    end
+    printToAll("------------------------------")
+    printToAll(squidKing .. " is an auto-fail magnet.", {255, 0, 0})
   end
 end
 
@@ -473,63 +438,44 @@ end
 -- called for adding chaos tokens
 ---@param object object Usually "self"
 ---@param key string Name of the scenario
----@param mode string diffculty (e.g. "hard" or "expert")
+---@param mode string difficulty (e.g. "hard" or "expert")
 function fillContainer(args)
-  chaosbag = findChaosBag()
+  local data = getDataValue('modeData', args.key)
+  if data == nil then return end
 
-  if chaosbag ~= nil then
-    local data = getDataValue('modeData', args.key)
-    if data == nil then return end
+  local value = data[args.mode]
+  if value == nil or value.token == nil then return end
 
-    local value = data[args.mode]
-    if value == nil or value.token == nil then return end
+  local tokenList = {}
 
-    local pos = chaosbag.getPosition()
-    if args.object ~= nil then
-      pos = args.object.getPosition()
+  for _, tokenId in ipairs(value.token) do
+    table.insert(tokenList, tokenId)
+  end
+
+  if value.append ~= nil then
+    for _, tokenId in ipairs(value.append) do
+      table.insert(tokenList, tokenId)
     end
+  end
 
-    -- empty the chaos bag
-    for _, item in ipairs(chaosbag.getObjects()) do
-      destroyObject(chaosbag.takeObject({}))
-    end
-
-    for _, token in ipairs(value.token) do
-      local obj = spawnChaosToken(token, pos)
-      if obj ~= nil then
-        chaosbag.putObject(obj)
+  -- randomly choose tokens for specific Carcosa scenarios in standalone
+  if value.random then
+    local n = #value.random
+    if n > 0 then
+      for _, tokenId in ipairs(value.random[math.random(1, n)]) do
+        table.insert(tokenList, tokenId)
       end
     end
+  end
 
-    if value.append ~= nil then
-      for _, token in ipairs(value.append) do
-        local obj = spawnChaosToken(token, pos)
-        if obj ~= nil then
-          chaosbag.putObject(obj)
-        end
-      end
-    end
+  setChaosBagState(tokenList)
 
-    -- randomly choose tokens for specific Carcosa scenarios in standalone
-    if value.random then
-      local n = #value.random
-      if n > 0 then
-        for _, token in ipairs(value.random[math.random(1, n)]) do
-          local obj = spawnChaosToken(token, pos)
-          if obj ~= nil then
-            chaosbag.putObject(obj)
-          end
-        end
-      end
-    end
+  if value.message then
+    broadcastToAll(value.message)
+  end
 
-    if value.message then
-      broadcastToAll(value.message)
-    end
-
-    if value.warning then
-      broadcastToAll(value.warning, { 1, 0.5, 0.5 })
-    end
+  if value.warning then
+    broadcastToAll(value.warning, { 1, 0.5, 0.5 })
   end
 end
 
@@ -554,52 +500,112 @@ function getDataValue(storage, key)
   end
 end
 
-function spawnChaosToken(id, pos)
-  local url = getChaosTokenImageURL(id)
-  if url ~= '' then
-    local obj = spawnObject({
+-- respawns the chaos bag with a new state of tokens
+---@param tokenList Table List of chaos token ids
+function setChaosBagState(tokenList)
+  if not canTouchChaosTokens() then return end
+
+  local chaosbag = findChaosBag()
+  local chaosbagData = chaosbag.getData()
+  local reserveData = getObjectFromGUID("106418").getData()
+  local tokenCache = {}
+  local containedObjects = {}
+
+  -- create a temporary copy of the data for each chaos token
+  for _, objData in ipairs(reserveData.ContainedObjects) do
+    tokenCache[objData.Nickname] = objData
+  end
+
+  -- iterate over tokenlist and insert specified tokens into new table
+  for _, tokenId in ipairs(tokenList) do
+    local tokenName = ID_URL_MAP[tokenId].name
+    table.insert(containedObjects, tokenCache[tokenName])
+  end
+
+  -- overwrite chaos bag content and respawn it
+  chaosbagData.ContainedObjects = containedObjects
+  chaosbag.destruct()
+  spawnObjectData({data = chaosbagData})
+
+  -- remove tokens that are still in play
+  for _, token in pairs(chaosTokens) do
+    if token ~= nil then token.destruct() end
+  end
+  chaosTokens = {}
+  chaosTokensLastMat = nil
+
+  -- reset bless / curse manager
+  blessCurseManagerApi.removeTakenTokensAndReset()
+
+  printToAll("Chaos bag set to chosen difficulty.", "Green")
+end
+
+-- spawns the specified chaos token and puts it into the chaos bag
+---@param id String ID of the chaos token
+function spawnChaosToken(id)
+  if not canTouchChaosTokens() then return end
+
+  id = id:lower()
+  local chaosbag = findChaosBag()
+  local url = ID_URL_MAP[id].url or ""
+
+  if url ~= "" then
+    return spawnObject({
       type = 'Custom_Tile',
-      position = {pos.x, pos.y + 3, pos.z},
-      rotation = {0, 260, 0}
-    })
-    obj.setCustomObject({
+      position = { 0.49, 3, 0 },
+      scale = { 0.81, 1.0, 0.81 },
+      rotation = {0, 270, 0},
+      callback_function = function(obj)
+        obj.setName(ID_URL_MAP[id].name)
+        chaosbag.putObject(obj)
+        tokenArrangerApi.layout()
+      end
+    }).setCustomObject({
       type = 2,
       image = url,
       thickness = 0.1
     })
-    obj.scale {0.81, 1, 0.81}
-    obj.setName(getTokenName({ url=url }))
-    return obj
   end
 end
 
--- chaos bag needs this for renaming chaos tokens
-function getTokenName(params)
-  local name = IMAGE_TOKEN_MAP[params.url]
-    if name == nil then name = "" end
-  return name
+-- removes the specified chaos token from the chaos bag
+---@param id String ID of the chaos token
+function removeChaosToken(id)
+  if not canTouchChaosTokens() then return end
+
+  local tokens = {}
+  local chaosbag = findChaosBag()
+  local name = ID_URL_MAP[id].name
+
+  for _, v in ipairs(chaosbag.getObjects()) do
+    if v.name == name then table.insert(tokens, v.guid) end
+  end
+
+  -- error handling: no matching token found
+  if #tokens == 0 then
+    printToAll("No " .. name .. " tokens in the chaos bag.", "Yellow")
+    return
+  end
+
+  chaosbag.takeObject({
+    guid = tokens[1],
+    smooth = false,
+    callback_function = function(obj)
+      obj.destruct()
+      tokenArrangerApi.layout()
+    end
+  })
+  printToAll("Removing " .. name .. " token (in bag: " .. #tokens - 1 .. ")", "White")
 end
 
--- returns the image url for a chaos token (identified by the "id")
-function getChaosTokenImageURL(id)
-  if id == 'p1' then return 'https://i.imgur.com/uIx8jbY.png' end
-  if id == '0' then return 'https://i.imgur.com/btEtVfd.png' end
-  if id == 'm1' then return 'https://i.imgur.com/w3XbrCC.png' end
-  if id == 'm2' then return 'https://i.imgur.com/bfTg2hb.png' end
-  if id == 'm3' then return 'https://i.imgur.com/yfs8gHq.png' end
-  if id == 'm4' then return 'https://i.imgur.com/qrgGQRD.png' end
-  if id == 'm5' then return 'https://i.imgur.com/3Ym1IeG.png' end
-  if id == 'm6' then return 'https://i.imgur.com/c9qdSzS.png' end
-  if id == 'm7' then return 'https://i.imgur.com/4WRD42n.png' end
-  if id == 'm8' then return 'https://i.imgur.com/9t3rPTQ.png' end
-  if id == 'skull' then return 'https://i.imgur.com/stbBxtx.png' end
-  if id == 'cultist' then return 'https://i.imgur.com/VzhJJaH.png' end
-  if id == 'tablet' then return 'https://i.imgur.com/1plY463.png' end
-  if id == 'elder' then return 'https://i.imgur.com/ttnspKt.png' end
-  if id == 'red' then return 'https://i.imgur.com/lns4fhz.png' end
-  if id == 'blue' then return 'https://i.imgur.com/nEmqjmj.png' end
-	if id == 'frost' then return 'http://cloud-3.steamusercontent.com/ugc/1858293462583104677/195F93C063A8881B805CE2FD4767A9718B27B6AE/' end
-  return ''
+-- empty the chaos bag
+function emptyChaosBag()
+  if not canTouchChaosTokens() then return end
+
+  local chaosbag = findChaosBag()
+  for _, object in ipairs(chaosbag.getObjects()) do
+    chaosbag.takeObject({callback_function = function(item) item.destruct() end})
+  end
 end
 
 ---------------------------------------------------------
