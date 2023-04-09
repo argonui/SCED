@@ -1,14 +1,75 @@
 --[[ Library for cards that seal tokens
 This file is used to add sealing option to cards' context menu.
 Valid options (set before requiring this file):
-SHOW_READ_BAG       -- boolean
-SHOW_SINGLE_RELEASE -- boolean
-SHOW_MULTI_RELEASE  -- number (amount of tokens to release at once)
-VALID_TOKENS        -- table ([tokenName] = true)
-INVALID_TOKENS      -- table ([tokenName] = true)]]
+
+UPDATE_ON_HOVER     --@type: boolean
+  - automatically updates the context menu options when the card is hovered
+  - the "Read Bag" function reads the content of the chaos bag to update the context menu
+  - example usage: "Unrelenting" (to only display valid tokens)
+
+SHOW_SINGLE_RELEASE --@type: boolean
+  - enables an entry in the context menu
+  - this entry allows releasing a single token
+  - example usage: "Holy Spear" (to keep the other tokens and just release one)
+
+SHOW_MULTI_RELEASE  --@type: number (amount of tokens to release at once)
+  - enables an entry in the context menu
+  - this enty allows releasing of multiple tokens at once
+  - example usage: "Nephthys" (to release 3 bless tokens at once)
+
+SHOW_MULTI_SEAL     --@type: number (amount of tokens to seal at once)
+  - enables an entry in the context menu
+  - this entry allows sealing of multiple tokens at once
+  - example usage: "Holy Spear" (to seal two bless tokens at once)
+
+VALID_TOKENS        --@type: table ([tokenName] = true)
+  - this table defines which tokens should be abled to be sealed
+  - needs to be defined for each card -> even if empty
+  - example usage: "The Chthonian Stone"
+    > VALID_TOKENS = {
+    >   ["Skull"]       = true,
+    >   ["Cultist"]     = true,
+    >   ["Tablet"]      = true,
+    >   ["Elder Thing"] = true,
+    > }
+
+INVALID_TOKENS      --@type: table ([tokenName] = true)
+  - this table defines which tokens are invalid for sealing
+  - only needs to be defined if needed
+  - usually combined with empty "VALID_TOKENS" table
+  - example usage: "Protective Incantation" (not allowed to seal Auto-fail)
+
+----------------------------------------------------------
+Example 1: Crystalline Elder Sign
+This card can only seal the "+1" or "Elder Sign" token,
+it does not need specific options for multi-sealing or releasing.
+Thus it should be implemented like this:
+
+> VALID_TOKENS = {
+>   ["+1"] = true,
+>   ["Elder Sign"] = true
+> }
+> require ("playercards/CardsThatSealTokens") -- includes a space after "require" to not executing bundling
+----------------------------------------------------------
+Example 2: Holy Spear
+This card features the following abilities (just listing the relevant parts):
+- releasing a single bless token
+- sealing two bless tokens
+Thus it should be implemented like this:
+
+> VALID_TOKENS = {
+>   ["Bless"] = true
+> }
+> SHOW_SINGLE_RELEASE = true
+> SHOW_MULTI_SEAL = 2
+> require ("playercards/CardsThatSealTokens") -- includes a space after "require" to not executing bundling
+----------------------------------------------------------]]
 
 local blessCurseManagerApi = require("chaosbag/BlessCurseManagerApi")
 local tokenArrangerApi = require("accessories/TokenArrangerApi")
+local sealedTokens = {}
+local ID_URL_MAP = {}
+local tokensInBag = {}
 
 function onSave() return JSON.encode(sealedTokens) end
 
@@ -20,34 +81,18 @@ end
 
 -- builds the context menu
 function generateContextMenu()
-  self.clearContextMenu()
-
-  -- only show this for cards that need a dynamic list of tokens (for example 'Unrelenting')
-  if SHOW_READ_BAG then
-    self.addContextMenuItem("Update list", generateContextMenu)
-    readBag()
-  end
-
   -- conditional single or multi release options
   if SHOW_SINGLE_RELEASE then
     self.addContextMenuItem("Release token", releaseOneToken)
   elseif SHOW_MULTI_RELEASE then
-    self.addContextMenuItem("Release " .. SHOW_MULTI_RELEASE .. " token(s)", function(playerColor)
-      if SHOW_MULTI_RELEASE >= #sealedTokens then
-        for i = 1, SHOW_MULTI_RELEASE do
-          releaseOneToken(playerColor)
-        end
-      else
-        printToColor("Not enough " .. name .. " tokens sealed.", playerColor)
-      end
-    end)
+    self.addContextMenuItem("Release " .. SHOW_MULTI_RELEASE .. " token(s)", releaseMultipleTokens)
   else
-    self.addContextMenuItem("Release token(s)", releaseTokens)
+    self.addContextMenuItem("Release token(s)", releaseAllTokens)
   end
 
   -- main context menu options to seal tokens
   for _, map in pairs(ID_URL_MAP) do
-    if (VALID_TOKENS[map.name] ~= nil) or (SHOW_READ_BAG and tokensInBag[map.name] and not INVALID_TOKENS[map.name]) then
+    if (VALID_TOKENS[map.name] ~= nil) or (UPDATE_ON_HOVER and tokensInBag[map.name] and not INVALID_TOKENS[map.name]) then
       if not SHOW_MULTI_SEAL then
         self.addContextMenuItem("Seal " .. map.name, function(playerColor)
           sealToken(map.name, playerColor)
@@ -88,6 +133,15 @@ function readBag()
   end
 end
 
+-- native event from TTS - used to update the context menu for cards like "Unrelenting"
+function onHover()
+  if UPDATE_ON_HOVER then
+    readBag()
+    self.clearContextMenu()
+    generateContextMenu()
+  end
+end
+
 -- seals the named token on this card
 function sealToken(name, playerColor)
   if not Global.call("canTouchChaosTokens") then return end
@@ -117,7 +171,7 @@ end
 -- release the last sealed token
 function releaseOneToken(playerColor)
   if not Global.call("canTouchChaosTokens") then return end
-  if sealedTokens == {} or #sealedTokens == 0 then
+  if #sealedTokens == 0 then
     printToColor("No sealed token(s) found", playerColor)
   else
     printToColor("Releasing token", playerColor)
@@ -125,8 +179,19 @@ function releaseOneToken(playerColor)
   end
 end
 
+-- release multiple tokens at once
+function releaseMultipleTokens(playerColor)
+  if SHOW_MULTI_RELEASE >= #sealedTokens then
+    for i = 1, SHOW_MULTI_RELEASE do
+      releaseOneToken(playerColor)
+    end
+  else
+    printToColor("Not enough " .. name .. " tokens sealed.", playerColor)
+  end
+end
+
 -- releases all sealed tokens
-function releaseTokens(playerColor)
+function releaseAllTokens(playerColor)
   if not Global.call("canTouchChaosTokens") then return end
   if #sealedTokens == 0 then
     printToColor("No sealed token(s) found", playerColor)

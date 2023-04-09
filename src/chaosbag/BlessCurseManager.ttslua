@@ -1,4 +1,4 @@
-local tokenArrangerApi = require("accessories/TokenArrangerApi")
+local tokenArrangerApi          = require("accessories/TokenArrangerApi")
 
 -- common button parameters
 local buttonParamaters          = {}
@@ -7,11 +7,20 @@ buttonParamaters.color          = { 0, 0, 0, 0 }
 buttonParamaters.width          = 700
 buttonParamaters.height         = 700
 
-local altState = false
-local MODE = { [false] = "Add / Remove",[true] = "Take / Return" }
-local BUTTON_COLOR = { [false] = { 0.4, 0.4, 0.4 },[true] = { 0.9, 0.9, 0.9 } }
-local FONT_COLOR = { [false] = { 1, 1, 1 },[true] = { 0, 0, 0 } }
-local whitespace = "     "
+local altState                  = false
+local MODE                      = {
+    [false] = "Add / Remove",
+    [true]  = "Take / Return"
+}
+local BUTTON_COLOR              = {
+    [false] = { 0.4, 0.4, 0.4 },
+    [true]  = { 0.9, 0.9, 0.9 }
+}
+local FONT_COLOR                = {
+    [false] = { 1, 1, 1 },
+    [true]  = { 0, 0, 0 }
+}
+local whitespace                = "     "
 local updating
 
 ---------------------------------------------------------
@@ -53,7 +62,7 @@ function onLoad(saved_state)
     -- context menu
     self.addContextMenuItem("Remove all", doRemove)
     self.addContextMenuItem("Reset", doReset)
-    
+
     -- initializing tables
     numInPlay = { Bless = 0, Curse = 0 }
     tokensTaken = { Bless = {}, Curse = {} }
@@ -92,14 +101,14 @@ function initializeState()
 end
 
 function broadcastCount(token)
-    local count = getTokenCount(token)
+    local count = formatTokenCount(token)
     if count == "(0/0)" then return end
     broadcastToAll(token .. " Tokens " .. count, "White")
 end
 
-function broadcastStatus(color)
-    broadcastToColor("Curse Tokens " .. getTokenCount("Curse"), color, "White")
-    broadcastToColor("Bless Tokens " .. getTokenCount("Bless"), color, "White")
+function printStatus(color)
+    broadcastToColor("Curse Tokens " .. formatTokenCount("Curse"), color, "White")
+    broadcastToColor("Bless Tokens " .. formatTokenCount("Bless"), color, "White")
 end
 
 -- context menu function 1
@@ -121,8 +130,8 @@ function doRemove(color)
 
     broadcastToColor("Removed " .. count.Bless .. " Bless and " ..
         count.Curse .. " Curse tokens from the chaos bag.", color, "White")
-    broadcastToColor("Removed " .. removeType("Bless") .. " Bless and " ..
-        removeType("Curse") .. " Curse tokens from play.", color, "White")
+    broadcastToColor("Removed " .. removeTakenTokens("Bless") .. " Bless and " ..
+        removeTakenTokens("Curse") .. " Curse tokens from play.", color, "White")
 
     doReset(color)
 end
@@ -137,7 +146,7 @@ function doReset(color)
 end
 
 -- removing tokens that were 'taken'
-function removeType(type)
+function removeTakenTokens(type)
     local count = 0
     for _, guid in ipairs(tokensTaken[type]) do
         local token = getObjectFromGUID(guid)
@@ -231,7 +240,8 @@ function callFunctions(token, isRightClick)
     if success ~= 0 then tokenArrangerApi.layout() end
 end
 
-function getTokenCount(type)
+-- returns a formatted string with information about the provided token type (bless / curse)
+function formatTokenCount(type)
     if type == nil then type = mode end
     return "(" .. (numInPlay[type] - #tokensTaken[type]) .. "/" .. #tokensTaken[type] .. ")"
 end
@@ -254,10 +264,10 @@ function releasedToken(param)
     end
     if not updating then
         updating = true
-        Wait.time(function()
+        Wait.frames(function()
             broadcastCount(param.type)
             updating = false
-        end, 0.1)
+        end, 1)
     end
 end
 
@@ -271,7 +281,7 @@ function addToken(type)
         return 0
     end
     numInPlay[type] = numInPlay[type] + 1
-    printToAll("Adding " .. type .. " token " .. getTokenCount(type))
+    printToAll("Adding " .. type .. " token " .. formatTokenCount(type))
     return Global.call("spawnChaosToken", type)
 end
 
@@ -300,11 +310,11 @@ function takeToken(type, remove)
         callback_function = function(obj)
             if remove then
                 numInPlay[type] = numInPlay[type] - 1
-                printToAll("Removing " .. type .. " token " .. getTokenCount(type))
+                printToAll("Removing " .. type .. " token " .. formatTokenCount(type))
                 obj.destruct()
             else
                 table.insert(tokensTaken[type], obj.getGUID())
-                printToAll("Taking " .. type .. " token " .. getTokenCount(type))
+                printToAll("Taking " .. type .. " token " .. formatTokenCount(type))
             end
         end
     })
@@ -326,7 +336,7 @@ function returnToken(type)
         return 0
     end
     chaosbag.putObject(token)
-    printToAll("Returning " .. type .. " token " .. getTokenCount(type))
+    printToAll("Returning " .. type .. " token " .. formatTokenCount(type))
 end
 
 ---------------------------------------------------------
@@ -382,7 +392,7 @@ function sealToken(type, playerColor, enemy)
                     Wait.frames(function()
                         table.insert(sealedTokens[enemy.getGUID()], obj)
                         table.insert(tokensTaken[type], obj.getGUID())
-                        printToColor("Sealing " .. type .. " token " .. getTokenCount(type), playerColor)
+                        printToColor("Sealing " .. type .. " token " .. formatTokenCount(type), playerColor)
                     end, 1)
                 end
             })
@@ -406,7 +416,7 @@ function releaseToken(type, playerColor, enemy)
                 if v == guid then
                     table.remove(tokensTaken[type], j)
                     table.remove(tokens, i)
-                    printToColor("Releasing " .. type .. " token" .. getTokenCount(type), playerColor)
+                    printToColor("Releasing " .. type .. " token" .. formatTokenCount(type), playerColor)
                     return
                 end
             end

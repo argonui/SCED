@@ -620,6 +620,7 @@ function onCollisionEnter(collision_info)
 
   if isInDeckZone(object) then
     tokenManager.resetTokensSpawned(object)
+    removeTokensFromObject(object)
   elseif shouldSpawnTokens(object) then
     spawnTokensFor(object)
   end
@@ -630,28 +631,35 @@ function onCollisionExit(collision_info)
   if collision_info.collision_object.getName() == "Dream-Enhancing Serum" then isDES = false end
 end
 
+-- checks if tokens should be spawned for the provided card
 function shouldSpawnTokens(card)
   if card.is_face_down then
     return false
   end
+  
   local localCardPos = self.positionToLocal(card.getPosition())
   local metadata = JSON.decode(card.getGMNotes())
+
   -- If no metadata we don't know the type, so only spawn in the main area
   if metadata == nil then
     return inArea(localCardPos, MAIN_PLAY_AREA)
   end
-  -- Spawn tokens for assets and events on the main area, and all encounter types in the threat area
+
+  -- Spawn tokens for assets and events on the main area
   if inArea(localCardPos, MAIN_PLAY_AREA)
       and (metadata.type == "Asset"
       or metadata.type == "Event") then
     return true
   end
+
+  -- Spawn tokens for all encounter types in the threat area
   if inArea(localCardPos, THREAT_AREA)
       and (metadata.type == "Treachery"
       or metadata.type == "Enemy"
       or metadata.weakness) then
     return true
   end
+
   return false
 end
 
@@ -662,14 +670,17 @@ end
 function resetTokensIfInDeckZone(container, object)
   if isInDeckZone(container) then
     tokenManager.resetTokensSpawned(object)
+    removeTokensFromObject(container)
   end
 end
 
+-- checks if an object is in this mats deckzone
 function isInDeckZone(checkObject)
   local deckZone = getObjectFromGUID(zoneID)
   if deckZone == nil then
     return false
   end
+
   for _, obj in ipairs(deckZone.getObjects()) do
     if obj == checkObject then
       return true
@@ -677,6 +688,21 @@ function isInDeckZone(checkObject)
   end
 
   return false
+end
+
+-- removes tokens from the provided card/deck
+function removeTokensFromObject(object)
+  for _, v in ipairs(searchArea(object.getPosition(), { 3, 1, 4 })) do
+    local obj = v.hit_object
+    -- don't remove the table surface, self, any decks/cards or chaos tokens
+    if obj.getGUID() ~= "4ee1f2" and
+        obj ~= self and
+        obj.type ~= "Deck" and
+        obj.type ~= "Card" and
+        not tokenChecker.isChaosToken(obj) then
+      TRASHCAN.putObject(obj)
+    end
+  end
 end
 
 ---------------------------------------------------------
