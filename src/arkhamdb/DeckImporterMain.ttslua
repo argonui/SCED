@@ -1,6 +1,7 @@
 require("arkhamdb/DeckImporterUi")
 require("playercards/PlayerCardSpawner")
 
+local playmatApi = require("playermat/PlaymatApi")
 local playAreaApi = require("core/PlayAreaApi")
 local arkhamDb = require("arkhamdb/ArkhamDb")
 local zones = require("playermat/Zones")
@@ -104,7 +105,8 @@ end
 --     from a parent bonded card.
 ---@param customizations String ArkhamDB data for customizations on customizable cards
 ---@param playerColor String Color name of the player mat to place this deck on (e.g. "Red")
-function loadCards(slots, investigatorId, bondedList, customizations, playerColor)
+---@param loadAltInvestigator String Contains the name of alternative art for the investigator ("normal", "revised" or "promo")
+function loadCards(slots, investigatorId, bondedList, customizations, playerColor, loadAltInvestigator)
   function coinside()
     local allCardsBag = getObjectFromGUID(ALL_CARDS_GUID)
     local yPos = {}
@@ -148,6 +150,8 @@ function loadCards(slots, investigatorId, bondedList, customizations, playerColo
         callback = function(deck) deck.spread(spreadDistance) end
       elseif zone == "Deck" then
         callback = function(deck) deckSpawned(deck, playerColor) end
+      elseif zone == "Investigator" or zone == "Minicard" then
+        callback = function(card) loadAltArt(card, loadAltInvestigator) end
       end
       Spawner.spawnCards(
           zoneCards,
@@ -181,7 +185,8 @@ end
 ---@param deck Object Callback-provided spawned deck object
 ---@param playerColor String Color of the player to draw the cards to
 function deckSpawned(deck, playerColor)
-  local handPos = Player[playerColor].getHandTransform(1).position -- Only one hand zone per player
+  local player = Player[playmatApi.getPlayerColor(playerColor)]
+  local handPos = player.getHandTransform(1).position -- Only one hand zone per player
   local deckCards = deck.getData().ContainedObjects
   -- Process in reverse order so taking cards out doesn't upset the indexing
   for i = #deckCards, 1, -1 do
@@ -417,6 +422,51 @@ function handleCustomizableUpgrades(cardList, customizations)
       end
     end
   end
+end
+
+-- Callback function for investigator cards and minicards to set the correct state for alt art
+---@param card Object Card which needs to be set the state for
+---@param loadAltInvestigator String Contains the name of alternative art for the investigator ("normal", "revised" or "promo")
+function loadAltArt(card, loadAltInvestigator)
+  if loadAltInvestigator == "normal" then return end
+
+  -- lookup correct stateId for investigator and alt art state
+  local baseId = string.gsub(JSON.decode(card.getGMNotes()).id, "-m", "")
+
+  local stateIdTable = {}
+  -- Roland Banks
+  stateIdTable["01001"] = {}
+  stateIdTable["01001"]["revised"] = 2
+  stateIdTable["01001"]["promo"] = 3
+  -- Daisy Walker
+  stateIdTable["01002"] = {}
+  stateIdTable["01002"]["revised"] = 2
+  -- "Skids" O'Toole
+  stateIdTable["01003"] = {}
+  stateIdTable["01003"]["revised"] = 2
+  -- Agnes Baker
+  stateIdTable["01004"] = {}
+  stateIdTable["01004"]["revised"] = 2
+  -- Wendy Adams
+  stateIdTable["01005"] = {}
+  stateIdTable["01005"]["revised"] = 2
+  -- Jenny Barnes
+  stateIdTable["02003"] = {}
+  stateIdTable["02003"]["promo"] = 2
+  -- Carolyn Fern
+  stateIdTable["05001"] = {}
+  stateIdTable["05001"]["promo"] = 2
+  -- Dexter Drake
+  stateIdTable["07004"] = {}
+  stateIdTable["07004"]["promo"] = 2
+  -- Silas Marsh
+  stateIdTable["07005"] = {}
+  stateIdTable["07005"]["promo"] = 2
+  -- Norman Withers
+  stateIdTable["08004"] = {}
+  stateIdTable["08004"]["promo"] = 2
+
+  card.setState(stateIdTable[baseId][loadAltInvestigator])
 end
 
 function log(message)

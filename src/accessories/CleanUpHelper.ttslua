@@ -2,77 +2,73 @@
 Cleans up the table for the next scenario in a campaign:
 - sets counters to default values (resources and doom) or trauma values (health and sanity, if not disabled) from campaign log
 - puts everything on playmats and hands into respective trashcans
-- use the IGNORE_TAG to exclude objects from tidying (default: "CleanUpHelper_Ignore")
---]]
-
-local tokenSpawnTrackerApi = require("core/token/TokenSpawnTrackerApi")
-local soundCubeApi = require("core/SoundCubeApi")
-
--- enable this for debugging
-local SHOW_RAYS = false
+- use the IGNORE_TAG to exclude objects from tidying (default: "CleanUpHelper_Ignore")]]
+local tokenSpawnTrackerApi      = require("core/token/TokenSpawnTrackerApi")
+local soundCubeApi              = require("core/SoundCubeApi")
+local playmatApi                = require("playermat/PlaymatApi")
 
 -- these objects will be ignored
-local IGNORE_GUIDS = {
+local IGNORE_GUIDS              = {
   -- big playmat, change image panel and investigator counter
-  "b7b45b"; "f182ee"; "721ba2";
+  "b7b45b", "f182ee", "721ba2",
   -- bless/curse manager
-  "afa06b"; "bd0253"; "5933fb";
+  "afa06b", "bd0253", "5933fb",
   -- stuff on agenda/act playmat
-  "85c4c6"; "4a3aa4"; "fea079"; "b015d8"; "11e0cf"; "9f334f"; "70b9f6"; "0a5a29";
+  "85c4c6", "4a3aa4", "fea079", "b015d8", "11e0cf", "9f334f", "70b9f6", "0a5a29",
   -- doom/location token bag
-  "47ffc3"; "170f10";
+  "47ffc3", "170f10",
   -- table
   "4ee1f2"
 }
 
 -- objects with this tag will be ignored
-local IGNORE_TAG = "CleanUpHelper_ignore"
+local IGNORE_TAG                = "CleanUpHelper_ignore"
 
 -- colors and order for following tables
-local COLORS = { "White"; "Orange"; "Green"; "Red"; "Agenda" }
+local COLORS                    = { "White", "Orange", "Green", "Red", "Agenda" }
 
 -- counter GUIDS (4x damage and 4x horror)
-local DAMAGE_HORROR_GUIDS = {
-  "eb08d6"; "e64eec"; "1f5a0a"; "591a45";
-  "468e88"; "0257d9"; "7b5729"; "beb964";
+local DAMAGE_HORROR_GUIDS       = {
+  "eb08d6", "e64eec", "1f5a0a", "591a45",
+  "468e88", "0257d9", "7b5729", "beb964",
 }
 
-local RESET_VALUES = {}
+local RESET_VALUES              = {}
 
 -- GUIDS of objects (in order of ownership relating to 'COLORS')
-local PLAYERMAT_GUIDS    = { "8b081b"; "bd0ff4"; "383d8b"; "0840d5" }
-local RESOURCE_GUIDS     = { "4406f0"; "816d84"; "cd15ac"; "a4b60d" }
-local TRACKER_GUIDS      = { "e598c2"; "b4a5f7"; "af7ed7"; "e74881" }
-local CLUE_GUIDS         = { "d86b7c"; "1769ed"; "032300"; "37be78" }
-local CLUE_CLICKER_GUIDS = { "db85d6"; "3f22e5"; "891403"; "4111de" }
-local TRASHCAN_GUIDS     = { "147e80"; "f7b6c8"; "5f896a"; "4b8594"; "70b9f6" }
+local PLAYERMAT_GUIDS           = { "8b081b", "bd0ff4", "383d8b", "0840d5" }
+local RESOURCE_GUIDS            = { "4406f0", "816d84", "cd15ac", "a4b60d" }
+local TRACKER_GUIDS             = { "e598c2", "b4a5f7", "af7ed7", "e74881" }
+local CLUE_GUIDS                = { "d86b7c", "1769ed", "032300", "37be78" }
+local CLUE_CLICKER_GUIDS        = { "db85d6", "3f22e5", "891403", "4111de" }
+local TRASHCAN_GUIDS            = { "147e80", "f7b6c8", "5f896a", "4b8594", "70b9f6" }
 
 -- values for physics.cast (4 entries for player zones, 5th entry for agenda/act deck, 6th for campaign log)
-local PHYSICS_POSITION = {
-  { -54.5, 2, 21 };
-  { -54.5, 2, -21 };
-  { -27.0, 2, 26 };
-  { -27.0, 2, -26 };
-  { -02.0, 2, 10 };
+local PHYSICS_POSITION          = {
+  { -54.5, 2, 21 },
+  { -54.5, 2, -21 },
+  { -27.0, 2, 26 },
+  { -27.0, 2, -26 },
+  { -02.0, 2, 10 },
   { -00.0, 2, -27 }
 }
 
-local PHYSICS_ROTATION = { 270, 270, 0, 180, 270, 0 }
+local PHYSICS_ROTATION          = { 270, 270, 0, 180, 270, 0 }
 
-local PHYSICS_SCALE = {
-  { 36.6, 1, 14.5 };
-  { 36.6, 1, 14.5 };
-  { 34.0, 1, 14.5 };
-  { 34.0, 1, 14.5 };
-  { 55.0, 1, 13.5 };
+local PHYSICS_SCALE             = {
+  { 36.6, 1, 14.5 },
+  { 36.6, 1, 14.5 },
+  { 34.0, 1, 14.5 },
+  { 34.0, 1, 14.5 },
+  { 55.0, 1, 13.5 },
   { 05.0, 1, 05.0 }
 }
 
-local optionsVisible        = false
-local options               = {}
-options["importTrauma"]     = true
-options["tidyPlayermats"]   = true
-options["removeDrawnLines"] = false
+local optionsVisible            = false
+local options                   = {}
+options["importTrauma"]         = true
+options["tidyPlayermats"]       = true
+options["removeDrawnLines"]     = false
 
 local buttonParameters          = {}
 buttonParameters.function_owner = self
@@ -82,9 +78,7 @@ buttonParameters.function_owner = self
 ---------------------------------------------------------
 
 function onSave()
-  return JSON.encode({
-    options = options
-  })
+  return JSON.encode({ options = options })
 end
 
 function onLoad(savedData)
@@ -214,7 +208,7 @@ function resetSkillTrackers()
     if obj ~= nil then
       obj.call("updateStats", { 1, 1, 1, 1 })
     else
-      printToAll("Skill tracker number " .. i .. " could not be found.", "Yellow")
+      printToAll("Skill tracker for " .. COLORS[i] .. " playmat could not be found.", "Yellow")
     end
   end
 end
@@ -240,8 +234,8 @@ end
 -- read values for trauma from campaign log if enabled
 function getTrauma()
   RESET_VALUES = {
-    0; 0; 0; 0;
-    0; 0; 0; 0
+    0, 0, 0, 0,
+    0, 0, 0, 0
   }
 
   -- stop here if trauma import is disabled
@@ -297,7 +291,7 @@ function discardHands()
   for i = 1, 4 do
     local trashcan = getObjectFromGUID(TRASHCAN_GUIDS[i])
     if trashcan == nil then return end
-    local hand = Player[COLORS[i]].getHandObjects()
+    local hand = Player[playmatApi.getPlayerColor(COLORS[i])].getHandObjects()
     for j = #hand, 1, -1 do
       trashcan.putObject(hand[j])
     end
@@ -340,7 +334,7 @@ function tidyPlayerMatCoroutine()
       local trashcan = getObjectFromGUID(TRASHCAN_GUIDS[i])
       if trashcan == nil then
         printToAll("Trashcan for " .. COLORS[i] .. " playmat could not be found!", "Red")
-        return
+        return 1
       end
 
       for _, entry in ipairs(findObjects(i)) do
@@ -391,7 +385,7 @@ function findObjects(num)
     size         = PHYSICS_SCALE[num],
     origin       = PHYSICS_POSITION[num],
     orientation  = { 0, PHYSICS_ROTATION[num], 0 },
-    debug        = SHOW_RAYS
+    debug        = false
   })
 end
 
