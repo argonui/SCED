@@ -197,7 +197,6 @@ function onLoad(saved_data)
   editing = false
   claiming = false
   selectedEditButton = -1
-
   editPos = { 0, 0, 0 }
   editPitch = 0
   editYaw = 0
@@ -205,12 +204,11 @@ function onLoad(saved_data)
 
   if saved_data ~= "" then
     local loaded_data = JSON.decode(saved_data)
-
     cameraParams = loaded_data.cameras
     fullVisibility = loaded_data.fullVis
     playVisibility = loaded_data.playVis
-    local allclaims = loaded_data.claims
 
+    local allclaims = loaded_data.claims
     for i = 1, 4 do
       playermatData[i].claims = allclaims[i]
     end
@@ -285,7 +283,7 @@ function displayPlayArea(object, color)
     colors = { getIndexForPlayerColor(color) }
   end
 
-  for i, v in ipairs(colors) do
+  for _, v in ipairs(colors) do
     if v > 0 then
       fullVisibility[v] = false
       playVisibility[v] = true
@@ -334,7 +332,7 @@ function closeOverlay(object, color)
     colors = { getIndexForPlayerColor(color) }
   end
 
-  for iv, v in ipairs(colors) do
+  for _, v in ipairs(colors) do
     if v > 0 then
       fullVisibility[v] = false
       playVisibility[v] = false
@@ -356,7 +354,7 @@ function resizeOverlay(object, color)
     colors = { getIndexForPlayerColor(color) }
   end
 
-  for iv, v in ipairs(colors) do
+  for _, v in ipairs(colors) do
     if v > 0 then
       local full = fullVisibility[v]
       fullVisibility[v] = not full
@@ -429,7 +427,7 @@ function resetOverlay()
         [[" allowDragging="true" returnToOriginalPositionWhenReleased="false" rectAlignment="LowerRight" offsetXY="-40 0">
             <image id="backgroundImage" image="OverlayLarge" />]]
 
-    for i, d in ipairs(data) do
+    for _, d in ipairs(data) do
       local buttonID = tonumber(d.id)
 
       if editing and buttonID < 19 then
@@ -474,7 +472,7 @@ function resetOverlay()
         [[" allowDragging="true" returnToOriginalPositionWhenReleased="false" rectAlignment="LowerRight" offsetXY="-40 0">
             <image id="backgroundImage" image="OverlaySmall" />]]
 
-    for i, d in ipairs(data) do
+    for _, d in ipairs(data) do
       local buttonID = tonumber(d.id)
 
       if editing and buttonID < 19 then
@@ -514,8 +512,8 @@ function resetOverlay()
   local largeOverlay = nil
   local smallOverlay = nil
 
-  for i, v in pairs(existingAssets) do
-    for ii, vv in pairs(v) do
+  for _, v in pairs(existingAssets) do
+    for _, vv in pairs(v) do
       if vv == 'OverlayLarge' then
         largeOverlay = v
       end
@@ -548,12 +546,11 @@ end
 function buttonClicked(player, _, idValue)
   local buttonID = tonumber(idValue)
 
-  if buttonID >= 19 then
-    if buttonID == 19 then
-      resizeOverlay(nil, player.color)
-    elseif buttonID == 20 then
-      closeOverlay(nil, player.color)
-    end
+  if buttonID == 19 then
+    resizeOverlay(nil, player.color)
+    return
+  elseif buttonID == 20 then
+    closeOverlay(nil, player.color)
     return
   end
 
@@ -637,7 +634,7 @@ function loadCamera(player, _, idValue)
     local minZ = 100
     local maxZ = -100
 
-    for i, v in pairs(mapObjects) do
+    for _, v in pairs(mapObjects) do
       local obj = v.hit_object
 
       if obj.type == 'Card' or obj.type == 'Infinite' then
@@ -647,32 +644,19 @@ function loadCamera(player, _, idValue)
         local z1 = bounds['center'][3] - bounds['size'][3] / 2
         local z2 = bounds['center'][3] + bounds['size'][3] / 2
 
-        if x1 < minX then
-          minX = x1
-        end
-        if x2 > maxX then
-          maxX = x2
-        end
-        if z1 < minZ then
-          minZ = z1
-        end
-        if z2 > maxZ then
-          maxZ = z2
-        end
+        minX = math.min(x1, minX)
+        maxX = math.max(x2, maxX)
+        minZ = math.min(z1, minZ)
+        maxZ = math.max(z2, maxZ)
       end
     end
 
     if minX < 100 then
       local dx = maxX - minX
-      local dz = (maxZ - minZ) / (1.6) -- screen ratio * 1.2 (for my macbook pro, no idea how to generalize this)
-      local centerX = (minX + maxX) /
-          2                            -- - dx*0.12   -- offset is to move it a bit up, so the cards don't block anything
+      local dz = (maxZ - minZ) / (1.6)  -- screen ratio * 1.2 (for my macbook pro, no idea how to generalize this)
+      local centerX = (minX + maxX) / 2 -- offset is to move it a bit up, so the cards don't block anything
       local centerZ = (minZ + maxZ) / 2
-
-      local scale = dx
-      if dz > dx then
-        scale = dz
-      end
+      local scale = math.max(dx, dz)
 
       -- regression line from the following data points, seems linear
       -- rows 1 scale 4.5   d 12
@@ -682,13 +666,8 @@ function loadCamera(player, _, idValue)
       -- rows 5 scale 23.25 d 28
       -- rows 6 scale 30.8  d 34
 
-      -- local d = 0.8685 * scale + 7.4505
-
       -- modified by testing
-      -- local d = 0.8685 * scale + 5
-      -- local d = 1.04 * scale + 5
       local d = 0.96 * scale + 5
-
       player.lookAt({ position = { centerX, 0, centerZ }, pitch = 74, yaw = 90, distance = d })
     else
       player.lookAt({ position = { -30.667, 0, 0 }, pitch = 74, yaw = 90, distance = 32 })
@@ -721,75 +700,42 @@ function loadCamera(player, _, idValue)
 
       for i, v in pairs(matObjects) do
         local obj = v.hit_object
-
         if obj.type == 'Card' or obj.type == 'Infinite' then
           local bounds = obj.getBounds()
-
           local x1 = bounds['center'][1] - bounds['size'][1] / 2
           local x2 = bounds['center'][1] + bounds['size'][1] / 2
           local z1 = bounds['center'][3] - bounds['size'][3] / 2
           local z2 = bounds['center'][3] + bounds['size'][3] / 2
 
-          if x1 < minX then
-            minX = x1
-          end
-          if x2 > maxX then
-            maxX = x2
-          end
-          if z1 < minZ then
-            minZ = z1
-          end
-          if z2 > maxZ then
-            maxZ = z2
-          end
+          minX = math.min(x1, minX)
+          maxX = math.max(x2, maxX)
+          minZ = math.min(z1, minZ)
+          maxZ = math.max(z2, maxZ)
         end
       end
 
-      local dx
-      local dz
-      local centerX
-      local centerZ
-      local scale
-      local yaw
-      local d
+      local dx, dz, centerX, centerZ, yaw
 
       -- White/Orange
       if index > 3 and index < 6 then
         dx = maxX - minX
         dz = (maxZ - minZ) / 1.6 -- screen ratio * 1.2 (for my macbook pro, no idea how to generalize this)
-
-        -- offset is to move it a bit up, so the cards don't block anything
-        centerX = (minX + maxX) / 2 - dx * playermatData[newMatIndex].xOffset
-
-        -- offset is to move it right a bit, so the toolbar doesn't block anything
-        centerZ = (minZ + maxZ) / 2 + dz * playermatData[newMatIndex].zOffset
         yaw = 90
 
-        scale = dx
-        if dz > dx then
-          scale = dz
-        end
-
-        d = 0.64 * scale + 7
-      else                       -- Green/Red
-        dx = (maxX - minX) / 1.6 -- screen ratio * 1.2 (for my macbook pro, no idea how to generalize this)
+        -- offset is to move it a bit up and right, so the cards/toolbar don't block anything
+        centerX = (minX + maxX) / 2 - dx * playermatData[newMatIndex].xOffset
+        centerZ = (minZ + maxZ) / 2 + dz * playermatData[newMatIndex].zOffset
+      -- Green/Red
+      else                       
+        dx = (maxX - minX) / 1.6
         dz = maxZ - minZ
-
+        yaw = playermatData[newMatIndex].orientation.y + 180
         centerX = (minX + maxX) / 2 + dx * playermatData[newMatIndex].zOffset
         centerZ = (minZ + maxZ) / 2 - dz * playermatData[newMatIndex].xOffset
-        yaw = playermatData[newMatIndex].orientation.y + 180
-
-        scale = dz
-        if dx > dz then
-          scale = dx
-        end
-
-        d = 0.64 * scale + 7
       end
 
-      -- 15.46 -> 17.081
-      -- 18.88 -> 19.33
-      -- 24.34 -> 22.6
+      local scale = math.max(dx, dz)
+      local d = 0.64 * scale + 7
 
       -- need to wait if the player color changed
       Wait.frames(function()
@@ -882,13 +828,10 @@ function getPlayerColorForIndex(index)
   end
 
   local guid = playermatData[index]['guid']
-
   if guid ~= nil then
     local mat = getObjectFromGUID(guid)
     return mat.getVar("playerColor")
   end
-
-  return nil
 end
 
 function getIndexForPlayerColor(color)
