@@ -108,8 +108,9 @@ function onSave() return JSON.encode({ optionPanel = optionPanel, dontNotify = d
 
 function onLoad(savedData)
   if savedData then
-    loadedData = JSON.decode(savedData)
+    loadedData  = JSON.decode(savedData)
     optionPanel = loadedData.optionPanel
+    dontNotify  = loadedData.dontNotify
     updateOptionPanelState()
   else
     print("Saved state could not be found!")
@@ -1056,16 +1057,25 @@ function compareVersion(request)
     return
   end
 
-  local metatable = JSON.decode(request.text)
-  local latestVersion = metatable["latestVersion"]
-  --if MOD_VERSION == latestVersion then return end
-  if dontNotify[latestVersion] then return end
+  -- global variable to make it accessible for other functions
+  modMeta = JSON.decode(request.text)
 
-  local releaseNotes = metatable["releaseNotes"][latestVersion]
+  -- stop here if on latest version or "don't show again" was clicked
+  --if MOD_VERSION == modMeta["latestVersion"] then return end
+  if dontNotify[modMeta["latestVersion"]] then return end
+
+  local releaseNotes = modMeta["releaseNotes"][modMeta["latestVersion"]]
   if releaseNotes == nil then
     log("Release notes for latest version not found!")
   else
+    -- updating the XML notification
     local ui = UI.getXmlTable()
+
+    -- update the header
+    local header = find_tag_with_id(ui, 'versionHeader')
+    header.value = "New Version available: " .. modMeta["latestVersion"] .. " (current: " .. MOD_VERSION .. ")"
+
+    -- update the release notes
     local releaseNoteWrapper = find_tag_with_id(ui, 'releaseNoteWrapper')
     releaseNoteWrapper.children = {}
   
@@ -1076,21 +1086,17 @@ function compareVersion(request)
           attributes = { class="releaseNote" }
         })
     end
-
-    local header = find_tag_with_id(ui, 'versionHeader')
-    header.value = "New Version available: " .. latestVersion .. " (current: " .. MOD_VERSION .. ")"
     UI.setXmlTable(ui)
-  end
 
-  -- small delay to avoid lagging
-  Wait.time(function() UI.show("updateNotification") end, 1)
+    -- small delay to avoid lagging
+    Wait.time(function() UI.show("updateNotification") end, 1)
+  end
 end
 
 -- close / don't show again buttons on the XML use this
 function onClick_notification(_, parameter)
   if parameter == "dontNotify" then
-    dontNotify[latestVersion] = true
+    dontNotify[modMeta["latestVersion"]] = true
   end
-
   UI.hide("updateNotification")
 end
