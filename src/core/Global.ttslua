@@ -39,6 +39,12 @@ local mythosAreaApi = require("core/MythosAreaApi")
 local tokenArrangerApi = require("accessories/TokenArrangerApi")
 local blessCurseManagerApi = require("chaosbag/BlessCurseManagerApi")
 
+-- online functionality related variables
+local MOD_VERSION = "3.1.0"
+local SOURCE_REPO = 'https://raw.githubusercontent.com/chr1z93/loadable-objects/main'
+local library, requestObj
+local dontNotify = {}
+
 ---------------------------------------------------------
 -- data for tokens
 ---------------------------------------------------------
@@ -98,7 +104,7 @@ local tokenDrawingStats = {
 ---------------------------------------------------------
 
 -- saving state of optionPanel to restore later
-function onSave() return JSON.encode({ optionPanel = optionPanel }) end
+function onSave() return JSON.encode({ optionPanel = optionPanel, dontNotify = dontNotify }) end
 
 function onLoad(savedData)
   if savedData then
@@ -114,6 +120,7 @@ function onLoad(savedData)
     if obj ~= nil then obj.interactable = false end
   end
 
+  getModVersion()
   math.randomseed(os.time())
 end
 
@@ -613,21 +620,17 @@ end
 -- Content Importing and XML functions
 ---------------------------------------------------------
 
-local source_repo = 'https://raw.githubusercontent.com/chr1z93/loadable-objects/main'
-local library = nil
-local request_obj
-
 function onClick_refreshList()
-  local request = WebRequest.get(source_repo .. '/library.json', completed_list_update)
-  request_obj = request
+  local request = WebRequest.get(SOURCE_REPO .. '/library.json', completed_list_update)
+  requestObj = request
   startLuaCoroutine(Global, 'downloadCoroutine')
 end
 
 function onClick_select(player, params)
   params = JSON.decode(urldecode(params))
-  local url = source_repo .. '/' .. params.url
+  local url = SOURCE_REPO .. '/' .. params.url
   local request = WebRequest.get(url, function (request) complete_obj_download(request, params) end )
-  request_obj = request
+  requestObj = request
   startLuaCoroutine(Global, 'downloadCoroutine')
 end
 
@@ -656,8 +659,8 @@ function onClick_toggleUi(_, title)
 end
 
 function downloadCoroutine()
-  while request_obj do
-    UI.setAttribute('download_progress', 'percentage', request_obj.download_progress * 100)
+  while requestObj do
+    UI.setAttribute('download_progress', 'percentage', requestObj.download_progress * 100)
     coroutine.yield(0)
   end
   return 1
@@ -731,7 +734,7 @@ function complete_obj_download(request, params)
     end
   end
 
-  request_obj = nil
+  requestObj = nil
   UI.setAttribute('download_progress', 'percentage', 100)
 end
 
@@ -755,7 +758,7 @@ function completed_list_update(request)
     end
   end
 
-  request_obj = nil
+  requestObj = nil
   UI.setAttribute('download_progress', 'percentage', 100)
 end
 
@@ -1033,4 +1036,61 @@ function titleSplash(scenarioName)
 
     soundCubeApi.playSoundByName("Deep Bell")
   end
+end
+
+---------------------------------------------------------
+-- Update Notification related functionality
+---------------------------------------------------------
+
+-- grabs the latest mod version and release notes from GitHub
+-- this is called onLoad()
+function getModVersion()
+  WebRequest.get(SOURCE_REPO .. '/modversion.json', compareVersion)
+end
+
+-- compares the modversion with GitHub and reports if a new version is available
+-- this is called as callback_function from getModVersion()
+function compareVersion(request)
+  if request.is_error then
+    log(request.error)
+    return
+  end
+
+  local metatable = JSON.decode(request.text)
+  local latestVersion = metatable["latestVersion"]
+  --if MOD_VERSION == latestVersion then return end
+  if dontNotify[latestVersion] then return end
+
+  local releaseNotes = metatable["releaseNotes"][latestVersion]
+  if releaseNotes == nil then
+    log("Release notes for latest version not found!")
+  else
+    local ui = UI.getXmlTable()
+    local releaseNoteWrapper = find_tag_with_id(ui, 'releaseNoteWrapper')
+    releaseNoteWrapper.children = {}
+  
+    for _, entry in pairs(releaseNotes["Highlights"]) do
+       table.insert(releaseNoteWrapper.children,
+        { tag = 'Text',
+          value = entry,
+          attributes = { class="releaseNote" }
+        })
+    end
+
+    local header = find_tag_with_id(ui, 'versionHeader')
+    header.value = "New Version available: " .. latestVersion .. " (current: " .. MOD_VERSION .. ")"
+    UI.setXmlTable(ui)
+  end
+
+  -- small delay to avoid lagging
+  Wait.time(function() UI.show("updateNotification") end, 1)
+end
+
+-- close / don't show again buttons on the XML use this
+function onClick_notification(_, parameter)
+  if parameter == "dontNotify" then
+    dontNotify[latestVersion] = true
+  end
+
+  UI.hide("updateNotification")
 end
