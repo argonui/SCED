@@ -44,6 +44,7 @@ local MOD_VERSION = "3.1.0"
 local SOURCE_REPO = 'https://raw.githubusercontent.com/chr1z93/loadable-objects/main'
 local library, requestObj
 local dontNotify = {}
+local modMeta
 
 ---------------------------------------------------------
 -- data for tokens
@@ -1060,61 +1061,67 @@ function compareVersion(request)
   modMeta = JSON.decode(request.text)
 
   -- stop here if on latest version or "don't show again" was clicked
-  if MOD_VERSION == modMeta["latestVersion"] then return end
+  --if MOD_VERSION == modMeta["latestVersion"] then return end
   if dontNotify[modMeta["latestVersion"]] then return end
 
-  local releaseNotes = modMeta["releaseNotes"][modMeta["latestVersion"]]
-  if releaseNotes == nil then
+  -- end here if no release notes are found
+  if modMeta["releaseNotes"][modMeta["latestVersion"]] == nil then
     log("Release notes for latest version not found!")
   else
-    -- updating the XML notification
-    local ui = UI.getXmlTable()
-
-    -- update the headers
-    local header = find_tag_with_id(ui, 'notificationHeader')
-    header.value = "New Version available: " .. modMeta["latestVersion"] .. " (current: " .. MOD_VERSION .. ")"
-    local header2 = find_tag_with_id(ui, 'versionHeader')
-    header2.value = "Release Notes for " .. modMeta["latestVersion"]
-
-    -- update the release notes
-    local releaseNoteWrapper = find_tag_with_id(ui, 'releaseNoteWrapper')
-    releaseNoteWrapper.children = {}
-  
-    for _, entry in pairs(releaseNotes["Details"]) do
-      table.insert(releaseNoteWrapper.children,
-      { tag = 'Row',
-      attributes = { class="releaseNote" },
-      children =
-        { tag = 'Cell',
-        attributes = { class="releaseNote" },
-        children =
-          { tag = 'Text',
-          attributes = { class="releaseNote" },
-          value = "• " .. entry,
-          }
-        }
-      })
-    end
-    UI.setXmlTable(ui)
+    updateNotificationLoading()
 
     -- small delay to avoid lagging
     Wait.time(function() UI.show("updateNotification") end, 1)
   end
 end
 
--- close / don't show again buttons on the XML use this
-function onClick_notification(_, parameter)
-  if parameter == "dontNotify" then
-    -- this variable tracks if "don't show again" was pressed for a version before
-    dontNotify[modMeta["latestVersion"]] = true
-  elseif parameter == "details" then
-    UI.show("releaseNotes")
-    return
+-- updates the XML update notification based on the mod metadata
+function updateNotificationLoading()
+  -- grab data
+  local highlights = modMeta["releaseNotes"][modMeta["latestVersion"]]["Highlights"]
+  local ui = UI.getXmlTable()
+
+  -- update the header
+  local header = find_tag_with_id(ui, 'notificationHeader')
+  header.value = header.value .. modMeta["latestVersion"]
+
+  -- update the release highlights
+  local releaseHighlightWrapper = find_tag_with_id(ui, 'releaseHighlightWrapper')
+  releaseHighlightWrapper.children = {}
+
+  for _, entry in pairs(highlights) do
+  table.insert(releaseHighlightWrapper.children,
+    { tag = 'Row',
+    attributes = { class="releaseHighlight" },
+    children =
+      { tag = 'Cell',
+      attributes = { class="releaseHighlight" },
+      children =
+        { tag = 'Text',
+        attributes = { class="releaseHighlight" },
+        value = "• " .. entry,
+        }
+      }
+    }
+  )
   end
 
-  UI.hide("updateNotification")
+  -- set height for amount of highlights
+  local highlightRow = find_tag_with_id(ui, 'highlightRow')
+  highlightRow.attributes.preferredHeight = 50*#highlights
+
+  local window = find_tag_with_id(ui, 'updateNotification')
+  window.attributes.height = highlightRow.attributes.preferredHeight + 100
+
+  -- update the XML UI
+  UI.setXmlTable(ui)
 end
 
-function onClick_releaseNotes()
-  UI.hide("releaseNotes")
+-- close / don't show again buttons on the update notification
+function onClick_notification(_, parameter)
+  if parameter == "dontNotify" then
+    -- this variable tracks if "don't show again" was pressed for a version
+    dontNotify[modMeta["latestVersion"]] = true
+  end
+  UI.hide("updateNotification")
 end
