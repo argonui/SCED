@@ -39,6 +39,12 @@ local mythosAreaApi = require("core/MythosAreaApi")
 local tokenArrangerApi = require("accessories/TokenArrangerApi")
 local blessCurseManagerApi = require("chaosbag/BlessCurseManagerApi")
 
+-- online functionality related variables
+local MOD_VERSION = "3.1.0"
+local SOURCE_REPO = 'https://raw.githubusercontent.com/chr1z93/loadable-objects/main'
+local library, requestObj, modMeta, notificationVisible
+local acknowledgedUpgradeVersions = {}
+
 ---------------------------------------------------------
 -- data for tokens
 ---------------------------------------------------------
@@ -98,12 +104,13 @@ local tokenDrawingStats = {
 ---------------------------------------------------------
 
 -- saving state of optionPanel to restore later
-function onSave() return JSON.encode({ optionPanel = optionPanel }) end
+function onSave() return JSON.encode({ optionPanel = optionPanel, acknowledgedUpgradeVersions = acknowledgedUpgradeVersions }) end
 
 function onLoad(savedData)
   if savedData then
     loadedData = JSON.decode(savedData)
     optionPanel = loadedData.optionPanel
+    acknowledgedUpgradeVersions = loadedData.acknowledgedUpgradeVersions
     updateOptionPanelState()
   else
     print("Saved state could not be found!")
@@ -114,6 +121,7 @@ function onLoad(savedData)
     if obj ~= nil then obj.interactable = false end
   end
 
+  getModVersion()
   math.randomseed(os.time())
 end
 
@@ -614,21 +622,17 @@ end
 -- Content Importing and XML functions
 ---------------------------------------------------------
 
-local source_repo = 'https://raw.githubusercontent.com/chr1z93/loadable-objects/main'
-local library = nil
-local request_obj
-
 function onClick_refreshList()
-  local request = WebRequest.get(source_repo .. '/library.json', completed_list_update)
-  request_obj = request
+  local request = WebRequest.get(SOURCE_REPO .. '/library.json', completed_list_update)
+  requestObj = request
   startLuaCoroutine(Global, 'downloadCoroutine')
 end
 
 function onClick_select(player, params)
   params = JSON.decode(urldecode(params))
-  local url = source_repo .. '/' .. params.url
+  local url = SOURCE_REPO .. '/' .. params.url
   local request = WebRequest.get(url, function (request) complete_obj_download(request, params) end )
-  request_obj = request
+  requestObj = request
   startLuaCoroutine(Global, 'downloadCoroutine')
 end
 
@@ -657,8 +661,8 @@ function onClick_toggleUi(_, title)
 end
 
 function downloadCoroutine()
-  while request_obj do
-    UI.setAttribute('download_progress', 'percentage', request_obj.download_progress * 100)
+  while requestObj do
+    UI.setAttribute('download_progress', 'percentage', requestObj.download_progress * 100)
     coroutine.yield(0)
   end
   return 1
@@ -732,7 +736,7 @@ function complete_obj_download(request, params)
     end
   end
 
-  request_obj = nil
+  requestObj = nil
   UI.setAttribute('download_progress', 'percentage', 100)
 end
 
@@ -756,7 +760,7 @@ function completed_list_update(request)
     end
   end
 
-  request_obj = nil
+  requestObj = nil
   UI.setAttribute('download_progress', 'percentage', 100)
 end
 
@@ -1034,4 +1038,76 @@ function titleSplash(scenarioName)
 
     soundCubeApi.playSoundByName("Deep Bell")
   end
+end
+
+---------------------------------------------------------
+-- Update notification related functionality
+---------------------------------------------------------
+
+-- grabs the latest mod version and release notes from GitHub (called onLoad())
+function getModVersion()
+  WebRequest.get(SOURCE_REPO .. '/modversion.json', compareVersion)
+end
+
+-- compares the modversion with GitHub and possibly shows the update notification
+function compareVersion(request)
+  if request.is_error then
+    log(request.error)
+    return
+  end
+
+  -- global variable to make it accessible for other functions
+  modMeta = JSON.decode(request.text)
+
+  -- stop here if on latest version
+  if MOD_VERSION == modMeta["latestVersion"] then return end
+  
+  -- stop here if "don't show again" was clicked for this version before
+  if acknowledgedUpgradeVersions[modMeta["latestVersion"]] then return end
+
+  updateNotificationLoading()
+
+  -- delay to avoid lagging during onLoad()
+  Wait.time(function() UI.show("FinnIcon") end, 1)
+end
+
+-- updates the XML update notification based on the mod metadata
+function updateNotificationLoading()
+  -- grab data
+  local highlights = modMeta["releaseHighlights"]
+
+  -- concatenate the release highlights
+  local highlightText = "• " .. highlights[1]
+  for i, entry in pairs(highlights) do
+    if i ~= 1 then
+      highlightText = highlightText .. "\n• " .. entry
+    end
+  end
+  
+  -- update the XML UI
+  UI.setValue("notificationHeader", "New version available: ".. modMeta["latestVersion"])
+  UI.setValue("releaseHighlightText", highlightText)
+  UI.setAttribute("highlightRow", "preferredHeight", 20*#highlights)
+  UI.setAttribute("updateNotification", "height", 20*#highlights + 125)
+end
+
+-- triggered by clicking on the Finn Icon
+function onClick_FinnIcon()
+  if notificationVisible then
+    UI.hide("updateNotification")
+    notificationVisible = false
+  else
+    UI.show("updateNotification")
+    notificationVisible = true
+  end
+end
+
+-- close / don't show again buttons on the update notification
+function onClick_notification(_, parameter)
+  if parameter == "dontShowAgain" then
+    -- this variable tracks if "don't show again" was pressed for a version
+    acknowledgedUpgradeVersions[modMeta["latestVersion"]] = true
+  end
+  UI.hide("FinnIcon")
+  UI.hide("updateNotification")
 end
