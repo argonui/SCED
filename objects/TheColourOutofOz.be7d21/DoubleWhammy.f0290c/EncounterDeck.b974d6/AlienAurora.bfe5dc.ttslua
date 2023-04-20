@@ -1,0 +1,70 @@
+local sealedToken
+
+function onSave()
+  if sealedToken then
+    return JSON.encode(sealedToken.getGUID())
+  end
+  return nil
+end
+
+function onLoad(savedData)
+  if savedData then
+    sealedToken = getObjectFromGUID(JSON.decode(savedData))
+  end
+  updateMenu()
+end
+
+function updateMenu()
+  self.clearContextMenu()
+  if sealedToken then
+    self.addContextMenuItem("Release token", function(playerColor) releaseToken(playerColor) end)
+  else
+    self.addContextMenuItem("Seal token", function(playerColor) sealToken(playerColor) end)
+  end
+end
+
+function sealToken(name, playerColor)
+  local chaosbag = getChaosBag()
+  local chaosbagObjects = chaosbag.getObjects()
+  for j = 1, 10 do
+    local name = tostring(2 - j)
+    if j == 1 then name = "+1" end
+
+    for i, obj in ipairs(chaosbagObjects) do
+      if obj.name == name then
+        sealedToken = chaosbag.takeObject({
+          position = self.getPosition() + Vector(0, 0.2, 0),
+          rotation = self.getRotation(),
+          index = i - 1,
+          smooth = true
+        })
+        Wait.time(function() updateMenu() end, 0.1)
+        return
+      end
+    end
+  end
+  printToColor("No number token not found in bag", playerColor)
+end
+
+function releaseToken(playerColor)
+  local chaosbag = getChaosBag()
+  
+  if sealedToken == nil then return end
+  chaosbag.putObject(sealedToken)
+  sealedToken = nil
+  updateMenu()
+end
+
+function getChaosBag()
+  local items = getObjectFromGUID("83ef06").getObjects()
+  local chaosbag = nil
+  for i, v in ipairs(items) do
+    if v.getDescription() == "Chaos Bag" then
+      chaosbag = getObjectFromGUID(v.getGUID())
+      break
+    end
+  end
+  if chaosbag == nil then printToAll("No chaos bag found") end
+  return chaosbag
+end
+
