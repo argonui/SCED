@@ -123,7 +123,49 @@ editPitch           = 0
 editYaw             = 0
 editDistance        = 0
 
+function onSave()
+  local allclaims = {}
+
+  for i = 1, 4 do
+    table.insert(allclaims, playermatData[i].claims)
+  end
+
+  return JSON.encode({
+    cameras = cameraParams,
+    fullVis = fullVisibility,
+    playVis = playVisibility,
+    claims  = allclaims
+  })
+end
+
 function onLoad(savedData)
+  if savedData ~= "" then
+    local loadedData = JSON.decode(savedData)
+    cameraParams     = loadedData.cameras
+    fullVisibility   = loadedData.fullVis
+    playVisibility   = loadedData.playVis
+
+    for i = 1, 4 do
+      playermatData[i].claims = loadedData.claims[i]
+    end
+  else
+    cameraParams = { {}, {}, {}, {} }
+
+    for i = 1, 4 do
+      for j = 1, #defaultCameraParams do
+        cameraParams[i][j] = defaultCameraParams[j]
+      end
+    end
+
+    fullVisibility = { false, false, false, false }
+    playVisibility = { false, false, false, false }
+  end
+
+  createTileButtons()
+  updateOverlay()
+end
+
+function createTileButtons()
   local buttonParameters          = {}
   buttonParameters.function_owner = self
   buttonParameters.label          = ""
@@ -175,45 +217,6 @@ function onLoad(savedData)
   buttonParameters.width          = 700
   buttonParameters.position       = { x = 0, y = 0.1, z = 0.78 }
   self.createButton(buttonParameters)
-
-  if savedData ~= "" then
-    local loadedData = JSON.decode(savedData)
-    cameraParams     = loadedData.cameras
-    fullVisibility   = loadedData.fullVis
-    playVisibility   = loadedData.playVis
-
-    for i = 1, 4 do
-      playermatData[i].claims = loadedData.claims[i]
-    end
-  else
-    cameraParams = { {}, {}, {}, {} }
-
-    for i = 1, 4 do
-      for j = 1, #defaultCameraParams do
-        cameraParams[i][j] = defaultCameraParams[j]
-      end
-    end
-
-    fullVisibility = { false, false, false, false }
-    playVisibility = { false, false, false, false }
-  end
-
-  updateOverlay()
-end
-
-function onSave()
-  local allclaims = {}
-
-  for i = 1, 4 do
-    table.insert(allclaims, playermatData[i].claims)
-  end
-
-  return JSON.encode({
-    cameras = cameraParams,
-    fullVis = fullVisibility,
-    playVis = playVisibility,
-    claims  = allclaims
-  })
 end
 
 function displayFull(_, color)
@@ -246,16 +249,14 @@ end
 
 function getColors(color)
   local playerCount = getPlayerCount()
-  local colors
 
   if playerCount == 0 then
-    return
+    return {}
   elseif playerCount == 1 then
-    colors = { 1, 2, 3, 4 }
+    return { 1, 2, 3, 4 }
   else
-    colors = { getIndexForPlayerColor(color) }
+    return { getIndexForPlayerColor(color) }
   end
-  return colors
 end
 
 function resetCameras(_, color)
@@ -301,15 +302,12 @@ function resizeOverlay(object, color)
 end
 
 function updateOverlay()
-  local color, panel
-  local xml = self.UI.getXml()
-  local fullColors = ''
-  local playColors = ''
-
+  -- update XML visibility
+  local fullColors, playColors
   for i, v in pairs(fullVisibility) do
-    if v == true then
+    if v then
       local matColor = getPlayerColorForIndex(i)
-      if string.len(fullColors) > 0 and matColor ~= nil then
+      if fullColors and matColor ~= nil then
         fullColors = fullColors .. '|' .. matColor
       elseif matColor ~= nil then
         fullColors = matColor
@@ -318,9 +316,9 @@ function updateOverlay()
   end
 
   for i, v in pairs(playVisibility) do
-    if v == true then
+    if v then
       local matColor = getPlayerColorForIndex(i)
-      if string.len(playColors) > 0 and matColor ~= nil then
+      if playColors and matColor ~= nil then
         playColors = playColors .. '|' .. matColor
       elseif matColor ~= nil then
         playColors = matColor
@@ -328,82 +326,72 @@ function updateOverlay()
     end
   end
 
-  if string.len(fullColors) > 0 then
-    -- TODO update visibility
-    xml = xml .. [[<Panel id="navPanelFull" height="358" width="455" visibility="]] .. fullColors ..
-        [[" allowDragging="true" returnToOriginalPositionWhenReleased="false" rectAlignment="LowerRight" offsetXY="-40 0">
-            <image id="backgroundImage" image="OverlayLarge" />]]
+  self.UI.setAttribute("navPanelFull", "visibility", fullColors)
+  self.UI.setAttribute("navPanelPlay", "visibility", playColors)
 
-    for _, d in ipairs(fullButtonData) do
-      local buttonID = tonumber(d.id)
+  updateXMLbuttons("full")
+  updateXMLbuttons("play")
+end
 
-      if editing and buttonID < 19 then
-        if selectedEditButton < 0 then
-          color = "rgba(1,1,1,1)"
-        elseif buttonID == selectedEditButton then
-          color = "rgba(0,1,0,1)"
-        else
-          color = "rgba(1,0,0,1)"
-        end
-      elseif claiming and buttonID < 19 then
-        if buttonID >= 3 and buttonID <= 6 then
-          color = "rgba(1,1,1,1)"
-        else
-          color = "rgba(1,0,0,1)"
-        end
-      else
-        color = "rgba(0,1,0,0)"
-      end
-
-      -- TODO button creation
-      xml = xml .. [[<button
-                onClick="buttonClicked" id="]] .. d.id .. [["
-                height="]] .. d.height .. [["
-                width="]] .. d.width .. [["
-                offsetXY="]] .. d.offsetX .. " " .. d.offsetY .. [["
-                color="]] .. color .. [["></button>]]
-    end
-  end
-
-  if string.len(playColors) > 0 then
+function updateXMLbuttons(type)
+  local data, id
+  if type == "full" then
+    data = fullButtonData
+    id = "navPanelFull"
+  else
     data = playButtonData
+    id = "navPanelPlay"
+  end
 
-    -- TODO update visibility
-    xml = xml .. [[<Panel id="navPanelPlay" height="208" width="205" visibility="]] .. playColors ..
-        [[" allowDragging="true" returnToOriginalPositionWhenReleased="false" rectAlignment="LowerRight" offsetXY="-40 0">
-            <image id="backgroundImage" image="OverlaySmall" />]]
+  -- XML button creation
+  local color
+  local xml = findTagWithId(self.UI.getXmlTable(), id)
 
-    for _, d in ipairs(data) do
-      local buttonID = tonumber(d.id)
+  for _, d in ipairs(data) do
+    local buttonID = tonumber(d.id)
 
-      if editing and buttonID < 19 then
-        if selectedEditButton < 0 then
-          color = "rgba(1,1,1,1)"
-        elseif buttonID == selectedEditButton then
-          color = "rgba(0,1,0,1)"
-        else
-          color = "rgba(1,0,0,1)"
-        end
-      elseif claiming and buttonID < 19 then
-        if buttonID >= 3 and buttonID <= 6 then
-          color = "rgba(1,1,1,1)"
-        else
-          color = "rgba(1,0,0,1)"
-        end
+    if editing and buttonID < 19 then
+      if selectedEditButton < 0 then
+        color = "rgba(1,1,1,1)"
+      elseif buttonID == selectedEditButton then
+        color = "rgba(0,1,0,1)"
       else
-        color = "rgba(0,1,0,0)"
+        color = "rgba(1,0,0,1)"
       end
-
-      -- TODO button creation
-      xml = xml .. [[<button onClick="buttonClicked" id="]] .. d.id .. [["
-                height="]] .. d.height .. [["
-                width="]] .. d.width .. [["
-                offsetXY="]] .. d.offsetX .. " " .. d.offsetY .. [["
-                color="]] .. color .. [["></button>]]
+    elseif claiming and buttonID < 19 then
+      if buttonID >= 3 and buttonID <= 6 then
+        color = "rgba(1,1,1,1)"
+      else
+        color = "rgba(1,0,0,1)"
+      end
+    else
+      color = "rgba(0,1,0,0)"
     end
 
-    xml = xml .. [[    </Panel>]]
+    table.insert(xml, {
+      tag = "button",
+      attributes = {
+        onClick = "buttonClicked",
+        id = d.id,
+        height = d.height,
+        width = d.width,
+        offsetXY = d.offsetX .. " " .. d.offsetY,
+        color = color
+      }
+    })
   end
+  self.UI.setXmlTable(xml)
+end
+
+function findTagWithId(ui, id)
+  for _, obj in ipairs(ui) do
+    if obj.attributes and obj.attributes.id and obj.attributes.id == id then return obj end
+    if obj.children then
+      local result = find_tag_with_id(obj.children, id)
+      if result then return result end
+    end
+  end
+  return nil
 end
 
 -- handles all button clicks
@@ -606,11 +594,8 @@ function loadCamera(player, _, idValue)
 end
 
 function beginSetCamera(object, color)
-  if getPlayerCount() == 0 then
-    return
-  elseif getIndexForPlayerColor(color) < 0 then
-    return
-  end
+  if getPlayerCount() == 0 then return end
+  if getIndexForPlayerColor(color) < 0 then return end
 
   editing = true
   updateOverlay()
@@ -624,22 +609,16 @@ function updateEditCamera(params)
 end
 
 function beginClaimColor(object, color)
-  if getPlayerCount() == 0 then
-    return
-  elseif getIndexForPlayerColor(color) < 0 then
-    return
-  end
+  if getPlayerCount() == 0 then return end
+  if getIndexForPlayerColor(color) < 0 then return end
 
   claiming = true
   updateOverlay()
 end
 
 function resetClaimColors(object, color)
-  if getPlayerCount() == 0 then
-    return
-  elseif getIndexForPlayerColor(color) < 0 then
-    return
-  end
+  if getPlayerCount() == 0 then return end
+  if getIndexForPlayerColor(color) < 0 then return end
 
   for c1 = 1, 4 do
     for c2 = 1, 4 do
