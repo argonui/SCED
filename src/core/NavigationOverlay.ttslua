@@ -38,19 +38,6 @@ playButtonData      = {
 
 playermatData       = {
   {
-    guid = '383d8b',
-    origin = { x = -25.00, y = 0, z = 26.20 },
-    scale = { x = 31.5, y = 5.10, z = 14.59 },
-    orientation = { x = 0, y = 0, z = 0 },
-    minX = -44.43,
-    maxX = -17.44,
-    minZ = 20.17,
-    maxZ = 32.97,
-    xOffset = -0.07,
-    zOffset = 0.00,
-    claims = { true, false, false, false }
-  },
-  {
     guid = '8b081b',
     origin = { x = -54.42, y = 0, z = 20.96 },
     scale = { x = 36.63, y = 5.10, z = 14.59 },
@@ -61,7 +48,7 @@ playermatData       = {
     maxZ = 24.53,
     xOffset = 0.07,
     zOffset = 0.03,
-    claims = { false, true, false, false }
+    claims = { true, false, false, false }
   },
   {
     guid = 'bd0ff4',
@@ -74,6 +61,19 @@ playermatData       = {
     maxZ = 2.39,
     xOffset = 0.07,
     zOffset = 0.02,
+    claims = { false, true, false, false }
+  },
+  {
+    guid = '383d8b',
+    origin = { x = -25.00, y = 0, z = 26.20 },
+    scale = { x = 31.5, y = 5.10, z = 14.59 },
+    orientation = { x = 0, y = 0, z = 0 },
+    minX = -44.43,
+    maxX = -17.44,
+    minZ = 20.17,
+    maxZ = 32.97,
+    xOffset = -0.07,
+    zOffset = 0.00,
     claims = { false, false, true, false }
   },
   {
@@ -233,9 +233,9 @@ function setVisibility(type, color)
   local visibility
 
   if type == "full" then
-    visibility = {full = true, play = false}
+    visibility = { full = true, play = false }
   elseif type == "play" then
-    visibility = {full = false, play = true}
+    visibility = { full = false, play = true }
   else
     visibility = { full = false, play = false }
   end
@@ -316,27 +316,50 @@ function updateOverlay()
     end
   end
 
-  self.UI.setAttribute("navPanelFull", "visibility", fullColors)
-  self.UI.setAttribute("navPanelPlay", "visibility", playColors)
+  if fullColors then
+    updateXMLbuttons("full")
+    UI.setAttribute("navPanelFull", "visibility", fullColors)
+    UI.show("navPanelFull")
+  else
+    UI.hide("navPanelFull")
+  end
 
-  updateXMLbuttons("full")
-  updateXMLbuttons("play")
+  if playColors then
+    updateXMLbuttons("play")
+    UI.setAttribute("navPanelPlay", "visibility", playColors)
+    UI.show("navPanelPlay")
+  else
+    UI.hide("navPanelPlay")
+  end
 end
 
 function updateXMLbuttons(type)
-  local data, id
+  local data, id, overlay, color
   if type == "full" then
     data = fullButtonData
     id = "navPanelFull"
+    overlay = "OverlayLarge"
   else
     data = playButtonData
     id = "navPanelPlay"
+    overlay = "OverlaySmall"
   end
 
   -- XML button creation
-  local color
-  local xml = findTagWithId(self.UI.getXmlTable(), id)
+  local guid = self.getGUID()
+  local ui = UI.getXmlTable()
+  local xml = findTagWithId(ui, id)
 
+  -- add basic image
+  xml.children = { {
+    tag = "image",
+    attributes = {
+      id    = "backgroundImage",
+      image = overlay
+    }
+  } }
+
+  -- add all buttons
   for _, d in ipairs(data) do
     local buttonID = tonumber(d.id)
 
@@ -358,10 +381,10 @@ function updateXMLbuttons(type)
       color = "rgba(0,1,0,0)"
     end
 
-    table.insert(xml, {
+    table.insert(xml.children, {
       tag = "button",
       attributes = {
-        onClick  = "buttonClicked",
+        onClick  = guid .. "/buttonClicked",
         id       = d.id,
         height   = d.height,
         width    = d.width,
@@ -370,15 +393,15 @@ function updateXMLbuttons(type)
       }
     })
   end
-  
-  self.UI.setXmlTable(xml)
+
+  UI.setXmlTable(ui)
 end
 
 function findTagWithId(ui, id)
   for _, obj in ipairs(ui) do
     if obj.attributes and obj.attributes.id and obj.attributes.id == id then return obj end
     if obj.children then
-      local result = find_tag_with_id(obj.children, id)
+      local result = findTagWithId(obj.children, id)
       if result then return result end
     end
   end
@@ -489,7 +512,7 @@ function loadCamera(player, _, idValue)
 
     if minX < 100 then
       local dx = maxX - minX
-      local dz = (maxZ - minZ) / (1.6)  -- screen ratio * 1.2 (for my macbook pro, no idea how to generalize this)
+      local dz = (maxZ - minZ) / 1.6    -- screen ratio * 1.2 (for my macbook pro, no idea how to generalize this)
       local centerX = (minX + maxX) / 2 -- offset is to move it a bit up, so the cards don't block anything
       local centerZ = (minZ + maxZ) / 2
       local scale = math.max(dx, dz)
@@ -561,8 +584,8 @@ function loadCamera(player, _, idValue)
         -- offset is to move it a bit up and right, so the cards/toolbar don't block anything
         centerX = (minX + maxX) / 2 - dx * playermatData[newMatIndex].xOffset
         centerZ = (minZ + maxZ) / 2 + dz * playermatData[newMatIndex].zOffset
-      -- Green/Red
-      else                       
+        -- Green/Red
+      else
         dx = (maxX - minX) / 1.6
         dz = maxZ - minZ
         yaw = playermatData[newMatIndex].orientation.y + 180
@@ -622,6 +645,7 @@ function resetClaimColors(object, color)
   end
 end
 
+-- helper functions
 function getPlayerCount()
   local playerCount = 0
   local playerColors = {}
@@ -645,26 +669,16 @@ function getPlayerCount()
 end
 
 function getPlayerColorForIndex(index)
-  if index < 0 or index > 4 then
-    return nil
-  end
-
-  local guid = playermatData[index]['guid']
-  if guid ~= nil then
-    local mat = getObjectFromGUID(guid)
-    return mat.getVar("playerColor")
-  end
+  local color = { "White", "Orange", "Green", "Red" }
+  return color[index]
 end
 
 function getIndexForPlayerColor(color)
-  for i = 1, 4 do
-    local mat = getObjectFromGUID(playermatData[i].guid)
-    if mat ~= nil then
-      if mat.getVar('playerColor') == color then
-        return i
-      end
-    end
-  end
+  local index = { White = 1, Orange = 2, Green = 3, Red = 4 }
 
-  return -1
+  if index[color] then
+    return index[color]
+  else
+    return -1
+  end
 end
