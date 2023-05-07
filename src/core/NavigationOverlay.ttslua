@@ -1,9 +1,9 @@
 fullButtonData      = {
   { id = "1",  width = "84",  height = "33",  offsetX = "1",    offsetY = "2" },    -- Act/Agenda
   { id = "2",  width = "78",  height = "69",  offsetX = "1",    offsetY = "-62" },  -- Map
-  { id = "3",  width = "36",  height = "70",  offsetX = "-62",  offsetY = "-66" },  -- Green
-  { id = "4",  width = "70",  height = "36",  offsetX = "-36",  offsetY = "-126" }, -- White
-  { id = "5",  width = "70",  height = "36",  offsetX = "39",   offsetY = "-126" }, -- Orange
+  { id = "3",  width = "70",  height = "36",  offsetX = "-36",  offsetY = "-126" }, -- White
+  { id = "4",  width = "70",  height = "36",  offsetX = "39",   offsetY = "-126" }, -- Orange
+  { id = "5",  width = "36",  height = "70",  offsetX = "-62",  offsetY = "-66" },  -- Green
   { id = "6",  width = "36",  height = "70",  offsetX = "64",   offsetY = "-66" },  -- Red
   { id = "7",  width = "38",  height = "38",  offsetX = "-64",  offsetY = "-3" },   -- Victory
   { id = "8",  width = "40",  height = "40",  offsetX = "66",   offsetY = "-3" },   -- Guide
@@ -24,9 +24,9 @@ fullButtonData      = {
 playButtonData      = {
   { id = "1",  width = "80", height = "33", offsetX = "0",   offsetY = "55" },
   { id = "2",  width = "78", height = "70", offsetX = "0",   offsetY = "-8" },
-  { id = "3",  width = "35", height = "66", offsetX = "-65", offsetY = "-10" },
-  { id = "4",  width = "68", height = "32", offsetX = "-36", offsetY = "-71" },
-  { id = "5",  width = "68", height = "32", offsetX = "36",  offsetY = "-71" },
+  { id = "3",  width = "68", height = "32", offsetX = "-36", offsetY = "-71" },
+  { id = "4",  width = "68", height = "32", offsetX = "36",  offsetY = "-71" },
+  { id = "5",  width = "35", height = "66", offsetX = "-65", offsetY = "-10" },
   { id = "6",  width = "35", height = "66", offsetX = "65",  offsetY = "-10" },
   { id = "7",  width = "38", height = "38", offsetX = "-66", offsetY = "52" },
   { id = "8",  width = "38", height = "38", offsetX = "66",  offsetY = "52" },
@@ -251,7 +251,7 @@ function setVisibility(type, color)
 end
 
 function getColors(color)
-  local playerCount = getPlayerCount()
+  local playerCount = #getSeatedPlayers()
 
   if playerCount == 0 then
     return {}
@@ -536,7 +536,7 @@ function loadCamera(player, _, idValue)
     local newMatColor = getPlayerColorForIndex(newMatIndex)
 
     if newMatColor ~= nil then
-      local playerCount = getPlayerCount()
+      local playerCount = #getSeatedPlayers()
 
       if playerCount <= 1 or playermatData[playerIndex].claims[newMatIndex] then
         player.changeColor(newMatColor)
@@ -579,7 +579,7 @@ function loadCamera(player, _, idValue)
       if index > 3 and index < 6 then
         dx = maxX - minX
         dz = (maxZ - minZ) / 1.6 -- screen ratio * 1.2 (for my macbook pro, no idea how to generalize this)
-        yaw = 90
+        yaw = playermatData[newMatIndex].orientation.y + 180
 
         -- offset is to move it a bit up and right, so the cards/toolbar don't block anything
         centerX = (minX + maxX) / 2 - dx * playermatData[newMatIndex].xOffset
@@ -608,7 +608,7 @@ function loadCamera(player, _, idValue)
 end
 
 function beginSetCamera(object, color)
-  if getPlayerCount() == 0 then return end
+  if #getSeatedPlayers() == 0 then return end
   if getIndexForPlayerColor(color) < 0 then return end
 
   editing = true
@@ -623,7 +623,7 @@ function updateEditCamera(params)
 end
 
 function beginClaimColor(object, color)
-  if getPlayerCount() == 0 then return end
+  if #getSeatedPlayers() == 0 then return end
   if getIndexForPlayerColor(color) < 0 then return end
 
   claiming = true
@@ -631,43 +631,17 @@ function beginClaimColor(object, color)
 end
 
 function resetClaimColors(object, color)
-  if getPlayerCount() == 0 then return end
+  if #getSeatedPlayers() == 0 then return end
   if getIndexForPlayerColor(color) < 0 then return end
 
-  for c1 = 1, 4 do
-    for c2 = 1, 4 do
-      if c1 == c2 then
-        playermatData[c1].claims[c2] = true
-      else
-        playermatData[c1].claims[c2] = false
-      end
+  for i = 1, 4 do
+    for j = 1, 4 do
+      playermatData[i].claims[j] = (i == j)
     end
   end
 end
 
 -- helper functions
-function getPlayerCount()
-  local playerCount = 0
-  local playerColors = {}
-
-  for i = 1, 4 do
-    local guid = playermatData[i].guid
-    local mat = getObjectFromGUID(guid)
-    local color = mat.getVar('playerColor')
-    playerColors[i] = color
-  end
-
-  for _, v in ipairs(getSeatedPlayers()) do
-    for _, vv in ipairs(playerColors) do
-      if v == vv then
-        playerCount = playerCount + 1
-      end
-    end
-  end
-
-  return playerCount
-end
-
 function getPlayerColorForIndex(index)
   local color = { "White", "Orange", "Green", "Red" }
   return color[index]
