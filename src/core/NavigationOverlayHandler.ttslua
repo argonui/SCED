@@ -1,4 +1,5 @@
 local playmatApi    = require("playermat/PlaymatApi")
+
 fullButtonData      = {
   { id = "1",  width = "84",  height = "33",  offset = "1 2" },       -- Act/Agenda
   { id = "2",  width = "78",  height = "69",  offset = "1 -62" },     -- Map
@@ -58,12 +59,15 @@ defaultCameraParams = {
   { position = { -59.08, 1.55, -83 },  distance = 27 }  -- 18. Additions
 }
 
-local cameraParams   = { {}, {}, {}, {} }
-local playermatData  = { {}, {}, {}, {} }
 local editing        = false
 local claiming       = false
+local cameraParams   = {}
 local visibility     = {}
 local claims         = {}
+
+---------------------------------------------------------
+-- save/load functionality
+---------------------------------------------------------
 
 function onSave()
   return JSON.encode({
@@ -89,27 +93,30 @@ function onLoad(savedData)
   updateVisibility()
 end
 
+---------------------------------------------------------
+-- visibility related functions
+---------------------------------------------------------
+
 function cycleVisibility(color)
   setVisibility("next", color)
+end
+
+function copyVisibility(params)
+  visibility[params.targetColor] = {
+    full = visibility[params.startColor].full,
+    play = visibility[params.startColor].play
+  }
+  updateVisibility()
 end
 
 function setVisibility(type, color)
   if type == "next" then
     if visibility[color].full then
-      visibility[color] = {
-        full = false,
-        play = true
-      }
+      visibility[color] = { full = false, play = true }
     elseif visibility[color].play then
-      visibility[color] = {
-        full = false,
-        play = false
-      }
+      visibility[color] = { full = false, play = false }
     else
-      visibility[color] = {
-        full = true,
-        play = false
-      }
+      visibility[color] = { full = true, play = false }
     end
   elseif type == "toggle" then
     visibility[color] = {
@@ -117,59 +124,42 @@ function setVisibility(type, color)
       play = not visibility[color].play
     }
   else
-    visibility[color] = {
-      full = false,
-      play = false
-    }
+    visibility[color] = { full = false, play = false }
   end
 
   updateVisibility()
 end
 
-function getIndices(color)
-  local playerCount = #getSeatedPlayers()
-
-  if playerCount == 0 then
-    return {}
-  elseif playerCount == 1 then
-    return { 1, 2, 3, 4 }
-  else
-    return { getIndexForPlayerColor(color) }
-  end
-end
-
-function resetCameras()
-  for v = 1, 4 do
-    cameraParams[v] = {}
-    for i = 1, #defaultCameraParams do
-      cameraParams[v][i] = {}
-      cameraParams[v][i].position = defaultCameraParams[i].position
-      cameraParams[v][i].pitch = 75
-      cameraParams[v][i].yaw = 90
-      cameraParams[v][i].distance = defaultCameraParams[i].distance
-    end
-  end
-end
-
 -- update XML visibility
 function updateVisibility()
-  local fullColors = "Black"
-  local playColors = "Black"
+  local colorString = {full = "", play = ""}
 
   for color, v in pairs(visibility) do
     if v.full then
-      fullColors = fullColors .. '|' .. color
+      if colorString.full == "" then
+        colorString.full = color
+      else
+        colorString.full = colorString.full .. '|' .. color
+      end
     elseif v.play then
-      playColors = playColors .. '|' .. color
+      if colorString.play == "" then
+        colorString.play = color
+      else
+        colorString.play = colorString.play .. '|' .. color
+      end
     end
   end
 
-  log(fullColors)
-  log(playColors)
   -- update the visibility on the XML
-  UI.setAttribute("navPanelFull", "visibility", fullColors)
-  UI.setAttribute("navPanelPlay", "visibility", playColors)
+  UI.setAttribute("navPanelFull", "visibility", colorString.full)
+  UI.setAttribute("navPanelPlay", "visibility", colorString.play)
+  UI.setAttribute("navPanelFull", "active", colorString.full ~= "")
+  UI.setAttribute("navPanelPlay", "active", colorString.play ~= "")
 end
+
+---------------------------------------------------------
+-- XML creating/editing
+---------------------------------------------------------
 
 function updateXmlButtons()
   local ui = UI.getXmlTable()
@@ -249,53 +239,30 @@ function findTagWithId(ui, id)
   return nil
 end
 
+---------------------------------------------------------
+-- core functionality
+---------------------------------------------------------
+
 -- handles all button clicks
 function buttonClicked(player, _, idValue)
-  local buttonID = tonumber(idValue)
+  local index = tonumber(idValue)
 
-  if buttonID == 19 then
+  if index == 19 then
     setVisibility("toggle", player.color)
     return
-  elseif buttonID == 20 then
+  elseif index == 20 then
     setVisibility("close", player.color)
     return
   end
 
-  if editing then
-    if selectedEditButton < 0 then
-      selectedEditButton = buttonID
-    else
-      if buttonID == selectedEditButton and editDistance > 0 then
-        for _, v in ipairs(getIndices(color)) do
-          cameraParams[v][selectedEditButton].position = editPos
-          cameraParams[v][selectedEditButton].pitch = editPitch
-          cameraParams[v][selectedEditButton].yaw = editYaw
-          cameraParams[v][selectedEditButton].distance = editDistance
-        end
-      end
-
-      editing = false
-      selectedEditButton = -1
-    end
-
-    updateXmlButtons()
-  elseif claiming then
-    if buttonID >= 3 and buttonID <= 6 then
-      local colors = {"White", "Orange", "Green", "Red"}
-      local matColor = colors[buttonID - 2]
-      claims[player.color][matColor] = not claims[player.color][matColor]
-    end
-
-    claiming = false
-    updateXmlButtons()
-  else
-    loadCamera(player, _, buttonID)
-  end
+  loadCamera(player, _, index)
 end
 
 function loadCamera(player, _, index)
+  local lookHere
+
   -- only do map zooming if the camera hasn't been specially set by user
-  if index == 2 and cameraParams[playerIndex][index].distance <= 0 then
+  if index == 2 and cameraParams[player.color][index].distance <= 0 then
     local zone = getObjectFromGUID("a2f932")
     local minX, minZ, maxX, maxZ = 100, 100, -100, -100
 
@@ -314,16 +281,15 @@ function loadCamera(player, _, index)
       end
     end
 
-    player.lookAt({
+    lookHere = {
       position = { (minX + maxX) / 2, 0, (minZ + maxZ) / 2 },
       pitch = 75,
       yaw = 90,
       distance = 0.96 * math.max(maxX - minX, (maxZ - minZ) / 1.6) + 5
-    })
+    }
   elseif index >= 3 and index <= 6 then
-    local newMatIndex = index - 2 -- mat index 1 - 4
     local colorList = { "White", "Orange", "Green", "Red" }
-    local newMatColor = colorList[newMatIndex]
+    local newMatColor = colorList[index - 2] -- mat index 1 - 4
     local newPlayerColor = playmatApi.getPlayerColor(newMatColor)
 
     if newMatColor ~= nil and (#getSeatedPlayers() == 1 or claims[player.color][newMatColor]) then
@@ -331,8 +297,8 @@ function loadCamera(player, _, index)
       player.changeColor(newPlayerColor)
     end
 
-    if cameraParams[newMatIndex][index].distance <= 0 then
-      local divisor, minX, maxX, minZ, maxZ
+    if cameraParams[player.color][index].distance <= 0 then
+      local minX, maxX, minZ, maxZ
 
       for _, v in pairs(playmatApi.searchPlaymat(newMatColor)) do
         local bounds = v.hit_object.getBounds()
@@ -347,38 +313,16 @@ function loadCamera(player, _, index)
         maxZ = math.max(z2, maxZ or z2)
       end
 
-      -- White/Orange
-      if index == 3 or index == 4 then
-        divisor = {x = 1.5, z = 1.5 } -- screen ratio * 1.2 (for my macbook pro, no idea how to generalize this)
-      -- Green/Red
-      else
-        divisor = {x = 1.5, z = 1.5}
-      end
-
-      -- need to wait if the player color changed
-      Wait.frames(
-        function() player.lookAt({
-          position = { (minX + maxX) / 2, 0, (minZ + maxZ) / 2 },
-          pitch = 75,
-          yaw = playmatApi.returnRotation(newMatColor).y + 180,
-          distance = 0.64 * math.max((maxX - minX) / divisor.x, (maxZ - minZ) / divisor.z) + 7
-        })
-      end, 2)
-    else
-      Wait.frames(function() player.lookAt(cameraParams[newMatIndex][index]) end, 2)
+      lookHere = {
+        position = { (minX + maxX) / 2, 0, (minZ + maxZ) / 2 },
+        pitch = 75,
+        yaw = playmatApi.returnRotation(newMatColor).y + 180,
+        distance = 0.42 * math.max(maxX - minX, maxZ - minZ) + 7
+      }
     end
-  else
-    local playerIndex = getIndexForPlayerColor(player.color)
-    player.lookAt(cameraParams[playerIndex][index])
   end
-end
-
-function copyVisibility(params)
-  visibility[params.targetColor] = {
-    full = visibility[params.startColor].full,
-    play = visibility[params.startColor].play
-  }
-  updateVisibility()
+  -- delay is to account for colorswap
+  Wait.frames(function() player.lookAt(lookHere or cameraParams[player.color][index]) end, 2)
 end
 
 function beginClaimColor()
@@ -405,6 +349,23 @@ function updateEditCamera(params)
   editDistance = params[4]
 end
 
+---------------------------------------------------------
+-- functions to reset/initialize tables
+---------------------------------------------------------
+
+function resetCameras()
+  for _, color in ipairs(Player.getColors()) do
+    cameraParams[color] = {}
+    for i = 1, #defaultCameraParams do
+      cameraParams[color][i] = {}
+      cameraParams[color][i].yaw = 90
+      cameraParams[color][i].pitch = 75
+      cameraParams[color][i].position = defaultCameraParams[i].position
+      cameraParams[color][i].distance = defaultCameraParams[i].distance
+    end
+  end
+end
+
 function resetClaimColors()
   for _, seatedColor in ipairs(getSeatedPlayers()) do
     claims[seatedColor] = {}
@@ -417,15 +378,5 @@ end
 function resetVisibility()
   for _, color in ipairs(Player.getColors()) do
     visibility[color] = { full = false, play = false }
-  end
-end
-
-function getIndexForPlayerColor(color)
-  local index = { White = 1, Orange = 2, Green = 3, Red = 4 }
-
-  if index[color] then
-    return index[color]
-  else
-    return -1
   end
 end
