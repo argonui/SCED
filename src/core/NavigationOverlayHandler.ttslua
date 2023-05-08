@@ -39,34 +39,34 @@ playButtonData      = {
 playermatData       = {
   {
     guid = '8b081b',
-    origin = { x = -54.42, y = 0, z = 20.96 },
-    scale = { x = 36.63, y = 5.10, z = 14.59 },
+    origin = { x = -55, y = 0, z = 21 },
+    scale = { x = 36.6, y = 5.10, z = 15 },
     orientation = { x = 0, y = 270, z = 0 },
     minX = -61.4,
     maxX = -48.6,
-    minZ = -2.39,
-    maxZ = 24.53,
+    minZ = -2.4,
+    maxZ = 24.5,
     xOffset = 0.07,
-    zOffset = 0.03,
+    zOffset = 0.02,
     claims = { true, false, false, false }
   },
   {
     guid = 'bd0ff4',
-    origin = { x = -54.42, y = 0, z = -20.96 },
-    scale = { x = 36.63, y = 5.10, z = 14.59 },
+    origin = { x = -55, y = 0, z = -21 },
+    scale = { x = 36.6, y = 5.1, z = 15 },
     orientation = { x = 0, y = 270, z = 0 },
     minX = -61.4,
     maxX = -48.6,
-    minZ = -24.53,
-    maxZ = 2.39,
+    minZ = -24.5,
+    maxZ = 2.4,
     xOffset = 0.07,
     zOffset = 0.02,
     claims = { false, true, false, false }
   },
   {
     guid = '383d8b',
-    origin = { x = -25.00, y = 0, z = 26.20 },
-    scale = { x = 31.5, y = 5.10, z = 14.59 },
+    origin = { x = -25, y = 0, z = 26.5 },
+    scale = { x = 31.5, y = 5.1, z = 15 },
     orientation = { x = 0, y = 0, z = 0 },
     minX = -44.43,
     maxX = -17.44,
@@ -78,8 +78,8 @@ playermatData       = {
   },
   {
     guid = '0840d5',
-    origin = { x = -25.00, y = 0, z = -26.60 },
-    scale = { x = 31.5, y = 5.10, z = 14.59 },
+    origin = { x = -25, y = 0, z = -26.5 },
+    scale = { x = 31.5, y = 5.1, z = 15 },
     orientation = { x = 0, y = 180, z = 0 },
     minX = -44.43,
     maxX = -17.44,
@@ -112,13 +112,8 @@ defaultCameraParams = {
   { position = { -59.077, 1.462, -85.472 }, pitch = 74, yaw = 90,  distance = 27 }  -- 18. Additions
 }
 
-editing             = false
-claiming            = false
-selectedEditButton  = -1
-editPos             = { 0, 0, 0 }
-editPitch           = 0
-editYaw             = 0
-editDistance        = 0
+local editing       = false
+local claiming      = false
 
 function onSave()
   local allclaims = {}
@@ -228,6 +223,9 @@ function closeOverlay(_, color)
   setVisibility("close", color)
 end
 
+function cycleVisibility(color)
+  setVisibility("next", color)
+end
 function setVisibility(type, color)
   local colors = getColors(color)
   local visibility
@@ -242,6 +240,16 @@ function setVisibility(type, color)
 
   for _, v in ipairs(colors) do
     if v > 0 then
+      -- override visibility to cycle to the next
+      if type == "next" then
+        if fullVisibility[v] then
+          visibility = { full = false, play = true }
+        elseif playVisibility[v] then
+          visibility = { full = false, play = false }
+        else
+          visibility = { full = true, play = false }
+        end
+      end
       fullVisibility[v] = visibility.full
       playVisibility[v] = visibility.play
     end
@@ -573,32 +581,25 @@ function loadCamera(player, _, idValue)
         end
       end
 
-      local dx, dz, centerX, centerZ, yaw
+      local divisor
 
       -- White/Orange
-      if index > 3 and index < 6 then
-        dx = maxX - minX
-        dz = (maxZ - minZ) / 1.6 -- screen ratio * 1.2 (for my macbook pro, no idea how to generalize this)
-        yaw = playermatData[newMatIndex].orientation.y + 180
-
-        -- offset is to move it a bit up and right, so the cards/toolbar don't block anything
-        centerX = (minX + maxX) / 2 - dx * playermatData[newMatIndex].xOffset
-        centerZ = (minZ + maxZ) / 2 + dz * playermatData[newMatIndex].zOffset
-        -- Green/Red
+      if index == 3 or index == 4 then
+        divisor = {x = 1, z = 1.6 } -- screen ratio * 1.2 (for my macbook pro, no idea how to generalize this)
+      -- Green/Red
       else
-        dx = (maxX - minX) / 1.6
-        dz = maxZ - minZ
-        yaw = playermatData[newMatIndex].orientation.y + 180
-        centerX = (minX + maxX) / 2 + dx * playermatData[newMatIndex].zOffset
-        centerZ = (minZ + maxZ) / 2 - dz * playermatData[newMatIndex].xOffset
+        divisor = {x = 1.6, z = 1}
       end
-
-      local scale = math.max(dx, dz)
-      local d = 0.64 * scale + 7
 
       -- need to wait if the player color changed
       Wait.frames(
-        function() player.lookAt({ position = { centerX, 0, centerZ }, pitch = 75.823, yaw = yaw, distance = d }) end, 2)
+        function() player.lookAt({
+          position = { (minX + maxX) / 2, 0, (minZ + maxZ) / 2 },
+          pitch = 75.823,
+          yaw = playermatData[newMatIndex].orientation.y + 180,
+          distance = 0.64 * math.max((maxX - minX) / divisor.x, (maxZ - minZ) / divisor.z) + 7
+        })
+      end, 2)
     else
       Wait.frames(function() player.lookAt(cameraParams[newMatIndex][index]) end, 2)
     end
@@ -614,6 +615,13 @@ function beginSetCamera(object, color)
   editing = true
   updateOverlay()
 end
+
+-- TO-DO: update this
+editPos            = { 0, 0, 0 }
+editPitch          = 0
+editYaw            = 0
+editDistance       = 0
+selectedEditButton = -1
 
 function updateEditCamera(params)
   editPos = params[1]
