@@ -1,3 +1,4 @@
+local playmatApi    = require("playermat/PlaymatApi")
 fullButtonData      = {
   { id = "1",  width = "84",  height = "33",  offsetX = "1",    offsetY = "2" },    -- Act/Agenda
   { id = "2",  width = "78",  height = "69",  offsetX = "1",    offsetY = "-62" },  -- Map
@@ -36,61 +37,6 @@ playButtonData      = {
   { id = "20", width = "20", height = "20", offsetX = "10",  offsetY = "80" }
 }
 
-playermatData       = {
-  {
-    guid = '8b081b',
-    origin = { x = -55, y = 0, z = 21 },
-    scale = { x = 36.6, y = 5.10, z = 15 },
-    orientation = { x = 0, y = 270, z = 0 },
-    minX = -61.4,
-    maxX = -48.6,
-    minZ = -2.4,
-    maxZ = 24.5,
-    xOffset = 0.07,
-    zOffset = 0.02,
-    claims = { true, false, false, false }
-  },
-  {
-    guid = 'bd0ff4',
-    origin = { x = -55, y = 0, z = -21 },
-    scale = { x = 36.6, y = 5.1, z = 15 },
-    orientation = { x = 0, y = 270, z = 0 },
-    minX = -61.4,
-    maxX = -48.6,
-    minZ = -24.5,
-    maxZ = 2.4,
-    xOffset = 0.07,
-    zOffset = 0.02,
-    claims = { false, true, false, false }
-  },
-  {
-    guid = '383d8b',
-    origin = { x = -25, y = 0, z = 26.5 },
-    scale = { x = 31.5, y = 5.1, z = 15 },
-    orientation = { x = 0, y = 0, z = 0 },
-    minX = -44.43,
-    maxX = -17.44,
-    minZ = 20.17,
-    maxZ = 32.97,
-    xOffset = -0.07,
-    zOffset = 0.00,
-    claims = { false, false, true, false }
-  },
-  {
-    guid = '0840d5',
-    origin = { x = -25, y = 0, z = -26.5 },
-    scale = { x = 31.5, y = 5.1, z = 15 },
-    orientation = { x = 0, y = 180, z = 0 },
-    minX = -44.43,
-    maxX = -17.44,
-    minZ = -32.97,
-    maxZ = -20.17,
-    xOffset = 0.07,
-    zOffset = -0.06,
-    claims = { false, false, false, true }
-  }
-}
-
 defaultCameraParams = {
   { position = { -1.626, -2.5, 0 },         pitch = 74, yaw = 90,  distance = 18 }, --  1. ActAgenda
   { position = { -27.822, -2.5, 0.424 },    pitch = 74, yaw = 90,  distance = -1 }, --  2. Map
@@ -112,6 +58,7 @@ defaultCameraParams = {
   { position = { -59.077, 1.462, -85.472 }, pitch = 74, yaw = 90,  distance = 27 }  -- 18. Additions
 }
 
+local playermatData = { {}, {}, {}, {} }
 local editing       = false
 local claiming      = false
 
@@ -151,6 +98,7 @@ function onLoad(savedData)
 
     fullVisibility = { false, false, false, false }
     playVisibility = { false, false, false, false }
+    resetClaimColors()
   end
 
   createTileButtons()
@@ -520,22 +468,13 @@ function loadCamera(player, _, idValue)
 
     if minX < 100 then
       local dx = maxX - minX
-      local dz = (maxZ - minZ) / 1.6    -- screen ratio * 1.2 (for my macbook pro, no idea how to generalize this)
-      local centerX = (minX + maxX) / 2 -- offset is to move it a bit up, so the cards don't block anything
-      local centerZ = (minZ + maxZ) / 2
-      local scale = math.max(dx, dz)
-
-      -- regression line from the following data points, seems linear
-      -- rows 1 scale 4.5   d 12
-      -- rows 2 scale 11    d 16
-      -- rows 3 scale 14.5  d 19.6
-      -- rows 4 scale 19.6  d 25
-      -- rows 5 scale 23.25 d 28
-      -- rows 6 scale 30.8  d 34
-
-      -- modified by testing
-      local d = 0.96 * scale + 5
-      player.lookAt({ position = { centerX, 0, centerZ }, pitch = 74, yaw = 90, distance = d })
+      local dz = (maxZ - minZ) / 1.6 -- screen ratio * 1.2 (for my macbook pro, no idea how to generalize this)
+      player.lookAt({
+        position = { (minX + maxX) / 2, 0, (minZ + maxZ) / 2 },
+        pitch = 74,
+        yaw = 90,
+        distance = 0.96 * math.max(dx, dz) + 5
+      })
     else
       player.lookAt({ position = { -30.667, 0, 0 }, pitch = 74, yaw = 90, distance = 32 })
     end
@@ -552,37 +491,21 @@ function loadCamera(player, _, idValue)
     end
 
     if cameraParams[newMatIndex][index].distance <= 0 then
-      local matObjects = Physics.cast({
-        origin = playermatData[newMatIndex].origin,
-        direction = { x = 0, y = 1, z = 0 },
-        type = 3,
-        size = playermatData[newMatIndex].scale,
-        orientation = playermatData[newMatIndex].orientation
-      })
+      local divisor, minX, maxX, minZ, maxZ
 
-      local minX = playermatData[newMatIndex].minX
-      local maxX = playermatData[newMatIndex].maxX
-      local minZ = playermatData[newMatIndex].minZ
-      local maxZ = playermatData[newMatIndex].maxZ
+      for _, v in pairs(playmatApi.searchPlaymat(newMatColor)) do
+        local bounds = v.hit_object.getBounds()
+        local x1 = bounds['center'][1] - bounds['size'][1] / 2
+        local x2 = bounds['center'][1] + bounds['size'][1] / 2
+        local z1 = bounds['center'][3] - bounds['size'][3] / 2
+        local z2 = bounds['center'][3] + bounds['size'][3] / 2
 
-      for _, v in pairs(matObjects) do
-        local obj = v.hit_object
-        if obj.type == 'Card' or obj.type == 'Infinite' then
-          local bounds = obj.getBounds()
-          local x1 = bounds['center'][1] - bounds['size'][1] / 2
-          local x2 = bounds['center'][1] + bounds['size'][1] / 2
-          local z1 = bounds['center'][3] - bounds['size'][3] / 2
-          local z2 = bounds['center'][3] + bounds['size'][3] / 2
-
-          minX = math.min(x1, minX)
-          maxX = math.max(x2, maxX)
-          minZ = math.min(z1, minZ)
-          maxZ = math.max(z2, maxZ)
-        end
+        minX = math.min(x1, minX)
+        maxX = math.max(x2, maxX)
+        minZ = math.min(z1, minZ)
+        maxZ = math.max(z2, maxZ)
       end
-
-      local divisor
-
+      -- White/Orange
       -- White/Orange
       if index == 3 or index == 4 then
         divisor = {x = 1, z = 1.6 } -- screen ratio * 1.2 (for my macbook pro, no idea how to generalize this)
@@ -596,7 +519,7 @@ function loadCamera(player, _, idValue)
         function() player.lookAt({
           position = { (minX + maxX) / 2, 0, (minZ + maxZ) / 2 },
           pitch = 75.823,
-          yaw = playermatData[newMatIndex].orientation.y + 180,
+            yaw = playmatApi.returnRotation().y + 180,
           distance = 0.64 * math.max((maxX - minX) / divisor.x, (maxZ - minZ) / divisor.z) + 7
         })
       end, 2)
@@ -630,17 +553,15 @@ function updateEditCamera(params)
   editDistance = params[4]
 end
 
-function beginClaimColor(object, color)
+function beginClaimColor()
   if #getSeatedPlayers() == 0 then return end
-  if getIndexForPlayerColor(color) < 0 then return end
 
   claiming = true
   updateOverlay()
 end
 
-function resetClaimColors(object, color)
+function resetClaimColors()
   if #getSeatedPlayers() == 0 then return end
-  if getIndexForPlayerColor(color) < 0 then return end
 
   for i = 1, 4 do
     for j = 1, 4 do
