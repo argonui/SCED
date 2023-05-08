@@ -38,9 +38,9 @@ playButtonData      = {
   { id = "20", width = "20", height = "20", offset = "10 80" }
 }
 
-defaultCameraParams = {
+defaultCameraData = {
   { position = { -1.6, 1.55, 0 },      distance = 18 }, --  1. ActAgenda
-  { position = { -28, 1.55, 0.42 },    distance = -1 }, --  2. Map
+  { position = { -28, 1.55, 0 },       distance = -1 }, --  2. Map
   { position = { -31.6, 1.55, 26.4 },  distance = -1 }, --  3. Green playmat
   { position = { -55, 1.55, 12.05 },   distance = -1 }, --  4. White playmat
   { position = { -55, 1.55, -11.48 },  distance = -1 }, --  5. Orange playmat
@@ -61,7 +61,7 @@ defaultCameraParams = {
 
 local editing        = false
 local claiming       = false
-local cameraParams   = {}
+local cameraData   = {}
 local visibility     = {}
 local claims         = {}
 
@@ -71,7 +71,7 @@ local claims         = {}
 
 function onSave()
   return JSON.encode({
-    cameras    = cameraParams,
+    cameras    = cameraData,
     visibility = visibility,
     claims     = claims
   })
@@ -80,7 +80,7 @@ end
 function onLoad(savedData)
   if savedData ~= "" then
     local loadedData = JSON.decode(savedData)
-    cameraParams     = loadedData.cameras
+    cameraData     = loadedData.cameras
     visibility       = loadedData.visibility
     claims           = loadedData.claims
   else
@@ -258,71 +258,86 @@ function buttonClicked(player, _, idValue)
   loadCamera(player, _, index)
 end
 
+function getDynamicViewBounds(objList)
+  local count = 0
+  local totalBounds = {
+    minX = 0,
+    maxX = -70,
+    minZ = 60,
+    maxZ = -60
+  }
+
+  for i, obj in pairs(objList) do
+    -- handling for Physics.cast() results
+    if not obj.type then obj = obj.hit_object end
+
+    if not obj.hasTag("CameraZoom_ignore") then
+      count = count + 1
+      local bounds = obj.getBounds()
+      local x1 = bounds['center'][1] - bounds['size'][1] / 2
+      local x2 = bounds['center'][1] + bounds['size'][1] / 2
+      local z1 = bounds['center'][3] - bounds['size'][3] / 2
+      local z2 = bounds['center'][3] + bounds['size'][3] / 2
+
+      totalBounds.minX = math.min(x1, totalBounds.minX)
+      totalBounds.maxX = math.max(x2, totalBounds.maxX)
+      totalBounds.minZ = math.min(z1, totalBounds.minZ)
+      totalBounds.maxZ = math.max(z2, totalBounds.maxZ)
+    end
+  end
+
+  -- default values (mainly for play area if nothing is found)
+  if count == 0 then
+    totalBounds.minX = -10
+    totalBounds.maxX = -50
+    totalBounds.minZ = -20
+    totalBounds.maxZ = 20
+  end
+
+  totalBounds.middleX = (totalBounds.maxX + totalBounds.minX) / 2
+  totalBounds.middleZ = (totalBounds.maxZ + totalBounds.minZ) / 2
+  totalBounds.diffX = totalBounds.maxX - totalBounds.minX
+  totalBounds.diffZ = totalBounds.maxZ - totalBounds.minZ
+
+  return totalBounds
+end
+
 function loadCamera(player, _, index)
   local lookHere
 
   -- only do map zooming if the camera hasn't been specially set by user
-  if index == 2 and cameraParams[player.color][index].distance <= 0 then
-    local zone = getObjectFromGUID("a2f932")
-    local minX, minZ, maxX, maxZ = 100, 100, -100, -100
-
-    for _, obj in pairs(zone.getObjects()) do
-      if obj.type == 'Card' or obj.type == 'Infinite' then
-        local bounds = obj.getBounds()
-        local x1 = bounds['center'][1] - bounds['size'][1] / 2
-        local x2 = bounds['center'][1] + bounds['size'][1] / 2
-        local z1 = bounds['center'][3] - bounds['size'][3] / 2
-        local z2 = bounds['center'][3] + bounds['size'][3] / 2
-
-        minX = math.min(x1, minX)
-        maxX = math.max(x2, maxX)
-        minZ = math.min(z1, minZ)
-        maxZ = math.max(z2, maxZ)
-      end
-    end
+  if index == 2 and cameraData[player.color][index].distance <= 0 then
+    local bounds = getDynamicViewBounds(getObjectFromGUID("a2f932").getObjects())
 
     lookHere = {
-      position = { (minX + maxX) / 2, 0, (minZ + maxZ) / 2 },
+      position = { bounds.middleX, 1.55, bounds.middleZ },
       pitch = 75,
       yaw = 90,
-      distance = 0.96 * math.max(maxX - minX, (maxZ - minZ) / 1.6) + 5
+      distance = 0.8 * math.max(bounds.diffX, bounds.diffZ) + 7
     }
   elseif index >= 3 and index <= 6 then
-    local colorList = { "White", "Orange", "Green", "Red" }
-    local newMatColor = colorList[index - 2] -- mat index 1 - 4
-    local newPlayerColor = playmatApi.getPlayerColor(newMatColor)
-
-    if newMatColor ~= nil and (#getSeatedPlayers() == 1 or claims[player.color][newMatColor]) then
+    local matColorList = { "White", "Orange", "Green", "Red" }
+    local matColor = matColorList[index - 2] -- mat index 1 - 4
+    
+    if #getSeatedPlayers() == 1 or claims[player.color][matColor] then
+      local newPlayerColor = playmatApi.getPlayerColor(matColor)
       copyVisibility({startColor = player.color, targetColor = newPlayerColor})
       player.changeColor(newPlayerColor)
     end
 
-    if cameraParams[player.color][index].distance <= 0 then
-      local minX, maxX, minZ, maxZ
-
-      for _, v in pairs(playmatApi.searchPlaymat(newMatColor)) do
-        local bounds = v.hit_object.getBounds()
-        local x1 = bounds['center'][1] - bounds['size'][1] / 2
-        local x2 = bounds['center'][1] + bounds['size'][1] / 2
-        local z1 = bounds['center'][3] - bounds['size'][3] / 2
-        local z2 = bounds['center'][3] + bounds['size'][3] / 2
-
-        minX = math.min(x1, minX or x1)
-        maxX = math.max(x2, maxX or x2)
-        minZ = math.min(z1, minZ or z1)
-        maxZ = math.max(z2, maxZ or z2)
-      end
+    if cameraData[player.color][index].distance <= 0 then
+      local bounds = getDynamicViewBounds(playmatApi.searchPlaymat(matColor))
 
       lookHere = {
-        position = { (minX + maxX) / 2, 0, (minZ + maxZ) / 2 },
+        position = { bounds.middleX, 0, bounds.middleZ },
         pitch = 75,
-        yaw = playmatApi.returnRotation(newMatColor).y + 180,
-        distance = 0.42 * math.max(maxX - minX, maxZ - minZ) + 7
+        yaw = playmatApi.returnRotation(matColor).y + 180,
+        distance = 0.42 * math.max(bounds.diffX, bounds.diffZ) + 7
       }
     end
   end
   -- delay is to account for colorswap
-  Wait.frames(function() player.lookAt(lookHere or cameraParams[player.color][index]) end, 2)
+  Wait.frames(function() player.lookAt(lookHere or cameraData[player.color][index]) end, 2)
 end
 
 function beginClaimColor()
@@ -355,13 +370,13 @@ end
 
 function resetCameras()
   for _, color in ipairs(Player.getColors()) do
-    cameraParams[color] = {}
-    for i = 1, #defaultCameraParams do
-      cameraParams[color][i] = {}
-      cameraParams[color][i].yaw = 90
-      cameraParams[color][i].pitch = 75
-      cameraParams[color][i].position = defaultCameraParams[i].position
-      cameraParams[color][i].distance = defaultCameraParams[i].distance
+    cameraData[color] = {}
+    for i = 1, #defaultCameraData do
+      cameraData[color][i] = {}
+      cameraData[color][i].yaw = 90
+      cameraData[color][i].pitch = 75
+      cameraData[color][i].position = defaultCameraData[i].position
+      cameraData[color][i].distance = defaultCameraData[i].distance
     end
   end
 end
