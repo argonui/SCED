@@ -82,13 +82,11 @@ function onLoad(savedData)
   else
     resetCameras()
     resetClaimColors()
+    resetVisibility()
   end
 
-  updateOverlay()
-end
-
-function closeOverlay(_, color)
-  setVisibility("close", color)
+  updateXmlButtons()
+  updateVisibility()
 end
 
 function cycleVisibility(color)
@@ -96,19 +94,36 @@ function cycleVisibility(color)
 end
 
 function setVisibility(type, color)
-  local visibility[color] = { full = false, play = false }
-
   if type == "next" then
     if visibility[color].full then
-      visibility[color] = { full = false, play = true }
+      visibility[color] = {
+        full = false,
+        play = true
+      }
     elseif visibility[color].play then
-      visibility[color] = { full = false, play = false }
+      visibility[color] = {
+        full = false,
+        play = false
+      }
     else
-      visibility[color] = { full = true, play = false }
+      visibility[color] = {
+        full = true,
+        play = false
+      }
     end
+  elseif type == "toggle" then
+    visibility[color] = {
+      full = not visibility[color].full,
+      play = not visibility[color].play
+    }
+  else
+    visibility[color] = {
+      full = false,
+      play = false
+    }
   end
 
-  updateOverlay()
+  updateVisibility()
 end
 
 function getIndices(color)
@@ -136,88 +151,58 @@ function resetCameras()
   end
 end
 
-function resizeOverlay(object, color)
-  for _, v in ipairs(getIndices(color)) do
-    if v > 0 then
-      local full = fullVisibility[v]
-      fullVisibility[v] = not full
-      playVisibility[v] = full
+-- update XML visibility
+function updateVisibility()
+  local fullColors = "Black"
+  local playColors = "Black"
+
+  for color, v in pairs(visibility) do
+    if v.full then
+      fullColors = fullColors .. '|' .. color
+    elseif v.play then
+      playColors = playColors .. '|' .. color
     end
   end
 
-  updateOverlay()
+  log(fullColors)
+  log(playColors)
+  -- update the visibility on the XML
+  UI.setAttribute("navPanelFull", "visibility", fullColors)
+  UI.setAttribute("navPanelPlay", "visibility", playColors)
 end
 
-function updateOverlay()
-  -- update XML visibility
-  local fullColors, playColors
-  for i, v in pairs(fullVisibility) do
-    if v then
-      local matColor = getPlayerColorForIndex(i)
-      if fullColors and matColor ~= nil then
-        fullColors = fullColors .. '|' .. matColor
-      elseif matColor ~= nil then
-        fullColors = matColor
-      end
-    end
-  end
-
-  for i, v in pairs(playVisibility) do
-    if v then
-      local matColor = getPlayerColorForIndex(i)
-      if playColors and matColor ~= nil then
-        playColors = playColors .. '|' .. matColor
-      elseif matColor ~= nil then
-        playColors = matColor
-      end
-    end
-  end
-
-  if fullColors then
-    updateXMLbuttons("full")
-    UI.setAttribute("navPanelFull", "visibility", fullColors)
-    UI.show("navPanelFull")
-  else
-    UI.hide("navPanelFull")
-  end
-
-  if playColors then
-    updateXMLbuttons("play")
-    UI.setAttribute("navPanelPlay", "visibility", playColors)
-    UI.show("navPanelPlay")
-  else
-    UI.hide("navPanelPlay")
-  end
-end
-
-function updateXMLbuttons(type)
-  local data, id, overlay, color
-  if type == "full" then
-    data = fullButtonData
-    id = "navPanelFull"
-    overlay = "OverlayLarge"
-  else
-    data = playButtonData
-    id = "navPanelPlay"
-    overlay = "OverlaySmall"
-  end
-
-  -- XML button creation
-  local guid = self.getGUID()
+function updateXmlButtons()
   local ui = UI.getXmlTable()
-  local xml = findTagWithId(ui, id)
+  ui = updateXmlButtonHelper(ui, {
+    data = fullButtonData,
+    id = "navPanelFull",
+    overlay = "OverlayLarge"
+  })
+  ui = updateXmlButtonHelper(ui, {
+    data = playButtonData,
+    id = "navPanelPlay",
+    overlay = "OverlaySmall"
+  })
+  UI.setXmlTable(ui)
+end
+
+-- XML button creation
+function updateXmlButtonHelper(ui, params)
+  local color
+  local guid = self.getGUID()
+  local xml = findTagWithId(ui, params.id)
 
   -- add basic image
   xml.children = { {
     tag = "image",
     attributes = {
       id    = "backgroundImage",
-      image = overlay
+      image = params.overlay
     }
   } }
 
   -- add all buttons
-  for _, d in ipairs(data) do
+  for _, d in ipairs(params.data) do
     local buttonID = tonumber(d.id)
 
     if editing and buttonID < 19 then
@@ -250,8 +235,7 @@ function updateXMLbuttons(type)
       }
     })
   end
-
-  UI.setXmlTable(ui)
+  return ui
 end
 
 function findTagWithId(ui, id)
@@ -270,10 +254,10 @@ function buttonClicked(player, _, idValue)
   local buttonID = tonumber(idValue)
 
   if buttonID == 19 then
-    resizeOverlay(nil, player.color)
+    setVisibility("toggle", player.color)
     return
   elseif buttonID == 20 then
-    closeOverlay(nil, player.color)
+    setVisibility("close", player.color)
     return
   end
 
@@ -294,44 +278,22 @@ function buttonClicked(player, _, idValue)
       selectedEditButton = -1
     end
 
-    updateOverlay()
+    updateXmlButtons()
   elseif claiming then
     if buttonID >= 3 and buttonID <= 6 then
-      local colorID = buttonID - 2
-      local playerIndex = getIndexForPlayerColor(player.color)
-
-      -- if we haven't claimed it, break all earlier claims
-      if playermatData[playerIndex].claims[colorID] == false then
-        for i = 1, 4 do
-          if i ~= colorID then
-            playermatData[i].claims[colorID] = false
-            playermatData[colorID].claims[i] = false
-          end
-        end
-      end
-
-      for i = 1, 4 do
-        if playermatData[playerIndex].claims[i] then
-          playermatData[i].claims[colorID] = true
-          playermatData[colorID].claims[i] = true
-        end
-      end
-
-      fullVisibility[colorID] = fullVisibility[playerIndex]
-      playVisibility[colorID] = playVisibility[playerIndex]
+      local colors = {"White", "Orange", "Green", "Red"}
+      local matColor = colors[buttonID - 2]
+      claims[player.color][matColor] = not claims[player.color][matColor]
     end
 
     claiming = false
-    updateOverlay()
+    updateXmlButtons()
   else
     loadCamera(player, _, buttonID)
   end
 end
 
 function loadCamera(player, _, index)
-  local playerColor = player.color
-  local playerIndex = getIndexForPlayerColor(playerColor)
-
   -- only do map zooming if the camera hasn't been specially set by user
   if index == 2 and cameraParams[playerIndex][index].distance <= 0 then
     local zone = getObjectFromGUID("a2f932")
@@ -360,10 +322,13 @@ function loadCamera(player, _, index)
     })
   elseif index >= 3 and index <= 6 then
     local newMatIndex = index - 2 -- mat index 1 - 4
-    local newMatColor = getPlayerColorForIndex(newMatIndex)
+    local colorList = { "White", "Orange", "Green", "Red" }
+    local newMatColor = colorList[newMatIndex]
+    local newPlayerColor = playmatApi.getPlayerColor(newMatColor)
 
-    if newMatColor ~= nil and (#getSeatedPlayers() == 1 or playermatData[playerIndex].claims[newMatIndex]) then
-      player.changeColor(newMatColor)
+    if newMatColor ~= nil and (#getSeatedPlayers() == 1 or claims[player.color][newMatColor]) then
+      copyVisibility({startColor = player.color, targetColor = newPlayerColor})
+      player.changeColor(newPlayerColor)
     end
 
     if cameraParams[newMatIndex][index].distance <= 0 then
@@ -384,10 +349,10 @@ function loadCamera(player, _, index)
 
       -- White/Orange
       if index == 3 or index == 4 then
-        divisor = {x = 1, z = 1.6 } -- screen ratio * 1.2 (for my macbook pro, no idea how to generalize this)
+        divisor = {x = 1.5, z = 1.5 } -- screen ratio * 1.2 (for my macbook pro, no idea how to generalize this)
       -- Green/Red
       else
-        divisor = {x = 1.6, z = 1}
+        divisor = {x = 1.5, z = 1.5}
       end
 
       -- need to wait if the player color changed
@@ -403,13 +368,27 @@ function loadCamera(player, _, index)
       Wait.frames(function() player.lookAt(cameraParams[newMatIndex][index]) end, 2)
     end
   else
+    local playerIndex = getIndexForPlayerColor(player.color)
     player.lookAt(cameraParams[playerIndex][index])
   end
 end
 
-function beginSetCamera(object, color)
+function copyVisibility(params)
+  visibility[params.targetColor] = {
+    full = visibility[params.startColor].full,
+    play = visibility[params.startColor].play
+  }
+  updateVisibility()
+end
+
+function beginClaimColor()
+  claiming = true
+  updateXmlButtons()
+end
+
+function beginSetCamera()
   editing = true
-  updateOverlay()
+  updateXmlButtons()
 end
 
 -- TO-DO: update this
@@ -426,24 +405,19 @@ function updateEditCamera(params)
   editDistance = params[4]
 end
 
-function beginClaimColor()
-  claiming = true
-  updateOverlay()
-end
-
 function resetClaimColors()
-  for i = 1, 4 do
-    for j = 1, 4 do
-      playermatData[i].claims = {}
-      playermatData[i].claims[j] = (i == j)
+  for _, seatedColor in ipairs(getSeatedPlayers()) do
+    claims[seatedColor] = {}
+    for _, color in ipairs(Player.getColors()) do
+      claims[seatedColor][color] = (seatedColor == color)
     end
   end
 end
 
--- helper functions
-function getPlayerColorForIndex(index)
-  local color = { "White", "Orange", "Green", "Red" }
-  return color[index]
+function resetVisibility()
+  for _, color in ipairs(Player.getColors()) do
+    visibility[color] = { full = false, play = false }
+  end
 end
 
 function getIndexForPlayerColor(color)
