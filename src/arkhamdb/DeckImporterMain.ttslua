@@ -6,43 +6,7 @@ local playAreaApi = require("core/PlayAreaApi")
 local arkhamDb = require("arkhamdb/ArkhamDb")
 local zones = require("playermat/Zones")
 
-local DEBUG = false
-
 local ALL_CARDS_GUID = "15bb07"
-
-local customizationRowsWithFields = { }
--- inputMap maps from (our 1-indexes) customization row index to inputValue table index
--- The Raven Quill
-customizationRowsWithFields["09042"] = {}
-customizationRowsWithFields["09042"].inputCount = 2
-customizationRowsWithFields["09042"].inputMap = {}
-customizationRowsWithFields["09042"].inputMap[1] = 1
-customizationRowsWithFields["09042"].inputMap[5] = 2
--- Friends in Low Places
-customizationRowsWithFields["09060"] = {}
-customizationRowsWithFields["09060"].inputCount = 2
-customizationRowsWithFields["09060"].inputMap = {}
-customizationRowsWithFields["09060"].inputMap[1] = 1
-customizationRowsWithFields["09060"].inputMap[3] = 2
--- Living Ink
-customizationRowsWithFields["09079"] = {}
-customizationRowsWithFields["09079"].inputCount = 3
-customizationRowsWithFields["09079"].inputMap = {}
-customizationRowsWithFields["09079"].inputMap[1] = 1
-customizationRowsWithFields["09079"].inputMap[5] = 2
-customizationRowsWithFields["09079"].inputMap[6] = 3
--- Summoned Servitor
-customizationRowsWithFields["09080"] = {}
-customizationRowsWithFields["09080"].inputCount = 1
-customizationRowsWithFields["09080"].inputMap = {}
-customizationRowsWithFields["09080"].inputMap[6] = 1
--- Grizzled
-customizationRowsWithFields["09101"] = {}
-customizationRowsWithFields["09101"].inputCount = 3
-customizationRowsWithFields["09101"].inputMap = {}
-customizationRowsWithFields["09101"].inputMap[1] = 1
-customizationRowsWithFields["09101"].inputMap[2] = 2
-customizationRowsWithFields["09101"].inputMap[3] = 3
 
 function onLoad(script_state)
   initializeUi(JSON.decode(script_state))
@@ -212,7 +176,7 @@ end
 -- Returns the simple name of a card given its ID.  This will find the card and strip any trailing
 -- SCED-specific suffixes such as (Taboo) or (Level)
 function getCardName(cardId)
-  local allCardsBag = getObjectFromGUID("15bb07")
+  local allCardsBag = getObjectFromGUID(ALL_CARDS_GUID)
   local card = allCardsBag.call("getCardById", { id = cardId })
   if (card ~= nil) then
     local name = card.data.Nickname
@@ -360,31 +324,22 @@ function handleCustomizableUpgrades(cardList, customizations)
     if card.metadata.type == "UpgradeSheet" then
       local baseId = string.sub(card.metadata.id, 1, 5)
       local upgrades = customizations["cus_" .. baseId]
-      log(upgrades)
-      log(baseId)
 
       if upgrades ~= nil then
         -- initialize tables
         -- markedBoxes: contains the amount of markedBoxes (left to right) per row (starting at row 1)
         -- inputValues: contains the amount of inputValues per row (starting at row 0)
         local markedBoxes = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }
-        local inputValues = {}
+        local inputValues = { "", "", "", "", "", "" }
         local index_xp    = {}
 
         -- get the index and xp values (looks like this: X|X,X|X, ..)
+        -- input string from arkhamDb is split by ","
         for str in string.gmatch(customizations["cus_" .. baseId], "([^,]+)") do
           table.insert(index_xp, str)
         end
 
         -- split each pair and assign it to the proper position in markedBoxes
-        if (customizationRowsWithFields[baseId] ~= nil) then
-          for i = 1, customizationRowsWithFields[baseId].inputCount do
-            table.insert(inputValues, "")
-          end
-        end
-        for key, value in pairs(inputValues) do
-          log("Key " .. key.." Value " .. value)
-        end
         local inputCount = 0
         for _, entry in ipairs(index_xp) do
           local counter = 0
@@ -398,24 +353,22 @@ function handleCustomizableUpgrades(cardList, customizations)
             elseif counter == 2 then
               markedBoxes[index] = tonumber(str)
             elseif counter == 3 and str ~= "" then
-              if (baseId == "09042") then
-                inputValues[customizationRowsWithFields[baseId].inputMap[index]] = convertRavenQuillSelections(str)
-              elseif customizationRowsWithFields[baseId] ~= nil then
-                inputValues[customizationRowsWithFields[baseId].inputMap[index]] = str
-                log(str)
+              if baseId == "09042" then
+                str = convertRavenQuillSelections(str)
+              end
+
+              for i = 1, 6 do
+                if inputValues[i] == "" then
+                  inputValues[i] = str
+                  break
+                end
               end
             end
           end
         end
 
-        -- remove first entry in markedBoxes if row 0 has textbox
-        if customizationRowsWithFields[baseId] ~= nil and customizationRowsWithFields[baseId].inputCount > 0 then
-          if (baseId == "09080" and markedBoxes[6] == 2 and inputValues[customizationRowsWithFields[baseId].inputMap[6]] == "") then
-            inputValues[customizationRowsWithFields[baseId].inputMap[6]] = "0"
-          else
-            table.remove(markedBoxes, 1)
-          end
-        end
+        log(markedBoxes)
+        log(inputValues)
 
         -- write the loaded values to the save_data of the sheets
         card.data["LuaScriptState"] = JSON.encode({ markedBoxes, inputValues })
@@ -467,8 +420,4 @@ function loadAltArt(card, loadAltInvestigator)
   stateIdTable["08004"]["promo"] = 2
 
   card.setState(stateIdTable[baseId][loadAltInvestigator])
-end
-
-function log(message)
-  if DEBUG then print(message) end
 end
