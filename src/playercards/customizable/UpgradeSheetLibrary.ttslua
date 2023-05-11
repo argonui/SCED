@@ -76,7 +76,7 @@ function updateState(markedBoxesNew, inputValuesNew)
   maybeUpdateSlotDisplay()
 end
 
--- create Data
+-- creates the table "Data" based on the saved state, which is the backbone for UI creation
 function makeData()
   Data = { checkbox = {}, textbox = {} }
 
@@ -116,8 +116,8 @@ function makeData()
   end
 end
 
--- checks or unchecks the given box
-function click_checkbox(tableIndex)
+-- toggles the state for the clicked checkbox
+function clickCheckbox(tableIndex)
   local row = Data.checkbox[tableIndex].row
 
   if Data.checkbox[tableIndex].state then
@@ -137,25 +137,26 @@ function click_checkbox(tableIndex)
 end
 
 -- updates saved value for given text box
-function click_textbox(i, value, selected)
+function clickTextbox(i, value, selected)
   if selected == false then
     inputValues[i] = value
   end
 end
 
+-- handles all button, input and skill/slot selection creation
 function createButtonsAndBoxes()
   self.clearButtons()
   self.clearInputs()
 
-  for i, box_data in ipairs(Data.checkbox) do
+  for i, checkbox in ipairs(Data.checkbox) do
     local funcName = "checkbox" .. i
-    local func = function() click_checkbox(i) end
+    local func = function() clickCheckbox(i) end
     self.setVar(funcName, func)
 
     self.createButton({
       click_function = funcName,
       function_owner = self,
-      position       = box_data.pos,
+      position       = checkbox.pos,
       height         = boxSize * 10,
       width          = boxSize * 10,
       font_size      = 1000,
@@ -165,9 +166,9 @@ function createButtonsAndBoxes()
     })
   end
 
-  for i, box_data in ipairs(Data.textbox) do
+  for i, inputfield in ipairs(Data.textbox) do
     local funcName = "textbox" .. i
-    local func = function(_, _, val, sel) click_textbox(i, val, sel) end
+    local func = function(_, _, val, sel) clickTextbox(i, val, sel) end
     self.setVar(funcName, func)
 
     self.createInput({
@@ -175,14 +176,13 @@ function createButtonsAndBoxes()
       function_owner = self,
       label          = "Click to type",
       alignment      = 2,
-      position       = box_data.pos,
+      position       = inputfield.pos,
       scale          = { 0.1, 0.1, 0.1 },
-      width          = box_data.width * 10,
-      height         = inputFontsize * 10 + 50,
-      font_size      = inputFontsize * 10,
+      width          = inputfield.width * 10,
+      height         = inputFontsize * 10 + 75,
+      font_size      = inputFontsize * 10.5,
       color          = "White",
-      font_color     = buttonFontColor,
-      value          = box_data.value
+      value          = " " .. inputfield.value -- empty space to create a small indent
     })
   end
 
@@ -194,6 +194,7 @@ end
 -- Living Ink related functions
 ---------------------------------------------------------
 
+-- loads the skill selection from the "inputValues" table
 function maybeLoadSkills()
   if selfId ~= "09079-c" then return end
   selectedSkills = {
@@ -257,9 +258,7 @@ end
 function getCircleVector(center)
   local diameter = Vector(0, 0, 0.1)
   local pointOfOrigin = Vector(center.x, Y_VISIBLE, center.z)
-
-  -- Declare Results vectors
-  local vec = Vector(0, 0, 0)
+  local vec
   local vecList = {}
   local arcStep = 5
   for i = 0, 360, arcStep do
@@ -285,7 +284,7 @@ function maybeMakeSlotSelectionButtons()
   if selfId ~= "09080-c" then return end
 
   local buttonData = {
-    click_function = "click_arcane",
+    click_function = "clickArcane",
     function_owner = self,
     position       = { x = -1 * SLOT_ICON_POSITIONS.arcane.x, y = 0.2, z = SLOT_ICON_POSITIONS.arcane.z },
     height         = 130,
@@ -294,12 +293,13 @@ function maybeMakeSlotSelectionButtons()
   }
   self.createButton(buttonData)
 
-  buttonData.click_function = "click_ally"
+  buttonData.click_function = "clickAlly"
   buttonData.position.x = -1 * SLOT_ICON_POSITIONS.ally.x
   self.createButton(buttonData)
 end
 
-function click_arcane()
+-- toggles the clicked slot
+function clickArcane()
   if inputValues[1] == SLOT_INDICES.arcane then
     inputValues[1] = SLOT_INDICES.none
   else
@@ -308,7 +308,8 @@ function click_arcane()
   maybeUpdateSlotDisplay()
 end
 
-function click_ally()
+-- toggles the clicked slot
+function clickAlly()
   if inputValues[1] == SLOT_INDICES.ally then
     inputValues[1] = SLOT_INDICES.none
   else
