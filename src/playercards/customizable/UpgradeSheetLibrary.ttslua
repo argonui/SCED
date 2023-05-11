@@ -19,6 +19,7 @@ DEBUG        = ""
 function onDestroy() self.script_state = onSave() end
 
 function onSave()
+  -- Living Ink custom save function
   if selfId == "09079-c" then
     inputValues = {}
     for skill, isSelected in pairs(selectedSkills) do
@@ -44,25 +45,32 @@ function onLoad(savedData)
   selfId = getSelfId()
 
   makeData()
-  createButtonsAndBoxes()
   maybeLoadSkills()
+  createButtonsAndBoxes()
   maybeUpdateSkillDisplay()
   maybeUpdateSlotDisplay()
 
-  self.addContextMenuItem("Reset Inputs", function() updateState({ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }) end)
-  self.addContextMenuItem("Scale: normal", function() self.setScale({ 1, 1, 1 }) end)
-  self.addContextMenuItem("Scale: double", function() self.setScale({ 2, 1, 2 }) end)
-  self.addContextMenuItem("Scale: triple", function() self.setScale({ 3, 1, 3 }) end)
+  self.addContextMenuItem("Reset Inputs",
+    function() updateState({ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, { "", "", "", "", "" }) end)
+  self.addContextMenuItem("Reload savestate", function() updateState() end)
+  self.addContextMenuItem("Scale: 1x", function() self.setScale({ 1, 1, 1 }) end)
+  self.addContextMenuItem("Scale: 2x", function() self.setScale({ 2, 1, 2 }) end)
+  self.addContextMenuItem("Scale: 3x", function() self.setScale({ 3, 1, 3 }) end)
 end
 
+-- grabs the ID from the metadata for special functions (Living Ink, Summoned Servitor)
 function getSelfId()
   local metadata = JSON.decode(self.getGMNotes())
   return metadata.id
 end
 
-function updateState(markedBoxesNew)
+-- this can set the checkbox and inputfield data or reset it
+function updateState(markedBoxesNew, inputValuesNew)
   if markedBoxesNew then markedBoxes = markedBoxesNew end
+  if inputValuesNew then inputValues = inputValuesNew end
+
   makeData()
+  maybeLoadSkills()
   createButtonsAndBoxes()
   maybeUpdateSkillDisplay()
   maybeUpdateSlotDisplay()
@@ -188,7 +196,7 @@ end
 
 function maybeLoadSkills()
   if selfId ~= "09079-c" then return end
-  selectedSkills       = {
+  selectedSkills = {
     willpower = false,
     intellect = false,
     combat    = false,
@@ -201,23 +209,9 @@ function maybeLoadSkills()
   end
 end
 
-function click_willpower()
-  selectedSkills.willpower = not selectedSkills.willpower
-  maybeUpdateSkillDisplay()
-end
-
-function click_intellect()
-  selectedSkills.intellect = not selectedSkills.intellect
-  maybeUpdateSkillDisplay()
-end
-
-function click_combat()
-  selectedSkills.combat = not selectedSkills.combat
-  maybeUpdateSkillDisplay()
-end
-
-function click_agility()
-  selectedSkills.agility = not selectedSkills.agility
+-- toggles the clicked skill
+function clickSkill(skillname)
+  selectedSkills[skillname] = not selectedSkills[skillname]
   maybeUpdateSkillDisplay()
 end
 
@@ -226,27 +220,22 @@ function maybeMakeSkillSelectionButtons()
   if selfId ~= "09079-c" then return end
 
   local buttonData = {
-    click_function = "click_willpower",
     function_owner = self,
-    position       = { x = -1 * SKILL_ICON_POSITIONS.willpower.x, y = 0.2, z = SKILL_ICON_POSITIONS.willpower.z },
+    position       = { y = 0.2 },
     height         = 130,
     width          = 130,
-    scale          = { 1, 1, 1 },
     color          = { 0, 0, 0, 0 },
   }
-  self.createButton(buttonData)
 
-  buttonData.click_function = "click_intellect"
-  buttonData.position.x = -1 * SKILL_ICON_POSITIONS.intellect.x
-  self.createButton(buttonData)
+  for skillname, _ in pairs(selectedSkills) do
+    local funcName = "clickSkill" .. skillname
+    self.setVar(funcName, function() clickSkill(skillname) end)
 
-  buttonData.click_function = "click_combat"
-  buttonData.position.x = -1 * SKILL_ICON_POSITIONS.combat.x
-  self.createButton(buttonData)
-
-  buttonData.click_function = "click_agility"
-  buttonData.position.x = -1 * SKILL_ICON_POSITIONS.agility.x
-  self.createButton(buttonData)
+    buttonData.click_function = funcName
+    buttonData.position.x = -1 * SKILL_ICON_POSITIONS[skillname].x
+    buttonData.position.z = SKILL_ICON_POSITIONS[skillname].z
+    self.createButton(buttonData)
+  end
 end
 
 -- Refresh the vector circles indicating a skill is selected.  Since we can only have one table of
@@ -267,7 +256,7 @@ end
 
 function getCircleVector(center)
   local diameter = Vector(0, 0, 0.1)
-  local pointOfOrigin = Vector(center.x, 0.3, center.z)
+  local pointOfOrigin = Vector(center.x, Y_VISIBLE, center.z)
 
   -- Declare Results vectors
   local vec = Vector(0, 0, 0)
@@ -332,24 +321,22 @@ end
 function maybeUpdateSlotDisplay()
   if selfId ~= "09080-c" then return end
 
-  local center
-
-  center               = SLOT_ICON_POSITIONS["arcane"]
+  local center         = SLOT_ICON_POSITIONS["arcane"]
   local arcaneVecList  = {
-    Vector(center.x + 0.12, 0.3, center.z + 0.05),
-    Vector(center.x - 0.12, 0.3, center.z + 0.05),
-    Vector(center.x - 0.12, 0.3, center.z - 0.05),
-    Vector(center.x + 0.12, 0.3, center.z - 0.05),
-    Vector(center.x + 0.12, 0.3, center.z + 0.05),
+    Vector(center.x + 0.12, Y_VISIBLE, center.z + 0.05),
+    Vector(center.x - 0.12, Y_VISIBLE, center.z + 0.05),
+    Vector(center.x - 0.12, Y_VISIBLE, center.z - 0.05),
+    Vector(center.x + 0.12, Y_VISIBLE, center.z - 0.05),
+    Vector(center.x + 0.12, Y_VISIBLE, center.z + 0.05),
   }
 
   center               = SLOT_ICON_POSITIONS["ally"]
   local allyVecList    = {
-    Vector(center.x + 0.07, 0.3, center.z + 0.05),
-    Vector(center.x - 0.07, 0.3, center.z + 0.05),
-    Vector(center.x - 0.07, 0.3, center.z - 0.05),
-    Vector(center.x + 0.07, 0.3, center.z - 0.05),
-    Vector(center.x + 0.07, 0.3, center.z + 0.05),
+    Vector(center.x + 0.07, Y_VISIBLE, center.z + 0.05),
+    Vector(center.x - 0.07, Y_VISIBLE, center.z + 0.05),
+    Vector(center.x - 0.07, Y_VISIBLE, center.z - 0.05),
+    Vector(center.x + 0.07, Y_VISIBLE, center.z - 0.05),
+    Vector(center.x + 0.07, Y_VISIBLE, center.z + 0.05),
   }
 
   local arcaneVecColor = VECTOR_COLOR.unselected
