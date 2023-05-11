@@ -1,6 +1,7 @@
 local playAreaApi = require("core/PlayAreaApi")
 local tokenArrangerApi = require("accessories/TokenArrangerApi")
 local tokenSpawnTrackerApi = require("core/token/TokenSpawnTrackerApi")
+local tokenChecker = require("core/token/TokenChecker")
 
 local ENCOUNTER_DECK_AREA = {
   upperLeft = { x = 0.9, z = 0.42 },
@@ -15,6 +16,9 @@ local currentScenario
 local useFrontData
 local tokenData
 
+local TRASHCAN
+local TRASHCAN_GUID = "70b9f6"
+
 -- we use this to turn off collision handling until onLoad() is complete
 local collisionEnabled = false
 
@@ -25,6 +29,7 @@ function onLoad(saveState)
     useFrontData      = loadedState.useFrontData or true
     tokenData         = loadedState.tokenData or {}
   end
+  TRASHCAN = getObjectFromGUID(TRASHCAN_GUID)
   collisionEnabled = true
 end
 
@@ -74,6 +79,7 @@ function onCollisionEnter(collisionInfo)
   local localPos = self.positionToLocal(object.getPosition())
   if inArea(localPos, ENCOUNTER_DECK_AREA) or inArea(localPos, ENCOUNTER_DISCARD_AREA) then
     tokenSpawnTrackerApi.resetTokensSpawned(object.getGUID())
+    removeTokensFromObject(object)
   end
 end
 
@@ -130,4 +136,32 @@ function inArea(point, bounds)
       and point.x > bounds.lowerRight.x
       and point.z < bounds.upperLeft.z
       and point.z > bounds.lowerRight.z)
+end
+
+-- removes tokens from the provided card/deck
+function removeTokensFromObject(object)
+  for _, v in ipairs(searchArea(object.getPosition(), { 3, 1, 4 })) do
+    local obj = v.hit_object
+
+    if obj.getGUID() ~= "4ee1f2" and -- table
+        obj ~= self and
+        obj.type ~= "Deck" and
+        obj.type ~= "Card" and
+        obj.memo ~= nil and
+        obj.getLock() == false and
+        not tokenChecker.isChaosToken(obj) then
+      TRASHCAN.putObject(obj)
+    end
+  end
+end
+
+function searchArea(origin, size)
+  return Physics.cast({
+    origin       = origin,
+    direction    = {0, 1, 0},
+    orientation  = self.getRotation(),
+    type         = 3,
+    size         = size,
+    max_distance = 1
+  })
 end
