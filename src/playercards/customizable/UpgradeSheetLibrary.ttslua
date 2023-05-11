@@ -18,7 +18,17 @@ DEBUG        = ""
 -- save state when going into bags / decks
 function onDestroy() self.script_state = onSave() end
 
-function onSave() return JSON.encode({ markedBoxes, inputValues}) end
+function onSave()
+  if selfId == "09079-c" then
+    inputValues = {}
+    for skill, isSelected in pairs(selectedSkills) do
+      if isSelected then
+        table.insert(inputValues, skill)
+      end
+    end
+  end
+  return JSON.encode({ markedBoxes, inputValues })
+end
 
 -- Startup procedure
 function onLoad(savedData)
@@ -27,14 +37,16 @@ function onLoad(savedData)
     markedBoxes      = loadedData[1]
     inputValues      = loadedData[2]
   else
-    markedBoxes  = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }
-    inputValues  = { "", "", "", "", "" }
+    markedBoxes = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }
+    inputValues = { "", "", "", "", "" }
   end
 
   selfId = getSelfId()
 
   makeData()
   createButtonsAndBoxes()
+  maybeLoadSkills()
+  maybeUpdateSkillDisplay()
   maybeUpdateSlotDisplay()
 
   self.addContextMenuItem("Reset Inputs", function() updateState({ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }) end)
@@ -52,6 +64,7 @@ function updateState(markedBoxesNew)
   if markedBoxesNew then markedBoxes = markedBoxesNew end
   makeData()
   createButtonsAndBoxes()
+  maybeUpdateSkillDisplay()
   maybeUpdateSlotDisplay()
 end
 
@@ -165,6 +178,7 @@ function createButtonsAndBoxes()
     })
   end
 
+  maybeMakeSkillSelectionButtons()
   maybeMakeSlotSelectionButtons()
 end
 
@@ -172,7 +186,106 @@ end
 -- Living Ink related functions
 ---------------------------------------------------------
 
+function maybeLoadSkills()
+  if selfId ~= "09079-c" then return end
+  selectedSkills       = {
+    willpower = false,
+    intellect = false,
+    combat    = false,
+    agility   = false
+  }
+  for _, skill in ipairs(inputValues) do
+    if skill ~= "" then
+      selectedSkills[skill] = true
+    end
+  end
+end
 
+function click_willpower()
+  selectedSkills.willpower = not selectedSkills.willpower
+  maybeUpdateSkillDisplay()
+end
+
+function click_intellect()
+  selectedSkills.intellect = not selectedSkills.intellect
+  maybeUpdateSkillDisplay()
+end
+
+function click_combat()
+  selectedSkills.combat = not selectedSkills.combat
+  maybeUpdateSkillDisplay()
+end
+
+function click_agility()
+  selectedSkills.agility = not selectedSkills.agility
+  maybeUpdateSkillDisplay()
+end
+
+-- Creates the invisible buttons overlaying the skill icons
+function maybeMakeSkillSelectionButtons()
+  if selfId ~= "09079-c" then return end
+
+  local buttonData = {
+    click_function = "click_willpower",
+    function_owner = self,
+    position       = { x = -1 * SKILL_ICON_POSITIONS.willpower.x, y = 0.2, z = SKILL_ICON_POSITIONS.willpower.z },
+    height         = 130,
+    width          = 130,
+    scale          = { 1, 1, 1 },
+    color          = { 0, 0, 0, 0 },
+  }
+  self.createButton(buttonData)
+
+  buttonData.click_function = "click_intellect"
+  buttonData.position.x = -1 * SKILL_ICON_POSITIONS.intellect.x
+  self.createButton(buttonData)
+
+  buttonData.click_function = "click_combat"
+  buttonData.position.x = -1 * SKILL_ICON_POSITIONS.combat.x
+  self.createButton(buttonData)
+
+  buttonData.click_function = "click_agility"
+  buttonData.position.x = -1 * SKILL_ICON_POSITIONS.agility.x
+  self.createButton(buttonData)
+end
+
+-- Refresh the vector circles indicating a skill is selected.  Since we can only have one table of
+-- vectors set, have to refresh all 4 at once
+function maybeUpdateSkillDisplay()
+  if selfId ~= "09079-c" then return end
+  local circles = {}
+  for skill, isSelected in pairs(selectedSkills) do
+    if isSelected then
+      local circle = getCircleVector(SKILL_ICON_POSITIONS[skill])
+      if circle ~= nil then
+        table.insert(circles, circle)
+      end
+    end
+  end
+  self.setVectorLines(circles)
+end
+
+function getCircleVector(center)
+  local diameter = Vector(0, 0, 0.1)
+  local pointOfOrigin = Vector(center.x, 0.3, center.z)
+
+  -- Declare Results vectors
+  local vec = Vector(0, 0, 0)
+  local vecList = {}
+  local arcStep = 5
+  for i = 0, 360, arcStep do
+    diameter:rotateOver('y', arcStep)
+    vec = pointOfOrigin + diameter
+    vec.y = pointOfOrigin.y
+    table.insert(vecList, vec)
+  end
+
+  return {
+    points    = vecList,
+    color     = VECTOR_COLOR.selected,
+    thickness = 0.02,
+  }
+end
 
 ---------------------------------------------------------
 -- Summoned Servitor related functions
