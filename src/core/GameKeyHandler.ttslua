@@ -2,11 +2,12 @@ local blessCurseManagerApi = require("chaosbag/BlessCurseManagerApi")
 local playmatApi = require("playermat/PlaymatApi")
 
 function onLoad()
+  addHotkey("Add Doom to Agenda", addDoomToAgenda)
+  addHotkey("Bless/Curse Status", showBlessCurseStatus)
+  addHotkey("Move card to Victory Display", moveCardToVictoryDisplay)
+  addHotkey("Take clue from location", takeClueFromLocation)
   addHotkey("Upkeep", triggerUpkeep)
   addHotkey("Upkeep (Multi-handed)", triggerUpkeepMultihanded)
-  addHotkey("Add Doom to Agenda", addDoomToAgenda)
-  addHotkey("Move card to Victory Display", moveCardToVictoryDisplay)
-  addHotkey("Bless/Curse Status", showBlessCurseStatus)
   addHotkey("Wendy's Menu", addWendysMenu)
 end
 
@@ -48,6 +49,75 @@ function moveCardToVictoryDisplay(playerColor, hoveredObject)
   getObjectFromGUID("6ccd6d").call("placeCard", hoveredObject)
 end
 
+-- takes a clue from a location, player needs to hover the clue directly or the location
+function takeClueFromLocation(playerColor, hoveredObject)
+  local cardName, clue
+
+  if hoveredObject == nil then
+    broadcastToColor("Hover a clue or card with clues and try again.", playerColor, "Yellow")
+    return
+  elseif hoveredObject.tag == "Card" then
+    cardName = hoveredObject.getName()
+
+    for _, v in ipairs(searchOnObj(hoveredObject)) do
+      local obj = v.hit_object
+      if obj.memo == "clueDoom" and obj.is_face_down == false then
+        clue = obj
+        break
+      end
+    end
+
+    if clue == nil then
+      broadcastToColor("This card does not have any clues on it.", playerColor, "Yellow")
+      return
+    end
+  elseif hoveredObject.memo == "clueDoom" then
+    if hoveredObject.is_face_down then
+      broadcastToColor("This is a doom token and not a clue.", playerColor, "Yellow")
+      return
+    end
+
+    clue = hoveredObject
+
+    local search = Physics.cast({
+      direction    = { 0, -1, 0 },
+      max_distance = 0.1,
+      type         = 3,
+      size         = { 0.1, 0.1, 0.1 },
+      origin       = clue.getPosition()
+    })
+    
+    for _, v in ipairs(search) do
+      local obj = v.hit_object
+      if obj.tag == "Card" then
+        cardName = obj.getName()
+        break
+      end
+    end
+  else
+    broadcastToColor("Hover a clue or card with clues and try again.", playerColor, "Yellow")
+    return
+  end
+
+  local playerName = Player[playerColor].steam_name
+  local matColor = playmatApi.getMatColor(playerColor) 
+  local pos = playmatApi.transformLocalPosition({x = -1.12, y = 0.05, z = 0.7}, matColor)
+  local rot = playmatApi.returnRotation(matColor)
+
+  if cardName == "" or cardName == nil then
+    cardName = "nameless card"
+  end
+
+  clue.setPositionSmooth(pos)
+  clue.setRotation(rot)
+
+  if cardName then
+    broadcastToAll(playerName .. " took one clue from " .. cardName .. ".", playerColor)
+  else
+    broadcastToAll(playerName .. " took one clue.", "Green")
+  end
+end
+
 -- broadcasts the bless/curse status to the calling player
 function showBlessCurseStatus(playerColor)
   blessCurseManagerApi.broadcastStatus(playerColor)
@@ -56,4 +126,16 @@ end
 -- adds Wendy's menu to the hovered card
 function addWendysMenu(playerColor, hoveredObject)
   blessCurseManagerApi.addWendysMenu(playerColor, hoveredObject)
+end
+
+-- searches on an object (by using its bounds)
+---@param obj Object Object to search on
+function searchOnObj(obj)
+  return Physics.cast({
+    direction    = { 0, 1, 0 },
+    max_distance = 0.5,
+    type         = 3,
+    size         = obj.getBounds().size,
+    origin       = obj.getPosition()
+  })
 end
