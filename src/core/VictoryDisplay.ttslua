@@ -1,13 +1,18 @@
 local playAreaApi = require("core/PlayAreaApi")
+local tokenChecker = require("core/token/TokenChecker")
 local pendingCall = false
 local messageSent = {}
 local missingData = {}
 local countedVP   = {}
 local highlightMissing = false
 local highlightCounted = false
+local TRASHCAN
+local TRASHCAN_GUID = "70b9f6"
 
 -- button creation when loading the game
 function onLoad()
+  TRASHCAN = getObjectFromGUID(TRASHCAN_GUID)
+
   -- index 0: VP - "Display"
   local buttonParameters          = {}
   buttonParameters.label          = "0"
@@ -266,6 +271,21 @@ function placeCard(card)
     end
   end
 
+  -- remove tokens from the card
+  for _, v in ipairs(searchOnObj(card)) do
+    local obj = v.hit_object
+
+    -- don't touch decks / cards
+    if obj.tag == "Deck" or obj.tag == "Card" then
+    -- put chaos tokens back into bag
+    elseif tokenChecker.isChaosToken(obj) then
+      local chaosBag = Global.call("findChaosBag")
+      chaosBag.putObject(obj)
+    elseif obj.memo ~= nil and obj.getLock() == false then
+      TRASHCAN.putObject(obj)
+    end
+  end
+  
   -- place the card
   local name = card.getName() or "Unnamed card"
   for i = 1, 10 do
