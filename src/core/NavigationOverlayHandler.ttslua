@@ -1,0 +1,407 @@
+local playmatApi = require("playermat/PlaymatApi")
+
+fullButtonData   = {
+  { id = "1",  width = "84",  height = "33",  offset = "1 2" },       --  1. Act/Agenda
+  { id = "2",  width = "78",  height = "69",  offset = "1 -62" },     --  2. Map
+  { id = "3",  width = "70",  height = "36",  offset = "-38 -126" },  --  3. White
+  { id = "4",  width = "70",  height = "36",  offset = "38 -126" },   --  4. Orange
+  { id = "5",  width = "36",  height = "70",  offset = "-63 -66" },   --  5. Green
+  { id = "6",  width = "36",  height = "70",  offset = "63 -66" },    --  6. Red
+  { id = "7",  width = "38",  height = "38",  offset = "-65 -3" },    --  7. Victory
+  { id = "8",  width = "40",  height = "40",  offset = "65 -3" },     --  8. Guide
+  { id = "9",  width = "56",  height = "16",  offset = "1 -20" },     --  9. Player count
+  { id = "10", width = "36",  height = "16",  offset = "1 -102" },    -- 10. Bless/Curse
+  { id = "11", width = "168", height = "56",  offset = "1 47" },      -- 11. Scenarios
+  { id = "12", width = "52",  height = "53",  offset = "-154 134" },  -- 12. Player card panel
+  { id = "13", width = "22",  height = "22",  offset = "-116 132" },  -- 13. Search card panel
+  { id = "14", width = "120", height = "75",  offset = "-152 70" },   -- 14. Player card display
+  { id = "15", width = "40",  height = "54",  offset = "-150 -38" },  -- 15. Deck builder
+  { id = "16", width = "104", height = "84",  offset = "-154 -114" }, -- 16. Rules area
+  { id = "17", width = "100", height = "170", offset = "152 72" },    -- 17. Cycle area
+  { id = "18", width = "56",  height = "60",  offset = "182 -124" },  -- 18. Additions
+  { id = "19", width = "20",  height = "20",  offset = "0 150" },     -- 19. Shrink
+  { id = "20", width = "20",  height = "20",  offset = "20 150" },    -- 20. Close
+  { id = "21", width = "20",  height = "20",  offset = "-20 150" }    -- 21. Settings
+}
+
+playButtonData   = {
+  { id = "1",  width = "80", height = "33", offset = "0 55" },
+  { id = "2",  width = "78", height = "70", offset = "0 -8" },
+  { id = "3",  width = "68", height = "32", offset = "-36 -71" },
+  { id = "4",  width = "68", height = "32", offset = "36 -71" },
+  { id = "5",  width = "35", height = "66", offset = "-65 -10" },
+  { id = "6",  width = "35", height = "66", offset = "65 -10" },
+  { id = "7",  width = "38", height = "38", offset = "-66 52" },
+  { id = "8",  width = "38", height = "38", offset = "66 52" },
+  { id = "9",  width = "50", height = "12", offset = "0 33" },
+  { id = "10", width = "32", height = "12", offset = "0 -48" },
+  { id = "19", width = "20", height = "20", offset = "0 80" },
+  { id = "20", width = "20", height = "20", offset = "20 80" },
+  { id = "21", width = "20", height = "20", offset = "-20 80" }
+}
+
+-- To-Do: dynamically get positions by linking to objects
+cameraData       = {
+  { position = { -1.6, 1.55, 0 },      distance = 18 }, --  1. Act/Agenda
+  { position = { -28, 1.55, 0 },       distance = -1 }, --  2. Map
+  { position = { -31.6, 1.55, 26.4 },  distance = -1 }, --  3. Green playmat
+  { position = { -55, 1.55, 12.05 },   distance = -1 }, --  4. White playmat
+  { position = { -55, 1.55, -11.48 },  distance = -1 }, --  5. Orange playmat
+  { position = { -31.6, 1.55, -26.4 }, distance = -1 }, --  6. Red playmat
+  { position = { -3, 1.55, 30 },       distance = 16 }, --  7. Victory / SetAside
+  { position = { -3, 1.55, -26.76 },   distance = 16 }, --  8. Guide
+  { position = { -11.83, 1.55, 0 },    distance = 10 }, --  9. Player count
+  { position = { -48.35, 1.55, 0 },    distance = 10 }, -- 10. Bless/Curse
+  { position = { 12.56, 1.55, 0 },     distance = 45 }, -- 11. Scenarios
+  { position = { 57.8, 1.55, 71 },     distance = 22 }, -- 12. Player card panel
+  { position = { 60.38, 1.55, 56 },    distance = 10 }, -- 13. Card search panel
+  { position = { 27.48, 1.55, 71 },    distance = 35 }, -- 14. Player card area
+  { position = { -19.48, 1.55, 71 },   distance = 22 }, -- 15. Deck builder
+  { position = { -52.92, 1.55, 71 },   distance = 42 }, -- 16. Rules area
+  { position = { 26, 1.55, -71 },      distance = 65 }, -- 17. Cycle area
+  { position = { -59.08, 1.55, -83 },  distance = 27 }  -- 18. Additions
+}
+
+local settingsOpenForColor
+local visibility = {}
+local claims     = {}
+local pitch      = {}
+
+---------------------------------------------------------
+-- save/load functionality
+---------------------------------------------------------
+
+function onSave()
+  return JSON.encode({
+    visibility = visibility,
+    claims     = claims,
+    pitch      = pitch
+  })
+end
+
+function onLoad(savedData)
+  if savedData ~= "" then
+    local loadedData = JSON.decode(savedData)
+    visibility       = loadedData.visibility
+    claims           = loadedData.claims
+    pitch            = loadedData.pitch
+  else
+    local allColors = Player.getColors()
+
+    for _, color in ipairs(allColors) do
+      -- default state for claims
+      claims[color] = {}
+
+      -- default state for visibility
+      visibility[color] = { full = false, play = false }
+    end
+  end
+
+  createXmlButtons()
+  updateVisibility()
+end
+
+---------------------------------------------------------
+-- visibility related functions
+---------------------------------------------------------
+
+function cycleVisibility(color)
+  setVisibility("next", color)
+end
+
+function copyVisibility(params)
+  visibility[params.targetColor] = {
+    full = visibility[params.startColor].full,
+    play = visibility[params.startColor].play
+  }
+  updateVisibility()
+end
+
+function setVisibility(type, color)
+  if type == "next" then
+    if visibility[color].full then
+      visibility[color] = { full = false, play = true }
+    elseif visibility[color].play then
+      visibility[color] = { full = false, play = false }
+    else
+      visibility[color] = { full = true, play = false }
+    end
+  elseif type == "toggle" then
+    visibility[color] = {
+      full = not visibility[color].full,
+      play = not visibility[color].play
+    }
+  else
+    visibility[color] = { full = false, play = false }
+  end
+
+  updateVisibility()
+end
+
+-- update XML visibility
+function updateVisibility()
+  local colorString = { full = "", play = "" }
+
+  for color, v in pairs(visibility) do
+    if v.full then
+      if colorString.full == "" then
+        colorString.full = color
+      else
+        colorString.full = colorString.full .. '|' .. color
+      end
+    elseif v.play then
+      if colorString.play == "" then
+        colorString.play = color
+      else
+        colorString.play = colorString.play .. '|' .. color
+      end
+    end
+  end
+
+  -- update the visibility on the XML
+  UI.setAttribute("navPanelFull", "visibility", colorString.full)
+  UI.setAttribute("navPanelPlay", "visibility", colorString.play)
+  UI.setAttribute("navPanelFull", "active", colorString.full ~= "")
+  UI.setAttribute("navPanelPlay", "active", colorString.play ~= "")
+end
+
+---------------------------------------------------------
+-- XML button creation
+---------------------------------------------------------
+
+function createXmlButtons()
+  local ui = UI.getXmlTable()
+  ui = createXmlButtonHelper(ui, {
+    data = fullButtonData,
+    id = "navPanelFull",
+    overlay = "OverlayLarge"
+  })
+  ui = createXmlButtonHelper(ui, {
+    data = playButtonData,
+    id = "navPanelPlay",
+    overlay = "OverlaySmall"
+  })
+  UI.setXmlTable(ui)
+end
+
+-- XML button creation
+function createXmlButtonHelper(ui, params)
+  local color
+  local guid = self.getGUID()
+  local xml = findTagWithId(ui, params.id)
+
+  -- add basic image
+  xml.children = { {
+    tag = "image",
+    attributes = {
+      id    = "backgroundImage",
+      image = params.overlay
+    }
+  } }
+
+  -- add all buttons
+  for _, d in ipairs(params.data) do
+    table.insert(xml.children, {
+      tag = "button",
+      attributes = {
+        onClick  = guid .. "/buttonClicked",
+        id       = d.id,
+        height   = d.height,
+        width    = d.width,
+        offsetXY = d.offset,
+        color    = "rgba(0,1,0,0)"
+      }
+    })
+  end
+  return ui
+end
+
+function findTagWithId(ui, id)
+  for _, obj in ipairs(ui) do
+    if obj.attributes and obj.attributes.id and obj.attributes.id == id then return obj end
+    if obj.children then
+      local result = findTagWithId(obj.children, id)
+      if result then return result end
+    end
+  end
+  return nil
+end
+
+---------------------------------------------------------
+-- core functionality
+---------------------------------------------------------
+
+-- handles all button clicks
+function buttonClicked(player, _, id)
+  local index = tonumber(id)
+
+  if index == 19 then
+    setVisibility("toggle", player.color)
+  elseif index == 20 then
+    setVisibility("close", player.color)
+  elseif index == 21 then
+    toggleSettings(player)
+  else
+    loadCamera(player, index)
+  end
+end
+
+-- generates a table with rectangular bounds for provided objects
+function getDynamicViewBounds(objList)
+  local count = 0
+  local totalBounds = {
+    minX = 0,
+    maxX = -70,
+    minZ = 60,
+    maxZ = -60
+  }
+
+  for _, obj in pairs(objList) do
+    -- handling for Physics.cast() results
+    if not obj.type then obj = obj.hit_object end
+
+    if not obj.hasTag("CameraZoom_ignore") then
+      count = count + 1
+      local bounds = obj.getBounds()
+      local x1 = bounds['center'][1] - bounds['size'][1] / 2
+      local x2 = bounds['center'][1] + bounds['size'][1] / 2
+      local z1 = bounds['center'][3] - bounds['size'][3] / 2
+      local z2 = bounds['center'][3] + bounds['size'][3] / 2
+
+      totalBounds.minX = math.min(x1, totalBounds.minX)
+      totalBounds.maxX = math.max(x2, totalBounds.maxX)
+      totalBounds.minZ = math.min(z1, totalBounds.minZ)
+      totalBounds.maxZ = math.max(z2, totalBounds.maxZ)
+    end
+  end
+
+  -- default values (mainly for play area if nothing is found)
+  if count == 0 then
+    totalBounds.minX = -10
+    totalBounds.maxX = -50
+    totalBounds.minZ = -20
+    totalBounds.maxZ = 20
+  end
+
+  totalBounds.middleX = (totalBounds.maxX + totalBounds.minX) / 2
+  totalBounds.middleZ = (totalBounds.maxZ + totalBounds.minZ) / 2
+  totalBounds.diffX = totalBounds.maxX - totalBounds.minX
+  totalBounds.diffZ = totalBounds.maxZ - totalBounds.minZ
+
+  return totalBounds
+end
+
+-- loads the specified camera for a player
+function loadCamera(player, index)
+  local lookHere
+
+  -- dynamic view of the play area
+  if index == 2 then
+    -- search the scripting zone on the play area for objects
+    local bounds = getDynamicViewBounds(getObjectFromGUID("a2f932").getObjects())
+
+    lookHere = {
+      position = { bounds.middleX, 1.55, bounds.middleZ },
+      yaw = 90,
+      distance = 0.8 * math.max(bounds.diffX, bounds.diffZ) + 7
+    }
+  -- dynamic view of the clicked play mat
+  elseif index >= 3 and index <= 6 then
+    local matColorList = { "White", "Orange", "Green", "Red" }
+    local matColor = matColorList[index - 2] -- mat index 1 - 4
+
+    -- check if anyone (except for yourself) has claimed this color
+    local isClaimed = false
+
+    for playerColor, playerTable in pairs(claims) do
+      if playerColor ~= player.color and playerTable[matColor] then
+        isClaimed = true
+        break
+      end
+    end
+
+    -- swap to that color if it isn't claimed by someone else
+    if #getSeatedPlayers() == 1 or not isClaimed then
+      local newPlayerColor = playmatApi.getPlayerColor(matColor)
+      copyVisibility({ startColor = player.color, targetColor = newPlayerColor })
+      player.changeColor(newPlayerColor)
+    end
+
+    -- search on the playmat for objects
+    local bounds = getDynamicViewBounds(playmatApi.searchPlaymat(matColor))
+
+    lookHere = {
+      position = { bounds.middleX, 0, bounds.middleZ },
+      yaw = playmatApi.returnRotation(matColor).y + 180,
+      distance = 0.42 * math.max(bounds.diffX, bounds.diffZ) + 7
+    }
+  end
+
+  -- get default data if no dynamic view (play area or play mat) was loaded
+  if not lookHere then
+    lookHere = cameraData[index]
+    lookHere.yaw = 90
+  end
+
+  -- set pitch to default if not edited
+  lookHere.pitch = pitch[player.color] or 75
+
+  -- delay is to account for colorswap
+  Wait.frames(function() player.lookAt(lookHere) end, 2)
+end
+
+---------------------------------------------------------
+-- settings related functionality
+---------------------------------------------------------
+
+-- claims a color for a player
+function claimColor(player, color)
+  local currentState = claims[player.color][color]
+  claims[player.color][color] = not currentState
+end
+
+function loadDefaultSettings(player)
+  -- reset claims for that player
+  for _, color in ipairs(Player.getColors()) do
+    claims[player.color][color] = (player.color == color)
+  end
+
+  -- reset pitch for that player
+  pitch[player.color] = nil
+
+  -- update the UI accordingly
+  updateSettingsUI(player)
+end
+
+-- called by clicking a toggle
+function toggleSettings(player)
+  if settingsOpenForColor == player.color then
+    settingsOpenForColor = nil
+    UI.setAttribute("navPanelSettings", "active", false)
+  elseif settingsOpenForColor then
+    broadcastToColor("Someone else is currently using the settings. Please wait and try again.", player.color, "Yellow")
+  else
+    settingsOpenForColor = player.color
+
+    updateSettingsUI(player)
+    UI.setAttribute("navPanelSettings", "visibility", player.color)
+    UI.setAttribute("navPanelSettings", "active", true)
+  end
+end
+
+-- called by the slider
+function updatePitch(player, number)
+  pitch[player.color] = number
+end
+
+-- updates the settings UI for the provided player
+function updateSettingsUI(player)
+  -- update the slider
+  UI.setAttribute("sliderPitch", "value", pitch[player.color] or 75)
+  
+  -- update the claims
+  local matColorList = { "White", "Orange", "Green", "Red" }
+  for _, matColor in pairs(matColorList) do
+    UI.setAttribute("claim" .. matColor, "isOn", claims[player.color][matColor] or false)
+  end
+end

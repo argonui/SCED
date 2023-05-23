@@ -1,5 +1,6 @@
 local tokenManager = require("core/token/TokenManager")
 local tokenChecker = require("core/token/TokenChecker")
+local navigationOverlayApi = require("core/NavigationOverlayApi")
 
 -- set true to enable debug logging and show Physics.cast()
 local DEBUG = false
@@ -154,6 +155,10 @@ function searchArea(origin, size)
   })
 end
 
+function searchAroundSelf()
+  return searchArea(PLAY_ZONE_POSITION, PLAY_ZONE_SCALE)
+end
+
 function doNotReady(card)
   return card.getVar("do_not_ready") or false
 end
@@ -240,7 +245,7 @@ function doUpkeep(_, clickedByColor, isRightClick)
 
   -- unexhaust cards in play zone, flip action tokens and find forcedLearning
   local forcedLearning = false
-  for _, v in ipairs(searchArea(PLAY_ZONE_POSITION, PLAY_ZONE_SCALE)) do
+  for _, v in ipairs(searchAroundSelf()) do
     local obj = v.hit_object
     if obj.getDescription() == "Action Token" and obj.is_face_down then
       obj.flip()
@@ -500,6 +505,7 @@ function changeColor(clickedByColor)
 
     -- if the seated player clicked this, reseat him to the new color
     if clickedByColor == playerColor then
+      navigationOverlayApi.copyVisibility(playerColor, color)
       Player[playerColor].changeColor(color)
     end
 
@@ -538,7 +544,7 @@ function replenishTokens(card, count, replenish)
 
   -- handling Runic Axe upgrade sheet for additional replenish
   if card.getName() == "Runic Axe" then
-    for _, v in ipairs(searchArea(PLAY_ZONE_POSITION, PLAY_ZONE_SCALE)) do
+    for _, v in ipairs(searchAroundSelf()) do
       local obj = v.hit_object
       if obj.tag == "Card" then
         local notes = JSON.decode(obj.getGMNotes()) or {}
@@ -572,7 +578,7 @@ end
 function syncCustomizableMetadata(card)
   local cardMetadata = JSON.decode(card.getGMNotes()) or { }
   if cardMetadata ~= nil and cardMetadata.customizations ~= nil then
-    for _, collision in ipairs(searchArea(PLAY_ZONE_POSITION, PLAY_ZONE_SCALE)) do
+    for _, collision in ipairs(searchAroundSelf()) do
       local obj = collision.hit_object
       if obj.name == "Card" or obj.name == "CardCustom" then
         local notes = JSON.decode(obj.getGMNotes()) or { }
