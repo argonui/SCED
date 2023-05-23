@@ -40,6 +40,7 @@ playButtonData   = {
   { id = "21", width = "20", height = "20", offset = "-20 80" }
 }
 
+-- To-Do: dynamically get positions by linking to objects
 cameraData       = {
   { position = { -1.6, 1.55, 0 },      distance = 18 }, --  1. Act/Agenda
   { position = { -28, 1.55, 0 },       distance = -1 }, --  2. Map
@@ -61,6 +62,7 @@ cameraData       = {
   { position = { -59.08, 1.55, -83 },  distance = 27 }  -- 18. Additions
 }
 
+local settingsOpenForColor
 local visibility = {}
 local claims     = {}
 local pitch      = {}
@@ -84,10 +86,13 @@ function onLoad(savedData)
     claims           = loadedData.claims
     pitch            = loadedData.pitch
   else
-    resetClaimColors()
+    local allColors = Player.getColors()
 
-    -- default state for visibility
-    for _, color in ipairs(Player.getColors()) do
+    for _, color in ipairs(allColors) do
+      -- default state for claims
+      claims[color] = {}
+
+      -- default state for visibility
       visibility[color] = { full = false, play = false }
     end
   end
@@ -227,24 +232,18 @@ end
 ---------------------------------------------------------
 
 -- handles all button clicks
-function buttonClicked(player, _, idValue)
-  local index = tonumber(idValue)
+function buttonClicked(player, _, id)
+  local index = tonumber(id)
 
   if index == 19 then
     setVisibility("toggle", player.color)
   elseif index == 20 then
     setVisibility("close", player.color)
   elseif index == 21 then
-    player.showInputDialog("Please enter your desired viewing angle in degrees (90 = bird's-eye view):", "75", updatePitch)
+    toggleSettings(player)
   else
-    loadCamera(player, _, index)
+    loadCamera(player, index)
   end
-end
-
-function updatePitch(input, playerColor)
-  local number = tonumber(input) or 75
-  if number > 90 then number = 90 end
-  pitch[playerColor] = number
 end
 
 -- generates a table with rectangular bounds for provided objects
@@ -293,11 +292,12 @@ function getDynamicViewBounds(objList)
 end
 
 -- loads the specified camera for a player
-function loadCamera(player, _, index)
+function loadCamera(player, index)
   local lookHere
 
   -- dynamic view of the play area
   if index == 2 then
+    -- search the scripting zone on the play area for objects
     local bounds = getDynamicViewBounds(getObjectFromGUID("a2f932").getObjects())
 
     lookHere = {
@@ -310,12 +310,24 @@ function loadCamera(player, _, index)
     local matColorList = { "White", "Orange", "Green", "Red" }
     local matColor = matColorList[index - 2] -- mat index 1 - 4
 
-    if #getSeatedPlayers() == 1 or claims[player.color][matColor] then
+    -- check if anyone (except for yourself) has claimed this color
+    local isClaimed = false
+
+    for playerColor, playerTable in pairs(claims) do
+      if playerColor ~= player.color and playerTable[matColor] then
+        isClaimed = true
+        break
+      end
+    end
+
+    -- swap to that color if it isn't claimed by someone else
+    if #getSeatedPlayers() == 1 or not isClaimed then
       local newPlayerColor = playmatApi.getPlayerColor(matColor)
       copyVisibility({ startColor = player.color, targetColor = newPlayerColor })
       player.changeColor(newPlayerColor)
     end
 
+    -- search on the playmat for objects
     local bounds = getDynamicViewBounds(playmatApi.searchPlaymat(matColor))
 
     lookHere = {
@@ -339,14 +351,57 @@ function loadCamera(player, _, index)
 end
 
 ---------------------------------------------------------
--- functions to reset/initialize tables
+-- settings related functionality
 ---------------------------------------------------------
 
-function resetClaimColors()
-  for _, seatedColor in ipairs(getSeatedPlayers()) do
-    claims[seatedColor] = {}
-    for _, color in ipairs(Player.getColors()) do
-      claims[seatedColor][color] = (seatedColor == color)
-    end
+-- claims a color for a player
+function claimColor(player, color)
+  local currentState = claims[player.color][color]
+  claims[player.color][color] = not currentState
+end
+
+function loadDefaultSettings(player)
+  -- reset claims for that player
+  for _, color in ipairs(Player.getColors()) do
+    claims[player.color][color] = (player.color == color)
+  end
+
+  -- reset pitch for that player
+  pitch[player.color] = nil
+
+  -- update the UI accordingly
+  updateSettingsUI(player)
+end
+
+-- called by clicking a toggle
+function toggleSettings(player)
+  if settingsOpenForColor == player.color then
+    settingsOpenForColor = nil
+    UI.setAttribute("navPanelSettings", "active", false)
+  elseif settingsOpenForColor then
+    broadcastToColor("Someone else is currently using the settings. Please wait and try again.", player.color, "Yellow")
+  else
+    settingsOpenForColor = player.color
+
+    updateSettingsUI(player)
+    UI.setAttribute("navPanelSettings", "visibility", player.color)
+    UI.setAttribute("navPanelSettings", "active", true)
+  end
+end
+
+-- called by the slider
+function updatePitch(player, number)
+  pitch[player.color] = number
+end
+
+-- updates the settings UI for the provided player
+function updateSettingsUI(player)
+  -- update the slider
+  UI.setAttribute("sliderPitch", "value", pitch[player.color] or 75)
+  
+  -- update the claims
+  local matColorList = { "White", "Orange", "Green", "Red" }
+  for _, matColor in pairs(matColorList) do
+    UI.setAttribute("claim" .. matColor, "isOn", claims[player.color][matColor] or false)
   end
 end
