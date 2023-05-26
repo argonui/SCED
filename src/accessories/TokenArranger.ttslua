@@ -20,7 +20,6 @@ inputParameters.tab             = 2
 
 -- variables with save function
 local tokenPrecedence = {}
-local latestLoad      = "XXX"
 local percentage      = false
 
 -- variables without save function
@@ -42,7 +41,6 @@ local TOKEN_NAMES     = {
 function onSave()
   return JSON.encode({
     tokenPrecedence = tokenPrecedence,
-    latestLoad      = latestLoad,
     percentage      = percentage
   })
 end
@@ -52,10 +50,12 @@ function onLoad(saveState)
   if saveState ~= nil and saveState ~= "" then
     local loadedData = JSON.decode(saveState)
     tokenPrecedence  = loadedData.tokenPrecedence
-    latestLoad       = loadedData.latestLoad or "XXX"
     percentage       = loadedData.percentage
   else
     loadDefaultValues()
+
+    -- grab token metadata from mythos area
+    Wait.time(function() onTokenDataChanged(mythosAreaApi.returnTokenData()) end, 0.2)
   end
 
   createButtonsAndInputs(true)
@@ -63,7 +63,6 @@ function onLoad(saveState)
 
   -- context menu items
   self.addContextMenuItem("Load default values", function()
-    latestLoad = "XXX"
     loadDefaultValues()
     updateUI()
     layout()
@@ -90,9 +89,6 @@ function onLoad(saveState)
     "Yellow")
     layout()
   end)
-
-  -- grab token metadata from mythos area
-  Wait.time(function() onTokenDataChanged(mythosAreaApi.returnTokenData()) end, 0.2)
 end
 
 -- delete temporary tokens when destroyed
@@ -382,11 +378,6 @@ function onTokenDataChanged(parameters)
   local tokenData = parameters.tokenData or {}
   local currentScenario = parameters.currentScenario or ""
   local useFrontData = parameters.useFrontData
-
-  -- only update if this data is new
-  local info = currentScenario .. tostring(useFrontData)
-  if latestLoad == info then return end
-  latestLoad = info
 
   -- update token precedence
   for key, table in pairs(tokenData) do
