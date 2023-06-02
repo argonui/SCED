@@ -15,148 +15,86 @@ SLOT_INDICES = { arcane = "1", ally = "0", none = "" }
 -- override 'marked boxes' for debugging ('all' or 'none')
 DEBUG        = ""
 
+local rowCheckboxFirstIndex = { }
+local rowInputIndex = { }
+local selectedUpgrades = { }
+
 -- save state when going into bags / decks
 function onDestroy() self.script_state = onSave() end
 
 function onSave()
-  -- Living Ink custom save function
-  if selfId == "09079-c" then
-    inputValues = {}
-    for skill, isSelected in pairs(selectedSkills) do
-      if isSelected then
-        table.insert(inputValues, skill)
-      end
-    end
-  end
-  return JSON.encode({ markedBoxes, inputValues })
+  return JSON.encode({
+    selections = selectedUpgrades
+  })
 end
 
 -- Startup procedure
 function onLoad(savedData)
   if savedData ~= "" and DEBUG == "" then
     local loadedData = JSON.decode(savedData)
-    markedBoxes      = loadedData[1]
-    inputValues      = loadedData[2]
-  else
-    markedBoxes = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }
-    inputValues = { "", "", "", "", "" }
+    if loadedData.selections ~= nil then
+      selectedUpgrades = loadedData.selections
+    end
   end
 
   selfId = getSelfId()
 
-  makeData()
-  maybeLoadSkills()
-  createButtonsAndBoxes()
-  maybeUpdateSkillDisplay()
-  maybeUpdateSlotDisplay()
+  maybeLoadLivingInkSkills()
+  createUi()
+  maybeUpdateLivingInkSkillDisplay()
+  maybeUpdateServitorSlotDisplay()
 
-  self.addContextMenuItem("Reset Inputs",
-    function() updateState({ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, { "", "", "", "", "" }) end)
-  self.addContextMenuItem("Reload savestate", function() updateState() end)
+  self.addContextMenuItem("Clear Selections", function() resetSelections() end)
   self.addContextMenuItem("Scale: 1x", function() self.setScale({ 1, 1, 1 }) end)
   self.addContextMenuItem("Scale: 2x", function() self.setScale({ 2, 1, 2 }) end)
   self.addContextMenuItem("Scale: 3x", function() self.setScale({ 3, 1, 3 }) end)
 end
 
--- grabs the ID from the metadata for special functions (Living Ink, Summoned Servitor)
+-- Grabs the ID from the metadata for special functions (Living Ink, Summoned Servitor)
 function getSelfId()
   local metadata = JSON.decode(self.getGMNotes())
   return metadata.id
 end
 
--- this can set the checkbox and inputfield data or reset it
-function updateState(markedBoxesNew, inputValuesNew)
-  if markedBoxesNew then markedBoxes = markedBoxesNew end
-  if inputValuesNew then inputValues = inputValuesNew end
-
-  makeData()
-  maybeLoadSkills()
-  createButtonsAndBoxes()
-  maybeUpdateSkillDisplay()
-  maybeUpdateSlotDisplay()
+function resetSelections()
+  selectedUpgrades = { }
+  updateDisplay()
 end
 
--- creates the table "Data" based on the saved state, which is the backbone for UI creation
-function makeData()
-  Data = { checkbox = {}, textbox = {} }
-
-  -- repeat this for each entry (= line) in existingBoxes
-  local totalCount = 0
-  for i = 1, #existingBoxes do
-    -- repeat this for each checkbox per line
-    for j = 1, existingBoxes[i] do
-      totalCount                      = totalCount + 1
-      Data.checkbox[totalCount]       = {}
-      Data.checkbox[totalCount].pos   = {}
-      Data.checkbox[totalCount].pos.x = x_1 + j * x_offset
-      Data.checkbox[totalCount].pos.z = posZ[i]
-      Data.checkbox[totalCount].row   = i
-
-      if (DEBUG == "all") or (markedBoxes[i] >= j and DEBUG ~= "none") then
-        Data.checkbox[totalCount].pos.y = Y_VISIBLE
-        Data.checkbox[totalCount].state = true
-      else
-        Data.checkbox[totalCount].pos.y = Y_INVISIBLE
-        Data.checkbox[totalCount].state = false
-      end
+function createUi()
+  if customizations == nil then
+    return
+  end
+  for i = 1, #customizations do
+    if customizations[i].checkboxes ~= nil then
+      createRowCheckboxes(i)
+    end
+    if customizations[i].textField ~= nil then
+      createRowTextField(i)
     end
   end
-
-  -- repeat this for each entry (= line) in inputBoxes
-  local totalCount = 0
-  for i = 1, #inputBoxes do
-    -- repeat this for each textbox per line
-    for j = 1, inputBoxes[i] do
-      totalCount                     = totalCount + 1
-      Data.textbox[totalCount]       = {}
-      Data.textbox[totalCount].pos   = inputPos[totalCount]
-      Data.textbox[totalCount].width = inputWidth[totalCount]
-      Data.textbox[totalCount].value = inputValues[totalCount]
-    end
-  end
+  maybeMakeLivingInkSkillSelectionButtons()
+  maybeMakeServitorSlotSelectionButtons()
+  updateDisplay()
 end
 
--- toggles the state for the clicked checkbox
-function clickCheckbox(tableIndex)
-  local row = Data.checkbox[tableIndex].row
-
-  if Data.checkbox[tableIndex].state then
-    Data.checkbox[tableIndex].pos.y = Y_INVISIBLE
-    Data.checkbox[tableIndex].state = false
-    markedBoxes[row] = markedBoxes[row] - 1
-  else
-    Data.checkbox[tableIndex].pos.y = Y_VISIBLE
-    Data.checkbox[tableIndex].state = true
-    markedBoxes[row] = markedBoxes[row] + 1
+function createRowCheckboxes(rowIndex)
+  local checkboxes = customizations[rowIndex].checkboxes
+  rowCheckboxFirstIndex[rowIndex] = 0
+  local previousButtons = self.getButtons()
+  if previousButtons ~= nil then
+    rowCheckboxFirstIndex[rowIndex] = #previousButtons
   end
-
-  self.editButton({
-    index = tableIndex - 1,
-    position = Data.checkbox[tableIndex].pos
-  })
-end
-
--- updates saved value for given text box
-function clickTextbox(i, value, selected)
-  if selected == false then
-    inputValues[i] = value
-  end
-end
-
--- handles all button, input and skill/slot selection creation
-function createButtonsAndBoxes()
-  self.clearButtons()
-  self.clearInputs()
-
-  for i, checkbox in ipairs(Data.checkbox) do
-    local funcName = "checkbox" .. i
-    local func = function() clickCheckbox(i) end
+  for col = 1, checkboxes.count do
+    local funcName = "checkboxRow" .. rowIndex .. "Col" .. col
+    local func = function() clickCheckbox(rowIndex, col) end
     self.setVar(funcName, func)
+    local checkboxPos = getCheckboxPosition(rowIndex, col)
 
     self.createButton({
       click_function = funcName,
       function_owner = self,
-      position       = checkbox.pos,
+      position       = checkboxPos,
       height         = boxSize * 10,
       width          = boxSize * 10,
       font_size      = 1000,
@@ -165,29 +103,115 @@ function createButtonsAndBoxes()
       font_color     = { 0, 0, 0 }
     })
   end
+end
 
-  for i, inputfield in ipairs(Data.textbox) do
-    local funcName = "textbox" .. i
-    local func = function(_, _, val, sel) clickTextbox(i, val, sel) end
-    self.setVar(funcName, func)
+function getCheckboxPosition(row, col)
+  return {
+    x = x_1 + col * x_offset,
+    y = Y_VISIBLE,
+    z = customizations[row].checkboxes.posZ
+  }
+end
 
-    self.createInput({
-      input_function = funcName,
-      function_owner = self,
-      label          = "Click to type",
-      alignment      = 2,
-      position       = inputfield.pos,
-      scale          = { 0.1, 0.1, 0.1 },
-      width          = inputfield.width * 10,
-      height         = inputFontsize * 10 + 75,
-      font_size      = inputFontsize * 10.5,
-      color          = "White",
-      value          = " " .. inputfield.value -- empty space to create a small indent
+function createRowTextField(rowIndex)
+  local textField = customizations[rowIndex].textField
+
+  rowInputIndex[rowIndex] = 0
+  local previousInputs = self.getInputs()
+  if previousInputs ~= nil then
+    rowInputIndex[rowIndex] = #previousInputs
+  end
+  local funcName = "textbox" .. rowIndex
+  local func = function(_, _, val, sel) clickTextbox(rowIndex, val, sel) end
+  self.setVar(funcName, func)
+
+  self.createInput({
+    input_function = funcName,
+    function_owner = self,
+    label          = "Click to type",
+    alignment      = 2,
+    position       = textField.position,
+    scale          = { 0.1, 0.1, 0.1 },
+    width          = textField.width * 10,
+    height         = inputFontsize * 10 + 75,
+    font_size      = inputFontsize * 10.5,
+    color          = "White",
+    value          = ""
+  })
+end
+
+function updateDisplay()
+  for i = 1, #customizations do
+    updateRowDisplay(i)
+  end
+  maybeUpdateLivingInkSkillDisplay()
+  maybeUpdateServitorSlotDisplay()
+end
+
+function updateRowDisplay(rowIndex)
+  if customizations[rowIndex].checkboxes ~= nil then
+    updateCheckboxes(rowIndex)
+  end
+  if customizations[rowIndex].textField ~= nil then
+    updateTextField(rowIndex)
+  end
+end
+
+function updateCheckboxes(rowIndex)
+  local checkboxCount = customizations[rowIndex].checkboxes.count
+  local selected = 0
+  if selectedUpgrades[rowIndex] ~= nil and selectedUpgrades[rowIndex].xp ~= nil then
+    selected = selectedUpgrades[rowIndex].xp
+  end
+  local checkboxIndex = rowCheckboxFirstIndex[rowIndex]
+  for col = 1, checkboxCount do
+    local pos = getCheckboxPosition(rowIndex, col)
+    if col <= selected then
+      pos.y = Y_VISIBLE
+    else
+      pos.y = Y_INVISIBLE
+    end
+    self.editButton({
+      index = checkboxIndex,
+      position = pos
+    })
+    checkboxIndex = checkboxIndex + 1
+  end
+end
+
+function updateTextField(rowIndex)
+  local inputIndex = rowInputIndex[rowIndex]
+  if selectedUpgrades[rowIndex] ~= nil and selectedUpgrades[rowIndex].text ~= nil then
+    self.editInput({
+      index = inputIndex,
+      value = " " .. selectedUpgrades[rowIndex].text
     })
   end
+end
 
-  maybeMakeSkillSelectionButtons()
-  maybeMakeSlotSelectionButtons()
+function clickCheckbox(row, col, buttonIndex)
+  if selectedUpgrades[row] == nil then
+    selectedUpgrades[row] = { }
+    selectedUpgrades[row].xp = 0
+  end
+  if selectedUpgrades[row].xp == col then
+    selectedUpgrades[row].xp = col - 1
+  else
+    selectedUpgrades[row].xp = col
+  end
+  updateCheckboxes(row)
+end
+
+-- updates saved value for given text box
+function clickTextbox(rowIndex, value, selected)
+  if selected == false then
+    if selectedUpgrades[rowIndex] == nil then
+      selectedUpgrades[rowIndex] = { }
+    end
+    selectedUpgrades[rowIndex].text = value:gsub("^%s*(.-)%s*$", "%1")
+    -- Editing isn't actually done yet, and will block the update.  Wait a frame so it's finished
+    Wait.frames(function() updateRowDisplay(rowIndex) end, 1)
+  end
 end
 
 ---------------------------------------------------------
@@ -195,7 +219,7 @@ end
 ---------------------------------------------------------
 
 -- loads the skill selection from the "inputValues" table
-function maybeLoadSkills()
+function maybeLoadLivingInkSkills()
   if selfId ~= "09079-c" then return end
   selectedSkills = {
     willpower = false,
@@ -203,8 +227,11 @@ function maybeLoadSkills()
     combat    = false,
     agility   = false
   }
-  for _, skill in ipairs(inputValues) do
-    if skill ~= "" then
+  log("Parsing skills")
+  if selectedUpgrades[1] ~= nil and selectedUpgrades[1].text ~= nil then
+    log("In loop with " .. selectedUpgrades[1].text)
+    for skill in string.gmatch(selectedUpgrades[1].text, "([^,]+)") do
+      log("Skill -" .. skill .. "- set true")
       selectedSkills[skill] = true
     end
   end
@@ -213,11 +240,12 @@ end
 -- toggles the clicked skill
 function clickSkill(skillname)
   selectedSkills[skillname] = not selectedSkills[skillname]
-  maybeUpdateSkillDisplay()
+  maybeUpdateLivingInkSkillDisplay()
+  updateSelectedLivingInkSkillText()
 end
 
 -- Creates the invisible buttons overlaying the skill icons
-function maybeMakeSkillSelectionButtons()
+function maybeMakeLivingInkSkillSelectionButtons()
   if selfId ~= "09079-c" then return end
 
   local buttonData = {
@@ -239,9 +267,29 @@ function maybeMakeSkillSelectionButtons()
   end
 end
 
+function updateSelectedLivingInkSkillText()
+  local skillString = ""
+  if selectedSkills.willpower then
+    skillString = skillString .. "willpower" .. ","
+  end
+  if selectedSkills.intellect then
+    skillString = skillString .. "intellect" .. ","
+  end
+  if selectedSkills.combat then
+    skillString = skillString .. "combat" .. ","
+  end
+  if selectedSkills.agility then
+    skillString = skillString .. "agility" .. ","
+  end
+  if selectedUpgrades[1] == nil then
+    selectedUpgrades[1] = { }
+  end
+  selectedUpgrades[1].text = skillString
+end
+
 -- Refresh the vector circles indicating a skill is selected.  Since we can only have one table of
 -- vectors set, have to refresh all 4 at once
-function maybeUpdateSkillDisplay()
+function maybeUpdateLivingInkSkillDisplay()
   if selfId ~= "09079-c" then return end
   local circles = {}
   for skill, isSelected in pairs(selectedSkills) do
@@ -280,7 +328,7 @@ end
 ---------------------------------------------------------
 
 -- Creates the invisible buttons overlaying the slot words
-function maybeMakeSlotSelectionButtons()
+function maybeMakeServitorSlotSelectionButtons()
   if selfId ~= "09080-c" then return end
 
   local buttonData = {
@@ -300,29 +348,35 @@ end
 
 -- toggles the clicked slot
 function clickArcane()
-  if inputValues[1] == SLOT_INDICES.arcane then
-    inputValues[1] = SLOT_INDICES.none
-  else
-    inputValues[1] = SLOT_INDICES.arcane
+  if selectedUpgrades[6] == nil then
+    selectedUpgrades[6] = { }
   end
-  maybeUpdateSlotDisplay()
+  if selectedUpgrades[6].text == SLOT_INDICES.arcane then
+    selectedUpgrades[6].text = SLOT_INDICES.none
+  else
+    selectedUpgrades[6].text = SLOT_INDICES.arcane
+  end
+  maybeUpdateServitorSlotDisplay()
 end
 
 -- toggles the clicked slot
 function clickAlly()
-  if inputValues[1] == SLOT_INDICES.ally then
-    inputValues[1] = SLOT_INDICES.none
-  else
-    inputValues[1] = SLOT_INDICES.ally
+  if selectedUpgrades[6] == nil then
+    selectedUpgrades[6] = { }
   end
-  maybeUpdateSlotDisplay()
+  if selectedUpgrades[6].text == SLOT_INDICES.ally then
+    selectedUpgrades[6].text = SLOT_INDICES.none
+  else
+    selectedUpgrades[6].text = SLOT_INDICES.ally
+  end
+  maybeUpdateServitorSlotDisplay()
 end
 
 -- Refresh the vector circles indicating a slot is selected.
-function maybeUpdateSlotDisplay()
+function maybeUpdateServitorSlotDisplay()
   if selfId ~= "09080-c" then return end
 
-  local center         = SLOT_ICON_POSITIONS["arcane"]
+  local center = SLOT_ICON_POSITIONS["arcane"]
   local arcaneVecList  = {
     Vector(center.x + 0.12, Y_VISIBLE, center.z + 0.05),
     Vector(center.x - 0.12, Y_VISIBLE, center.z + 0.05),
@@ -331,7 +385,7 @@ function maybeUpdateSlotDisplay()
     Vector(center.x + 0.12, Y_VISIBLE, center.z + 0.05),
   }
 
-  center               = SLOT_ICON_POSITIONS["ally"]
+  center = SLOT_ICON_POSITIONS["ally"]
   local allyVecList    = {
     Vector(center.x + 0.07, Y_VISIBLE, center.z + 0.05),
     Vector(center.x - 0.07, Y_VISIBLE, center.z + 0.05),
@@ -343,9 +397,9 @@ function maybeUpdateSlotDisplay()
   local arcaneVecColor = VECTOR_COLOR.unselected
   local allyVecColor   = VECTOR_COLOR.unselected
 
-  if inputValues[1] == SLOT_INDICES.arcane then
+  if selectedUpgrades[6] ~= nil and selectedUpgrades[6].text == SLOT_INDICES.arcane then
     arcaneVecColor = VECTOR_COLOR.mystic
-  elseif inputValues[1] == SLOT_INDICES.ally then
+  elseif selectedUpgrades[6] ~= nil and selectedUpgrades[6].text == SLOT_INDICES.ally then
     allyVecColor = VECTOR_COLOR.mystic
   end
 
