@@ -46,6 +46,27 @@ local SOURCE_REPO = 'https://raw.githubusercontent.com/chr1z93/loadable-objects/
 local library, requestObj, modMeta, notificationVisible
 local acknowledgedUpgradeVersions = {}
 
+-- language selection
+local LANGUAGE_CODES = {
+  "zh_CN", -- 简体中文
+  "zh_TW", -- 繁體中文
+  "de", -- Deutsch
+  "en", -- English
+  "es", -- Español
+  "fr", -- Français
+  "it"  -- Italiano
+}
+
+local LANGUAGE_NAMES = {
+  "简体中文",
+  "繁體中文",
+  "Deutsch",
+  "English",
+  "Español",
+  "Français",
+  "Italiano"
+}
+
 ---------------------------------------------------------
 -- data for tokens
 ---------------------------------------------------------
@@ -631,7 +652,9 @@ end
 
 function onClick_select(player, params)
   params = JSON.decode(urldecode(params))
-  local url = SOURCE_REPO .. '/' .. params.url
+  local languageCode = (LANGUAGE_CODES[optionPanel["cardLanguage"]] + 1) .. "/"
+  local url = SOURCE_REPO .. '/content/' .. languageCode .. params.url
+  log(url)
   local request = WebRequest.get(url, function (request) complete_obj_download(request, params) end )
   requestObj = request
   startLuaCoroutine(Global, 'downloadCoroutine')
@@ -813,8 +836,8 @@ function onClick_toggleOption(_, id)
 end
 
 -- called by the language selection dropdown
-function onValueChanged_language(_, option, id)
-  print("Language selected: " .. option)
+function languageSelected(_, selectedIndex, id)
+  optionPanel[id] = tonumber(selectedIndex)
 end
 
 -- sets the option panel to the correct state (corresponding to 'optionPanel')
@@ -823,9 +846,13 @@ function updateOptionPanelState()
     if (type(enabled) == "boolean" and enabled)
         or (type(enabled) == "string" and enabled)
         or (type(enabled) == "table" and #enabled ~= 0) then
-      self.UI.setAttribute(id, "isOn", true)
+      UI.setAttribute(id, "isOn", true)
+    elseif type(enabled) == "number" then
+      UI.setAttribute(id .. enabled, "selected", "true")
+      -- trigger a redraw of the UI
+      UI.setXML(UI.getXML())
     else
-      self.UI.setAttribute(id, "isOn", "False")
+      UI.setAttribute(id, "isOn", "False")
     end
   end
 end
