@@ -245,32 +245,26 @@ function doUpkeep(_, clickedByColor, isRightClick)
 
   -- unexhaust cards in play zone, flip action tokens and find forcedLearning
   local forcedLearning = false
+  local rot = self.getRotation()
   for _, v in ipairs(searchAroundSelf()) do
     local obj = v.hit_object
     if obj.getDescription() == "Action Token" and obj.is_face_down then
       obj.flip()
-    elseif obj.tag == "Card" and not obj.is_face_down and not inArea(self.positionToLocal(obj.getPosition()), INVESTIGATOR_AREA) then
+    elseif obj.tag == "Card" and not inArea(self.positionToLocal(obj.getPosition()), INVESTIGATOR_AREA) then
       local cardMetadata = JSON.decode(obj.getGMNotes()) or {}
       if not doNotReady(obj) then
-        obj.setRotation(self.getRotation())
+        -- set correct rotation for face-down cards
+        rot.z = obj.is_face_down and 180 or 0
+        obj.setRotation(rot)
       end
       if cardMetadata.id == "08031" then
         forcedLearning = true
       end
       if cardMetadata.uses ~= nil then
         -- check for cards with 'replenish' in their metadata
-        local count
-        local replenish
-        -- Uses structure underwent a breaking change in 2.4.0, have to check to see if this is
-        -- a single entry or an array.  TODO: Clean this up when 2.4.0 has been out long
-        -- enough that saved decks don't have old data
-        if cardMetadata.uses.count ~= nil then
-          count = cardMetadata.uses.count
-          replenish = cardMetadata.uses.replenish
-        else
-          count = cardMetadata.uses[1].count
-          replenish = cardMetadata.uses[1].replenish
-        end
+        -- TODO: support for cards with multiple uses AND replenish (as of yet, no official card needs that)
+        local count = cardMetadata.uses[1].count
+        local replenish = cardMetadata.uses[1].replenish
         if count and replenish then
           replenishTokens(obj, count, replenish)
         end
