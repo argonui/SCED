@@ -1,19 +1,37 @@
--- static values
-Y_VISIBLE    = 0.25
-Y_INVISIBLE  = -0.5
+-- Common code for handling customizable card upgrade sheets
+-- Define UI elements in the base card file, then include this
+-- UI element definition is an array of tables, each with this structure.  A row may include
+-- checkboxes (number defined by count), a text field, both, or neither (if the row has custom
+-- handling, as Living Ink does)
+-- {
+--   checkboxes = {
+--     posZ = -0.71,
+--     count = 1,
+--   },
+--   textField = {
+--     position =  { 0.005, 0.25, -0.58 },
+--     width = 875
+--   }
+-- }
+-- Fields should also be defined for xInitial (left edge of the checkboxes) and xOffset (amount to
+-- shift X from one box to the next) as well as boxSize (checkboxes) and inputFontSize.
+--
+-- selectedUpgrades holds the state of checkboxes and text input, each element being:
+-- selectedUpgrades[row] = { xp = #, text = "" }
 
--- used for Summoned Servitor and Living Ink
-VECTOR_COLOR = {
+-- Y position for UI elements.  Visibility of checkboxes moves the checkbox inside the card object
+-- when not selected.
+local Y_VISIBLE    = 0.25
+local Y_INVISIBLE  = -0.5
+
+-- Used for Summoned Servitor and Living Ink
+local VECTOR_COLOR = {
   unselected = { 0.5, 0.5, 0.5, 0.75 },
   mystic     = { 0.597, 0.195, 0.796 }
 }
 
--- used for Summoned Servitor
--- these match with ArkhamDB's way of storing the data in the dropdown menu
-SLOT_INDICES = { arcane = "1", ally = "0", none = "" }
-
--- override 'marked boxes' for debugging ('all' or 'none')
-DEBUG        = ""
+-- These match with ArkhamDB's way of storing the data in the dropdown menu
+local SUMMONED_SERVITOR_SLOT_INDICES = { arcane = "1", ally = "0", none = "" }
 
 local rowCheckboxFirstIndex = { }
 local rowInputIndex = { }
@@ -30,7 +48,7 @@ end
 
 -- Startup procedure
 function onLoad(savedData)
-  if savedData ~= "" and DEBUG == "" then
+  if savedData ~= "" then
     local loadedData = JSON.decode(savedData)
     if loadedData.selections ~= nil then
       selectedUpgrades = loadedData.selections
@@ -107,7 +125,7 @@ end
 
 function getCheckboxPosition(row, col)
   return {
-    x = x_1 + col * x_offset,
+    x = xInitial + col * xOffset,
     y = Y_VISIBLE,
     z = customizations[row].checkboxes.posZ
   }
@@ -202,7 +220,7 @@ function clickCheckbox(row, col, buttonIndex)
   updateCheckboxes(row)
 end
 
--- updates saved value for given text box
+-- Updates saved value for given text box when it loses focus
 function clickTextbox(rowIndex, value, selected)
   if selected == false then
     if selectedUpgrades[rowIndex] == nil then
@@ -218,7 +236,7 @@ end
 -- Living Ink related functions
 ---------------------------------------------------------
 
--- loads the skill selection from the "inputValues" table
+-- Builds the list of boolean skill selections from the Row 1 text field
 function maybeLoadLivingInkSkills()
   if selfId ~= "09079-c" then return end
   selectedSkills = {
@@ -227,17 +245,13 @@ function maybeLoadLivingInkSkills()
     combat    = false,
     agility   = false
   }
-  log("Parsing skills")
   if selectedUpgrades[1] ~= nil and selectedUpgrades[1].text ~= nil then
-    log("In loop with " .. selectedUpgrades[1].text)
     for skill in string.gmatch(selectedUpgrades[1].text, "([^,]+)") do
-      log("Skill -" .. skill .. "- set true")
       selectedSkills[skill] = true
     end
   end
 end
 
--- toggles the clicked skill
 function clickSkill(skillname)
   selectedSkills[skillname] = not selectedSkills[skillname]
   maybeUpdateLivingInkSkillDisplay()
@@ -267,6 +281,7 @@ function maybeMakeLivingInkSkillSelectionButtons()
   end
 end
 
+-- Builds a comma-delimited string of skills and places it in the Row 1 text field
 function updateSelectedLivingInkSkillText()
   local skillString = ""
   if selectedSkills.willpower then
@@ -351,10 +366,10 @@ function clickArcane()
   if selectedUpgrades[6] == nil then
     selectedUpgrades[6] = { }
   end
-  if selectedUpgrades[6].text == SLOT_INDICES.arcane then
-    selectedUpgrades[6].text = SLOT_INDICES.none
+  if selectedUpgrades[6].text == SUMMONED_SERVITOR_SLOT_INDICES.arcane then
+    selectedUpgrades[6].text = SUMMONED_SERVITOR_SLOT_INDICES.none
   else
-    selectedUpgrades[6].text = SLOT_INDICES.arcane
+    selectedUpgrades[6].text = SUMMONED_SERVITOR_SLOT_INDICES.arcane
   end
   maybeUpdateServitorSlotDisplay()
 end
@@ -364,10 +379,10 @@ function clickAlly()
   if selectedUpgrades[6] == nil then
     selectedUpgrades[6] = { }
   end
-  if selectedUpgrades[6].text == SLOT_INDICES.ally then
-    selectedUpgrades[6].text = SLOT_INDICES.none
+  if selectedUpgrades[6].text == SUMMONED_SERVITOR_SLOT_INDICES.ally then
+    selectedUpgrades[6].text = SUMMONED_SERVITOR_SLOT_INDICES.none
   else
-    selectedUpgrades[6].text = SLOT_INDICES.ally
+    selectedUpgrades[6].text = SUMMONED_SERVITOR_SLOT_INDICES.ally
   end
   maybeUpdateServitorSlotDisplay()
 end
@@ -397,9 +412,9 @@ function maybeUpdateServitorSlotDisplay()
   local arcaneVecColor = VECTOR_COLOR.unselected
   local allyVecColor   = VECTOR_COLOR.unselected
 
-  if selectedUpgrades[6] ~= nil and selectedUpgrades[6].text == SLOT_INDICES.arcane then
+  if selectedUpgrades[6] ~= nil and selectedUpgrades[6].text == SUMMONED_SERVITOR_SLOT_INDICES.arcane then
     arcaneVecColor = VECTOR_COLOR.mystic
-  elseif selectedUpgrades[6] ~= nil and selectedUpgrades[6].text == SLOT_INDICES.ally then
+  elseif selectedUpgrades[6] ~= nil and selectedUpgrades[6].text == SUMMONED_SERVITOR_SLOT_INDICES.ally then
     allyVecColor = VECTOR_COLOR.mystic
   end
 

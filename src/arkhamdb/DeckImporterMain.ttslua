@@ -338,8 +338,7 @@ function handleCustomizableUpgrades(cardList, customizations)
         -- initialize tables
         -- markedBoxes: contains the amount of markedBoxes (left to right) per row (starting at row 1)
         -- inputValues: contains the amount of inputValues per row (starting at row 0)
-        local markedBoxes = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }
-        local inputValues = { "", "", "", "", "", "" }
+        local selectedUpgrades = { }
         local index_xp    = {}
 
         -- get the index and xp values (looks like this: X|X,X|X, ..)
@@ -362,32 +361,32 @@ function handleCustomizableUpgrades(cardList, customizations)
             if counter == 1 then
               row = tonumber(str) + 1
             elseif counter == 2 then
-              markedBoxes[row] = tonumber(str)
+              if selectedUpgrades[row] == nil then
+                selectedUpgrades[row] = { }
+              end
+              selectedUpgrades[row].xp = tonumber(str)
             elseif counter == 3 and str ~= "" then
               if baseId == "09042" then
-                str = convertRavenQuillSelections(str)
+                selectedUpgrades[row].text = convertRavenQuillSelections(str)
               elseif baseId == "09101" then
-                str = convertGrizzledSelections(str)
-              end
-
-              -- input the found string in the first non-empty index
-              for i = 1, 6 do
-                if inputValues[i] == "" then
-                  inputValues[i] = str
-                  break
+                selectedUpgrades[row].text = convertGrizzledSelections(str)
+              elseif baseId == "09079" then -- Living Ink skill selection
+                -- All skills, regardless of row, are placed in upgrade slot 1 as a comma-delimited
+                -- list
+                if selectedUpgrades[1].text == nil then
+                  selectedUpgrades[1].text = str
+                else
+                  selectedUpgrades[1].text = selectedUpgrades[1].text .. "," .. str
                 end
+              else
+                selectedUpgrades[row].text = str
               end
             end
           end
         end
 
-        -- remove first entry from markedBoxes for cards with inputfield in row "0"
-        if markedBoxes[1] == 0 and inputValues[1] ~= "" and baseId ~= "09080" then
-          table.remove(markedBoxes, 1)
-        end
-
         -- write the loaded values to the save_data of the sheets
-        card.data["LuaScriptState"] = JSON.encode({ markedBoxes, inputValues })
+        card.data["LuaScriptState"] = JSON.encode({ selections = selectedUpgrades })
       end
     end
   end
