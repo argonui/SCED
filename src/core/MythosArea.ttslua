@@ -43,37 +43,28 @@ end
 
 -- TTS event handler.  Handles scenario name event triggering and encounter card token resets.
 function onCollisionEnter(collisionInfo)
-  if not collisionEnabled then
-    return
-  end
+  if not collisionEnabled then return end
   local object = collisionInfo.collision_object
+
   if object.getName() == "Scenario" then
-    local updateNeeded = false
     local description = object.getDescription()
 
-    -- detect if orientation of scenario card changed (flipped to other side)
-    if object.is_face_down == useFrontData then
-      useFrontData = not useFrontData
-      updateNeeded = true
-    end
-
-    -- detect if another scenario card is placed down
+    -- detect if a new scenario card is placed down
     if currentScenario ~= description then
       currentScenario = description
-      updateNeeded = true
       fireScenarioChangedEvent()
     end
 
-    -- trigger update if a change was detected and push new data
-    if updateNeeded then
-      local metadata = JSON.decode(object.getGMNotes()) or {}
-      if not metadata["tokens"] then
-        tokenData = {}
-        return
-      end
-      tokenData = metadata["tokens"][(useFrontData and "front" or "back")]
-      fireTokenDataChangedEvent()
+    local metadata = JSON.decode(object.getGMNotes()) or {}
+    if not metadata["tokens"] then
+      tokenData = {}
+      return
     end
+
+    -- detect orientation of scenario card (for difficulty)
+    useFrontData = not object.is_face_down
+    tokenData = metadata["tokens"][(useFrontData and "front" or "back")]
+    fireTokenDataChangedEvent()
   end
 
   local localPos = self.positionToLocal(object.getPosition())

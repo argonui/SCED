@@ -1,0 +1,433 @@
+-- Common code for handling customizable card upgrade sheets
+-- Define UI elements in the base card file, then include this
+-- UI element definition is an array of tables, each with this structure.  A row may include
+-- checkboxes (number defined by count), a text field, both, or neither (if the row has custom
+-- handling, as Living Ink does)
+-- {
+--   checkboxes = {
+--     posZ = -0.71,
+--     count = 1,
+--   },
+--   textField = {
+--     position =  { 0.005, 0.25, -0.58 },
+--     width = 875
+--   }
+-- }
+-- Fields should also be defined for xInitial (left edge of the checkboxes) and xOffset (amount to
+-- shift X from one box to the next) as well as boxSize (checkboxes) and inputFontSize.
+--
+-- selectedUpgrades holds the state of checkboxes and text input, each element being:
+-- selectedUpgrades[row] = { xp = #, text = "" }
+
+-- Y position for UI elements.  Visibility of checkboxes moves the checkbox inside the card object
+-- when not selected.
+local Y_VISIBLE    = 0.25
+local Y_INVISIBLE  = -0.5
+
+-- Used for Summoned Servitor and Living Ink
+local VECTOR_COLOR = {
+  unselected = { 0.5, 0.5, 0.5, 0.75 },
+  mystic     = { 0.597, 0.195, 0.796 }
+}
+
+-- These match with ArkhamDB's way of storing the data in the dropdown menu
+local SUMMONED_SERVITOR_SLOT_INDICES = { arcane = "1", ally = "0", none = "" }
+
+local rowCheckboxFirstIndex = { }
+local rowInputIndex = { }
+local selectedUpgrades = { }
+
+-- save state when going into bags / decks
+function onDestroy() self.script_state = onSave() end
+
+function onSave()
+  return JSON.encode({
+    selections = selectedUpgrades
+  })
+end
+
+-- Startup procedure
+function onLoad(savedData)
+  if savedData ~= "" then
+    local loadedData = JSON.decode(savedData)
+    if loadedData.selections ~= nil then
+      selectedUpgrades = loadedData.selections
+    end
+  end
+
+  selfId = getSelfId()
+
+  maybeLoadLivingInkSkills()
+  createUi()
+  maybeUpdateLivingInkSkillDisplay()
+  maybeUpdateServitorSlotDisplay()
+
+  self.addContextMenuItem("Clear Selections", function() resetSelections() end)
+  self.addContextMenuItem("Scale: 1x", function() self.setScale({ 1, 1, 1 }) end)
+  self.addContextMenuItem("Scale: 2x", function() self.setScale({ 2, 1, 2 }) end)
+  self.addContextMenuItem("Scale: 3x", function() self.setScale({ 3, 1, 3 }) end)
+end
+
+-- Grabs the ID from the metadata for special functions (Living Ink, Summoned Servitor)
+function getSelfId()
+  local metadata = JSON.decode(self.getGMNotes())
+  return metadata.id
+end
+
+function resetSelections()
+  selectedUpgrades = { }
+  updateDisplay()
+end
+
+function createUi()
+  if customizations == nil then
+    return
+  end
+  for i = 1, #customizations do
+    if customizations[i].checkboxes ~= nil then
+      createRowCheckboxes(i)
+    end
+    if customizations[i].textField ~= nil then
+      createRowTextField(i)
+    end
+  end
+  maybeMakeLivingInkSkillSelectionButtons()
+  maybeMakeServitorSlotSelectionButtons()
+  updateDisplay()
+end
+
+function createRowCheckboxes(rowIndex)
+  local checkboxes = customizations[rowIndex].checkboxes
+  rowCheckboxFirstIndex[rowIndex] = 0
+  local previousButtons = self.getButtons()
+  if previousButtons ~= nil then
+    rowCheckboxFirstIndex[rowIndex] = #previousButtons
+  end
+  for col = 1, checkboxes.count do
+    local funcName = "checkboxRow" .. rowIndex .. "Col" .. col
+    local func = function() clickCheckbox(rowIndex, col) end
+    self.setVar(funcName, func)
+    local checkboxPos = getCheckboxPosition(rowIndex, col)
+
+    self.createButton({
+      click_function = funcName,
+      function_owner = self,
+      position       = checkboxPos,
+      height         = boxSize * 10,
+      width          = boxSize * 10,
+      font_size      = 1000,
+      scale          = { 0.1, 0.1, 0.1 },
+      color          = { 0, 0, 0 },
+      font_color     = { 0, 0, 0 }
+    })
+  end
+end
+
+function getCheckboxPosition(row, col)
+  return {
+    x = xInitial + col * xOffset,
+    y = Y_VISIBLE,
+    z = customizations[row].checkboxes.posZ
+  }
+end
+
+function createRowTextField(rowIndex)
+  local textField = customizations[rowIndex].textField
+
+  rowInputIndex[rowIndex] = 0
+  local previousInputs = self.getInputs()
+  if previousInputs ~= nil then
+    rowInputIndex[rowIndex] = #previousInputs
+  end
+  local funcName = "textbox" .. rowIndex
+  local func = function(_, _, val, sel) clickTextbox(rowIndex, val, sel) end
+  self.setVar(funcName, func)
+
+  self.createInput({
+    input_function = funcName,
+    function_owner = self,
+    label          = "Click to type",
+    alignment      = 2,
+    position       = textField.position,
+    scale          = { 0.1, 0.1, 0.1 },
+    width          = textField.width * 10,
+    height         = inputFontsize * 10 + 75,
+    font_size      = inputFontsize * 10.5,
+    color          = "White",
+    value          = ""
+  })
+end
+
+function updateDisplay()
+  for i = 1, #customizations do
+    updateRowDisplay(i)
+  end
+  maybeUpdateLivingInkSkillDisplay()
+  maybeUpdateServitorSlotDisplay()
+end
+
+function updateRowDisplay(rowIndex)
+  if customizations[rowIndex].checkboxes ~= nil then
+    updateCheckboxes(rowIndex)
+  end
+  if customizations[rowIndex].textField ~= nil then
+    updateTextField(rowIndex)
+  end
+end
+
+function updateCheckboxes(rowIndex)
+  local checkboxCount = customizations[rowIndex].checkboxes.count
+  local selected = 0
+  if selectedUpgrades[rowIndex] ~= nil and selectedUpgrades[rowIndex].xp ~= nil then
+    selected = selectedUpgrades[rowIndex].xp
+  end
+  local checkboxIndex = rowCheckboxFirstIndex[rowIndex]
+  for col = 1, checkboxCount do
+    local pos = getCheckboxPosition(rowIndex, col)
+    if col <= selected then
+      pos.y = Y_VISIBLE
+    else
+      pos.y = Y_INVISIBLE
+    end
+    self.editButton({
+      index = checkboxIndex,
+      position = pos
+    })
+    checkboxIndex = checkboxIndex + 1
+  end
+end
+
+function updateTextField(rowIndex)
+  local inputIndex = rowInputIndex[rowIndex]
+  if selectedUpgrades[rowIndex] ~= nil and selectedUpgrades[rowIndex].text ~= nil then
+    self.editInput({
+      index = inputIndex,
+      value = " " .. selectedUpgrades[rowIndex].text
+    })
+  end
+end
+
+function clickCheckbox(row, col, buttonIndex)
+  if selectedUpgrades[row] == nil then
+    selectedUpgrades[row] = { }
+    selectedUpgrades[row].xp = 0
+  end
+  if selectedUpgrades[row].xp == col then
+    selectedUpgrades[row].xp = col - 1
+  else
+    selectedUpgrades[row].xp = col
+  end
+  updateCheckboxes(row)
+end
+
+-- Updates saved value for given text box when it loses focus
+function clickTextbox(rowIndex, value, selected)
+  if selected == false then
+    if selectedUpgrades[rowIndex] == nil then
+      selectedUpgrades[rowIndex] = { }
+    end
+    selectedUpgrades[rowIndex].text = value:gsub("^%s*(.-)%s*$", "%1")
+    -- Editing isn't actually done yet, and will block the update.  Wait a frame so it's finished
+    Wait.frames(function() updateRowDisplay(rowIndex) end, 1)
+  end
+end
+
+---------------------------------------------------------
+-- Living Ink related functions
+---------------------------------------------------------
+
+-- Builds the list of boolean skill selections from the Row 1 text field
+function maybeLoadLivingInkSkills()
+  if selfId ~= "09079-c" then return end
+  selectedSkills = {
+    willpower = false,
+    intellect = false,
+    combat    = false,
+    agility   = false
+  }
+  if selectedUpgrades[1] ~= nil and selectedUpgrades[1].text ~= nil then
+    for skill in string.gmatch(selectedUpgrades[1].text, "([^,]+)") do
+      selectedSkills[skill] = true
+    end
+  end
+end
+
+function clickSkill(skillname)
+  selectedSkills[skillname] = not selectedSkills[skillname]
+  maybeUpdateLivingInkSkillDisplay()
+  updateSelectedLivingInkSkillText()
+end
+
+-- Creates the invisible buttons overlaying the skill icons
+function maybeMakeLivingInkSkillSelectionButtons()
+  if selfId ~= "09079-c" then return end
+
+  local buttonData = {
+    function_owner = self,
+    position       = { y = 0.2 },
+    height         = 130,
+    width          = 130,
+    color          = { 0, 0, 0, 0 },
+  }
+
+  for skillname, _ in pairs(selectedSkills) do
+    local funcName = "clickSkill" .. skillname
+    self.setVar(funcName, function() clickSkill(skillname) end)
+
+    buttonData.click_function = funcName
+    buttonData.position.x = -1 * SKILL_ICON_POSITIONS[skillname].x
+    buttonData.position.z = SKILL_ICON_POSITIONS[skillname].z
+    self.createButton(buttonData)
+  end
+end
+
+-- Builds a comma-delimited string of skills and places it in the Row 1 text field
+function updateSelectedLivingInkSkillText()
+  local skillString = ""
+  if selectedSkills.willpower then
+    skillString = skillString .. "willpower" .. ","
+  end
+  if selectedSkills.intellect then
+    skillString = skillString .. "intellect" .. ","
+  end
+  if selectedSkills.combat then
+    skillString = skillString .. "combat" .. ","
+  end
+  if selectedSkills.agility then
+    skillString = skillString .. "agility" .. ","
+  end
+  if selectedUpgrades[1] == nil then
+    selectedUpgrades[1] = { }
+  end
+  selectedUpgrades[1].text = skillString
+end
+
+-- Refresh the vector circles indicating a skill is selected.  Since we can only have one table of
+-- vectors set, have to refresh all 4 at once
+function maybeUpdateLivingInkSkillDisplay()
+  if selfId ~= "09079-c" then return end
+  local circles = {}
+  for skill, isSelected in pairs(selectedSkills) do
+    if isSelected then
+      local circle = getCircleVector(SKILL_ICON_POSITIONS[skill])
+      if circle ~= nil then
+        table.insert(circles, circle)
+      end
+    end
+  end
+  self.setVectorLines(circles)
+end
+
+function getCircleVector(center)
+  local diameter = Vector(0, 0, 0.1)
+  local pointOfOrigin = Vector(center.x, Y_VISIBLE, center.z)
+  local vec
+  local vecList = {}
+  local arcStep = 5
+  for i = 0, 360, arcStep do
+    diameter:rotateOver('y', arcStep)
+    vec = pointOfOrigin + diameter
+    vec.y = pointOfOrigin.y
+    table.insert(vecList, vec)
+  end
+
+  return {
+    points    = vecList,
+    color     = VECTOR_COLOR.mystic,
+    thickness = 0.02,
+  }
+end
+
+---------------------------------------------------------
+-- Summoned Servitor related functions
+---------------------------------------------------------
+
+-- Creates the invisible buttons overlaying the slot words
+function maybeMakeServitorSlotSelectionButtons()
+  if selfId ~= "09080-c" then return end
+
+  local buttonData = {
+    click_function = "clickArcane",
+    function_owner = self,
+    position       = { x = -1 * SLOT_ICON_POSITIONS.arcane.x, y = 0.2, z = SLOT_ICON_POSITIONS.arcane.z },
+    height         = 130,
+    width          = 130,
+    color          = { 0, 0, 0, 0 },
+  }
+  self.createButton(buttonData)
+
+  buttonData.click_function = "clickAlly"
+  buttonData.position.x = -1 * SLOT_ICON_POSITIONS.ally.x
+  self.createButton(buttonData)
+end
+
+-- toggles the clicked slot
+function clickArcane()
+  if selectedUpgrades[6] == nil then
+    selectedUpgrades[6] = { }
+  end
+  if selectedUpgrades[6].text == SUMMONED_SERVITOR_SLOT_INDICES.arcane then
+    selectedUpgrades[6].text = SUMMONED_SERVITOR_SLOT_INDICES.none
+  else
+    selectedUpgrades[6].text = SUMMONED_SERVITOR_SLOT_INDICES.arcane
+  end
+  maybeUpdateServitorSlotDisplay()
+end
+
+-- toggles the clicked slot
+function clickAlly()
+  if selectedUpgrades[6] == nil then
+    selectedUpgrades[6] = { }
+  end
+  if selectedUpgrades[6].text == SUMMONED_SERVITOR_SLOT_INDICES.ally then
+    selectedUpgrades[6].text = SUMMONED_SERVITOR_SLOT_INDICES.none
+  else
+    selectedUpgrades[6].text = SUMMONED_SERVITOR_SLOT_INDICES.ally
+  end
+  maybeUpdateServitorSlotDisplay()
+end
+
+-- Refresh the vector circles indicating a slot is selected.
+function maybeUpdateServitorSlotDisplay()
+  if selfId ~= "09080-c" then return end
+
+  local center = SLOT_ICON_POSITIONS["arcane"]
+  local arcaneVecList  = {
+    Vector(center.x + 0.12, Y_VISIBLE, center.z + 0.05),
+    Vector(center.x - 0.12, Y_VISIBLE, center.z + 0.05),
+    Vector(center.x - 0.12, Y_VISIBLE, center.z - 0.05),
+    Vector(center.x + 0.12, Y_VISIBLE, center.z - 0.05),
+    Vector(center.x + 0.12, Y_VISIBLE, center.z + 0.05),
+  }
+
+  center = SLOT_ICON_POSITIONS["ally"]
+  local allyVecList    = {
+    Vector(center.x + 0.07, Y_VISIBLE, center.z + 0.05),
+    Vector(center.x - 0.07, Y_VISIBLE, center.z + 0.05),
+    Vector(center.x - 0.07, Y_VISIBLE, center.z - 0.05),
+    Vector(center.x + 0.07, Y_VISIBLE, center.z - 0.05),
+    Vector(center.x + 0.07, Y_VISIBLE, center.z + 0.05),
+  }
+
+  local arcaneVecColor = VECTOR_COLOR.unselected
+  local allyVecColor   = VECTOR_COLOR.unselected
+
+  if selectedUpgrades[6] ~= nil and selectedUpgrades[6].text == SUMMONED_SERVITOR_SLOT_INDICES.arcane then
+    arcaneVecColor = VECTOR_COLOR.mystic
+  elseif selectedUpgrades[6] ~= nil and selectedUpgrades[6].text == SUMMONED_SERVITOR_SLOT_INDICES.ally then
+    allyVecColor = VECTOR_COLOR.mystic
+  end
+
+  self.setVectorLines({
+    {
+      points    = arcaneVecList,
+      color     = arcaneVecColor,
+      thickness = 0.02,
+    },
+    {
+      points    = allyVecList,
+      color     = allyVecColor,
+      thickness = 0.02,
+    }
+  })
+end

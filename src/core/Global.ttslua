@@ -122,6 +122,7 @@ function onLoad(savedData)
     if obj ~= nil then obj.interactable = false end
   end
 
+  resetChaosTokenStatTracker()
   getModVersion()
   math.randomseed(os.time())
 end
@@ -353,42 +354,67 @@ end
 -- Left-click: print stats, Right-click: reset stats
 function handleStatTrackerClick(_, _, isRightClick)
   if isRightClick then
-    for key, _ in pairs(tokenDrawingStats) do
-      tokenDrawingStats[key] = {}
-    end
+    resetChaosTokenStatTracker()
   else
     local squidKing = "Nobody"
     local maxSquid  = 0
-    local playerColor, playerName
- 
-    for key, personalStats in pairs(tokenDrawingStats) do
-      if personalStats ~= {} then
-        if key == "Overall" then
-          playerColor = "White"
-          playerName = "Overall"
-        else
-          playerColor = playmatApi.getPlayerColor(MAT_GUID_TO_COLOR[key])
-          playerName = Player[playerColor].steam_name or playerColor
+    local foundAnyStats = false
 
-          local playerSquidCount = personalStats["Auto-fail"] or 0
-          if playerSquidCount > maxSquid then
-            squidKing = playerName
-            maxSquid = playerSquidCount
-          end
+    for key, personalStats in pairs(tokenDrawingStats) do
+      local playerColor, playerName
+
+      if key == "Overall" then
+        playerColor = "White"
+        playerName = "Overall"
+      else
+        playerColor = playmatApi.getPlayerColor(MAT_GUID_TO_COLOR[key])
+        playerName = Player[playerColor].steam_name or playerColor
+
+        local playerSquidCount = personalStats["Auto-fail"]
+        if playerSquidCount > maxSquid then
+          squidKing = playerName
+          maxSquid = playerSquidCount
         end
-      
+      end
+
+      -- get the total count of drawn tokens for the player
+      local totalCount = 0
+      for tokenName, value in pairs(personalStats) do
+        totalCount = totalCount + value
+      end
+
+      -- only print the personal stats if any tokens were drawn
+      if totalCount > 0 then
+        foundAnyStats = true
         printToAll("------------------------------")
         printToAll(playerName ..  " Stats", playerColor)
-      
+        
         for tokenName, value in pairs(personalStats) do
-          if value then
+          if value ~= 0 then
             printToAll(tokenName .. ': ' .. tostring(value))
           end
         end
+        printToAll('Total: ' .. tostring(totalCount))
       end
     end
-    printToAll("------------------------------")
-    printToAll(squidKing .. " is an auto-fail magnet.", {255, 0, 0})
+
+    -- detect if any player drew tokens
+    if foundAnyStats then
+      printToAll("------------------------------")
+      printToAll(squidKing .. " is an auto-fail magnet.", {255, 0, 0})
+    else
+      printToAll("No tokens have been drawn yet.", "Yellow")
+    end
+  end
+end
+
+-- resets the count for each token to 0
+function resetChaosTokenStatTracker()
+  for key, _ in pairs(tokenDrawingStats) do
+    tokenDrawingStats[key] = {}
+    for _, token in pairs(ID_URL_MAP) do
+      tokenDrawingStats[key][token.name] = 0
+    end
   end
 end
 

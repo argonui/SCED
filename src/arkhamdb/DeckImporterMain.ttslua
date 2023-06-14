@@ -6,43 +6,7 @@ local playAreaApi = require("core/PlayAreaApi")
 local arkhamDb = require("arkhamdb/ArkhamDb")
 local zones = require("playermat/Zones")
 
-local DEBUG = false
-
 local ALL_CARDS_GUID = "15bb07"
-
-local customizationRowsWithFields = { }
--- inputMap maps from (our 1-indexes) customization row index to inputValue table index
--- The Raven Quill
-customizationRowsWithFields["09042"] = {}
-customizationRowsWithFields["09042"].inputCount = 2
-customizationRowsWithFields["09042"].inputMap = {}
-customizationRowsWithFields["09042"].inputMap[1] = 1
-customizationRowsWithFields["09042"].inputMap[5] = 2
--- Friends in Low Places
-customizationRowsWithFields["09060"] = {}
-customizationRowsWithFields["09060"].inputCount = 2
-customizationRowsWithFields["09060"].inputMap = {}
-customizationRowsWithFields["09060"].inputMap[1] = 1
-customizationRowsWithFields["09060"].inputMap[3] = 2
--- Living Ink
-customizationRowsWithFields["09079"] = {}
-customizationRowsWithFields["09079"].inputCount = 3
-customizationRowsWithFields["09079"].inputMap = {}
-customizationRowsWithFields["09079"].inputMap[1] = 1
-customizationRowsWithFields["09079"].inputMap[5] = 2
-customizationRowsWithFields["09079"].inputMap[6] = 3
--- Summoned Servitor
-customizationRowsWithFields["09080"] = {}
-customizationRowsWithFields["09080"].inputCount = 1
-customizationRowsWithFields["09080"].inputMap = {}
-customizationRowsWithFields["09080"].inputMap[6] = 1
--- Grizzled
-customizationRowsWithFields["09101"] = {}
-customizationRowsWithFields["09101"].inputCount = 3
-customizationRowsWithFields["09101"].inputMap = {}
-customizationRowsWithFields["09101"].inputMap[1] = 1
-customizationRowsWithFields["09101"].inputMap[2] = 2
-customizationRowsWithFields["09101"].inputMap[3] = 3
 
 function onLoad(script_state)
   initializeUi(JSON.decode(script_state))
@@ -142,6 +106,8 @@ function loadCards(slots, investigatorId, bondedList, customizations, playerColo
       if (zone == "SetAside4") then
         -- SetAside4 is reserved for customization cards, and we want them spread on the table
         -- so their checkboxes are visible
+        -- TO-DO: take into account that spreading will make multiple rows
+        -- (this is affected by the user's local settings!)
         if (playerColor == "White") then
           deckPos.z = deckPos.z + (#zoneCards - 1) * spreadDistance
         elseif (playerColor == "Green") then
@@ -197,7 +163,7 @@ function deckSpawned(deck, playerColor)
   end
 end
 
--- Conver the Raven Quill's selections from card IDs to card names.  This could be more elegant
+-- Converts the Raven Quill's selections from card IDs to card names.  This could be more elegant
 -- but the inputs are very static so we're using some brute force.
 ---@param selectionString String provided by ArkhamDB, indicates the customization selections
 --     Should be either a single card ID or two separated by a ^ (e.g. XXXXX^YYYYY)
@@ -209,10 +175,17 @@ function convertRavenQuillSelections(selectionString)
   end
 end
 
+-- Converts Grizzled's selections from a single string with "^".
+---@param selectionString String provided by ArkhamDB, indicates the customization selections
+--     Should be two Traits separated by a ^ (e.g. XXXXX^YYYYY)
+function convertGrizzledSelections(selectionString)
+  return selectionString:gsub("%^", ", ")
+end
+
 -- Returns the simple name of a card given its ID.  This will find the card and strip any trailing
 -- SCED-specific suffixes such as (Taboo) or (Level)
 function getCardName(cardId)
-  local allCardsBag = getObjectFromGUID("15bb07")
+  local allCardsBag = getObjectFromGUID(ALL_CARDS_GUID)
   local card = allCardsBag.call("getCardById", { id = cardId })
   if (card ~= nil) then
     local name = card.data.Nickname
@@ -360,65 +333,60 @@ function handleCustomizableUpgrades(cardList, customizations)
     if card.metadata.type == "UpgradeSheet" then
       local baseId = string.sub(card.metadata.id, 1, 5)
       local upgrades = customizations["cus_" .. baseId]
-      log(upgrades)
-      log(baseId)
 
       if upgrades ~= nil then
         -- initialize tables
         -- markedBoxes: contains the amount of markedBoxes (left to right) per row (starting at row 1)
         -- inputValues: contains the amount of inputValues per row (starting at row 0)
-        local markedBoxes = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }
-        local inputValues = {}
+        local selectedUpgrades = { }
         local index_xp    = {}
 
         -- get the index and xp values (looks like this: X|X,X|X, ..)
+        -- input string from ArkhamDB is split by ","
         for str in string.gmatch(customizations["cus_" .. baseId], "([^,]+)") do
           table.insert(index_xp, str)
         end
 
         -- split each pair and assign it to the proper position in markedBoxes
-        if (customizationRowsWithFields[baseId] ~= nil) then
-          for i = 1, customizationRowsWithFields[baseId].inputCount do
-            table.insert(inputValues, "")
-          end
-        end
-        for key, value in pairs(inputValues) do
-          log("Key " .. key.." Value " .. value)
-        end
-        local inputCount = 0
         for _, entry in ipairs(index_xp) do
+          -- counter increments from 1 to 3 and indicates the part of the string we are on
+          -- usually: 1 = row, 2 = amount of check boxes, 3 = entry in inputfield
           local counter = 0
-          local index   = 0
+          local row     = 0
 
-          -- if found number is 0, then only get inputvalue
-          for str in string.gmatch(entry, "([^|]+)") do
+          -- parsing the string for each row
+          for str in entry:gmatch("([^|]+)") do
             counter = counter + 1
+
             if counter == 1 then
-              index = tonumber(str) + 1
+              row = tonumber(str) + 1
             elseif counter == 2 then
-              markedBoxes[index] = tonumber(str)
+              if selectedUpgrades[row] == nil then
+                selectedUpgrades[row] = { }
+              end
+              selectedUpgrades[row].xp = tonumber(str)
             elseif counter == 3 and str ~= "" then
-              if (baseId == "09042") then
-                inputValues[customizationRowsWithFields[baseId].inputMap[index]] = convertRavenQuillSelections(str)
-              elseif customizationRowsWithFields[baseId] ~= nil then
-                inputValues[customizationRowsWithFields[baseId].inputMap[index]] = str
-                log(str)
+              if baseId == "09042" then
+                selectedUpgrades[row].text = convertRavenQuillSelections(str)
+              elseif baseId == "09101" then
+                selectedUpgrades[row].text = convertGrizzledSelections(str)
+              elseif baseId == "09079" then -- Living Ink skill selection
+                -- All skills, regardless of row, are placed in upgrade slot 1 as a comma-delimited
+                -- list
+                if selectedUpgrades[1].text == nil then
+                  selectedUpgrades[1].text = str
+                else
+                  selectedUpgrades[1].text = selectedUpgrades[1].text .. "," .. str
+                end
+              else
+                selectedUpgrades[row].text = str
               end
             end
           end
         end
 
-        -- remove first entry in markedBoxes if row 0 has textbox
-        if customizationRowsWithFields[baseId] ~= nil and customizationRowsWithFields[baseId].inputCount > 0 then
-          if (baseId == "09080" and markedBoxes[6] == 2 and inputValues[customizationRowsWithFields[baseId].inputMap[6]] == "") then
-            inputValues[customizationRowsWithFields[baseId].inputMap[6]] = "0"
-          else
-            table.remove(markedBoxes, 1)
-          end
-        end
-
         -- write the loaded values to the save_data of the sheets
-        card.data["LuaScriptState"] = JSON.encode({ markedBoxes, inputValues })
+        card.data["LuaScriptState"] = JSON.encode({ selections = selectedUpgrades })
       end
     end
   end
@@ -439,8 +407,4 @@ function loadAltArt(card, loadAltInvestigator)
     local states = card.getStates()
     card.setState(#states)
   end
-end
-
-function log(message)
-  if DEBUG then print(message) end
 end
