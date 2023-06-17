@@ -15,6 +15,8 @@ local DRAWN_CHAOS_TOKEN_OFFSET = {-1.55, 0.25, -0.58}
 -- x-Values for discard buttons
 local DISCARD_BUTTON_OFFSETS = {-1.365, -0.91, -0.455, 0, 0.455, 0.91}
 
+local SEARCH_AROUND_SELF_X_BUFFER = 18
+
 -- defined areas for the function "inArea()""
 local MAIN_PLAY_AREA = {
   upperLeft = {
@@ -155,8 +157,33 @@ function searchArea(origin, size)
   })
 end
 
+-- Finds all objects on the playmat and associated set aside zone.
 function searchAroundSelf()
-  return searchArea(PLAY_ZONE_POSITION, PLAY_ZONE_SCALE)
+  local bounds = self.getBoundsNormalized()
+  -- Increase the width to cover the set aside zone
+  bounds.size.x = bounds.size.x + SEARCH_AROUND_SELF_X_BUFFER
+  -- Since the cast is centered on the position, shift left or right to keep the non-set aside edge
+  -- of the cast at the edge of the playmat
+  -- setAsideDirection accounts for the set aside zone being on the left or right, depending on the
+  -- table position of the playmat
+  local setAsideDirection = bounds.center.z > 0 and 1 or -1
+  local localCenter = self.positionToLocal(bounds.center)
+  localCenter.x = localCenter.x
+      + setAsideDirection * SEARCH_AROUND_SELF_X_BUFFER / 2 / self.getScale().x
+
+  return searchArea(self.positionToWorld(localCenter), bounds.size)
+end
+
+function findCardsAroundSelf()
+  local cards = { }
+  for _, collision in ipairs(searchAroundSelf()) do
+    local obj = collision.hit_object
+    if obj.name == "Card" or obj.name == "CardCustom" then
+      table.insert(cards, obj)
+    end
+  end
+
+  return cards
 end
 
 function doNotReady(card)
@@ -536,23 +563,9 @@ function replenishTokens(card, count, replenish)
     end
   end
 
-  -- handling Runic Axe upgrade sheet for additional replenish
-  if card.getName() == "Runic Axe" then
-    for _, v in ipairs(searchAroundSelf()) do
-      local obj = v.hit_object
-      if obj.tag == "Card" then
-        local notes = JSON.decode(obj.getGMNotes()) or {}
-        if notes ~= nil and notes.id == "09022-c" then
-          if obj.getVar("markedBoxes")[7] == 3 then replenish = 2 end
-          break
-        end
-      end
-    end
-  end
-
   -- this is the theoretical new amount of uses (to be checked below)
   local newCount = foundTokens + replenish
-  
+
   -- if there are already more uses than the replenish amount, keep them
   if foundTokens > count then
     newCount = foundTokens
@@ -569,21 +582,36 @@ function replenishTokens(card, count, replenish)
   end
 end
 
+-- Finds all customizable cards in this play area and updates their metadata based on the selections
+-- on the matching upgrade sheet.
+-- This method is theoretically O(n^2), and should be used sparingly.  In practice it will only be
+-- called when a checkbox is added or removed in-game (which should be rare), and is bounded by the
+-- number of customizable cards in play.
+function syncAllCustomizableCards()
+  for _, card in ipairs(findCardsAroundSelf()) do
+    syncCustomizableMetadata(card)
+  end
+end
+
 function syncCustomizableMetadata(card)
   local cardMetadata = JSON.decode(card.getGMNotes()) or { }
-  if cardMetadata ~= nil and cardMetadata.customizations ~= nil then
-    for _, collision in ipairs(searchAroundSelf()) do
-      local obj = collision.hit_object
-      if obj.name == "Card" or obj.name == "CardCustom" then
-        local notes = JSON.decode(obj.getGMNotes()) or { }
-        if notes.id == (cardMetadata.id .. "-c") then
-          for i, customization in ipairs(cardMetadata.customizations) do
-            if obj.getVar("markedBoxes")[i] == customization.xp
-                and customization.replaces ~= nil
-                and customization.replaces.uses ~= nil then
-              cardMetadata.uses = customization.replaces.uses
-              card.setGMNotes(JSON.encode(cardMetadata))
-            end
+  if cardMetadata == nil or cardMetadata.customizations == nil then
+    return
+  end
+  for _, upgradeSheet in ipairs(findCardsAroundSelf()) do
+    local upgradeSheetMetadata = JSON.decode(upgradeSheet.getGMNotes()) or { }
+    if upgradeSheetMetadata.id == (cardMetadata.id .. "-c") then
+      for i, customization in ipairs(cardMetadata.customizations) do
+        if customization.replaces ~= nil and customization.replaces.uses ~= nil then
+          -- Allowed use of call(), no APIs for individual cards
+          if upgradeSheet.call("isUpgradeActive", i) then
+            cardMetadata.uses = customization.replaces.uses
+            card.setGMNotes(JSON.encode(cardMetadata))
+          else
+            -- TODO: Get the original metadata to restore it... maybe.  This should only be
+            -- necessary in the very unlikely case that a user un-checks a previously-full upgrade
+            -- row while the card is in play.  It will be much easier once the AllPlayerCardsApi is
+            -- in place, so defer until it is
           end
         end
       end
@@ -633,7 +661,7 @@ function shouldSpawnTokens(card)
   if card.is_face_down then
     return false
   end
-  
+
   local localCardPos = self.positionToLocal(card.getPosition())
   local metadata = JSON.decode(card.getGMNotes())
 
