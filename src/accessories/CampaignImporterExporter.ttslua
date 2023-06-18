@@ -46,21 +46,19 @@ local DAMAGE_HORROR_GUIDS = {
   "468e88"; "0257d9"; "7b5729"; "beb964";
   }
 
-local tokenZone
-local deckImporter
-local investigatorCounter
+local deckImporterApi
 
 local chaosBagApi
+local playAreaAPI
 
 local campaignBoxGUID
 
 function onLoad(save_state)
   chaosBagApi = require("chaosbag/ChaosBagApi")
+  playAreaAPI = require("core/PlayAreaApi")
+  deckImporterApi = require("arkhamdb/DeckImporterApi")
   campaignBoxGUID = ""
 
-  tokenZone = getObjectFromGUID("ef3b5f")
-  deckImporter = getObjectFromGUID("a28140")
-  investigatorCounter = getObjectFromGUID("f182ee")
   self.createButton({
     click_function = "findCampaignFromToken",
     function_owner = self,
@@ -98,7 +96,7 @@ function findCampaignFromToken(_, _, _)
   else
     coin = coinObjects[1]
     local importData = JSON.decode(coin.getGMNotes())
-    campaignBoxGUID = importData[1]
+    campaignBoxGUID = importData["box"]
     local campaignBox = getObjectFromGUID(campaignBoxGUID)
     if campaignBox.type == "Generic" then
       campaignBox.call("buttonClick_download")
@@ -140,19 +138,19 @@ end
 function createCampaignFromToken(importData)
   findCampaignLog().destruct()
   --create campaign log
-  spawnObjectData({data = importData[2]}) 
+  spawnObjectData({data = importData["log"]}) 
   --create chaos bag
-  chaosBagApi.setChaosBagState(importData[3])
+  chaosBagApi.setChaosBagState(importData["bag"])
   --populate trauma values
   if importData[4] then
-    updateCounters(importData[4])
+    updateCounters(importData["trauma"])
   end
   --populate ArkhamDB deck IDs
   if importData[5] then
-    deckImporter.call("updateDeckIds", importData[5])
+    deckImporterApi.setUiState(importData["decks"])
   end
   --set investigator count
-  investigatorCounter.call("updateVal", importData[6])
+  playAreaAPI.setInvestigatorCount(importData["clueCount"])
   --set campaign guide page
   if findCampaignGuide() then
     Wait.condition(
@@ -160,8 +158,8 @@ function createCampaignFromToken(importData)
         --log("Campaign Guide import successful!")
       end,
       function()
-        findCampaignGuide().Book.setPage(importData[7])
-        return findCampaignGuide().Book.getPage() == importData[7]
+        findCampaignGuide().Book.setPage(importData["guide"])
+        return findCampaignGuide().Book.getPage() == importData["guide"]
       end,
       1,
       function()
@@ -169,7 +167,7 @@ function createCampaignFromToken(importData)
       end
     )
   end
-  Global.call("loadSettings", importData[8])
+  Global.call("loadSettings", importData["options"])
   broadcastToAll("Campaign successfully imported!", Color.Green)
 end
 
@@ -204,7 +202,6 @@ function createCampaignToken(_, _, _)
     printToAll("Trauma values could not be found in campaign log!", "Yellow")
     printToAll("Default values for health and sanity loaded.", "Yellow")
   end
-  local deckIds = {deckImporter.getInputs()[1].value, deckImporter.getInputs()[2].value, deckImporter.getInputs()[3].value, deckImporter.getInputs()[4].value}
   local campaignGuide = findCampaignGuide()
   if campaignGuide == nil then
     broadcastToAll("Campaign guide not found!", Color.Red)
@@ -213,14 +210,14 @@ function createCampaignToken(_, _, _)
   local campaignGuidePage = campaignGuide.Book.getPage()
 
   local campaignData = {
-    campaignBoxGUID,
-    campaignLog.getData(),
-    chaosBagApi.getChaosBagState(),
-    traumaValues,
-    deckIds,
-    require("core/PlayAreaApi").getInvestigatorCount(),
-    campaignGuidePage,
-    Global.getTable("optionPanel")
+    box = campaignBoxGUID,
+    log = campaignLog.getData(),
+    bag = chaosBagApi.getChaosBagState(),
+    trauma = traumaValues,
+    decks = deckImporterApi.getUiState(),
+    clueCount = playAreaAPI.getInvestigatorCount(),
+    guide = campaignGuidePage,
+    options = Global.getTable("optionPanel")
   }
   campaignTokenData.GMNotes = JSON.encode(campaignData)
   campaignTokenData.Nickname = os.date("%b %d ") .. getObjectFromGUID(campaignBoxGUID).getName() .. " Save"
