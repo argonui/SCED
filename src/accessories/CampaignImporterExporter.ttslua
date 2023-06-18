@@ -65,6 +65,7 @@ function onLoad(save_state)
     click_function = "findCampaignFromToken",
     function_owner = self,
     label = "Import",
+    tooltip = "Create a campaign save token!\n\n(Ensure all chaos tokens have been unsealed!)",
     position = {x=-1, y=0.2, z=0},
     font_size = 400,
     width = 1400,
@@ -75,6 +76,7 @@ function onLoad(save_state)
     click_function = "createCampaignToken",
     function_owner = self,
     label = "Export",
+    tooltip = "Load in a campaign save from a token!",
     position = {x=1, y=0.2, z=0},
     font_size = 400,
     width = 1400,
@@ -83,16 +85,18 @@ function onLoad(save_state)
   })
 end
 
+-- The main import functions.  Due to timing concerns, has to be split up into several separate methods to allow for Wait conditions
+
+-- Identifies import token, determines campaign box and downloads it (if needed)
 function findCampaignFromToken(_, _, _)
   local coin = nil
-  for _, obj in ipairs(tokenZone.getObjects()) do
-    if obj.hasTag("ImporterToken") then
-      coin = obj
-    end 
-  end
-  if coin == nil then
+  local coinObjects = getObjectsWithTag("ImporterToken")
+  if #coinObjects == 0 then
     broadcastToAll("Could not find importer token", Color.Red)
+  elseif #coinObjects > 1 then
+    broadcastToAll("More than 1 importer token found. Please delete all but 1 importer token", Color.Yellow)    
   else
+    coin = coinObjects[1]
     local importData = JSON.decode(coin.getGMNotes())
     campaignBoxGUID = importData[1]
     local campaignBox = getObjectFromGUID(campaignBoxGUID)
@@ -121,6 +125,7 @@ function findCampaignFromToken(_, _, _)
   end
 end
 
+-- After box has been downloaded, places content on table
 function placeCampaignFromToken(importData)
   getObjectFromGUID(campaignBoxGUID).call("buttonClick_place")
   Wait.condition(
@@ -131,6 +136,7 @@ function placeCampaignFromToken(importData)
   )
 end
 
+-- After content is placed on table, conducts all the other import operations
 function createCampaignFromToken(importData)
   findCampaignLog().destruct()
   --create campaign log
@@ -167,6 +173,8 @@ function createCampaignFromToken(importData)
   broadcastToAll("Campaign successfully imported!", Color.Green)
 end
 
+
+-- Creates a campaign token with save data encoded into GM Notes based on the current state of the table
 function createCampaignToken(_, _, _)
   local campaignBoxGUID = ""
   -- find active campaign
@@ -215,7 +223,7 @@ function createCampaignToken(_, _, _)
     Global.getTable("optionPanel")
   }
   campaignTokenData.GMNotes = JSON.encode(campaignData)
-  campaignTokenData.Nickname = os.date(" Save: %b %d") .. getObjectFromGUID(campaignBoxGUID).getName()
+  campaignTokenData.Nickname = os.date("%b %d ") .. getObjectFromGUID(campaignBoxGUID).getName() .. " Save"
   spawnObjectData({
     data = campaignTokenData,
     position = {-21.25, 1.68, 55.59}
