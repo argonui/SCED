@@ -46,10 +46,10 @@ local DAMAGE_HORROR_GUIDS = {
   "468e88"; "0257d9"; "7b5729"; "beb964";
   }
 
-local deckImporterApi
-
 local chaosBagApi
 local playAreaAPI
+local optionPanelApi
+local deckImporterApi
 
 local campaignBoxGUID
 
@@ -57,13 +57,14 @@ function onLoad(save_state)
   chaosBagApi = require("chaosbag/ChaosBagApi")
   playAreaAPI = require("core/PlayAreaApi")
   deckImporterApi = require("arkhamdb/DeckImporterApi")
+  optionPanelApi = require("core/OptionPanelApi")
   campaignBoxGUID = ""
 
   self.createButton({
     click_function = "findCampaignFromToken",
     function_owner = self,
     label = "Import",
-    tooltip = "Create a campaign save token!\n\n(Ensure all chaos tokens have been unsealed!)",
+    tooltip = "Load in a campaign save from a token!\n\n(Token can be anywhere on the table, but ensure there is only 1!)",    
     position = {x=-1, y=0.2, z=0},
     font_size = 400,
     width = 1400,
@@ -74,7 +75,7 @@ function onLoad(save_state)
     click_function = "createCampaignToken",
     function_owner = self,
     label = "Export",
-    tooltip = "Load in a campaign save from a token!",
+    tooltip = "Create a campaign save token!\n\n(Ensure all chaos tokens have been unsealed!)",
     position = {x=1, y=0.2, z=0},
     font_size = 400,
     width = 1400,
@@ -167,7 +168,10 @@ function createCampaignFromToken(importData)
       end
     )
   end
-  Global.call("loadSettings", importData["options"])
+  Wait.time(
+    function() optionPanelApi.loadSettings(importData["options"]) end,
+    0.5
+  )
   broadcastToAll("Campaign successfully imported!", Color.Green)
 end
 
@@ -217,7 +221,7 @@ function createCampaignToken(_, _, _)
     decks = deckImporterApi.getUiState(),
     clueCount = playAreaAPI.getInvestigatorCount(),
     guide = campaignGuidePage,
-    options = Global.getTable("optionPanel")
+    options = optionPanelApi.getOptionPanel()
   }
   campaignTokenData.GMNotes = JSON.encode(campaignData)
   campaignTokenData.Nickname = os.date("%b %d ") .. getObjectFromGUID(campaignBoxGUID).getName() .. " Save"
