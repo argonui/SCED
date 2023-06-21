@@ -109,6 +109,7 @@ do
 
   -- stateIDs for the multi-stated resource tokens
   local stateTable = {
+    ["Resource"] = 1,
     ["Ammo"] = 2,
     ["Charge"] = 3,
     ["Secret"] = 4,
@@ -151,13 +152,13 @@ do
 
   -- Spawns a set of tokens on the given card.
   ---@param card Object Card to spawn tokens on
-  ---@param tokenType String type of token to spawn, valid values are "damage", "horror",
+  ---@param tokenType String Type of token to spawn, valid values are "damage", "horror",
   --     "resource", "doom", or "clue"
   ---@param tokenCount Number How many tokens to spawn.  For damage or horror this value will be set to the
   --     spawned state object rather than spawning multiple tokens
   ---@param shiftDown Number An offset for the z-value of this group of tokens
-  ---@param stateID Number Index of the state to load for this token
-  TokenManager.spawnTokenGroup = function(card, tokenType, tokenCount, shiftDown, stateID)
+  ---@param subType Number Subtype of token to spawn.  This will only differ from the tokenName for resource tokens
+  TokenManager.spawnTokenGroup = function(card, tokenType, tokenCount, shiftDown, subType)
     local optionPanel = Global.getTable("optionPanel")
 
     if tokenType == "damage" or tokenType == "horror" then
@@ -165,7 +166,7 @@ do
     elseif tokenType == "resource" and optionPanel["useResourceCounters"] then
       TokenManager.spawnResourceCounterToken(card, tokenCount)
     else
-      TokenManager.spawnMultipleTokens(card, tokenType, tokenCount, shiftDown, stateID)
+      TokenManager.spawnMultipleTokens(card, tokenType, tokenCount, shiftDown, subType)
     end
   end
 
@@ -196,8 +197,8 @@ do
   --     Other types should use spawnCounterToken()
   ---@param tokenCount Number How many tokens to spawn
   ---@param shiftDown Number An offset for the z-value of this group of tokens
-  ---@param stateID Number Index of the state to load for this token
-  TokenManager.spawnMultipleTokens = function(card, tokenType, tokenCount, shiftDown, stateID)
+  ---@param subType Number Subtype of token to spawn.  This will only differ from the tokenName for resource tokens
+  TokenManager.spawnMultipleTokens = function(card, tokenType, tokenCount, shiftDown, subType)
     if tokenCount < 1 or tokenCount > 12 then
       return
     end
@@ -231,6 +232,7 @@ do
 
     -- this is used to load the correct state for additional resource tokens (e.g. "Ammo")
     local callback = nil
+    local stateID = stateTable[subType]
     if tokenType == "resource" and stateID ~= nil and stateID ~= 1 then
       callback = function(spawned) spawned.setState(stateID) end
     end
@@ -354,7 +356,7 @@ do
         tokenCount = tokenCount + extraUses[type]
       end
       -- Shift each spawned group after the first down so they don't pile on each other
-      TokenManager.spawnTokenGroup(card, token, tokenCount, (i - 1) * 0.8, stateTable[type])
+      TokenManager.spawnTokenGroup(card, token, tokenCount, (i - 1) * 0.8, type)
     end
     tokenSpawnTracker.markTokensSpawned(card.getGUID())
   end
