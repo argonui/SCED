@@ -46,6 +46,27 @@ local SOURCE_REPO = 'https://raw.githubusercontent.com/chr1z93/loadable-objects/
 local library, requestObj, modMeta, notificationVisible
 local acknowledgedUpgradeVersions = {}
 
+-- language selection
+local LANGUAGE_CODES = {
+  "zh_CN", -- 简体中文
+  "zh_TW", -- 繁體中文
+  "de", -- Deutsch
+  "en", -- English
+  "es", -- Español
+  "fr", -- Français
+  "it"  -- Italiano
+}
+
+local LANGUAGE_NAMES = {
+  "简体中文",
+  "繁體中文",
+  "Deutsch",
+  "English",
+  "Español",
+  "Français",
+  "Italiano"
+}
+
 ---------------------------------------------------------
 -- data for tokens
 ---------------------------------------------------------
@@ -650,14 +671,29 @@ end
 ---------------------------------------------------------
 
 function onClick_refreshList()
-  local request = WebRequest.get(SOURCE_REPO .. '/library.json', completed_list_update)
+  local request = WebRequest.get(SOURCE_REPO .. '/content/library.json', completed_list_update)
   requestObj = request
   startLuaCoroutine(Global, 'downloadCoroutine')
 end
 
-function onClick_select(player, params)
-  params = JSON.decode(urldecode(params))
-  local url = SOURCE_REPO .. '/' .. params.url
+-- triggers a re-download in english if localized download failed
+function fallbackDownload(params)
+  onClick_select(_, params, true)
+end
+
+function onClick_select(_, params, forceEnglish)
+  -- don't decode on fallback run
+  if type(params) == "string" then
+    params = JSON.decode(urldecode(params))
+  end
+  
+  local languageCode = (LANGUAGE_CODES[optionPanel["cardLanguage"] + 1])
+
+  -- override languageCode to english if localized download failed
+  if forceEnglish then languageCode = "en" end
+
+  -- bundle URL and start the download
+  local url = SOURCE_REPO .. "/content/" .. languageCode  .. "/" .. params.url
   local request = WebRequest.get(url, function (request) complete_obj_download(request, params) end )
   requestObj = request
   startLuaCoroutine(Global, 'downloadCoroutine')
@@ -741,7 +777,13 @@ end
 function complete_obj_download(request, params)
   assert(request.is_done)
   if request.is_error or request.response_code ~= 200 then
-    print('error: ' .. request.error)
+    print('Error: ' .. request.error)
+
+    -- retrigger download if localized version was requested
+    if (LANGUAGE_CODES[optionPanel["cardLanguage"] + 1]) ~= "en" then
+      printToAll("Couldn't find content in requested card language. Defaulting to english instead.", "Yellow")
+      fallbackDownload(params)
+    end
   else
     if pcall(function()
       local replaced_object
@@ -838,15 +880,23 @@ function onClick_toggleOption(_, id)
   applyOptionPanelChange(id, state)
 end
 
+-- called by the language selection dropdown
+function languageSelected(_, selectedIndex, id)
+  optionPanel[id] = tonumber(selectedIndex)
+end
+
 -- sets the option panel to the correct state (corresponding to 'optionPanel')
 function updateOptionPanelState()
   for id, enabled in pairs(optionPanel) do
     if (type(enabled) == "boolean" and enabled)
         or (type(enabled) == "string" and enabled)
         or (type(enabled) == "table" and #enabled ~= 0) then
-      self.UI.setAttribute(id, "isOn", true)
+      UI.setAttribute(id, "isOn", true)
+    -- hard-coded updating of the language selection dropdown
+    elseif id == "cardLanguage" and type(enabled) == "number" then
+      UI.setAttribute(id, "value", enabled)
     else
-      self.UI.setAttribute(id, "isOn", "False")
+      UI.setAttribute(id, "isOn", "False")
     end
   end
 end
