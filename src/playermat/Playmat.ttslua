@@ -288,13 +288,7 @@ function doUpkeep(_, clickedByColor, isRightClick)
         forcedLearning = true
       end
       if cardMetadata.uses ~= nil then
-        -- check for cards with 'replenish' in their metadata
-        -- TODO: support for cards with multiple uses AND replenish (as of yet, no official card needs that)
-        local count = cardMetadata.uses[1].count
-        local replenish = cardMetadata.uses[1].replenish
-        if count and replenish then
-          replenishTokens(obj, count, replenish)
-        end
+        tokenManager.maybeReplenishCard(obj, cardMetadata.uses, self)
       end
     end
   end
@@ -538,63 +532,6 @@ end
 ---------------------------------------------------------
 -- playmat token spawning
 ---------------------------------------------------------
-
--- replenish Tokens for specific cards (like 'Physical Training (4)')
-function replenishTokens(card, count, replenish)
-  local cardPos = card.getPosition()
-
-  -- don't continue for cards on your deck (Norman) or in your discard pile
-  if self.positionToLocal(cardPos).x < -1 then return end
-
-  -- resource token states
-  local stateTable = {
-    ["resource"] = 1,
-    ["ammo"] = 2,
-    ["charge"] = 3,
-    ["secret"] = 4,
-    ["supply"] = 5
-  }
-
-  -- get current amount of resource tokens on the card
-  local search = searchArea(cardPos, { 2.5, 0.5, 3.5 })
-  local clickableResourceCounter = nil
-  local foundTokens = 0
-
-  for _, obj in ipairs(search) do
-    local obj = obj.hit_object
-    local memo = obj.getMemo()
-
-    if (stateTable[memo] or 0) > 0 then
-      foundTokens = foundTokens + math.abs(obj.getQuantity())
-      obj.destruct()
-    elseif memo == "resourceCounter" then
-      foundTokens = obj.getVar("val")
-      clickableResourceCounter = obj
-      break
-    end
-  end
-
-  -- this is the theoretical new amount of uses (to be checked below)
-  local newCount = foundTokens + replenish
-
-  -- if there are already more uses than the replenish amount, keep them
-  if foundTokens > count then
-    newCount = foundTokens
-  -- only replenish up until the replenish amount
-  elseif newCount > count then
-    newCount = count
-  end
-
-  -- update the clickable counter or spawn a group of tokens
-  if clickableResourceCounter then
-    clickableResourceCounter.call("updateVal", newCount)
-  else
-    -- get type of resource to spawn
-    local metadata = JSON.decode(card.getGMNotes()) or {}
-    local uses = metadata.uses or {}
-    tokenManager.spawnTokenGroup(card, "resource", newCount, _, uses[1].type)
-  end
-end
 
 -- Finds all customizable cards in this play area and updates their metadata based on the selections
 -- on the matching upgrade sheet.
