@@ -42,7 +42,7 @@ local navigationOverlayApi = require("core/NavigationOverlayApi")
 
 -- online functionality related variables
 local MOD_VERSION = "3.1.0"
-local SOURCE_REPO = 'https://raw.githubusercontent.com/chr1z93/loadable-objects/main'
+local SOURCE_REPO = 'https://raw.githubusercontent.com/argonui/SCED/main'
 local library, requestObj, modMeta, notificationVisible
 local acknowledgedUpgradeVersions = {}
 
@@ -650,14 +650,34 @@ end
 ---------------------------------------------------------
 
 function onClick_refreshList()
-  local request = WebRequest.get(SOURCE_REPO .. '/library.json', completed_list_update)
+  local request = WebRequest.get(SOURCE_REPO .. '/content/library.json', completed_list_update)
   requestObj = request
   startLuaCoroutine(Global, 'downloadCoroutine')
 end
 
-function onClick_select(player, params)
-  params = JSON.decode(urldecode(params))
-  local url = SOURCE_REPO .. '/' .. params.url
+function onClick_select(_, params)
+  if type(params) == "string" then
+    params = JSON.decode(urldecode(params))
+  end
+
+  local url = SOURCE_REPO .. '/content/'
+  if params.url ~= nil and params.url ~= "" then
+    -- TODO: change local folder based on selection in option panel
+    -- TODO: better detection of fancreations
+    if string.match(params.url, "............") == "fancreations" then
+      -- TODO: update fancreation gm_notes
+      local str = params.url:sub(13)
+      url = url .. "curated/en/" .. str
+    -- this part gets triggered by clicks on the download menu
+    else
+      url = url .. "generated/en/" .. params.url
+    end
+  -- official content will by design not provide "params.url"
+  else
+    -- TODO: dynamically get type (campaign / scenario)
+    url = url .. "/generated/en/campaigns/" .. cleanName(params.name) .. ".json"
+  end
+  log(url)
   local request = WebRequest.get(url, function (request) complete_obj_download(request, params) end )
   requestObj = request
   startLuaCoroutine(Global, 'downloadCoroutine')
@@ -708,7 +728,6 @@ function update_list(objects)
   update_children.children = {}
 
   for _, v in ipairs(objects) do
-    local s = JSON.encode(v);
     table.insert(update_children.children,
       { tag = 'Text',
         value = v.name,
@@ -775,7 +794,7 @@ end
 -- the download button on the placeholder objects calls this to directly initiate a download
 -- params is a table with url and guid of replacement object, which happens to match what onClick_select wants
 function placeholder_download(params)
-  onClick_select(nil, JSON.encode(params))
+  onClick_select(nil, params)
 end
 
 function completed_list_update(request)
@@ -816,6 +835,12 @@ end
 function urldecode(str)
   local str = string.gsub(str, "%%(%x%x)",
     function (h) return string.char(tonumber(h, 16)) end)
+  return str
+end
+
+-- removes all non-alphanumerical characters (except for "-")
+function cleanName(str)
+  str = str:gsub("[^%w_]", "")
   return str
 end
 
