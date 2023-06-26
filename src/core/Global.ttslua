@@ -671,29 +671,14 @@ end
 ---------------------------------------------------------
 
 function onClick_refreshList()
-  local request = WebRequest.get(SOURCE_REPO .. '/content/library.json', completed_list_update)
+  local request = WebRequest.get(SOURCE_REPO .. '/library.json', completed_list_update)
   requestObj = request
   startLuaCoroutine(Global, 'downloadCoroutine')
 end
 
--- triggers a re-download in english if localized download failed
-function fallbackDownload(params)
-  onClick_select(_, params, true)
-end
-
-function onClick_select(_, params, forceEnglish)
-  -- don't decode on fallback run
-  if type(params) == "string" then
-    params = JSON.decode(urldecode(params))
-  end
-  
-  local languageCode = (LANGUAGE_CODES[optionPanel["cardLanguage"] + 1])
-
-  -- override languageCode to english if localized download failed
-  if forceEnglish then languageCode = "en" end
-
-  -- bundle URL and start the download
-  local url = SOURCE_REPO .. "/content/" .. languageCode  .. "/" .. params.url
+function onClick_select(player, params)
+  params = JSON.decode(urldecode(params))
+  local url = SOURCE_REPO .. '/' .. params.url
   local request = WebRequest.get(url, function (request) complete_obj_download(request, params) end )
   requestObj = request
   startLuaCoroutine(Global, 'downloadCoroutine')
@@ -777,13 +762,7 @@ end
 function complete_obj_download(request, params)
   assert(request.is_done)
   if request.is_error or request.response_code ~= 200 then
-    print('Error: ' .. request.error)
-
-    -- retrigger download if localized version was requested
-    if (LANGUAGE_CODES[optionPanel["cardLanguage"] + 1]) ~= "en" then
-      printToAll("Couldn't find content in requested card language. Defaulting to english instead.", "Yellow")
-      fallbackDownload(params)
-    end
+    print('error: ' .. request.error)
   else
     if pcall(function()
       local replaced_object
