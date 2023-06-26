@@ -1,0 +1,1719 @@
+{
+  "GUID": "490567",
+  "Name": "Custom_Model_Bag",
+  "Transform": {
+    "posX": 25.57797,
+    "posY": 1.48149908,
+    "posZ": 5.301841,
+    "rotX": -1.31677453E-07,
+    "rotY": 269.9705,
+    "rotZ": -5.82993849E-08,
+    "scaleX": 1.754106,
+    "scaleY": 0.365108132,
+    "scaleZ": 1.92078626
+  },
+  "Nickname": "Flanfy's Original Investigators",
+  "Description": "",
+  "GMNotes": "fancreations/investigators_touhou_project.json",
+  "AltLookAngle": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+  },
+  "ColorDiffuse": {
+    "r": 1.0,
+    "g": 1.0,
+    "b": 1.0
+  },
+  "LayoutGroupSortIndex": 0,
+  "Value": 0,
+  "Locked": false,
+  "Grid": true,
+  "Snap": true,
+  "IgnoreFoW": false,
+  "MeasureMovement": false,
+  "DragSelectable": true,
+  "Autoraise": true,
+  "Sticky": true,
+  "Tooltip": true,
+  "GridProjection": false,
+  "HideWhenFaceDown": false,
+  "Hands": false,
+  "MaterialIndex": -1,
+  "MeshIndex": -1,
+  "CustomMesh": {
+    "MeshURL": "https://raw.githubusercontent.com/RobMayer/TTSLibrary/master/advboxes/tuckbox_h_MSH.obj",
+    "DiffuseURL": "http://cloud-3.steamusercontent.com/ugc/5104298832179483860/75D3B993712583321238FB152C5D53E80C153464/",
+    "NormalURL": "",
+    "ColliderURL": "",
+    "Convex": true,
+    "MaterialIndex": 3,
+    "TypeIndex": 6,
+    "CustomShader": {
+      "SpecularColor": {
+        "r": 1.0,
+        "g": 1.0,
+        "b": 1.0
+      },
+      "SpecularIntensity": 0.0,
+      "SpecularSharpness": 2.0,
+      "FresnelStrength": 0.0
+    },
+    "CastShadows": true
+  },
+  "Bag": {
+    "Order": 2
+  },
+  "LuaScript": "-- Utility memory bag by Directsun\r\n-- Version 2.5.2\r\n-- Fork of Memory Bag 2.0 by MrStump\r\n\r\nfunction updateSave()\r\n    local data_to_save = {[\"ml\"]=memoryList}\r\n    saved_data = JSON.encode(data_to_save)\r\n    self.script_state = saved_data\r\nend\r\n\r\nfunction combineMemoryFromBagsWithin()\r\n  local bagObjList = self.getObjects()\r\n  for _, bagObj in ipairs(bagObjList) do\r\n    local data = bagObj.lua_script_state\r\n      if data ~= nil then\r\n        local j = JSON.decode(data)\r\n        if j ~= nil and j.ml ~= nil then\r\n          for guid, entry in pairs(j.ml) do\r\n            memoryList[guid] = entry\r\n          end\r\n        end\r\n      end\r\n    end\r\nend\r\n\r\nfunction updateMemoryWithMoves()\r\n    memoryList = memoryListBackup\r\n    --get the first transposed object's coordinates\r\n    local obj = getObjectFromGUID(moveGuid)\r\n\r\n    -- p1 is where needs to go, p2 is where it was\r\n    local refObjPos = memoryList[moveGuid].pos\r\n    local deltaPos = findOffsetDistance(obj.getPosition(), refObjPos, nil)\r\n    local movedRotation = obj.getRotation()\r\n    for guid, entry in pairs(memoryList) do\r\n        memoryList[guid].pos.x = entry.pos.x - deltaPos.x\r\n        memoryList[guid].pos.y = entry.pos.y - deltaPos.y\r\n        memoryList[guid].pos.z = entry.pos.z - deltaPos.z\r\n        -- memoryList[guid].rot.x = movedRotation.x\r\n        -- memoryList[guid].rot.y = movedRotation.y\r\n        -- memoryList[guid].rot.z = movedRotation.z\r\n    end\r\n\r\n    --theList[obj.getGUID()] = {\r\n    --    pos={x=round(pos.x,4), y=round(pos.y,4), z=round(pos.z,4)},\r\n    --    rot={x=round(rot.x,4), y=round(rot.y,4), z=round(rot.z,4)},\r\n    --    lock=obj.getLock()\r\n    --}\r\n    moveList = {}\r\nend\r\n\r\nfunction onload(saved_data)\r\n    fresh = true\r\n    if saved_data ~= \"\" then\r\n        local loaded_data = JSON.decode(saved_data)\r\n        --Set up information off of loaded_data\r\n        memoryList = loaded_data.ml\r\n    else\r\n        --Set up information for if there is no saved saved data\r\n        memoryList = {}\r\n    end\r\n\r\n    moveList = {}\r\n    moveGuid = nil\r\n\r\n    if next(memoryList) == nil then\r\n        createSetupButton()\r\n    else\r\n        fresh = false\r\n        createMemoryActionButtons()\r\n    end\r\nend\r\n\r\n\r\n--Beginning Setup\r\n\r\n\r\n--Make setup button\r\nfunction createSetupButton()\r\n    self.createButton({\r\n        label=\"Setup\", click_function=\"buttonClick_setup\", function_owner=self,\r\n        position={0,0.1,-2.1}, rotation={0,0,0}, height=220, width=500,\r\n        font_size=130, color={0,0,0}, font_color={1,1,1}\r\n    })\r\nend\r\n\r\n--Triggered by Transpose button\r\nfunction buttonClick_transpose()\r\n    moveGuid = nil\r\n    broadcastToAll(\"Select one object and move it- all objects will move relative to the new location\", {0.75, 0.75, 1})\r\n    memoryListBackup = duplicateTable(memoryList)\r\n    memoryList = {}\r\n    moveList = {}\r\n    self.clearButtons()\r\n    createButtonsOnAllObjects(true)\r\n    createSetupActionButtons(true)\r\nend\r\n\r\n--Triggered by setup button,\r\nfunction buttonClick_setup()\r\n    memoryListBackup = duplicateTable(memoryList)\r\n    memoryList = {}\r\n    self.clearButtons()\r\n    createButtonsOnAllObjects(false)\r\n    createSetupActionButtons(false)\r\nend\r\n\r\nfunction getAllObjectsInMemory()\r\n  local objTable = {}\r\n  local curObj = {}\r\n\r\n  for guid in pairs(memoryListBackup) do\r\n    curObj = getObjectFromGUID(guid)\r\n    table.insert(objTable, curObj)\r\n  end\r\n\r\n  return objTable\r\n  -- return getAllObjects()\r\nend\r\n\r\n--Creates selection buttons on objects\r\nfunction createButtonsOnAllObjects(move)\r\n    local howManyButtons = 0\r\n\r\n    local objsToHaveButtons = {}\r\n    if move == true then\r\n      objsToHaveButtons = getAllObjectsInMemory()\r\n    else\r\n      objsToHaveButtons = getAllObjects()\r\n    end\r\n\r\n    for _, obj in ipairs(objsToHaveButtons) do\r\n        if obj ~= self then\r\n            local dummyIndex = howManyButtons\r\n            --On a normal bag, the button positions aren't the same size as the bag.\r\n            globalScaleFactor = 1 * 1/self.getScale().x\r\n            --Super sweet math to set button positions\r\n            local selfPos = self.getPosition()\r\n            local objPos = obj.getPosition()\r\n            local deltaPos = findOffsetDistance(selfPos, objPos, obj)\r\n            local objPos = rotateLocalCoordinates(deltaPos, self)\r\n            objPos.x = -objPos.x * globalScaleFactor\r\n            objPos.y = objPos.y * globalScaleFactor + 2\r\n            objPos.z = objPos.z * globalScaleFactor * 0.9\r\n            --Offset rotation of bag\r\n            local rot = self.getRotation()\r\n            rot.y = -rot.y + 180\r\n            --Create function\r\n            local funcName = \"selectButton_\" .. howManyButtons\r\n            local func = function() buttonClick_selection(dummyIndex, obj, move) end\r\n            local color = {0.75,0.25,0.25,0.6}\r\n            local colorMove = {0,0,1,0.6}\r\n            if move == true then\r\n              color = colorMove\r\n            end\r\n            self.setVar(funcName, func)\r\n            self.createButton({\r\n                click_function=funcName, function_owner=self,\r\n                position=objPos, rotation=rot, height=500, width=500,\r\n                color=color,\r\n            })\r\n            howManyButtons = howManyButtons + 1\r\n        end\r\n    end\r\nend\r\n\r\n--Creates submit and cancel buttons\r\nfunction createSetupActionButtons(move)\r\n    self.createButton({\r\n        label=\"Cancel\", click_function=\"buttonClick_cancel\", function_owner=self,\r\n      position={-0.6,0.1,-2.1}, rotation={0,0,0}, height=220, width=550,\r\n        font_size=130, color={0,0,0}, font_color={1,1,1}\r\n    })\r\n\r\n    self.createButton({\r\n        label=\"Submit\", click_function=\"buttonClick_submit\", function_owner=self,\r\n        position={-0.6,0.3,-2.5}, rotation={0,0,0}, height=220, width=550,\r\n        font_size=130, color={0,0,0}, font_color={1,1,1}\r\n    })\r\n\r\n    if move == false then\r\n      self.createButton({\r\n          label=\"Add\", click_function=\"buttonClick_add\", function_owner=self,\r\n          position={0.6,0.3,-2.1}, rotation={0,0,0}, height=220, width=550,\r\n          font_size=130, color={0,0,0}, font_color={0.25,1,0.25}\r\n      })\r\n\r\n        if fresh == false then\r\n            self.createButton({\r\n                label=\"Set New\", click_function=\"buttonClick_setNew\", function_owner=self,\r\n                position={0.6,0.3,-2.9}, rotation={0,0,0}, height=220, width=550,\r\n                font_size=130, color={0,0,0}, font_color={0.75,0.75,1}\r\n            })\r\n            self.createButton({\r\n                label=\"Remove\", click_function=\"buttonClick_remove\", function_owner=self,\r\n                position={0.6,0.3,-2.5}, rotation={0,0,0}, height=220, width=550,\r\n                font_size=130, color={0,0,0}, font_color={1,0.25,0.25}\r\n            })\r\n        end\r\n    end\r\n\r\n    self.createButton({\r\n        label=\"Reset\", click_function=\"buttonClick_reset\", function_owner=self,\r\n        position={-0.6,0.3,-2.9}, rotation={0,0,0}, height=220, width=550,\r\n        font_size=130, color={0,0,0}, font_color={1,1,1}\r\n    })\r\nend\r\n\r\n\r\n--During Setup\r\n\r\n\r\n--Checks or unchecks buttons\r\nfunction buttonClick_selection(index, obj, move)\r\n    local colorMove = {0,0,1,0.6}\r\n    local color = {0,1,0,0.6}\r\n\r\n    previousGuid = selectedGuid\r\n    selectedGuid = obj.getGUID()\r\n\r\n    theList = memoryList\r\n    if move == true then\r\n       theList = moveList\r\n       if previousGuid ~= nil and previousGuid ~= selectedGuid then\r\n         local prevObj = getObjectFromGUID(previousGuid)\r\n         prevObj.highlightOff()\r\n         self.editButton({index=previousIndex, color=colorMove})\r\n         theList[previousGuid] = nil\r\n       end\r\n       previousIndex = index\r\n    end\r\n\r\n    if theList[selectedGuid] == nil then\r\n        self.editButton({index=index, color=color})\r\n        --Adding pos/rot to memory table\r\n        local pos, rot = obj.getPosition(), obj.getRotation()\r\n        --I need to add it like this or it won't save due to indexing issue\r\n        theList[obj.getGUID()] = {\r\n            pos={x=round(pos.x,4), y=round(pos.y,4), z=round(pos.z,4)},\r\n            rot={x=round(rot.x,4), y=round(rot.y,4), z=round(rot.z,4)},\r\n            lock=obj.getLock()\r\n        }\r\n        obj.highlightOn({0,1,0})\r\n    else\r\n      color = {0.75,0.25,0.25,0.6}\r\n      if move == true then\r\n        color = colorMove\r\n      end\r\n        self.editButton({index=index, color=color})\r\n        theList[obj.getGUID()] = nil\r\n        obj.highlightOff()\r\n    end\r\nend\r\n\r\n--Cancels selection process\r\nfunction buttonClick_cancel()\r\n    memoryList = memoryListBackup\r\n    moveList = {}\r\n    self.clearButtons()\r\n    if next(memoryList) == nil then\r\n        createSetupButton()\r\n    else\r\n        createMemoryActionButtons()\r\n    end\r\n    removeAllHighlights()\r\n    broadcastToAll(\"Selection Canceled\", {1,1,1})\r\n    moveGuid = nil\r\nend\r\n\r\n--Saves selections\r\nfunction buttonClick_submit()\r\n    fresh = false\r\n    if next(moveList) ~= nil then\r\n        for guid in pairs(moveList) do\r\n            moveGuid = guid\r\n        end\r\n        if memoryListBackup[moveGuid] == nil then\r\n            broadcastToAll(\"Item selected for moving is not already in memory\", {1, 0.25, 0.25})\r\n        else\r\n            broadcastToAll(\"Moving all items in memory relative to new objects position!\", {0.75, 0.75, 1})\r\n            self.clearButtons()\r\n            createMemoryActionButtons()\r\n            local count = 0\r\n            for guid in pairs(moveList) do\r\n                moveGuid = guid\r\n                count = count + 1\r\n                local obj = getObjectFromGUID(guid)\r\n                if obj ~= nil then obj.highlightOff() end\r\n            end\r\n            updateMemoryWithMoves()\r\n            updateSave()\r\n            buttonClick_place()\r\n        end\r\n    elseif next(memoryList) == nil and moveGuid == nil then\r\n      memoryList = memoryListBackup\r\n      broadcastToAll(\"No selections made.\", {0.75, 0.25, 0.25})\r\n    end\r\n    combineMemoryFromBagsWithin()\r\n    self.clearButtons()\r\n    createMemoryActionButtons()\r\n    local count = 0\r\n    for guid in pairs(memoryList) do\r\n        count = count + 1\r\n        local obj = getObjectFromGUID(guid)\r\n        if obj ~= nil then obj.highlightOff() end\r\n    end\r\n    broadcastToAll(count..\" Objects Saved\", {1,1,1})\r\n    updateSave()\r\n    moveGuid = nil\r\nend\r\n\r\nfunction combineTables(first_table, second_table)\r\n  for k,v in pairs(second_table) do first_table[k] = v end\r\nend\r\n\r\nfunction buttonClick_add()\r\n    fresh = false\r\n    combineTables(memoryList, memoryListBackup)\r\n    broadcastToAll(\"Adding internal bags and selections to existing memory\", {0.25, 0.75, 0.25})\r\n    combineMemoryFromBagsWithin()\r\n    self.clearButtons()\r\n    createMemoryActionButtons()\r\n    local count = 0\r\n    for guid in pairs(memoryList) do\r\n        count = count + 1\r\n        local obj = getObjectFromGUID(guid)\r\n        if obj ~= nil then obj.highlightOff() end\r\n    end\r\n    broadcastToAll(count..\" Objects Saved\", {1,1,1})\r\n    updateSave()\r\nend\r\n\r\nfunction buttonClick_remove()\r\n        broadcastToAll(\"Removing Selected Entries From Memory\", {1.0, 0.25, 0.25})\r\n        self.clearButtons()\r\n        createMemoryActionButtons()\r\n        local count = 0\r\n        for guid in pairs(memoryList) do\r\n            count = count + 1\r\n            memoryListBackup[guid] = nil\r\n            local obj = getObjectFromGUID(guid)\r\n            if obj ~= nil then obj.highlightOff() end\r\n        end\r\n        broadcastToAll(count..\" Objects Removed\", {1,1,1})\r\n        memoryList = memoryListBackup\r\n        updateSave()\r\nend\r\n\r\nfunction buttonClick_setNew()\r\n    broadcastToAll(\"Setting new position relative to items in memory\", {0.75, 0.75, 1})\r\n    self.clearButtons()\r\n    createMemoryActionButtons()\r\n    local count = 0\r\n    for _, obj in ipairs(getAllObjects()) do\r\n        guid = obj.guid\r\n        if memoryListBackup[guid] ~= nil then\r\n            count = count + 1\r\n            memoryListBackup[guid].pos = obj.getPosition()\r\n            memoryListBackup[guid].rot = obj.getRotation()\r\n            memoryListBackup[guid].lock = obj.getLock()\r\n        end\r\n    end\r\n    broadcastToAll(count..\" Objects Saved\", {1,1,1})\r\n    memoryList = memoryListBackup\r\n    updateSave()\r\nend\r\n\r\n--Resets bag to starting status\r\nfunction buttonClick_reset()\r\n    fresh = true\r\n    memoryList = {}\r\n    self.clearButtons()\r\n    createSetupButton()\r\n    removeAllHighlights()\r\n    broadcastToAll(\"Tool Reset\", {1,1,1})\r\n    updateSave()\r\nend\r\n\r\n\r\n--After Setup\r\n\r\n\r\n--Creates recall and place buttons\r\nfunction createMemoryActionButtons()\r\n    self.createButton({\r\n        label=\"Place\", click_function=\"buttonClick_place\", function_owner=self,\r\n        position={0.6,0.1,2.1}, rotation={0,0,0}, height=220, width=500,\r\n        font_size=130, color={0,0,0}, font_color={1,1,1}\r\n    })\r\n    self.createButton({\r\n        label=\"Recall\", click_function=\"buttonClick_recall\", function_owner=self,\r\n        position={-0.6,0.1,2.1}, rotation={0,0,0}, height=220, width=500,\r\n        font_size=130, color={0,0,0}, font_color={1,1,1}\r\n    })\r\n    self.createButton({\r\n        label=\"Setup\", click_function=\"buttonClick_setup\", function_owner=self,\r\n        position={0,0.1,-2.1}, rotation={0,0,0}, height=220, width=500,\r\n        font_size=130, color={0,0,0}, font_color={1,1,1}\r\n    })\r\n---    self.createButton({\r\n---      label=\"Move\", click_function=\"buttonClick_transpose\", function_owner=self,\r\n---      position={-2.8,0.3,0}, rotation={0,0,0}, height=350, width=800,\r\n---      font_size=250, color={0,0,0}, font_color={0.75,0.75,1}\r\n---    })\r\nend\r\n\r\n--Sends objects from bag/table to their saved position/rotation\r\nfunction buttonClick_place()\r\n    local bagObjList = self.getObjects()\r\n    for guid, entry in pairs(memoryList) do\r\n        local obj = getObjectFromGUID(guid)\r\n        --If obj is out on the table, move it to the saved pos/rot\r\n        if obj ~= nil then\r\n            obj.setPositionSmooth(entry.pos)\r\n            obj.setRotationSmooth(entry.rot)\r\n            obj.setLock(entry.lock)\r\n        else\r\n            --If obj is inside of the bag\r\n            for _, bagObj in ipairs(bagObjList) do\r\n                if bagObj.guid == guid then\r\n                    local item = self.takeObject({\r\n                        guid=guid, position=entry.pos, rotation=entry.rot, smooth=false\r\n                    })\r\n                    item.setLock(entry.lock)\r\n                    break\r\n                end\r\n            end\r\n        end\r\n    end\r\n    broadcastToAll(\"Objects Placed\", {1,1,1})\r\nend\r\n\r\n--Recalls objects to bag from table\r\nfunction buttonClick_recall()\r\n    for guid, entry in pairs(memoryList) do\r\n        local obj = getObjectFromGUID(guid)\r\n        if obj ~= nil then self.putObject(obj) end\r\n    end\r\n    broadcastToAll(\"Objects Recalled\", {1,1,1})\r\nend\r\n\r\n\r\n--Utility functions\r\n\r\n\r\n--Find delta (difference) between 2 x/y/z coordinates\r\nfunction findOffsetDistance(p1, p2, obj)\r\n    local yOffset = 0\r\n    if obj ~= nil then\r\n        local bounds = obj.getBounds()\r\n        yOffset = (bounds.size.y - bounds.offset.y)\r\n    end\r\n    local deltaPos = {}\r\n    deltaPos.x = (p2.x-p1.x)\r\n    deltaPos.y = (p2.y-p1.y) + yOffset\r\n    deltaPos.z = (p2.z-p1.z)\r\n    return deltaPos\r\nend\r\n\r\n--Used to rotate a set of coordinates by an angle\r\nfunction rotateLocalCoordinates(desiredPos, obj)\r\n\tlocal objPos, objRot = obj.getPosition(), obj.getRotation()\r\n    local angle = math.rad(objRot.y)\r\n\tlocal x = desiredPos.x * math.cos(angle) - desiredPos.z * math.sin(angle)\r\n\tlocal z = desiredPos.x * math.sin(angle) + desiredPos.z * math.cos(angle)\r\n\t--return {x=objPos.x+x, y=objPos.y+desiredPos.y, z=objPos.z+z}\r\n    return {x=x, y=desiredPos.y, z=z}\r\nend\r\n\r\nfunction rotateMyCoordinates(desiredPos, obj)\r\n\tlocal angle = math.rad(obj.getRotation().y)\r\n  local x = desiredPos.x * math.sin(angle)\r\n\tlocal z = desiredPos.z * math.cos(angle)\r\n    return {x=x, y=desiredPos.y, z=z}\r\nend\r\n\r\n--Coroutine delay, in seconds\r\nfunction wait(time)\r\n    local start = os.time()\r\n    repeat coroutine.yield(0) until os.time() > start + time\r\nend\r\n\r\n--Duplicates a table (needed to prevent it making reference to the same objects)\r\nfunction duplicateTable(oldTable)\r\n    local newTable = {}\r\n    for k, v in pairs(oldTable) do\r\n        newTable[k] = v\r\n    end\r\n    return newTable\r\nend\r\n\r\n--Moves scripted highlight from all objects\r\nfunction removeAllHighlights()\r\n    for _, obj in ipairs(getAllObjects()) do\r\n        obj.highlightOff()\r\n    end\r\nend\r\n\r\n--Round number (num) to the Nth decimal (dec)\r\nfunction round(num, dec)\r\n  local mult = 10^(dec or 0)\r\n  return math.floor(num * mult + 0.5) / mult\r\nend",
+  "LuaScriptState": "{\"ml\":{\"1b8a22\":{\"lock\":false,\"pos\":{\"x\":45.2569,\"y\":1.4951,\"z\":86.4168},\"rot\":{\"x\":0,\"y\":269.9999,\"z\":0}},\"606a75\":{\"lock\":false,\"pos\":{\"x\":45.2419,\"y\":1.4951,\"z\":63.465},\"rot\":{\"x\":0,\"y\":269.9912,\"z\":0}},\"756741\":{\"lock\":false,\"pos\":{\"x\":48.5419,\"y\":1.4951,\"z\":71.115},\"rot\":{\"x\":0,\"y\":270.0248,\"z\":0}},\"88a962\":{\"lock\":false,\"pos\":{\"x\":48.5419,\"y\":1.4951,\"z\":78.7651},\"rot\":{\"x\":0,\"y\":269.9956,\"z\":0}},\"9eb5a0\":{\"lock\":false,\"pos\":{\"x\":48.5419,\"y\":1.4951,\"z\":63.465},\"rot\":{\"x\":0,\"y\":269.9956,\"z\":0}},\"b070d0\":{\"lock\":false,\"pos\":{\"x\":45.2419,\"y\":1.4951,\"z\":78.7651},\"rot\":{\"x\":0,\"y\":270,\"z\":0}},\"b11fa8\":{\"lock\":false,\"pos\":{\"x\":48.5419,\"y\":1.4951,\"z\":86.4151},\"rot\":{\"x\":0,\"y\":270.0103,\"z\":0}},\"b1e93b\":{\"lock\":false,\"pos\":{\"x\":48.5419,\"y\":1.4951,\"z\":55.815},\"rot\":{\"x\":0,\"y\":270.0246,\"z\":0}},\"bbaf11\":{\"lock\":false,\"pos\":{\"x\":41.9535,\"y\":1.5265,\"z\":78.7513},\"rot\":{\"x\":0,\"y\":269.9861,\"z\":0}},\"d0ed57\":{\"lock\":false,\"pos\":{\"x\":45.2419,\"y\":1.4951,\"z\":55.815},\"rot\":{\"x\":0,\"y\":269.9912,\"z\":0}},\"d58bf9\":{\"lock\":false,\"pos\":{\"x\":41.9539,\"y\":1.5121,\"z\":86.4176},\"rot\":{\"x\":0,\"y\":269.9999,\"z\":0}},\"e00001\":{\"lock\":false,\"pos\":{\"x\":38.6419,\"y\":1.4951,\"z\":78.7651},\"rot\":{\"x\":0,\"y\":270,\"z\":0}},\"e0000a\":{\"lock\":false,\"pos\":{\"x\":41.9419,\"y\":1.4951,\"z\":71.115},\"rot\":{\"x\":0,\"y\":269.9868,\"z\":0}},\"e0000b\":{\"lock\":false,\"pos\":{\"x\":38.6419,\"y\":1.4951,\"z\":71.115},\"rot\":{\"x\":0,\"y\":270,\"z\":0}},\"e00011\":{\"lock\":false,\"pos\":{\"x\":38.6419,\"y\":1.4951,\"z\":86.4151},\"rot\":{\"x\":0,\"y\":270,\"z\":0}},\"e00016\":{\"lock\":false,\"pos\":{\"x\":38.6419,\"y\":1.4951,\"z\":63.465},\"rot\":{\"x\":0,\"y\":269.9883,\"z\":0}},\"e00017\":{\"lock\":false,\"pos\":{\"x\":41.9419,\"y\":1.4951,\"z\":63.465},\"rot\":{\"x\":0,\"y\":269.9917,\"z\":0}},\"e0001b\":{\"lock\":false,\"pos\":{\"x\":41.9419,\"y\":1.4951,\"z\":55.815},\"rot\":{\"x\":0,\"y\":269.9915,\"z\":0}},\"e0001d\":{\"lock\":false,\"pos\":{\"x\":38.6419,\"y\":1.4951,\"z\":55.815},\"rot\":{\"x\":0,\"y\":269.9911,\"z\":0}},\"e3ab45\":{\"lock\":false,\"pos\":{\"x\":45.2419,\"y\":1.4951,\"z\":71.115},\"rot\":{\"x\":0,\"y\":270,\"z\":0}}}}",
+  "XmlUI": "",
+  "ContainedObjects": [
+    {
+      "GUID": "1b8a22",
+      "Name": "Card",
+      "Transform": {
+        "posX": 45.2569,
+        "posY": 1.49510384,
+        "posZ": 86.4168,
+        "rotX": -6.27540047E-08,
+        "rotY": 269.999939,
+        "rotZ": -4.96673529E-08,
+        "scaleX": 0.783099234,
+        "scaleY": 1.0,
+        "scaleZ": 0.783099234
+      },
+      "Nickname": "Sister Sophia",
+      "Description": "The Penitent",
+      "GMNotes": "{\"TtsZoopGuid\":\"9a4cc2e7-cc2b-41c7-83c0-a1014172a0b7\",\"type\":\"Investigator\",\"class\":\"Guardian\",\"traits\":\"Warden. Believer. Cursed\",\"agilityIcons\":1,\"combatIcons\":3,\"intellectIcons\":3,\"willpowerIcons\":5,\"id\":\"Z9774\"}",
+      "AltLookAngle": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "ColorDiffuse": {
+        "r": 0.713235259,
+        "g": 0.713235259,
+        "b": 0.713235259
+      },
+      "Tags": [
+        "Investigator",
+        "PlayerCard"
+      ],
+      "LayoutGroupSortIndex": 0,
+      "Value": 0,
+      "Locked": false,
+      "Grid": true,
+      "Snap": true,
+      "IgnoreFoW": false,
+      "MeasureMovement": false,
+      "DragSelectable": true,
+      "Autoraise": true,
+      "Sticky": true,
+      "Tooltip": true,
+      "GridProjection": false,
+      "HideWhenFaceDown": true,
+      "Hands": true,
+      "CardID": 266400,
+      "SidewaysCard": false,
+      "CustomDeck": {
+        "2664": {
+          "FaceURL": "https://i.ibb.co/JBN1CXT/b7d2e736774e.png",
+          "BackURL": "https://i.ibb.co/84FQk0h/b9a371c5997d.png",
+          "NumWidth": 1,
+          "NumHeight": 1,
+          "BackIsHidden": true,
+          "UniqueBack": true,
+          "Type": 0
+        }
+      },
+      "LuaScript": "",
+      "LuaScriptState": "",
+      "XmlUI": ""
+    },
+    {
+      "GUID": "606a75",
+      "Name": "Card",
+      "Transform": {
+        "posX": 45.2419,
+        "posY": 1.49510384,
+        "posZ": 63.465,
+        "rotX": -1.48374E-07,
+        "rotY": 269.9912,
+        "rotZ": -3.088068E-08,
+        "scaleX": 0.783099234,
+        "scaleY": 1.0,
+        "scaleZ": 0.783099234
+      },
+      "Nickname": "Miyu Yoshino",
+      "Description": "The Tsukumogamist",
+      "GMNotes": "{\"TtsZoopGuid\":\"c31f6d13-1e87-4e31-abe2-939329456fe2\",\"type\":\"Investigator\",\"class\":\"Mystic\",\"traits\":\"Sorcerer\",\"agilityIcons\":2,\"combatIcons\":3,\"intellectIcons\":4,\"willpowerIcons\":3,\"id\":\"Z2060\"}",
+      "AltLookAngle": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "ColorDiffuse": {
+        "r": 0.713235259,
+        "g": 0.713235259,
+        "b": 0.713235259
+      },
+      "Tags": [
+        "Investigator",
+        "PlayerCard"
+      ],
+      "LayoutGroupSortIndex": 0,
+      "Value": 0,
+      "Locked": false,
+      "Grid": true,
+      "Snap": true,
+      "IgnoreFoW": false,
+      "MeasureMovement": false,
+      "DragSelectable": true,
+      "Autoraise": true,
+      "Sticky": true,
+      "Tooltip": true,
+      "GridProjection": false,
+      "HideWhenFaceDown": true,
+      "Hands": true,
+      "CardID": 101300,
+      "SidewaysCard": false,
+      "CustomDeck": {
+        "1013": {
+          "FaceURL": "https://i.ibb.co/HV9J5PW/dee6ea2e0f70.png",
+          "BackURL": "https://i.ibb.co/cbGrS09/df4c6137b510.png",
+          "NumWidth": 1,
+          "NumHeight": 1,
+          "BackIsHidden": true,
+          "UniqueBack": true,
+          "Type": 0
+        }
+      },
+      "LuaScript": "",
+      "LuaScriptState": "",
+      "XmlUI": ""
+    },
+    {
+      "GUID": "756741",
+      "Name": "Card",
+      "Transform": {
+        "posX": 48.5419,
+        "posY": 1.49510384,
+        "posZ": 71.115,
+        "rotX": 7.322638E-08,
+        "rotY": 270.0248,
+        "rotZ": -2.27728634E-07,
+        "scaleX": 0.6,
+        "scaleY": 1.0,
+        "scaleZ": 0.6
+      },
+      "Nickname": "",
+      "Description": "",
+      "GMNotes": "{\"TtsZoopGuid\":\"03c38549-79ef-4daa-8931-a09f5c4a74a9\",\"type\":\"Minicard\",\"id\":\"Z0536-m\"}",
+      "AltLookAngle": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "ColorDiffuse": {
+        "r": 0.713235259,
+        "g": 0.713235259,
+        "b": 0.713235259
+      },
+      "Tags": [
+        "PlayerCard"
+      ],
+      "LayoutGroupSortIndex": 0,
+      "Value": 0,
+      "Locked": false,
+      "Grid": true,
+      "Snap": true,
+      "IgnoreFoW": false,
+      "MeasureMovement": false,
+      "DragSelectable": true,
+      "Autoraise": true,
+      "Sticky": true,
+      "Tooltip": true,
+      "GridProjection": false,
+      "HideWhenFaceDown": true,
+      "Hands": true,
+      "CardID": 100500,
+      "SidewaysCard": false,
+      "CustomDeck": {
+        "1005": {
+          "FaceURL": "https://i.ibb.co/WF3ts6S/9d8f08579211.png",
+          "BackURL": "https://i.ibb.co/PMsVbqN/0a99ba7ee0f9.png",
+          "NumWidth": 1,
+          "NumHeight": 1,
+          "BackIsHidden": true,
+          "UniqueBack": true,
+          "Type": 0
+        }
+      },
+      "LuaScript": "",
+      "LuaScriptState": "",
+      "XmlUI": ""
+    },
+    {
+      "GUID": "88a962",
+      "Name": "Card",
+      "Transform": {
+        "posX": 48.5419,
+        "posY": 1.49510384,
+        "posZ": 78.7651,
+        "rotX": -2.06139433E-07,
+        "rotY": 269.9956,
+        "rotZ": 3.33139837E-07,
+        "scaleX": 0.6,
+        "scaleY": 1.0,
+        "scaleZ": 0.6
+      },
+      "Nickname": "",
+      "Description": "",
+      "GMNotes": "{\"TtsZoopGuid\":\"82ec8fe8-7564-448d-8cf5-3b724a80e66d\",\"type\":\"Minicard\",\"id\":\"Z8402-m\"}",
+      "AltLookAngle": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "ColorDiffuse": {
+        "r": 0.713235259,
+        "g": 0.713235259,
+        "b": 0.713235259
+      },
+      "Tags": [
+        "PlayerCard"
+      ],
+      "LayoutGroupSortIndex": 0,
+      "Value": 0,
+      "Locked": false,
+      "Grid": true,
+      "Snap": true,
+      "IgnoreFoW": false,
+      "MeasureMovement": false,
+      "DragSelectable": true,
+      "Autoraise": true,
+      "Sticky": true,
+      "Tooltip": true,
+      "GridProjection": false,
+      "HideWhenFaceDown": true,
+      "Hands": true,
+      "CardID": 100200,
+      "SidewaysCard": false,
+      "CustomDeck": {
+        "1002": {
+          "FaceURL": "https://i.ibb.co/K98mw0t/fc6139d3ff7d.png",
+          "BackURL": "https://i.ibb.co/gZ3hnQj/84cce7de0486.png",
+          "NumWidth": 1,
+          "NumHeight": 1,
+          "BackIsHidden": true,
+          "UniqueBack": true,
+          "Type": 0
+        }
+      },
+      "LuaScript": "",
+      "LuaScriptState": "",
+      "XmlUI": ""
+    },
+    {
+      "GUID": "9eb5a0",
+      "Name": "Card",
+      "Transform": {
+        "posX": 48.5419,
+        "posY": 1.49510384,
+        "posZ": 63.465,
+        "rotX": 3.28499141E-07,
+        "rotY": 269.9956,
+        "rotZ": 5.82791344E-08,
+        "scaleX": 0.6,
+        "scaleY": 1.0,
+        "scaleZ": 0.6
+      },
+      "Nickname": "",
+      "Description": "",
+      "GMNotes": "{\"TtsZoopGuid\":\"1202dcf5-8888-4262-8e97-e1ec3529adf5\",\"type\":\"Minicard\",\"id\":\"Z2060-m\"}",
+      "AltLookAngle": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "ColorDiffuse": {
+        "r": 0.713235259,
+        "g": 0.713235259,
+        "b": 0.713235259
+      },
+      "Tags": [
+        "PlayerCard"
+      ],
+      "LayoutGroupSortIndex": 0,
+      "Value": 0,
+      "Locked": false,
+      "Grid": true,
+      "Snap": true,
+      "IgnoreFoW": false,
+      "MeasureMovement": false,
+      "DragSelectable": true,
+      "Autoraise": true,
+      "Sticky": true,
+      "Tooltip": true,
+      "GridProjection": false,
+      "HideWhenFaceDown": true,
+      "Hands": true,
+      "CardID": 101400,
+      "SidewaysCard": false,
+      "CustomDeck": {
+        "1014": {
+          "FaceURL": "https://i.ibb.co/qJMYZgn/e6aa4c571ebe.png",
+          "BackURL": "https://i.ibb.co/SK7cdJP/9262db025a24.png",
+          "NumWidth": 1,
+          "NumHeight": 1,
+          "BackIsHidden": true,
+          "UniqueBack": true,
+          "Type": 0
+        }
+      },
+      "LuaScript": "",
+      "LuaScriptState": "",
+      "XmlUI": ""
+    },
+    {
+      "GUID": "b070d0",
+      "Name": "Card",
+      "Transform": {
+        "posX": 45.2419,
+        "posY": 1.49510384,
+        "posZ": 78.7651,
+        "rotX": -1.05081568E-07,
+        "rotY": 270.0,
+        "rotZ": 7.45479E-09,
+        "scaleX": 0.783099234,
+        "scaleY": 1.0,
+        "scaleZ": 0.783099234
+      },
+      "Nickname": "Clara Morgan",
+      "Description": "The Cartographer",
+      "GMNotes": "{\"TtsZoopGuid\":\"74f6a647-2ede-4857-9ba3-610016c7d530\",\"type\":\"Investigator\",\"class\":\"Seeker\",\"traits\":\"Wayfarer. Dreamer\",\"agilityIcons\":2,\"combatIcons\":3,\"intellectIcons\":4,\"willpowerIcons\":3,\"id\":\"Z8402\"}",
+      "AltLookAngle": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "ColorDiffuse": {
+        "r": 0.713235259,
+        "g": 0.713235259,
+        "b": 0.713235259
+      },
+      "Tags": [
+        "Investigator",
+        "PlayerCard"
+      ],
+      "LayoutGroupSortIndex": 0,
+      "Value": 0,
+      "Locked": false,
+      "Grid": true,
+      "Snap": true,
+      "IgnoreFoW": false,
+      "MeasureMovement": false,
+      "DragSelectable": true,
+      "Autoraise": true,
+      "Sticky": true,
+      "Tooltip": true,
+      "GridProjection": false,
+      "HideWhenFaceDown": true,
+      "Hands": true,
+      "CardID": 100100,
+      "SidewaysCard": false,
+      "CustomDeck": {
+        "1001": {
+          "FaceURL": "https://i.ibb.co/QvzVk26/d020b4163c12.png",
+          "BackURL": "https://i.ibb.co/twf3rFX/0d97f9d076dc.png",
+          "NumWidth": 1,
+          "NumHeight": 1,
+          "BackIsHidden": true,
+          "UniqueBack": true,
+          "Type": 0
+        }
+      },
+      "LuaScript": "",
+      "LuaScriptState": "",
+      "XmlUI": ""
+    },
+    {
+      "GUID": "b11fa8",
+      "Name": "Card",
+      "Transform": {
+        "posX": 48.5419,
+        "posY": 1.49510384,
+        "posZ": 86.4151,
+        "rotX": -2.87045225E-07,
+        "rotY": 270.0103,
+        "rotZ": 3.4702586E-07,
+        "scaleX": 0.6,
+        "scaleY": 1.0,
+        "scaleZ": 0.6
+      },
+      "Nickname": "",
+      "Description": "",
+      "GMNotes": "{\"TtsZoopGuid\":\"96b29eae-c77c-4490-8c2b-189df30c91af\",\"type\":\"Minicard\",\"id\":\"Z9774-m\"}",
+      "AltLookAngle": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "ColorDiffuse": {
+        "r": 0.713235259,
+        "g": 0.713235259,
+        "b": 0.713235259
+      },
+      "Tags": [
+        "PlayerCard"
+      ],
+      "LayoutGroupSortIndex": 0,
+      "Value": 0,
+      "Locked": false,
+      "Grid": true,
+      "Snap": true,
+      "IgnoreFoW": false,
+      "MeasureMovement": false,
+      "DragSelectable": true,
+      "Autoraise": true,
+      "Sticky": true,
+      "Tooltip": true,
+      "GridProjection": false,
+      "HideWhenFaceDown": true,
+      "Hands": true,
+      "CardID": 101100,
+      "SidewaysCard": false,
+      "CustomDeck": {
+        "1011": {
+          "FaceURL": "https://i.ibb.co/pd5Pdsk/e0524fea64e9.png",
+          "BackURL": "https://i.ibb.co/JsVwNp6/7d28b61d29e1.png",
+          "NumWidth": 1,
+          "NumHeight": 1,
+          "BackIsHidden": true,
+          "UniqueBack": true,
+          "Type": 0
+        }
+      },
+      "LuaScript": "",
+      "LuaScriptState": "",
+      "XmlUI": ""
+    },
+    {
+      "GUID": "b1e93b",
+      "Name": "Card",
+      "Transform": {
+        "posX": 48.5419,
+        "posY": 1.49510384,
+        "posZ": 55.815,
+        "rotX": 2.88728721E-08,
+        "rotY": 270.0246,
+        "rotZ": -5.89085232E-07,
+        "scaleX": 0.6,
+        "scaleY": 1.0,
+        "scaleZ": 0.6
+      },
+      "Nickname": "",
+      "Description": "",
+      "GMNotes": "{\"TtsZoopGuid\":\"aa3a2c8d-e770-4ac5-904b-be64f485395c\",\"type\":\"Minicard\",\"id\":\"Z7810-m\"}",
+      "AltLookAngle": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "ColorDiffuse": {
+        "r": 0.713235259,
+        "g": 0.713235259,
+        "b": 0.713235259
+      },
+      "Tags": [
+        "PlayerCard"
+      ],
+      "LayoutGroupSortIndex": 0,
+      "Value": 0,
+      "Locked": false,
+      "Grid": true,
+      "Snap": true,
+      "IgnoreFoW": false,
+      "MeasureMovement": false,
+      "DragSelectable": true,
+      "Autoraise": true,
+      "Sticky": true,
+      "Tooltip": true,
+      "GridProjection": false,
+      "HideWhenFaceDown": true,
+      "Hands": true,
+      "CardID": 101700,
+      "SidewaysCard": false,
+      "CustomDeck": {
+        "1017": {
+          "FaceURL": "https://i.ibb.co/C0Q89hY/33ab587372a9.png",
+          "BackURL": "https://i.ibb.co/7Cq4dS9/ff6357d92e1b.png",
+          "NumWidth": 1,
+          "NumHeight": 1,
+          "BackIsHidden": true,
+          "UniqueBack": true,
+          "Type": 0
+        }
+      },
+      "LuaScript": "",
+      "LuaScriptState": "",
+      "XmlUI": ""
+    },
+    {
+      "GUID": "bbaf11",
+      "Name": "Deck",
+      "Transform": {
+        "posX": 41.9535,
+        "posY": 1.52168572,
+        "posZ": 78.7513,
+        "rotX": -8.129305E-07,
+        "rotY": 269.9861,
+        "rotZ": 2.79218355E-08,
+        "scaleX": 1.0,
+        "scaleY": 1.0,
+        "scaleZ": 1.0
+      },
+      "Nickname": "",
+      "Description": "",
+      "GMNotes": "",
+      "AltLookAngle": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "ColorDiffuse": {
+        "r": 0.713235259,
+        "g": 0.713235259,
+        "b": 0.713235259
+      },
+      "Tags": [
+        "PlayerCard"
+      ],
+      "LayoutGroupSortIndex": 0,
+      "Value": 0,
+      "Locked": false,
+      "Grid": true,
+      "Snap": true,
+      "IgnoreFoW": false,
+      "MeasureMovement": false,
+      "DragSelectable": true,
+      "Autoraise": true,
+      "Sticky": true,
+      "Tooltip": true,
+      "GridProjection": false,
+      "HideWhenFaceDown": true,
+      "Hands": false,
+      "SidewaysCard": false,
+      "DeckIDs": [
+        266500,
+        266500,
+        266500,
+        100300
+      ],
+      "CustomDeck": {
+        "2665": {
+          "FaceURL": "https://i.ibb.co/hV37YL5/0f65eaf9a0df.png",
+          "BackURL": "https://i.ibb.co/gSvfXPD/434402c7818f.png",
+          "NumWidth": 1,
+          "NumHeight": 1,
+          "BackIsHidden": true,
+          "UniqueBack": true,
+          "Type": 0
+        },
+        "1003": {
+          "FaceURL": "https://i.ibb.co/tqtwxW0/8957ba5e8e00.png",
+          "BackURL": "https://i.ibb.co/K7sGS0Z/f66f5cc14eb0.png",
+          "NumWidth": 1,
+          "NumHeight": 1,
+          "BackIsHidden": true,
+          "UniqueBack": true,
+          "Type": 0
+        }
+      },
+      "LuaScript": "",
+      "LuaScriptState": "",
+      "XmlUI": "",
+      "ContainedObjects": [
+        {
+          "GUID": "e00005",
+          "Name": "Card",
+          "Transform": {
+            "posX": -26.28574,
+            "posY": 1.30858755,
+            "posZ": -62.8460732,
+            "rotX": 0.000186513746,
+            "rotY": 270.0,
+            "rotZ": -0.00122067612,
+            "scaleX": 1.0,
+            "scaleY": 1.0,
+            "scaleZ": 1.0
+          },
+          "Nickname": "Dreamspike",
+          "Description": "",
+          "GMNotes": "{\"TtsZoopGuid\":\"8fbcacc0-97d0-45da-8207-1ee07d44d785\",\"type\":\"Event\",\"class\":\"Neutral\",\"traits\":\"Item. Relic\"}",
+          "AltLookAngle": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "ColorDiffuse": {
+            "r": 0.713235259,
+            "g": 0.713235259,
+            "b": 0.713235259
+          },
+          "Tags": [
+            "PlayerCard"
+          ],
+          "LayoutGroupSortIndex": 0,
+          "Value": 0,
+          "Locked": false,
+          "Grid": true,
+          "Snap": true,
+          "IgnoreFoW": false,
+          "MeasureMovement": false,
+          "DragSelectable": true,
+          "Autoraise": true,
+          "Sticky": true,
+          "Tooltip": true,
+          "GridProjection": false,
+          "HideWhenFaceDown": true,
+          "Hands": true,
+          "CardID": 266500,
+          "SidewaysCard": false,
+          "CustomDeck": {
+            "1004": {
+              "FaceURL": "https://i.ibb.co/hV37YL5/0f65eaf9a0df.png",
+              "BackURL": "https://i.ibb.co/gSvfXPD/434402c7818f.png",
+              "NumWidth": 1,
+              "NumHeight": 1,
+              "BackIsHidden": true,
+              "UniqueBack": true,
+              "Type": 0
+            }
+          },
+          "LuaScript": "",
+          "LuaScriptState": "",
+          "XmlUI": ""
+        },
+        {
+          "GUID": "5e5f14",
+          "Name": "Card",
+          "Transform": {
+            "posX": -26.61268,
+            "posY": 1.34941661,
+            "posZ": -62.937233,
+            "rotX": 0.00214340677,
+            "rotY": 270.0,
+            "rotZ": 359.9934,
+            "scaleX": 1.0,
+            "scaleY": 1.0,
+            "scaleZ": 1.0
+          },
+          "Nickname": "Dreamspike",
+          "Description": "",
+          "GMNotes": "{\"TtsZoopGuid\":\"8fbcacc0-97d0-45da-8207-1ee07d44d785\",\"type\":\"Event\",\"class\":\"Neutral\",\"traits\":\"Item. Relic\"}",
+          "AltLookAngle": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "ColorDiffuse": {
+            "r": 0.713235259,
+            "g": 0.713235259,
+            "b": 0.713235259
+          },
+          "Tags": [
+            "PlayerCard"
+          ],
+          "LayoutGroupSortIndex": 0,
+          "Value": 0,
+          "Locked": false,
+          "Grid": true,
+          "Snap": true,
+          "IgnoreFoW": false,
+          "MeasureMovement": false,
+          "DragSelectable": true,
+          "Autoraise": true,
+          "Sticky": true,
+          "Tooltip": true,
+          "GridProjection": false,
+          "HideWhenFaceDown": true,
+          "Hands": true,
+          "CardID": 266500,
+          "SidewaysCard": false,
+          "CustomDeck": {
+            "1004": {
+              "FaceURL": "https://i.ibb.co/hV37YL5/0f65eaf9a0df.png",
+              "BackURL": "https://i.ibb.co/gSvfXPD/434402c7818f.png",
+              "NumWidth": 1,
+              "NumHeight": 1,
+              "BackIsHidden": true,
+              "UniqueBack": true,
+              "Type": 0
+            }
+          },
+          "LuaScript": "",
+          "LuaScriptState": "",
+          "XmlUI": ""
+        },
+        {
+          "GUID": "561a93",
+          "Name": "Card",
+          "Transform": {
+            "posX": -26.61268,
+            "posY": 1.38464463,
+            "posZ": -62.937233,
+            "rotX": 0.0002159512,
+            "rotY": 270.0,
+            "rotZ": -0.0008301639,
+            "scaleX": 1.0,
+            "scaleY": 1.0,
+            "scaleZ": 1.0
+          },
+          "Nickname": "Dreamspike",
+          "Description": "",
+          "GMNotes": "{\"TtsZoopGuid\":\"8fbcacc0-97d0-45da-8207-1ee07d44d785\",\"type\":\"Event\",\"class\":\"Neutral\",\"traits\":\"Item. Relic\"}",
+          "AltLookAngle": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "ColorDiffuse": {
+            "r": 0.713235259,
+            "g": 0.713235259,
+            "b": 0.713235259
+          },
+          "Tags": [
+            "PlayerCard"
+          ],
+          "LayoutGroupSortIndex": 0,
+          "Value": 0,
+          "Locked": false,
+          "Grid": true,
+          "Snap": true,
+          "IgnoreFoW": false,
+          "MeasureMovement": false,
+          "DragSelectable": true,
+          "Autoraise": true,
+          "Sticky": true,
+          "Tooltip": true,
+          "GridProjection": false,
+          "HideWhenFaceDown": true,
+          "Hands": true,
+          "CardID": 266500,
+          "SidewaysCard": false,
+          "CustomDeck": {
+            "1004": {
+              "FaceURL": "https://i.ibb.co/hV37YL5/0f65eaf9a0df.png",
+              "BackURL": "https://i.ibb.co/gSvfXPD/434402c7818f.png",
+              "NumWidth": 1,
+              "NumHeight": 1,
+              "BackIsHidden": true,
+              "UniqueBack": true,
+              "Type": 0
+            }
+          },
+          "LuaScript": "",
+          "LuaScriptState": "",
+          "XmlUI": ""
+        },
+        {
+          "GUID": "e00004",
+          "Name": "Card",
+          "Transform": {
+            "posX": 41.85579,
+            "posY": 1.58035958,
+            "posZ": 78.70565,
+            "rotX": -3.53790274E-05,
+            "rotY": 269.9861,
+            "rotZ": -0.00048541202,
+            "scaleX": 1.0,
+            "scaleY": 1.0,
+            "scaleZ": 1.0
+          },
+          "Nickname": "Fantastical Voyage",
+          "Description": "",
+          "GMNotes": "{\"TtsZoopGuid\":\"082bbff6-c85c-4700-9d33-96b488290ccf\",\"type\":\"Event\",\"class\":\"Neutral\",\"traits\":\"Insight. Spirit\",\"agilityIcons\":1,\"intellectIcons\":1,\"wildIcons\":1,\"cost\":2}",
+          "AltLookAngle": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "ColorDiffuse": {
+            "r": 0.713235259,
+            "g": 0.713235259,
+            "b": 0.713235259
+          },
+          "Tags": [
+            "PlayerCard"
+          ],
+          "LayoutGroupSortIndex": 0,
+          "Value": 0,
+          "Locked": false,
+          "Grid": true,
+          "Snap": true,
+          "IgnoreFoW": false,
+          "MeasureMovement": false,
+          "DragSelectable": true,
+          "Autoraise": true,
+          "Sticky": true,
+          "Tooltip": true,
+          "GridProjection": false,
+          "HideWhenFaceDown": true,
+          "Hands": true,
+          "CardID": 100300,
+          "SidewaysCard": false,
+          "CustomDeck": {
+            "1003": {
+              "FaceURL": "https://i.ibb.co/tqtwxW0/8957ba5e8e00.png",
+              "BackURL": "https://i.ibb.co/K7sGS0Z/f66f5cc14eb0.png",
+              "NumWidth": 1,
+              "NumHeight": 1,
+              "BackIsHidden": true,
+              "UniqueBack": true,
+              "Type": 0
+            }
+          },
+          "LuaScript": "",
+          "LuaScriptState": "",
+          "XmlUI": ""
+        }
+      ]
+    },
+    {
+      "GUID": "d0ed57",
+      "Name": "Card",
+      "Transform": {
+        "posX": 45.2419,
+        "posY": 1.49510384,
+        "posZ": 55.815,
+        "rotX": -9.16423346E-08,
+        "rotY": 269.9912,
+        "rotZ": -4.169796E-08,
+        "scaleX": 0.783099234,
+        "scaleY": 1.0,
+        "scaleZ": 0.783099234
+      },
+      "Nickname": "Makya",
+      "Description": "The Trapper",
+      "GMNotes": "{\"TtsZoopGuid\":\"1e2a64c1-fc3a-48ae-93b7-2e18d239e9cf\",\"type\":\"Investigator\",\"class\":\"Survivor\",\"traits\":\"Hunter\",\"agilityIcons\":3,\"combatIcons\":4,\"intellectIcons\":2,\"willpowerIcons\":3,\"id\":\"Z7810\"}",
+      "AltLookAngle": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "ColorDiffuse": {
+        "r": 0.713235259,
+        "g": 0.713235259,
+        "b": 0.713235259
+      },
+      "Tags": [
+        "Investigator",
+        "PlayerCard"
+      ],
+      "LayoutGroupSortIndex": 0,
+      "Value": 0,
+      "Locked": false,
+      "Grid": true,
+      "Snap": true,
+      "IgnoreFoW": false,
+      "MeasureMovement": false,
+      "DragSelectable": true,
+      "Autoraise": true,
+      "Sticky": true,
+      "Tooltip": true,
+      "GridProjection": false,
+      "HideWhenFaceDown": true,
+      "Hands": true,
+      "CardID": 101900,
+      "SidewaysCard": false,
+      "CustomDeck": {
+        "1019": {
+          "FaceURL": "https://i.ibb.co/tz6GMF8/9071c11e128d.png",
+          "BackURL": "https://i.ibb.co/0Y4xvTW/b8dbb4b9892c.png",
+          "NumWidth": 1,
+          "NumHeight": 1,
+          "BackIsHidden": true,
+          "UniqueBack": true,
+          "Type": 0
+        }
+      },
+      "LuaScript": "",
+      "LuaScriptState": "",
+      "XmlUI": ""
+    },
+    {
+      "GUID": "d58bf9",
+      "Name": "Deck",
+      "Transform": {
+        "posX": 41.9539,
+        "posY": 1.51205766,
+        "posZ": 86.4176,
+        "rotX": -6.16111038E-08,
+        "rotY": 269.999939,
+        "rotZ": -7.35128651E-08,
+        "scaleX": 1.0,
+        "scaleY": 1.0,
+        "scaleZ": 1.0
+      },
+      "Nickname": "",
+      "Description": "",
+      "GMNotes": "",
+      "AltLookAngle": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "ColorDiffuse": {
+        "r": 0.713235259,
+        "g": 0.713235259,
+        "b": 0.713235259
+      },
+      "Tags": [
+        "PlayerCard"
+      ],
+      "LayoutGroupSortIndex": 0,
+      "Value": 0,
+      "Locked": false,
+      "Grid": true,
+      "Snap": true,
+      "IgnoreFoW": false,
+      "MeasureMovement": false,
+      "DragSelectable": true,
+      "Autoraise": true,
+      "Sticky": true,
+      "Tooltip": true,
+      "GridProjection": false,
+      "HideWhenFaceDown": true,
+      "Hands": false,
+      "SidewaysCard": false,
+      "DeckIDs": [
+        100900,
+        267700
+      ],
+      "CustomDeck": {
+        "1009": {
+          "FaceURL": "https://i.ibb.co/pxWDQc0/a5e7972fe45f.png",
+          "BackURL": "https://i.ibb.co/gSvfXPD/434402c7818f.png",
+          "NumWidth": 1,
+          "NumHeight": 1,
+          "BackIsHidden": true,
+          "UniqueBack": true,
+          "Type": 0
+        },
+        "2677": {
+          "FaceURL": "https://i.ibb.co/GM97qPh/6a8a2e6d3ceb.png",
+          "BackURL": "https://i.ibb.co/MpkcQGy/418e944e57e5.png",
+          "NumWidth": 1,
+          "NumHeight": 1,
+          "BackIsHidden": true,
+          "UniqueBack": true,
+          "Type": 0
+        }
+      },
+      "LuaScript": "",
+      "LuaScriptState": "",
+      "XmlUI": "",
+      "ContainedObjects": [
+        {
+          "GUID": "e0000e",
+          "Name": "Card",
+          "Transform": {
+            "posX": 40.9094,
+            "posY": 1.495094,
+            "posZ": 86.641,
+            "rotX": 0.000102373189,
+            "rotY": 270.0,
+            "rotZ": -0.000659765152,
+            "scaleX": 1.0,
+            "scaleY": 1.0,
+            "scaleZ": 1.0
+          },
+          "Nickname": "Stalwart Faith",
+          "Description": "",
+          "GMNotes": "{\"TtsZoopGuid\":\"b042d356-b55e-4de6-b808-71e3196d4cab\",\"type\":\"Event\",\"class\":\"Neutral\",\"traits\":\"Spirit. Blessed\",\"willpowerIcons\":2,\"wildIcons\":2,\"cost\":0}",
+          "AltLookAngle": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "ColorDiffuse": {
+            "r": 0.713235259,
+            "g": 0.713235259,
+            "b": 0.713235259
+          },
+          "Tags": [
+            "PlayerCard"
+          ],
+          "LayoutGroupSortIndex": 0,
+          "Value": 0,
+          "Locked": false,
+          "Grid": true,
+          "Snap": true,
+          "IgnoreFoW": false,
+          "MeasureMovement": false,
+          "DragSelectable": true,
+          "Autoraise": true,
+          "Sticky": true,
+          "Tooltip": true,
+          "GridProjection": false,
+          "HideWhenFaceDown": true,
+          "Hands": true,
+          "CardID": 100900,
+          "SidewaysCard": false,
+          "CustomDeck": {
+            "1009": {
+              "FaceURL": "https://i.ibb.co/pxWDQc0/a5e7972fe45f.png",
+              "BackURL": "https://i.ibb.co/gSvfXPD/434402c7818f.png",
+              "NumWidth": 1,
+              "NumHeight": 1,
+              "BackIsHidden": true,
+              "UniqueBack": true,
+              "Type": 0
+            }
+          },
+          "LuaScript": "",
+          "LuaScriptState": "",
+          "XmlUI": ""
+        },
+        {
+          "GUID": "e00005",
+          "Name": "Card",
+          "Transform": {
+            "posX": 40.66969,
+            "posY": 1.53678012,
+            "posZ": 86.4712,
+            "rotX": 0.0005184398,
+            "rotY": 270.000031,
+            "rotZ": -0.00370302354,
+            "scaleX": 1.0,
+            "scaleY": 1.0,
+            "scaleZ": 1.0
+          },
+          "Nickname": "Carrion Crow",
+          "Description": "An Omen, or a Protector",
+          "GMNotes": "{\"TtsZoopGuid\":\"d5a8beb1-e339-48b5-b186-fa3d97b72e50\",\"type\":\"Asset\",\"permanent\":true,\"class\":\"Neutral\",\"traits\":\"Ally. Creature\"}",
+          "AltLookAngle": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "ColorDiffuse": {
+            "r": 0.713235259,
+            "g": 0.713235259,
+            "b": 0.713235259
+          },
+          "Tags": [
+            "Asset",
+            "PlayerCard"
+          ],
+          "LayoutGroupSortIndex": 0,
+          "Value": 0,
+          "Locked": false,
+          "Grid": true,
+          "Snap": true,
+          "IgnoreFoW": false,
+          "MeasureMovement": false,
+          "DragSelectable": true,
+          "Autoraise": true,
+          "Sticky": true,
+          "Tooltip": true,
+          "GridProjection": false,
+          "HideWhenFaceDown": true,
+          "Hands": true,
+          "CardID": 267700,
+          "SidewaysCard": false,
+          "CustomDeck": {
+            "2677": {
+              "FaceURL": "https://i.ibb.co/GM97qPh/6a8a2e6d3ceb.png",
+              "BackURL": "https://i.ibb.co/MpkcQGy/418e944e57e5.png",
+              "NumWidth": 1,
+              "NumHeight": 1,
+              "BackIsHidden": true,
+              "UniqueBack": true,
+              "Type": 0
+            }
+          },
+          "LuaScript": "",
+          "LuaScriptState": "",
+          "XmlUI": ""
+        }
+      ]
+    },
+    {
+      "GUID": "e00001",
+      "Name": "Card",
+      "Transform": {
+        "posX": 38.6419,
+        "posY": 1.49510384,
+        "posZ": 78.7651,
+        "rotX": 2.09878834E-08,
+        "rotY": 270.0,
+        "rotZ": -8.66635759E-08,
+        "scaleX": 1.0,
+        "scaleY": 1.0,
+        "scaleZ": 1.0
+      },
+      "Nickname": "Plateau of Leng",
+      "Description": "",
+      "GMNotes": "{\"TtsZoopGuid\":\"58c68a41-f82d-45b7-81a4-d2ae5704ad6a\",\"type\":\"Location\",\"class\":\"Mythos\",\"traits\":\"Leng\",\"locationFront\":{\"icons\":null,\"uses\":[{\"token\":\"clue\",\"type\":\"Clue\",\"count\":0}]},\"locationBack\":{\"icons\":null}}",
+      "AltLookAngle": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "ColorDiffuse": {
+        "r": 0.713235259,
+        "g": 0.713235259,
+        "b": 0.713235259
+      },
+      "Tags": [
+        "Location",
+        "ScenarioCard"
+      ],
+      "LayoutGroupSortIndex": 0,
+      "Value": 0,
+      "Locked": false,
+      "Grid": true,
+      "Snap": true,
+      "IgnoreFoW": false,
+      "MeasureMovement": false,
+      "DragSelectable": true,
+      "Autoraise": true,
+      "Sticky": true,
+      "Tooltip": true,
+      "GridProjection": false,
+      "HideWhenFaceDown": true,
+      "Hands": true,
+      "CardID": 100000,
+      "SidewaysCard": false,
+      "CustomDeck": {
+        "1000": {
+          "FaceURL": "https://i.ibb.co/7NkJM1w/cbf4993f2d44.png",
+          "BackURL": "https://i.ibb.co/K7sGS0Z/f66f5cc14eb0.png",
+          "NumWidth": 1,
+          "NumHeight": 1,
+          "BackIsHidden": true,
+          "UniqueBack": true,
+          "Type": 0
+        }
+      },
+      "LuaScript": "",
+      "LuaScriptState": "",
+      "XmlUI": ""
+    },
+    {
+      "GUID": "e0000a",
+      "Name": "Card",
+      "Transform": {
+        "posX": 41.9419,
+        "posY": 1.49510384,
+        "posZ": 71.115,
+        "rotX": 1.12265823E-07,
+        "rotY": 269.986755,
+        "rotZ": -2.08314034E-07,
+        "scaleX": 1.0,
+        "scaleY": 1.0,
+        "scaleZ": 1.0
+      },
+      "Nickname": "Counterfeit",
+      "Description": "",
+      "GMNotes": "{\"TtsZoopGuid\":\"977d33ed-c92b-4468-afe6-ecec39f4f4ac\",\"type\":\"Asset\",\"uses\":[{\"count\":2,\"token\":\"resource\",\"type\":\"Forgeries\"}],\"class\":\"Neutral\",\"traits\":\"Talent. Illicit\",\"agilityIcons\":1,\"intellectIcons\":1,\"wildIcons\":1,\"cost\":0}",
+      "AltLookAngle": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "ColorDiffuse": {
+        "r": 0.713235259,
+        "g": 0.713235259,
+        "b": 0.713235259
+      },
+      "Tags": [
+        "Asset",
+        "PlayerCard"
+      ],
+      "LayoutGroupSortIndex": 0,
+      "Value": 0,
+      "Locked": false,
+      "Grid": true,
+      "Snap": true,
+      "IgnoreFoW": false,
+      "MeasureMovement": false,
+      "DragSelectable": true,
+      "Autoraise": true,
+      "Sticky": true,
+      "Tooltip": true,
+      "GridProjection": false,
+      "HideWhenFaceDown": true,
+      "Hands": true,
+      "CardID": 100700,
+      "SidewaysCard": false,
+      "CustomDeck": {
+        "1007": {
+          "FaceURL": "https://i.ibb.co/0M1MyX0/b6fe0ab9de03.png",
+          "BackURL": "https://i.ibb.co/gSvfXPD/434402c7818f.png",
+          "NumWidth": 1,
+          "NumHeight": 1,
+          "BackIsHidden": true,
+          "UniqueBack": true,
+          "Type": 0
+        }
+      },
+      "LuaScript": "",
+      "LuaScriptState": "",
+      "XmlUI": ""
+    },
+    {
+      "GUID": "e0000b",
+      "Name": "Card",
+      "Transform": {
+        "posX": 38.6419,
+        "posY": 1.49510384,
+        "posZ": 71.115,
+        "rotX": 2.09878834E-08,
+        "rotY": 270.0,
+        "rotZ": -8.66635759E-08,
+        "scaleX": 1.0,
+        "scaleY": 1.0,
+        "scaleZ": 1.0
+      },
+      "Nickname": "Doppelg�nger",
+      "Description": "",
+      "GMNotes": "{\"TtsZoopGuid\":\"fdfbd78d-b1de-4443-86a7-a6b01571b8b0\",\"type\":\"Enemy\",\"traits\":\"Humanoid. Criminal. Syndicate\",\"weakness\":true}",
+      "AltLookAngle": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "ColorDiffuse": {
+        "r": 0.713235259,
+        "g": 0.713235259,
+        "b": 0.713235259
+      },
+      "Tags": [
+        "PlayerCard"
+      ],
+      "LayoutGroupSortIndex": 0,
+      "Value": 0,
+      "Locked": false,
+      "Grid": true,
+      "Snap": true,
+      "IgnoreFoW": false,
+      "MeasureMovement": false,
+      "DragSelectable": true,
+      "Autoraise": true,
+      "Sticky": true,
+      "Tooltip": true,
+      "GridProjection": false,
+      "HideWhenFaceDown": true,
+      "Hands": true,
+      "CardID": 100800,
+      "SidewaysCard": false,
+      "CustomDeck": {
+        "1008": {
+          "FaceURL": "https://i.ibb.co/P6DjRGP/0a997175a8d3.png",
+          "BackURL": "https://i.imgur.com/EcbhVuh.jpg/",
+          "NumWidth": 1,
+          "NumHeight": 1,
+          "BackIsHidden": true,
+          "UniqueBack": false,
+          "Type": 0
+        }
+      },
+      "LuaScript": "",
+      "LuaScriptState": "",
+      "XmlUI": ""
+    },
+    {
+      "GUID": "e00011",
+      "Name": "Card",
+      "Transform": {
+        "posX": 38.6419,
+        "posY": 1.49510384,
+        "posZ": 86.4151,
+        "rotX": 2.09878834E-08,
+        "rotY": 270.0,
+        "rotZ": -8.66635759E-08,
+        "scaleX": 1.0,
+        "scaleY": 1.0,
+        "scaleZ": 1.0
+      },
+      "Nickname": "The Downtrodden",
+      "Description": "",
+      "GMNotes": "{\"TtsZoopGuid\":\"268e450a-0038-4df5-a7e2-5b445ba7247e\",\"type\":\"Asset\",\"traits\":\"Ally. Believer\",\"weakness\":true}",
+      "AltLookAngle": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "ColorDiffuse": {
+        "r": 0.713235259,
+        "g": 0.713235259,
+        "b": 0.713235259
+      },
+      "Tags": [
+        "Asset",
+        "PlayerCard"
+      ],
+      "LayoutGroupSortIndex": 0,
+      "Value": 0,
+      "Locked": false,
+      "Grid": true,
+      "Snap": true,
+      "IgnoreFoW": false,
+      "MeasureMovement": false,
+      "DragSelectable": true,
+      "Autoraise": true,
+      "Sticky": true,
+      "Tooltip": true,
+      "GridProjection": false,
+      "HideWhenFaceDown": true,
+      "Hands": true,
+      "CardID": 101200,
+      "SidewaysCard": false,
+      "CustomDeck": {
+        "1012": {
+          "FaceURL": "https://i.ibb.co/2dfq9C4/a8e18014287a.png",
+          "BackURL": "https://i.ibb.co/MpkcQGy/418e944e57e5.png",
+          "NumWidth": 1,
+          "NumHeight": 1,
+          "BackIsHidden": true,
+          "UniqueBack": true,
+          "Type": 0
+        }
+      },
+      "LuaScript": "",
+      "LuaScriptState": "",
+      "XmlUI": ""
+    },
+    {
+      "GUID": "e00016",
+      "Name": "Card",
+      "Transform": {
+        "posX": 38.6419,
+        "posY": 1.49510384,
+        "posZ": 63.465,
+        "rotX": -5.52561339E-08,
+        "rotY": 269.9883,
+        "rotZ": -8.210854E-08,
+        "scaleX": 1.0,
+        "scaleY": 1.0,
+        "scaleZ": 1.0
+      },
+      "Nickname": "Karakasa Obake",
+      "Description": "",
+      "GMNotes": "{\"TtsZoopGuid\":\"67ad5402-70e5-4e5a-9048-331b3f64cc66\",\"type\":\"Enemy\",\"traits\":\"Monster. Item. Cursed\",\"weakness\":true}",
+      "AltLookAngle": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "ColorDiffuse": {
+        "r": 0.713235259,
+        "g": 0.713235259,
+        "b": 0.713235259
+      },
+      "Tags": [
+        "PlayerCard"
+      ],
+      "LayoutGroupSortIndex": 0,
+      "Value": 0,
+      "Locked": false,
+      "Grid": true,
+      "Snap": true,
+      "IgnoreFoW": false,
+      "MeasureMovement": false,
+      "DragSelectable": true,
+      "Autoraise": true,
+      "Sticky": true,
+      "Tooltip": true,
+      "GridProjection": false,
+      "HideWhenFaceDown": true,
+      "Hands": true,
+      "CardID": 101500,
+      "SidewaysCard": false,
+      "CustomDeck": {
+        "1015": {
+          "FaceURL": "https://i.ibb.co/dKfzp0s/c6218d6a7352.png",
+          "BackURL": "https://i.imgur.com/EcbhVuh.jpg/",
+          "NumWidth": 1,
+          "NumHeight": 1,
+          "BackIsHidden": true,
+          "UniqueBack": false,
+          "Type": 0
+        }
+      },
+      "LuaScript": "",
+      "LuaScriptState": "",
+      "XmlUI": ""
+    },
+    {
+      "GUID": "e00017",
+      "Name": "Card",
+      "Transform": {
+        "posX": 41.9419,
+        "posY": 1.49510384,
+        "posZ": 63.465,
+        "rotX": -1.24063931E-07,
+        "rotY": 269.9917,
+        "rotZ": 1.0893924E-07,
+        "scaleX": 1.0,
+        "scaleY": 1.0,
+        "scaleZ": 1.0
+      },
+      "Nickname": "Tsukumogami",
+      "Description": "",
+      "GMNotes": "{\"TtsZoopGuid\":\"df03eb57-9b66-449a-b547-e00e1ed9d49f\",\"type\":\"Asset\",\"class\":\"Neutral\",\"traits\":\"Ally. Geist\",\"intellectIcons\":1,\"willpowerIcons\":1,\"wildIcons\":1,\"cost\":2}",
+      "AltLookAngle": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "ColorDiffuse": {
+        "r": 0.713235259,
+        "g": 0.713235259,
+        "b": 0.713235259
+      },
+      "Tags": [
+        "Asset",
+        "PlayerCard"
+      ],
+      "LayoutGroupSortIndex": 0,
+      "Value": 0,
+      "Locked": false,
+      "Grid": true,
+      "Snap": true,
+      "IgnoreFoW": false,
+      "MeasureMovement": false,
+      "DragSelectable": true,
+      "Autoraise": true,
+      "Sticky": true,
+      "Tooltip": true,
+      "GridProjection": false,
+      "HideWhenFaceDown": true,
+      "Hands": true,
+      "CardID": 101600,
+      "SidewaysCard": false,
+      "CustomDeck": {
+        "1016": {
+          "FaceURL": "https://i.ibb.co/H4WvVf7/dbad4611cb1f.png",
+          "BackURL": "https://i.ibb.co/64mKVVV/4c8d8ce66edf.png",
+          "NumWidth": 1,
+          "NumHeight": 1,
+          "BackIsHidden": true,
+          "UniqueBack": true,
+          "Type": 0
+        }
+      },
+      "LuaScript": "",
+      "LuaScriptState": "",
+      "XmlUI": ""
+    },
+    {
+      "GUID": "e0001b",
+      "Name": "Card",
+      "Transform": {
+        "posX": 41.9419,
+        "posY": 1.49510384,
+        "posZ": 55.815,
+        "rotX": -1.252701E-07,
+        "rotY": 269.991455,
+        "rotZ": 1.013928E-07,
+        "scaleX": 1.0,
+        "scaleY": 1.0,
+        "scaleZ": 1.0
+      },
+      "Nickname": "Trap Rigging",
+      "Description": "",
+      "GMNotes": "{\"TtsZoopGuid\":\"5000c1b4-4c10-4c92-9845-6be9511b8abb\",\"type\":\"Asset\",\"class\":\"Neutral\",\"traits\":\"Talent\",\"agilityIcons\":1,\"combatIcons\":1,\"wildIcons\":1,\"cost\":2}",
+      "AltLookAngle": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "ColorDiffuse": {
+        "r": 0.713235259,
+        "g": 0.713235259,
+        "b": 0.713235259
+      },
+      "Tags": [
+        "Asset",
+        "PlayerCard"
+      ],
+      "LayoutGroupSortIndex": 0,
+      "Value": 0,
+      "Locked": false,
+      "Grid": true,
+      "Snap": true,
+      "IgnoreFoW": false,
+      "MeasureMovement": false,
+      "DragSelectable": true,
+      "Autoraise": true,
+      "Sticky": true,
+      "Tooltip": true,
+      "GridProjection": false,
+      "HideWhenFaceDown": true,
+      "Hands": true,
+      "CardID": 101800,
+      "SidewaysCard": false,
+      "CustomDeck": {
+        "1018": {
+          "FaceURL": "https://i.ibb.co/mS8H7VC/d1d46dc539ff.png",
+          "BackURL": "https://i.ibb.co/gSvfXPD/434402c7818f.png",
+          "NumWidth": 1,
+          "NumHeight": 1,
+          "BackIsHidden": true,
+          "UniqueBack": true,
+          "Type": 0
+        }
+      },
+      "LuaScript": "",
+      "LuaScriptState": "",
+      "XmlUI": ""
+    },
+    {
+      "GUID": "e0001d",
+      "Name": "Card",
+      "Transform": {
+        "posX": 38.6419,
+        "posY": 1.49510384,
+        "posZ": 55.815,
+        "rotX": -4.860249E-08,
+        "rotY": 269.9911,
+        "rotZ": 8.93766057E-08,
+        "scaleX": 1.0,
+        "scaleY": 1.0,
+        "scaleZ": 1.0
+      },
+      "Nickname": "Wendigo",
+      "Description": "",
+      "GMNotes": "{\"TtsZoopGuid\":\"02d79387-e6d9-407d-a53c-21f4ed2f9202\",\"type\":\"Enemy\",\"traits\":\"Monster\",\"weakness\":true}",
+      "AltLookAngle": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "ColorDiffuse": {
+        "r": 0.713235259,
+        "g": 0.713235259,
+        "b": 0.713235259
+      },
+      "Tags": [
+        "PlayerCard"
+      ],
+      "LayoutGroupSortIndex": 0,
+      "Value": 0,
+      "Locked": false,
+      "Grid": true,
+      "Snap": true,
+      "IgnoreFoW": false,
+      "MeasureMovement": false,
+      "DragSelectable": true,
+      "Autoraise": true,
+      "Sticky": true,
+      "Tooltip": true,
+      "GridProjection": false,
+      "HideWhenFaceDown": true,
+      "Hands": true,
+      "CardID": 102000,
+      "SidewaysCard": false,
+      "CustomDeck": {
+        "1020": {
+          "FaceURL": "https://i.ibb.co/LtGF6xT/ba62538d82db.png",
+          "BackURL": "https://i.imgur.com/EcbhVuh.jpg/",
+          "NumWidth": 1,
+          "NumHeight": 1,
+          "BackIsHidden": true,
+          "UniqueBack": false,
+          "Type": 0
+        }
+      },
+      "LuaScript": "",
+      "LuaScriptState": "",
+      "XmlUI": ""
+    },
+    {
+      "GUID": "e3ab45",
+      "Name": "Card",
+      "Transform": {
+        "posX": 45.2419,
+        "posY": 1.49510384,
+        "posZ": 71.115,
+        "rotX": -8.924776E-08,
+        "rotY": 270.0,
+        "rotZ": 2.987377E-09,
+        "scaleX": 0.783099234,
+        "scaleY": 1.0,
+        "scaleZ": 0.783099234
+      },
+      "Nickname": "Bellatrix Ricci",
+      "Description": "The Counterfeiter",
+      "GMNotes": "{\"TtsZoopGuid\":\"b7962b11-db7f-4898-b088-a865afc7f7f4\",\"type\":\"Investigator\",\"class\":\"Rogue\",\"traits\":\"Criminal. Syndicate\",\"agilityIcons\":4,\"combatIcons\":3,\"intellectIcons\":4,\"willpowerIcons\":1,\"id\":\"Z0536\"}",
+      "AltLookAngle": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "ColorDiffuse": {
+        "r": 0.713235259,
+        "g": 0.713235259,
+        "b": 0.713235259
+      },
+      "Tags": [
+        "Investigator",
+        "PlayerCard"
+      ],
+      "LayoutGroupSortIndex": 0,
+      "Value": 0,
+      "Locked": false,
+      "Grid": true,
+      "Snap": true,
+      "IgnoreFoW": false,
+      "MeasureMovement": false,
+      "DragSelectable": true,
+      "Autoraise": true,
+      "Sticky": true,
+      "Tooltip": true,
+      "GridProjection": false,
+      "HideWhenFaceDown": true,
+      "Hands": true,
+      "CardID": 100600,
+      "SidewaysCard": false,
+      "CustomDeck": {
+        "1006": {
+          "FaceURL": "https://i.ibb.co/G5hy2yD/7c5522094e3c.png",
+          "BackURL": "https://i.ibb.co/xzhFcVc/dfc59d8464ec.png",
+          "NumWidth": 1,
+          "NumHeight": 1,
+          "BackIsHidden": true,
+          "UniqueBack": true,
+          "Type": 0
+        }
+      },
+      "LuaScript": "",
+      "LuaScriptState": "",
+      "XmlUI": ""
+    }
+  ],
+  "AttachedDecals": [
+    {
+      "Transform": {
+        "posX": -0.0021877822,
+        "posY": -0.08963572,
+        "posZ": -0.00288731651,
+        "rotX": 270.0,
+        "rotY": 359.869568,
+        "rotZ": 0.0,
+        "scaleX": 2.00000215,
+        "scaleY": 2.00000238,
+        "scaleZ": 2.00000262
+      },
+      "CustomDecal": {
+        "Name": "dunwich_back",
+        "ImageURL": "http://cloud-3.steamusercontent.com/ugc/959719855119695911/931B9829687A20F4DEADB36DA57B7E6D76792231/",
+        "Size": 7.4
+      }
+    }
+  ]
+}
