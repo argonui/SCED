@@ -42,8 +42,8 @@ local navigationOverlayApi = require("core/NavigationOverlayApi")
 
 -- online functionality related variables
 local MOD_VERSION = "3.1.0"
-local SOURCE_REPO = 'https://raw.githubusercontent.com/argonui/SCED/main'
-local library, requestObj, modMeta, notificationVisible
+local SOURCE_REPO = 'https://raw.githubusercontent.com/argonui/SCED/main/content/'
+local library, match, requestObj, modMeta, notificationVisible
 local acknowledgedUpgradeVersions = {}
 
 ---------------------------------------------------------
@@ -124,6 +124,7 @@ function onLoad(savedData)
 
   resetChaosTokenStatTracker()
   getModVersion()
+  onClick_refreshList()
   math.randomseed(os.time())
 end
 
@@ -650,7 +651,7 @@ end
 ---------------------------------------------------------
 
 function onClick_refreshList()
-  local request = WebRequest.get(SOURCE_REPO .. '/content/library.json', completed_list_update)
+  local request = WebRequest.get(SOURCE_REPO .. 'library.json', completed_list_update)
   requestObj = request
   startLuaCoroutine(Global, 'downloadCoroutine')
 end
@@ -660,24 +661,15 @@ function onClick_select(_, params)
     params = JSON.decode(urldecode(params))
   end
 
-  local url = SOURCE_REPO .. '/content/'
-  if params.url ~= nil and params.url ~= "" then
-    -- TODO: change local folder based on selection in option panel
-    -- TODO: better detection of fancreations
-    if string.match(params.url, "............") == "fancreations" then
-      -- TODO: update fancreation gm_notes
-      local str = params.url:sub(13)
-      url = url .. "curated/en/" .. str
-    -- this part gets triggered by clicks on the download menu
-    else
-      url = url .. "generated/en/" .. params.url
-    end
-  -- official content will by design not provide "params.url"
-  else
-    -- TODO: dynamically get type (campaign / scenario)
-    url = url .. "/generated/en/campaigns/" .. cleanName(params.name) .. ".json"
+  local url = SOURCE_REPO
+  if checkLibraryForMatch(library.campaigns, params.name) then
+    url = url .. "generated/en/campaigns/" .. cleanName(params.name) .. ".json"
+  elseif checkLibraryForMatch(library.scenarios, params.name) then
+    url = url .. "generated/en/scenarios/" .. cleanName(params.name) .. ".json"
+  elseif checkLibraryForMatch(library.community, params.name) then
+    url = url .. "curated/en/" .. match.url .. ".json"
   end
-  log(url)
+
   local request = WebRequest.get(url, function (request) complete_obj_download(request, params) end )
   requestObj = request
   startLuaCoroutine(Global, 'downloadCoroutine')
@@ -746,12 +738,8 @@ function update_window_content(new_title)
     update_list(library.campaigns)
   elseif new_title == 'Standalone Scenarios' then
     update_list(library.scenarios)
-  elseif new_title == 'Investigators' then
-    update_list(library.investigators)
   elseif new_title == 'Community Content' then
     update_list(library.community)
-  elseif new_title == 'Extras' then
-    update_list(library.extras)
   else
     update_list({})
   end
@@ -773,9 +761,10 @@ function complete_obj_download(request, params)
       if replaced_object then
         local pos = replaced_object.getPosition()
         local rot = replaced_object.getRotation()
+        local scale = replaced_object.getScale()
         destroyObject(replaced_object)
         Wait.frames(function()
-          spawnObjectJSON({json = json, position = pos, rotation = rot})
+          spawnObjectJSON({json = json, position = pos, rotation = rot, scale = scale})
         end, 1)
       else
         spawnObjectJSON({json = json})
@@ -838,8 +827,33 @@ function urldecode(str)
   return str
 end
 
+-- checks the provided table (expects a sub-table of the library file) and sets "match" accordingly
+function checkLibraryForMatch(tbl, searchTerm)
+  match = nil
+  for key, value in pairs(tbl) do
+    for key2, value2 in pairs(value) do
+      if key2 == "name" then
+        if removePrefix(value2) == removePrefix(searchTerm) then
+          match = value
+          return true
+        end
+      end
+    end
+  end
+end
+
+-- this removes the pre-fix of a string (e.g. <Barkham Horror: >Meddling of Meowlathotep)
+function removePrefix(str)
+  local matchPos = string.find(str, ": ")
+  if matchPos then
+    str = string.sub(str, matchPos + 2)
+  end
+  return str
+end
+
 -- removes all non-alphanumerical characters (except for "-")
 function cleanName(str)
+  str = removePrefix(str)
   str = str:gsub("[^%w_]", "")
   return str
 end
@@ -1097,7 +1111,7 @@ end
 
 -- grabs the latest mod version and release notes from GitHub (called onLoad())
 function getModVersion()
-  WebRequest.get(SOURCE_REPO .. '/modversion.json', compareVersion)
+  --WebRequest.get(SOURCE_REPO .. 'modversion.json', compareVersion)
 end
 
 -- compares the modversion with GitHub and possibly shows the update notification
