@@ -109,10 +109,11 @@ do
 
   -- stateIDs for the multi-stated resource tokens
   local stateTable = {
-    ["Ammo"] = 2,
-    ["Charge"] = 3,
-    ["Secret"] = 4,
-    ["Supply"] = 5
+    ["resource"] = 1,
+    ["ammo"] = 2,
+    ["charge"] = 3,
+    ["secret"] = 4,
+    ["supply"] = 5
   }
 
   -- Source for tokens
@@ -151,13 +152,13 @@ do
 
   -- Spawns a set of tokens on the given card.
   ---@param card Object Card to spawn tokens on
-  ---@param tokenType String type of token to spawn, valid values are "damage", "horror",
+  ---@param tokenType String Type of token to spawn, valid values are "damage", "horror",
   --     "resource", "doom", or "clue"
   ---@param tokenCount Number How many tokens to spawn.  For damage or horror this value will be set to the
   --     spawned state object rather than spawning multiple tokens
   ---@param shiftDown Number An offset for the z-value of this group of tokens
-  ---@param stateID Number Index of the state to load for this token
-  TokenManager.spawnTokenGroup = function(card, tokenType, tokenCount, shiftDown, stateID)
+  ---@param subType Number Subtype of token to spawn.  This will only differ from the tokenName for resource tokens
+  TokenManager.spawnTokenGroup = function(card, tokenType, tokenCount, shiftDown, subType)
     local optionPanel = Global.getTable("optionPanel")
 
     if tokenType == "damage" or tokenType == "horror" then
@@ -165,7 +166,7 @@ do
     elseif tokenType == "resource" and optionPanel["useResourceCounters"] then
       TokenManager.spawnResourceCounterToken(card, tokenCount)
     else
-      TokenManager.spawnMultipleTokens(card, tokenType, tokenCount, shiftDown, stateID)
+      TokenManager.spawnMultipleTokens(card, tokenType, tokenCount, shiftDown, subType)
     end
   end
 
@@ -196,8 +197,8 @@ do
   --     Other types should use spawnCounterToken()
   ---@param tokenCount Number How many tokens to spawn
   ---@param shiftDown Number An offset for the z-value of this group of tokens
-  ---@param stateID Number Index of the state to load for this token
-  TokenManager.spawnMultipleTokens = function(card, tokenType, tokenCount, shiftDown, stateID)
+  ---@param subType Number Subtype of token to spawn.  This will only differ from the tokenName for resource tokens
+  TokenManager.spawnMultipleTokens = function(card, tokenType, tokenCount, shiftDown, subType)
     if tokenCount < 1 or tokenCount > 12 then
       return
     end
@@ -231,7 +232,8 @@ do
 
     -- this is used to load the correct state for additional resource tokens (e.g. "Ammo")
     local callback = nil
-    if tokenType == "resource" and stateID ~= nil then
+    local stateID = stateTable[string.lower(subType)]
+    if tokenType == "resource" and stateID ~= nil and stateID ~= 1 then
       callback = function(spawned) spawned.setState(stateID) end
     end
 
@@ -277,6 +279,17 @@ do
       rotation = rot,
       callback_function = callback
     })
+  end
+
+  -- Checks a card for metadata to maybe replenish it
+  ---@param card Object Card object to be replenished
+  ---@param uses Table The already decoded metadata.uses (to avoid decoding again)
+  ---@param mat Object The playmat the card is placed on (for rotation and casting)
+  TokenManager.maybeReplenishCard = function(card, uses, mat)
+    -- TODO: support for cards with multiple uses AND replenish (as of yet, no official card needs that)
+    if uses[1].count and uses[1].replenish then
+      internal.replenishTokens(card, uses, mat)
+    end
   end
 
   -- Delegate function to the token spawn tracker.  Exists to avoid circular dependencies in some
@@ -354,7 +367,7 @@ do
         tokenCount = tokenCount + extraUses[type]
       end
       -- Shift each spawned group after the first down so they don't pile on each other
-      TokenManager.spawnTokenGroup(card, token, tokenCount, (i - 1) * 0.8, stateTable[type])
+      TokenManager.spawnTokenGroup(card, token, tokenCount, (i - 1) * 0.8, type)
     end
     tokenSpawnTracker.markTokensSpawned(card.getGUID())
   end
@@ -458,6 +471,68 @@ do
     end
 
     return cluePositions
+  end
+
+  ---@param card Object Card object to be replenished
+  ---@param uses Table The already decoded metadata.uses (to avoid decoding again)
+  ---@param mat Object The playmat the card is placed on (for rotation and casting)
+  internal.replenishTokens = function(card, uses, mat)
+    local cardPos = card.getPosition()
+
+    -- don't continue for cards on the deck (Norman) or in the discard pile
+    if mat.positionToLocal(cardPos).x < -1 then return end
+
+    -- get current amount of resource tokens on the card
+    local search = internal.searchOnCard(cardPos, card.getRotation())
+    local clickableResourceCounter = nil
+    local foundTokens = 0
+
+    for _, obj in ipairs(search) do
+      local obj = obj.hit_object
+      local memo = obj.getMemo()
+
+      if (stateTable[memo] or 0) > 0 then
+        foundTokens = foundTokens + math.abs(obj.getQuantity())
+        obj.destruct()
+      elseif memo == "resourceCounter" then
+        foundTokens = obj.getVar("val")
+        clickableResourceCounter = obj
+        break
+      end
+    end
+
+    -- this is the theoretical new amount of uses (to be checked below)
+    local newCount = foundTokens + uses[1].replenish
+
+    -- if there are already more uses than the replenish amount, keep them
+    if foundTokens > uses[1].count then
+      newCount = foundTokens
+    -- only replenish up until the replenish amount
+    elseif newCount > uses[1].count then
+      newCount = uses[1].count
+    end
+
+    -- update the clickable counter or spawn a group of tokens
+    if clickableResourceCounter then
+      clickableResourceCounter.call("updateVal", newCount)
+    else
+      TokenManager.spawnTokenGroup(card, uses[1].token, newCount, _, uses[1].type)
+    end
+  end
+
+  -- searches on a card (standard size) and returns the result
+  ---@param position Table Position of the card
+  ---@param rotation Table Rotation of the card
+  internal.searchOnCard = function(position, rotation)
+    return Physics.cast({
+      origin       = position,
+      direction    = {0, 1, 0},
+      orientation  = rotation,
+      type         = 3,
+      size         = { 2.5, 0.5, 3.5 },
+      max_distance = 1,
+      debug        = false
+    })
   end
 
   return TokenManager
