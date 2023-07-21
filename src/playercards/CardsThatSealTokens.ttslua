@@ -70,9 +70,21 @@ Thus it should be implemented like this:
 
 local blessCurseManagerApi = require("chaosbag/BlessCurseManagerApi")
 local tokenArrangerApi = require("accessories/TokenArrangerApi")
+local tokenChecker = require("core/token/TokenChecker")
 local sealedTokens = {}
 local ID_URL_MAP = {}
 local tokensInBag = {}
+
+local buttonParameters = {}
+buttonParameters.label = 0
+buttonParameters.width = 575
+buttonParameters.height = 575
+buttonParameters.scale = {0.3, 1, 0.3}
+buttonParameters.position = {x = 0.87, y = 0.25, z = -1.32}
+buttonParameters.function_owner = self
+buttonParameters.click_function = "updateCountLabel"
+buttonParameters.tooltip = "update sealed tokens"
+buttonParameters.font_size = 550
 
 function onSave() return JSON.encode(sealedTokens) end
 
@@ -81,6 +93,32 @@ function onLoad(savedData)
   ID_URL_MAP = Global.getTable("ID_URL_MAP")
   generateContextMenu()
   self.addTag("CardThatSeals")
+  self.createButton(buttonParameters)
+  updateCountLabel(_, _, _, false)
+end
+
+function updateCountLabel(_, _, _, checkForNewTokens)
+  if checkForNewTokens ~= false then
+    getTokensFromCast()
+  end
+
+  self.editButton({index = 0, label = #sealedTokens})
+end
+
+function getTokensFromCast()
+  sealedTokens = {}
+  local search = Physics.cast({
+      direction = { 0, 1, 0 },
+      type      = 3,
+      size      = { 1, 0.1, 1 },
+      origin    = self.positionToWorld({0, 0, 0})
+    })
+
+  for _, v in ipairs(search) do
+    if tokenChecker.isChaosToken(v.hit_object) then
+      table.insert(sealedTokens, v.hit_object.getGUID())
+    end
+  end
 end
 
 -- builds the context menu
@@ -160,6 +198,7 @@ function sealToken(name, playerColor)
         callback_function = function(token)
           local guid = token.getGUID()
           table.insert(sealedTokens, guid)
+          updateCountLabel(_, _, _, false)
           tokenArrangerApi.layout()
           if name == "Bless" or name == "Curse" then
             blessCurseManagerApi.sealedToken(name, guid)
@@ -180,6 +219,7 @@ function releaseOneToken(playerColor)
   else
     printToColor("Releasing token", playerColor)
     putTokenAway(table.remove(sealedTokens))
+    updateCountLabel(_, _, _, false)
   end
 end
 
@@ -188,6 +228,7 @@ function releaseMultipleTokens(playerColor)
   if SHOW_MULTI_RELEASE <= #sealedTokens then
     for i = 1, SHOW_MULTI_RELEASE do
       putTokenAway(table.remove(sealedTokens))
+      updateCountLabel(_, _, _, false)
     end
     printToColor("Releasing " .. SHOW_MULTI_RELEASE .. " tokens", playerColor)
   else
@@ -206,6 +247,7 @@ function releaseAllTokens(playerColor)
       putTokenAway(guid)
     end
     sealedTokens = {}
+    updateCountLabel(_, _, _, false)
   end
 end
 
