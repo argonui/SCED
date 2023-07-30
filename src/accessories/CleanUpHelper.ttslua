@@ -34,6 +34,7 @@ local DAMAGE_HORROR_GUIDS       = {
   "468e88", "0257d9", "7b5729", "beb964",
 }
 
+local campaignLog
 local RESET_VALUES              = {}
 
 -- GUIDS of objects (in order of ownership relating to 'COLORS')
@@ -164,7 +165,6 @@ function cleanUp(_, color)
   soundCubeApi.playSoundByName("Vacuum")
   ignoreCustomDataHelper()
   getTrauma()
-  updateCounters(DAMAGE_HORROR_GUIDS, RESET_VALUES, "Damage / Horror")
   updateCounters(RESOURCE_GUIDS, 5, "Resources")
   updateCounters(CLUE_CLICKER_GUIDS, 0, "Clue clickers")
   resetSkillTrackers()
@@ -248,7 +248,7 @@ function getTrauma()
   end
 
   -- get campaign log
-  local campaignLog = findObjects(6)[1]
+  campaignLog = findObjects(6)[1]
   if campaignLog == nil then
     printToAll("Campaign log not found in standard position!", "Yellow")
     printToAll("Default values for health and sanity loaded.", "Yellow")
@@ -262,11 +262,18 @@ function getTrauma()
     campaignLog = campaignLog.setState(1)
   end
 
-  -- get data from campaign log if possible
+  -- small delay to account for potential state change
+  Wait.time(loadTrauma, 0.1)
+end
+
+-- gets data from campaign log if possible
+function loadTrauma()
+  -- check if "returnTrauma" function exists to avoid calling nil
   local trauma = campaignLog.getVar("returnTrauma")
   if trauma ~= nil then
     printToAll("Trauma values found in campaign log!", "Green")
     RESET_VALUES = campaignLog.call("returnTrauma")
+    updateCounters(DAMAGE_HORROR_GUIDS, RESET_VALUES, "Damage / Horror")
   else
     printToAll("Trauma values could not be found in campaign log!", "Yellow")
     printToAll("Default values for health and sanity loaded.", "Yellow")
