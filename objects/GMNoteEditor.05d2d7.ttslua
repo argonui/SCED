@@ -1,0 +1,128 @@
+-- GM-Note Editor
+-- made by:         Chr1Z
+-- description:     Allows editing the GM Notes of an object in full length (since editing directly in TTS has a character limit).
+local info                = {}
+info.version              = "1.0"
+info.lastUpdated          = "09.07.2023"
+
+local editObj
+local colliding           = false
+local fontSize            = 35
+
+local buttonData          = {}
+buttonData.function_owner = self
+buttonData.scale          = { 0.15, 0.15, 0.15 }
+buttonData.color          = { 1, 1, 1 }
+buttonData.width          = 700
+buttonData.height         = 700
+buttonData.font_size      = 700
+buttonData.font_color     = { 0, 0, 0 }
+buttonData.position       = { x = -0.2, y = 0.06, z = 1.4 }
+
+function onSave()
+  return JSON.encode(fontSize)
+end
+
+function onLoad(savedData)
+  if savedData and savedData ~= "" then
+    fontSize = JSON.decode(savedData)
+    changeFontSize(_, fontSize)
+  end
+
+  self.addContextMenuItem("More Information", printInfo)
+
+  -- button 1: decrease font size
+  buttonData.label          = "-"
+  buttonData.click_function = "decreaseFontSize"
+  buttonData.tooltip        = "decrease font size"
+  self.createButton(buttonData)
+
+  -- button 2: increase font size
+  buttonData.label          = "+"
+  buttonData.click_function = "increaseFontSize"
+  buttonData.tooltip        = "increase font size"
+  buttonData.position.z     = 1.15
+  self.createButton(buttonData)
+end
+
+function onCollisionEnter(collisionInfo)
+  -- flag to catch multiple calls
+  if colliding then return end
+  colliding = true
+  Wait.time(function() colliding = false end, 0.1)
+
+  -- remove existing highlight
+  if editObj then editObj.highlightOff("Red") end
+
+  -- check if colliding obj is above
+  local pos = collisionInfo.collision_object.getPosition()
+  local selfPos = self.getPosition()
+  if pos.y < selfPos.y then return end
+
+  -- set global variable to object that will be edited
+  editObj = collisionInfo.collision_object
+  editObj.highlightOn("Red")
+
+  -- get object name (or replacement)
+  local name = editObj.getName() or ""
+  if name == "" then name = "unnamed object" end
+  self.UI.setAttribute("label", "text", "Editing: " .. name)
+
+  -- update inputfield
+  local gmnotes = editObj.getGMNotes()
+  if string.sub(gmnotes, -1) == "}" then gmnotes = gmnotes .. " " end
+  self.UI.setAttribute("textbox", "text", gmnotes)
+end
+
+function onCollisionExit()
+  clearUI()
+end
+
+function onObjectDestroy(object)
+  if editObj == object then clearUI() end
+end
+
+function clearUI()
+  self.UI.setAttribute("label", "text", "Editing: -")
+  self.UI.setAttribute("textbox", "text", "")
+  if editObj then
+    editObj.highlightOff("Red")
+    editObj = nil
+  end
+end
+
+-- contains some general information about the tool
+function printInfo()
+  printToAll("------------------------------", "White")
+  printToAll("GM Note Editor v" .. info.version .. " by Chr1Z", "Orange")
+  printToAll("last updated: " .. info.lastUpdated, "White")
+  printToAll("Allows editing the GM Notes of an object in full length (since editing directly in TTS has a character limit).", "White")
+end
+
+function decreaseFontSize()
+  changeFontSize(-10)
+end
+
+function increaseFontSize()
+  changeFontSize(10)
+end
+
+function changeFontSize(diff, value)
+  if value then
+    fontSize = value
+  else
+    fontSize = fontSize + diff
+  end
+  self.UI.setAttribute("textbox", "fontSize", fontSize)
+end
+
+-- called by XML inputfield
+function onEndEdit(player, value)
+  if editObj then editObj.setGMNotes(rtrim(value)) end
+end
+
+-- utility function to remove trailing spaces
+function rtrim(s)
+  s = string.gsub(s, "(%s+)$", "")
+  return s
+end
