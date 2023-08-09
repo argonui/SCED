@@ -1,6 +1,7 @@
 require("playercards/PlayerCardPanelData")
 local spawnBag = require("playercards/SpawnBag")
 local arkhamDb = require("arkhamdb/ArkhamDb")
+local allCardsBagApi = require("playercards/AllCardsBagApi")
 
 -- Size and position information for the three rows of class buttons
 local CIRCLE_BUTTON_SIZE = 250
@@ -20,8 +21,6 @@ local CYCLE_BUTTON_START = Vector(-0.716, 0.1, -0.39)
 local CYCLE_COLUMN_COUNT = 3
 local CYCLE_BUTTONS_X_OFFSET = 0.267
 local CYCLE_BUTTONS_Z_OFFSET = 0.2665
-
-local ALL_CARDS_BAG_GUID = "15bb07"
 
 local STARTER_DECK_MODE_SELECTED_COLOR = { 0.2, 0.2, 0.2, 0.8 }
 local TRANSPARENT = { 0, 0, 0, 0 }
@@ -579,19 +578,18 @@ end
 ---@param cardClass String.  Class to place ("Guardian", "Seeker", etc)
 ---@param isUpgraded Boolean.  If true, spawn the Level 1-5 cards.  Otherwise, Level 0.
 function placeClassCards(cardClass, isUpgraded)
-  local allCardsBag = getObjectFromGUID(ALL_CARDS_BAG_GUID)
-  local indexReady = allCardsBag.call("isIndexReady")
+  local indexReady = allCardsBagApi.isIndexReady()
   if (not indexReady) then
     broadcastToAll("Still loading player cards, please try again in a few seconds", {0.9, 0.2, 0.2})
     return
   end
-  local cardIdList = allCardsBag.call("getCardsByClassAndLevel", {class = cardClass, upgraded = isUpgraded})
+  local cardIdList = allCardsBagApi.getCardsByClassAndLevel({class = cardClass, upgraded = isUpgraded})
 
   local skillList = { }
   local eventList = { }
   local assetList = { }
   for _, cardId in ipairs(cardIdList) do
-    local cardMetadata = allCardsBag.call("getCardById", { id = cardId }).metadata
+    local cardMetadata = allCardsBagApi.getCardById({ id = cardId }).metadata
     if (cardMetadata.type == "Skill") then
       table.insert(skillList, cardId)
     elseif (cardMetadata.type == "Event") then
@@ -640,13 +638,12 @@ end
 function spawnCycle(cycle)
   prepareToPlaceCards()
   spawnInvestigators(cycle)
-  local allCardsBag = getObjectFromGUID(ALL_CARDS_BAG_GUID)
-  local indexReady = allCardsBag.call("isIndexReady")
+  local indexReady = allCardsBagApi.isIndexReady()
   if (not indexReady) then
     broadcastToAll("Still loading player cards, please try again in a few seconds", {0.9, 0.2, 0.2})
     return
   end
-  local cycleCardList = allCardsBag.call("getCardsByCycle", cycle)
+  local cycleCardList = allCardsBagApi.getCardsByCycle(cycle)
   local copiedList = { }
   for i, id in ipairs(cycleCardList) do
     copiedList[i] = id
@@ -694,17 +691,16 @@ end
 -- Clears the current cards, and places all basic weaknesses on the table.
 function spawnWeaknesses()
   prepareToPlaceCards()
-  local allCardsBag = getObjectFromGUID(ALL_CARDS_BAG_GUID)
-  local indexReady = allCardsBag.call("isIndexReady")
+  local indexReady = allCardsBagApi.isIndexReady()
   if (not indexReady) then
     broadcastToAll("Still loading player cards, please try again in a few seconds", {0.9, 0.2, 0.2})
     return
   end
-  local weaknessIdList = allCardsBag.call("getUniqueWeaknesses")
+  local weaknessIdList = allCardsBagApi.getUniqueWeaknesses()
   local basicWeaknessList = { }
   local otherWeaknessList = { }
   for i, id in ipairs(weaknessIdList) do
-    local cardMetadata = allCardsBag.call("getCardById", { id = id }).metadata
+    local cardMetadata = allCardsBagApi.getCardById({ id = id }).metadata
     if cardMetadata.basicWeaknessCount ~= nil and cardMetadata.basicWeaknessCount > 0 then
       table.insert(basicWeaknessList, id)
     elseif excludedNonBasicWeaknesses[id] == nil then
@@ -742,8 +738,7 @@ end
 
 function spawnRandomWeakness()
   prepareToPlaceCards()
-  local allCardsBag = getObjectFromGUID(ALL_CARDS_BAG_GUID)
-  local weaknessId = allCardsBag.call("getRandomWeaknessId")
+  local weaknessId = allCardsBagApi.getRandomWeaknessId()
   if (weaknessId == nil) then
     broadcastToAll("All basic weaknesses are in play!", {0.9, 0.2, 0.2})
     return
