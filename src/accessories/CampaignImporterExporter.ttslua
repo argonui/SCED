@@ -47,10 +47,12 @@ local DAMAGE_HORROR_GUIDS = {
   }
 
 local chaosBagApi = require("chaosbag/ChaosBagApi")
-local playAreaAPI = require("core/PlayAreaApi")
+local playAreaApi = require("core/PlayAreaApi")
 local deckImporterApi = require("arkhamdb/DeckImporterApi")
 local optionPanelApi = require("core/OptionPanelApi")
 local blessCurseApi = require("chaosbag/BlessCurseManagerApi")
+
+local TOUR_GUID = "0e5aa8"
 
 local campaignBoxGUID
 
@@ -148,20 +150,25 @@ function createCampaignFromToken(importData)
     deckImporterApi.setUiState(importData["decks"])
   end
   --set investigator count
-  playAreaAPI.setInvestigatorCount(importData["clueCount"])
+  playAreaApi.setInvestigatorCount(importData["clueCount"])
   --set campaign guide page
-  if findCampaignGuide() then
+  local guide = findCampaignGuide()
+  if guide then
     Wait.condition(
+      -- Called after the condition function returns true
       function()
-        --log("Campaign Guide import successful!")
+        log("Campaign Guide import successful!")
       end,
+      -- Condition function that is called continiously until returs true or timeout is reached 
       function()
-        findCampaignGuide().Book.setPage(importData["guide"])
-        return findCampaignGuide().Book.getPage() == importData["guide"]
+        guide.Book.setPage(importData["guide"])
+        return guide.Book.getPage() == importData["guide"]
       end,
+      -- Amount of time in seconds until the Wait times out
       1,
+      -- Called if the Wait times out
       function()
-        --log("Campaign Guide import failed!")
+        log("Campaign Guide import failed!")
       end
     )
   end
@@ -169,6 +176,8 @@ function createCampaignFromToken(importData)
     function() optionPanelApi.loadSettings(importData["options"]) end,
     0.5
   )
+  getObjectFromGUID(TOUR_GUID).destruct()
+  playAreaApi.updateSurface(importData["playmat"])
   broadcastToAll("Campaign successfully imported!", Color.Green)
 end
 
@@ -224,9 +233,10 @@ function createCampaignToken(_, playerColor, _)
     bag = chaosBagApi.getChaosBagState(),
     trauma = traumaValues,
     decks = deckImporterApi.getUiState(),
-    clueCount = playAreaAPI.getInvestigatorCount(),
+    clueCount = playAreaApi.getInvestigatorCount(),
     guide = campaignGuidePage,
-    options = optionPanelApi.getOptions()
+    options = optionPanelApi.getOptions(),
+    playmat = playAreaApi.getSurface()
   }
   campaignTokenData.GMNotes = JSON.encode(campaignData)
   campaignTokenData.Nickname = os.date("%b %d ") .. getObjectFromGUID(campaignBoxGUID).getName() .. " Save"
