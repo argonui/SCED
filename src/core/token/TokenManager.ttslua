@@ -1,6 +1,7 @@
 do
-  local tokenSpawnTracker = require("core/token/TokenSpawnTrackerApi")
-  local playArea = require("core/PlayAreaApi")
+  local tokenSpawnTrackerApi = require("core/token/TokenSpawnTrackerApi")
+  local playAreaApi = require("core/PlayAreaApi")
+  local optionPanelApi = require("core/OptionPanelApi")
 
   local PLAYER_CARD_TOKEN_OFFSETS = {
     [1] = {
@@ -141,7 +142,7 @@ do
   ---@param extraUses Table A table of <use type>=<count> which will modify the number of tokens
   ---    spawned for that type.  e.g. Akachi's playmat should pass "Charge"=1
   TokenManager.spawnForCard = function(card, extraUses)
-    if tokenSpawnTracker.hasSpawnedTokens(card.getGUID()) then
+    if tokenSpawnTrackerApi.hasSpawnedTokens(card.getGUID()) then
       return
     end
     local metadata = JSON.decode(card.getGMNotes())
@@ -161,7 +162,7 @@ do
   ---@param shiftDown Number An offset for the z-value of this group of tokens
   ---@param subType Number Subtype of token to spawn.  This will only differ from the tokenName for resource tokens
   TokenManager.spawnTokenGroup = function(card, tokenType, tokenCount, shiftDown, subType)
-    local optionPanel = Global.getTable("optionPanel")
+    local optionPanel = optionPanelApi.getOptions()
 
     if tokenType == "damage" or tokenType == "horror" then
       TokenManager.spawnCounterToken(card, tokenType, tokenCount, shiftDown)
@@ -303,7 +304,7 @@ do
   -- callers.
   ---@param card Object Card object to reset the tokens for
   TokenManager.resetTokensSpawned = function(card)
-    tokenSpawnTracker.resetTokensSpawned(card.getGUID())
+    tokenSpawnTrackerApi.resetTokensSpawned(card.getGUID())
   end
 
   -- Pushes new player card data into the local copy of the Data Helper player data.
@@ -369,14 +370,14 @@ do
       type = useInfo.type
       token = useInfo.token
       tokenCount = (useInfo.count or 0)
-          + (useInfo.countPerInvestigator or 0) * playArea.getInvestigatorCount()
+          + (useInfo.countPerInvestigator or 0) * playAreaApi.getInvestigatorCount()
       if extraUses ~= nil and extraUses[type] ~= nil then
         tokenCount = tokenCount + extraUses[type]
       end
       -- Shift each spawned group after the first down so they don't pile on each other
       TokenManager.spawnTokenGroup(card, token, tokenCount, (i - 1) * 0.8, type)
     end
-    tokenSpawnTracker.markTokensSpawned(card.getGUID())
+    tokenSpawnTrackerApi.markTokensSpawned(card.getGUID())
   end
 
   -- Spawn tokens for a card based on the data helper data.  This will consider the face up/down state
@@ -403,7 +404,7 @@ do
     tokenCount = playerData.tokenCount
     --log("Spawning data helper tokens for "..card.getName()..'['..card.getDescription()..']: '..tokenCount.."x "..token)
     TokenManager.spawnTokenGroup(card, token, tokenCount)
-    tokenSpawnTracker.markTokensSpawned(card.getGUID())
+    tokenSpawnTrackerApi.markTokensSpawned(card.getGUID())
   end
 
   -- Spawn tokens for a location using data retrieved from the Data Helper.
@@ -414,7 +415,7 @@ do
     local clueCount = internal.getClueCountFromData(card, locationData)
     if clueCount > 0 then
       TokenManager.spawnTokenGroup(card, "clue", clueCount)
-      tokenSpawnTracker.markTokensSpawned(card.getGUID())
+      tokenSpawnTrackerApi.markTokensSpawned(card.getGUID())
     end
   end
 
@@ -440,7 +441,7 @@ do
       if locationData.type == 'fixed' then
         return locationData.value
       elseif locationData.type == 'perPlayer' then
-        return locationData.value * playArea.getInvestigatorCount()
+        return locationData.value * playAreaApi.getInvestigatorCount()
       end
       error('unexpected location type: ' .. locationData.type)
     end
