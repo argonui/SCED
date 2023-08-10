@@ -1,11 +1,21 @@
-
-local spawnBag = require("playercards/SpawnBag")
+local playerCardPanelApi = require("playercards/PlayerCardPanelApi")
+local allCardsBagApi = require("playercards/AllCardsBagApi")
 
 function onLoad()
   self.createButton({
     function_owner = self,
-    label          = "Place / Clear",
-    click_function = "placeCards",
+    label          = "Place Lvl 0",
+    click_function = "placeCardsBasic",
+    tooltip        = "Left-Click: Place cards!\nRight-Click: Clear cards!",
+    position       = { -0.725, 0.1, 2.025 },
+    color          = { 1, 1, 1 },
+    width          = 675,
+    height         = 175
+  })
+  self.createButton({
+    function_owner = self,
+    label          = "Place Lvl 1-5",
+    click_function = "placeCardsUpgraded",
     tooltip        = "Left-Click: Place cards!\nRight-Click: Clear cards!",
     position       = { 0.725, 0.1, 2.025 },
     color          = { 1, 1, 1 },
@@ -14,17 +24,69 @@ function onLoad()
   })
 end
 
-function placeCards(_,_, alt_click)
+function placeCardsBasic(_, _, alt_click)
+  placeCards(false, alt_click)
+end
+
+function placeCardsUpgraded(_,_, alt_click)
+  placeCards(true, alt_click)
+end
+
+function placeCards(isUpgraded, alt_click)
   if (alt_click) then
-    spawnBag.recall(true)
+    playerCardPanelApi.deleteAll()
   else
-    spawnBag.spawn({
+    local investigator = nil
+    for _, v in ipairs(searchOnObj(self)) do
+      local obj = v.hit_object
+      if obj.hasTag("Investigator") then
+        investigator = obj
+        break
+      end
+    end
+    if not investigator then
+      broadcastToAll("No Valid Investigator Card Detected", Color.Red)
+      return
+    end
+    broadcastToAll("Investigator Detected: " .. investigator.getName(), Color.Green)
+    deckOptions = JSON.decode(investigator.getGMNotes()).deck_options
+    local cardList = { }
+    for _, cardSpec in ipairs(deckOptions) do
+      if cardSpec.faction then
+        for _, factionInstance in ipairs(cardSpec.faction) do
+          if ((cardSpec.level.min == 0 and not isUpgraded) or (cardSpec.level.max > 0 and isUpgraded)) then
+            for _, cardId in ipairs(allCardsBagApi.getCardsByClassAndLevel({ class = factionInstance, upgraded = isUpgraded })) do
+              local cardMetadata = allCardsBagApi.getCardById({ id = cardId }).metadata
+              if cardMetadata.level >= cardSpec.level.min and cardMetadata.level <= cardSpec.level.max then
+                table.insert(cardList, cardId)
+              end
+            end
+          end
+        end        
+      end
+    end
+
+    playerCardPanelApi.spawnWithSpec({
       name = "deckOptions",
-      cards = {"06118", "06118"},
+      cards = cardList,
       globalPos = {x = 14.12, y = 1.50, z = 91.84},
       rotation = {x = 0.00, y = 270.00, z = 0.00},
-      spread = true
+      spread = true,
+      spreadCols = 20
     })
   end
+end
+
+
+-- searches on an object (by using its bounds)
+---@param obj Object Object to search on
+function searchOnObj(obj)
+  return Physics.cast({
+    direction    = { 0, 1, 0 },
+    max_distance = 0.5,
+    type         = 3,
+    size         = obj.getBounds().size,
+    origin       = obj.getPosition()
+  })
 end
 

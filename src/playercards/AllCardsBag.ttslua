@@ -3,6 +3,7 @@ local classAndLevelIndex = { }
 local basicWeaknessList = { }
 local uniqueWeaknessList = { }
 local cycleIndex = { }
+local traitIndex = { }
 
 local indexingDone = false
 local allowRemoval = false
@@ -42,6 +43,7 @@ function clearIndexes()
   classAndLevelIndex["Rogue-level0"] = { }
   classAndLevelIndex["Neutral-level0"] = { }
   cycleIndex = { }
+  traitIndex = { }
   basicWeaknessList = { }
   uniqueWeaknessList = { }
 end
@@ -186,6 +188,17 @@ function buildSupplementalIndexes()
           end
           table.insert(cycleIndex[cycleName], cardMetadata.id)
         end
+
+        if (cardMetadata.traits) then
+          for traitString in string.gmatch(cardMetadata.traits, "%w+.") do
+            local trait = string.lower(string.gsub(traitString, "[.]", ""))
+            if traitIndex[trait] == nil then
+              traitIndex[trait] = { }
+            end
+            table.insert(traitIndex[trait], cardMetadata.id)
+          end
+        end  
+        
       end
     end
   end
@@ -193,6 +206,9 @@ function buildSupplementalIndexes()
     table.sort(indexTable, cardComparator)
   end
   for _, indexTable in pairs(cycleIndex) do
+    table.sort(indexTable)
+  end
+  for _, indexTable in pairs(traitIndex) do
     table.sort(indexTable)
   end
   table.sort(basicWeaknessList, cardComparator)
@@ -261,6 +277,14 @@ function getCardsByCycle(cycleName)
     return { }
   end
   return cycleIndex[string.lower(cycleName)]
+end
+
+function getCardsByTrait(trait)
+  if (not indexingDone) then
+    broadcastToAll("Still loading player cards, please try again in a few seconds", {0.9, 0.2, 0.2})
+    return { }
+  end
+  return traitIndex[string.lower(trait)]
 end
 
 -- Searches the bag for cards which match the given name and returns a list.  Note that this is
