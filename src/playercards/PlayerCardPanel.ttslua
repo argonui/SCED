@@ -45,6 +45,7 @@ local START_POSITIONS = {
   classCards = Vector(CARD_WIDTH * 9.5, 2, 1.4),
   investigator = Vector(6 * 2.5, 2, 1.3),
   cycle = Vector(CARD_WIDTH * 9.5, 2, 2.4),
+  deckBuilder = Vector(CARD_WIDTH * -16.4, 2, -0.7),
   other = Vector(CARD_WIDTH * 9.5, 2, 1.4),
   randomWeakness = Vector(0, 2, 1.4),
   -- Because the card spread is handled by the SpawnBag, we don't know (programatically) where this
@@ -750,10 +751,52 @@ function spawnRandomWeakness()
     rotation = FACE_UP_ROTATION,
   })
 end
-
-function spawnWithSpec(spawnSpec, startPos)
-  local startPos = startPos or "other"
+-- @param params table:
+--    cardList: 
+--    name:
+--    startPos:
+--    rotation:
+--    spread:
+--    spreadCols:
+function spawnCardsByType(params)
+  local cardList      = params.cardList
+  local name          = params.name
+  local startPos      = params.startPos or "other"
+  local rotation      = params.rotation or FACE_UP_ROTATION
+  local spread        = params.spread or true
+  local spreadCols    = params.spreadCols or 20
   prepareToPlaceCards()
-  spawnSpec.globalPos = self.positionToWorld(startPositions[startPos])
-  spawnBag.spawn(spawnSpec)
+  local groupPos = Vector(startPositions[startPos])
+  if #cardList.skillList > 0 then
+    spawnBag.spawn({
+      name = name .. "_skills",
+      cards = cardList.skillList,
+      globalPos = self.positionToWorld(groupPos),
+      rotation = rotation,
+      spread = spread,
+      spreadCols = spreadCols
+    })
+    groupPos.z = groupPos.z + math.ceil(#cardList.skillList / spreadCols) * cardRowOffset + cardGroupOffset
+  end
+  if #cardList.eventList > 0 then
+    spawnBag.spawn({
+      name = name .. "_events",
+      cards = cardList.eventList,
+      globalPos = self.positionToWorld(groupPos),
+      rotation = rotation,
+      spread = spread,
+      spreadCols = spreadCols
+    })
+    groupPos.z = groupPos.z + math.ceil(#cardList.eventList / spreadCols) * cardRowOffset + cardGroupOffset
+  end
+  if #cardList.assetList > 0 then
+    spawnBag.spawn({
+      name = name .. "assets",
+      cards = cardList.assetList,
+      globalPos = self.positionToWorld(groupPos),
+      rotation = rotation,
+      spread = spread,
+      spreadCols = spreadCols
+    })
+  end
 end

@@ -50,31 +50,68 @@ function placeCards(isUpgraded, alt_click)
     end
     broadcastToAll("Investigator Detected: " .. investigator.getName(), Color.Green)
     deckOptions = JSON.decode(investigator.getGMNotes()).deck_options
-    local cardList = { }
-    for _, cardSpec in ipairs(deckOptions) do
+    local cardSet = {}
+    local cardList = {
+      skillList = {},
+      eventList = {},
+      assetList = {}
+    }
+    for _, cardSpec in ipairs(deckOptions) do   
       if cardSpec.faction then
         for _, factionInstance in ipairs(cardSpec.faction) do
           if ((cardSpec.level.min == 0 and not isUpgraded) or (cardSpec.level.max > 0 and isUpgraded)) then
             for _, cardId in ipairs(allCardsBagApi.getCardsByClassAndLevel({ class = factionInstance, upgraded = isUpgraded })) do
               local cardMetadata = allCardsBagApi.getCardById({ id = cardId }).metadata
               if cardMetadata.level >= cardSpec.level.min and cardMetadata.level <= cardSpec.level.max then
-                table.insert(cardList, cardId)
+                insertCardSet(cardSet, cardList, cardMetadata, cardId)
               end
             end
           end
-        end        
+        end
+      elseif cardSpec.trait then
+        for _, traitInstance in ipairs(cardSpec.trait) do
+          if ((cardSpec.level.min == 0 and not isUpgraded) or (cardSpec.level.max > 0 and isUpgraded)) then
+            for _, cardId in ipairs(allCardsBagApi.getCardsByTrait(traitInstance)) do
+              local cardMetadata = allCardsBagApi.getCardById({ id = cardId }).metadata
+              if isUpgraded == (cardMetadata.level > 0) and cardMetadata.level >= cardSpec.level.min and cardMetadata.level <= cardSpec.level.max then
+                insertCardSet(cardSet, cardList, cardMetadata, cardId)
+              end
+            end
+          end
+        end
       end
     end
-
-    playerCardPanelApi.spawnWithSpec({
+    cardList.skillList = allCardsBagApi.sortCardsTable(cardList.skillList)
+    cardList.eventList = allCardsBagApi.sortCardsTable(cardList.eventList)
+    cardList.assetList = allCardsBagApi.sortCardsTable(cardList.assetList)
+    playerCardPanelApi.spawnCardsByType({
+      cardList = cardList,
       name = "deckOptions",
-      cards = cardList,
-      globalPos = {x = 14.12, y = 1.50, z = 91.84},
-      rotation = {x = 0.00, y = 270.00, z = 0.00},
+      startPos = "deckBuilder",
       spread = true,
-      spreadCols = 20
+      spreadCols = 30
     })
   end
+end
+
+
+function insertCardSet(cardSet, cardList, cardMetadata, cardId)
+  if not cardSet[cardId] then
+    if cardMetadata.type == "Skill" then
+      table.insert(cardList.skillList, cardId)
+      cardSet[cardId] = true
+      return true
+    elseif cardMetadata.type == "Event" then
+      table.insert(cardList.eventList, cardId)
+      cardSet[cardId] = true
+      return true
+    elseif cardMetadata.type == "Asset" then
+      table.insert(cardList.assetList, cardId)
+      cardSet[cardId] = true
+      return true
+    end
+  end
+  return false
 end
 
 
