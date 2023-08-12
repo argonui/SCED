@@ -58,6 +58,7 @@ function placeCards(isUpgraded, alt_click)
     broadcastToAll("Investigator Detected: " .. investigator.getName(), Color.Green)
     deckOptions = JSON.decode(investigator.getGMNotes()).deck_options
     local cardSet = {}
+    local exclusionSet = {}
     local cardList = {
       skillList = {},
       eventList = {},
@@ -72,12 +73,11 @@ function placeCards(isUpgraded, alt_click)
         log(cardSpec)
       else
         for _, specInstance in ipairs(cardSpec[specType]) do
-          log(specInstance)
           if ((cardSpec.level.min == 0 and not isUpgraded) or (cardSpec.level.max > 0 and isUpgraded)) then
             for _, cardId in ipairs(cardLookupTable[specType](specInstance, isUpgraded)) do
               local cardMetadata = allCardsBagApi.getCardById({ id = cardId }).metadata
               if isUpgraded == (cardMetadata.level > 0) and cardMetadata.level >= cardSpec.level.min and cardMetadata.level <= cardSpec.level.max then
-                insertCardSet(cardSet, cardList, cardMetadata, cardId)
+                insertCardSet(cardSet, cardList, cardMetadata, cardId, cardSpec["not"], exclusionSet)
               end
             end
           end
@@ -99,8 +99,10 @@ function placeCards(isUpgraded, alt_click)
 end
 
 
-function insertCardSet(cardSet, cardList, cardMetadata, cardId)
-  if not cardSet[cardId] then
+function insertCardSet(cardSet, cardList, cardMetadata, cardId, isExclusion, exclusionSet)
+  if isExclusion then
+    exclusionSet[cardId] = true
+  elseif not cardSet[cardId] and not exclusionSet[cardId] then
     if cardMetadata.type == "Skill" then
       table.insert(cardList.skillList, cardId)
       cardSet[cardId] = true
