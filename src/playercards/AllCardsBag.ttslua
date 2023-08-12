@@ -4,6 +4,11 @@ local basicWeaknessList = { }
 local uniqueWeaknessList = { }
 local cycleIndex = { }
 local traitIndex = { }
+local specialCriteriaIndex = { }
+
+local specialCriteriaManualOverride = {
+  usesCharges = { "06021" }
+}
 
 local indexingDone = false
 local allowRemoval = false
@@ -44,6 +49,7 @@ function clearIndexes()
   classAndLevelIndex["Neutral-level0"] = { }
   cycleIndex = { }
   traitIndex = { }
+  specialCriteriaIndex = specialCriteriaManualOverride
   basicWeaknessList = { }
   uniqueWeaknessList = { }
 end
@@ -197,7 +203,12 @@ function buildSupplementalIndexes()
             end
             table.insert(traitIndex[trait], cardMetadata.id)
           end
-        end  
+        end
+        
+        --Handle special criteria for deckbuilding
+        if cardMetadata.uses and (cardMetadata.uses[1].type == "Charge") then
+          table.insert(specialCriteriaIndex["usesCharges"], cardMetadata.id)
+        end
         
       end
     end
@@ -209,7 +220,10 @@ function buildSupplementalIndexes()
     table.sort(indexTable)
   end
   for _, indexTable in pairs(traitIndex) do
-    table.sort(indexTable)
+    table.sort(indexTable, cardComparator)
+  end
+  for _, indexTable in pairs(specialCriteriaIndex) do
+    table.sort(indexTable, cardComparator)
   end
   table.sort(basicWeaknessList, cardComparator)
   table.sort(uniqueWeaknessList, cardComparator)
@@ -289,6 +303,14 @@ function getCardsByTrait(trait)
     return { }
   end
   return traitIndex[string.lower(trait)]
+end
+
+function getCardsBySpecialCriteria(criteria)
+  if (not indexingDone) then
+    broadcastToAll("Still loading player cards, please try again in a few seconds", {0.9, 0.2, 0.2})
+    return { }
+  end
+  return specialCriteriaIndex[criteria]
 end
 
 -- Searches the bag for cards which match the given name and returns a list.  Note that this is

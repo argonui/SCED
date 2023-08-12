@@ -1,5 +1,10 @@
 local playerCardPanelApi = require("playercards/PlayerCardPanelApi")
 local allCardsBagApi = require("playercards/AllCardsBagApi")
+local cardLookupTable = {
+  faction =   function(specInstance, isUpgraded) return allCardsBagApi.getCardsByClassAndLevel({ class = specInstance, upgraded = isUpgraded }) end,
+  trait   =   function(specInstance) return allCardsBagApi.getCardsByTrait(specInstance) end,
+  special =   function(specInstance) return allCardsBagApi.getCardsBySpecialCriteria(specInstance) end
+}
 
 function onLoad()
   self.createButton({
@@ -34,8 +39,10 @@ end
 
 function placeCards(isUpgraded, alt_click)
   if (alt_click) then
+    --Clear all cards
     playerCardPanelApi.deleteAll()
   else
+    --Determine investigator placed on object
     local investigator = nil
     for _, v in ipairs(searchOnObj(self)) do
       local obj = v.hit_object
@@ -56,22 +63,18 @@ function placeCards(isUpgraded, alt_click)
       eventList = {},
       assetList = {}
     }
-    for _, cardSpec in ipairs(deckOptions) do   
-      if cardSpec.faction then
-        for _, factionInstance in ipairs(cardSpec.faction) do
+    --Find all cards eligible to be used by the target investigator
+    for _, cardSpec in ipairs(deckOptions) do
+      --determine what type of spec we are dealing with
+      local specType = (cardSpec.faction and "faction") or (cardSpec.trait and "trait") or (cardSpec.special and "special")
+      if not specType then
+        log("Invalid Deckbuilding Specification:")
+        log(cardSpec)
+      else
+        for _, specInstance in ipairs(cardSpec[specType]) do
+          log(specInstance)
           if ((cardSpec.level.min == 0 and not isUpgraded) or (cardSpec.level.max > 0 and isUpgraded)) then
-            for _, cardId in ipairs(allCardsBagApi.getCardsByClassAndLevel({ class = factionInstance, upgraded = isUpgraded })) do
-              local cardMetadata = allCardsBagApi.getCardById({ id = cardId }).metadata
-              if cardMetadata.level >= cardSpec.level.min and cardMetadata.level <= cardSpec.level.max then
-                insertCardSet(cardSet, cardList, cardMetadata, cardId)
-              end
-            end
-          end
-        end
-      elseif cardSpec.trait then
-        for _, traitInstance in ipairs(cardSpec.trait) do
-          if ((cardSpec.level.min == 0 and not isUpgraded) or (cardSpec.level.max > 0 and isUpgraded)) then
-            for _, cardId in ipairs(allCardsBagApi.getCardsByTrait(traitInstance)) do
+            for _, cardId in ipairs(cardLookupTable[specType](specInstance, isUpgraded)) do
               local cardMetadata = allCardsBagApi.getCardById({ id = cardId }).metadata
               if isUpgraded == (cardMetadata.level > 0) and cardMetadata.level >= cardSpec.level.min and cardMetadata.level <= cardSpec.level.max then
                 insertCardSet(cardSet, cardList, cardMetadata, cardId)
@@ -81,6 +84,7 @@ function placeCards(isUpgraded, alt_click)
         end
       end
     end
+    --Organizes the card lists, and presents them to the player
     cardList.skillList = allCardsBagApi.sortCardsTable(cardList.skillList)
     cardList.eventList = allCardsBagApi.sortCardsTable(cardList.eventList)
     cardList.assetList = allCardsBagApi.sortCardsTable(cardList.assetList)
