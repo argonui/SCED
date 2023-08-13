@@ -6,7 +6,10 @@ local cardLookupTable = {
   special =   function(specInstance) return allCardsBagApi.getCardsBySpecialCriteria(specInstance) end
 }
 
+local investigator
+
 function onLoad()
+  investigator = nil
   self.createButton({
     function_owner = self,
     label          = "Place Lvl 0",
@@ -29,6 +32,20 @@ function onLoad()
   })
 end
 
+function onCollisionEnter(info)
+  --Detects if PlayerDeck object (a 'Deck Coin') has been placed on the deck builder
+  if info.collision_object.hasTag("Investigator") then
+    investigator = info.collision_object
+  end
+end
+
+function onCollisionExit(info)
+  if info.collision_object == investigator then
+    investigator = nil
+    playerCardPanelApi.deleteAll()
+  end
+end
+
 function placeCardsBasic(_, _, alt_click)
   placeCards(false, alt_click)
 end
@@ -43,14 +60,6 @@ function placeCards(isUpgraded, alt_click)
     playerCardPanelApi.deleteAll()
   else
     --Determine investigator placed on object
-    local investigator = nil
-    for _, v in ipairs(searchOnObj(self)) do
-      local obj = v.hit_object
-      if obj.hasTag("Investigator") then
-        investigator = obj
-        break
-      end
-    end
     if not investigator then
       broadcastToAll("No Valid Investigator Card Detected", Color.Red)
       return
@@ -131,17 +140,3 @@ function insertCardSet(cardSet, cardList, cardMetadata, cardId, isExclusion, exc
   end
   return false
 end
-
-
--- searches on an object (by using its bounds)
----@param obj Object Object to search on
-function searchOnObj(obj)
-  return Physics.cast({
-    direction    = { 0, 1, 0 },
-    max_distance = 0.5,
-    type         = 3,
-    size         = obj.getBounds().size,
-    origin       = obj.getPosition()
-  })
-end
-
