@@ -7,7 +7,7 @@ local traitIndex = { }
 local specialCriteriaIndex = { }
 
 local specialCriteriaManualOverride = {
-  usesCharges = { "06021" }
+  usesCharges = {  }
 }
 
 local indexingDone = false
@@ -195,19 +195,44 @@ function buildSupplementalIndexes()
           table.insert(cycleIndex[cycleName], cardMetadata.id)
         end
 
-        if (cardMetadata.traits) then
+        local bonded = cardMetadata.bonded
+
+        local checkedTraits = {}
+        if cardMetadata.traits then
           for traitString in string.gmatch(cardMetadata.traits, "%w+.") do
             local trait = string.lower(string.gsub(traitString, "[.]", ""))
+            checkedTraits[trait] = true
             if traitIndex[trait] == nil then
               traitIndex[trait] = { }
             end
             table.insert(traitIndex[trait], cardMetadata.id)
           end
         end
+        if bonded then
+          for _, bondData in ipairs(bonded) do
+            local bondCardMetadata = cardIdIndex[bondData.id].metadata
+            for traitString in string.gmatch(bondCardMetadata.traits, "%w+.") do
+              local trait = string.lower(string.gsub(traitString, "[.]", ""))
+              if not checkedTraits[trait] then
+                if traitIndex[trait] == nil then
+                  traitIndex[trait] = { }
+                end
+                table.insert(traitIndex[trait], cardMetadata.id)
+              end
+            end
+          end
+        end
         
         --Handle special criteria for deckbuilding
         if cardMetadata.uses and (cardMetadata.uses[1].type == "Charge") then
           table.insert(specialCriteriaIndex["usesCharges"], cardMetadata.id)
+        elseif bonded then
+          for _, bondData in ipairs(bonded) do
+            local bondCardMetadata = cardIdIndex[bondData.id].metadata
+            if bondCardMetadata.uses and (bondCardMetadata.uses[1].type == "Charge") then
+              table.insert(specialCriteriaIndex["usesCharges"], cardMetadata.id)
+            end
+          end
         end
         
       end
