@@ -6,20 +6,63 @@ local cardLookupTable = {
   special =   function(specInstance) return allCardsBagApi.getCardsBySpecialCriteria(specInstance) end
 }
 
-local investigator
+local investigatorData
+local choiceCount = 0
+local choiceButtonParameters = {
+  function_owner = self,
+  tooltip        = "Left-Click: Select!\nRight-Click: Deselect!",
+  scale          = {0.5, 1, 0.5},
+  color          = Color.Red,
+  width          = 600,
+  height         = 250
+}
+local choiceButtonStatus = {
+  [3] = {
+    spawned         = false,
+    selected        = false,
+    position        = { -0.65, 0.1, -0.1 },
+    label           = ""
+  },
+  [4] = {
+    spawned         = false,
+    selected        = false,
+    position        = { 0, 0.1, -0.1 },
+    label           = ""
+  },
+  [5] = {
+    spawned         = false,
+    selected        = false,
+    position        = { 0.65, 0.1, -0.1 },
+    label           = ""
+  },
+  [6] = {
+    spawned         = false,
+    selected        = false,
+    position        = { -0.325, 0.1, 0.25 },
+    label           = ""
+  },
+  [7] = {
+    spawned         = false,
+    selected        = false,
+    position        = { 0.325, 0.1, 0.25 },
+    label           = ""
+  },
+  
+}
 
 function onLoad()
-  investigator = nil
+  investigatorData = nil
   self.createButton({
     function_owner = self,
     label          = "Place Lvl 0",
     click_function = "placeCardsBasic",
     tooltip        = "Left-Click: Place cards!\nRight-Click: Clear cards!",
     position       = { -0.5, 0.1, -0.65 },
-    scale          = {0.75, 1, 0.75},
+    scale          = {0.375, 1, 0.375},
     color          = { 1, 1, 1 },
-    width          = 575,
-    height         = 175
+    width          = 1150,
+    height         = 350,
+    font_size      = 200
   })
   self.createButton({
     function_owner = self,
@@ -27,24 +70,114 @@ function onLoad()
     click_function = "placeCardsUpgraded",
     tooltip        = "Left-Click: Place cards!\nRight-Click: Clear cards!",
     position       = { 0.5, 0.1, -0.65 },
-    scale          = {0.75, 1, 0.75},
+    scale          = {0.375, 1, 0.375},
     color          = { 1, 1, 1 },
-    width          = 575,
-    height         = 175
+    width          = 1150,
+    height         = 350,
+    font_size      = 200
+  })
+  self.createButton({
+    function_owner = self,
+    label          = "Export",
+    click_function = "placeCardsUpgraded",
+    tooltip        = "Transform Deck Into Coin!",
+    position       = { 0, 0.1, 2 },
+    scale          = {0.375, 1, 0.375},
+    color          = { 1, 1, 1 },
+    width          = 1150,
+    height         = 350,
+    font_size      = 200
   })
 end
 
 function onCollisionEnter(info)
   --Detects if PlayerDeck object (a 'Deck Coin') has been placed on the deck builder
   if info.collision_object.hasTag("Investigator") then
-    investigator = info.collision_object
+    investigatorData = JSON.decode(info.collision_object.getGMNotes()) 
+    broadcastToAll("Investigator Detected: " .. info.collision_object.getName(), Color.Green)
+    if investigatorData.deck_requirements.choices then
+      createChoiceButtons()
+    end
   end
+
+  
 end
 
 function onCollisionExit(info)
-  if info.collision_object == investigator then
-    investigator = nil
+  if JSON.decode(info.collision_object.getGMNotes()).id == investigatorData.id then
+    investigatorData = nil
     playerCardPanelApi.deleteAll()
+    resetChoiceButtons()
+  end
+end
+
+function createChoiceButtons()
+  local buttonCount = 3
+
+  for _, cardSpec in ipairs(investigatorData.deck_options) do
+    if cardSpec.choiceName then
+      choiceButtonParameters.position   = choiceButtonStatus[buttonCount].position
+      choiceButtonParameters.label      = cardSpec.choiceName
+      choiceButtonParameters.click_function = "toggleChoiceButton" .. buttonCount
+      self.createButton(choiceButtonParameters)
+      choiceButtonStatus[buttonCount].spawned = true
+      choiceButtonStatus[buttonCount].label = choiceButtonParameters.label
+      buttonCount = buttonCount + 1
+    end
+  end
+
+end
+
+function resetChoiceButtons()
+  for i, button in pairs(choiceButtonStatus) do
+    if button.spawned then
+      self.removeButton(i)
+      choiceButtonStatus[i].spawned   = false
+      choiceButtonStatus[i].selected  = false
+      choiceButtonStatus[i].label     = ""
+    end
+  end
+  choiceCount = 0
+end
+
+function toggleChoiceButton3(_, _, alt_click)
+  toggleChoiceButton(3, alt_click)
+end
+
+function toggleChoiceButton4(_, _, alt_click)
+  toggleChoiceButton(4, alt_click)
+end
+
+function toggleChoiceButton5(_, _, alt_click)
+  toggleChoiceButton(5, alt_click)
+end
+
+function toggleChoiceButton6(_, _, alt_click)
+  toggleChoiceButton(6, alt_click)
+end
+
+function toggleChoiceButton7(_, _, alt_click)
+  toggleChoiceButton(7, alt_click)
+end
+
+function toggleChoiceButton(buttonIndex, alt_click)
+  local buttomParam = nil
+  for _, button in ipairs(self.getButtons()) do
+    if button.index == buttonIndex then
+      buttonParam = button
+    end
+  end
+
+  if choiceButtonStatus[buttonIndex].selected and alt_click then
+    buttonParam.color = Color.Red
+    self.editButton(buttonParam)
+    choiceButtonStatus[buttonIndex].selected = false
+    choiceCount = choiceCount - 1
+  elseif not choiceButtonStatus[buttonIndex].selected and not alt_click and choiceCount < investigatorData.deck_requirements.choices then
+    buttonParam.color = Color.Green
+    self.editButton(buttonParam)
+    choiceButtonStatus[buttonIndex].selected = true
+    choiceCount = choiceCount + 1
   end
 end
 
@@ -61,13 +194,24 @@ function placeCards(isUpgraded, alt_click)
     --Clear all cards
     playerCardPanelApi.deleteAll()
   else
+    local choiceSelection = {}
     --Determine investigator placed on object
-    if not investigator then
+    if not investigatorData then
       broadcastToAll("No Valid Investigator Card Detected", Color.Red)
       return
+    elseif investigatorData.deck_requirements.choices then
+      if choiceCount ~= investigatorData.deck_requirements.choices then
+        broadcastToAll("Select Additional Options", Color.Red)
+        return
+      else
+        for i, button in pairs(choiceButtonStatus) do
+          if button.selected then
+            choiceSelection[button.label] = button.label
+          end
+        end
+      end
     end
-    broadcastToAll("Investigator Detected: " .. investigator.getName(), Color.Green)
-    deckOptions = JSON.decode(investigator.getGMNotes()).deck_options
+    deckOptions = investigatorData.deck_options
     local cardSet = {}
     local exclusionSet = {}
     local cardList = {
@@ -80,6 +224,7 @@ function placeCards(isUpgraded, alt_click)
       eventList = {},
       assetList = {}
     }
+
     --Find all cards eligible to be used by the target investigator
     for _, cardSpec in ipairs(deckOptions) do
       --determine what type of spec we are dealing with
@@ -89,14 +234,14 @@ function placeCards(isUpgraded, alt_click)
         log(cardSpec)
       else
         for _, specInstance in ipairs(cardSpec[specType]) do
-          if ((cardSpec.level.min == 0 and not isUpgraded) or (cardSpec.level.max > 0 and isUpgraded)) then
+          if (cardSpec.choiceName == choiceSelection[cardSpec.choiceName]) and ((cardSpec.level.min == 0 and not isUpgraded) or (cardSpec.level.max > 0 and isUpgraded)) then
             for _, cardId in ipairs(cardLookupTable[specType](specInstance, isUpgraded)) do
               local cardMetadata = allCardsBagApi.getCardById({ id = cardId }).metadata
               if isUpgraded == (cardMetadata.level > 0) and cardMetadata.level >= cardSpec.level.min and cardMetadata.level <= cardSpec.level.max then
                 if cardSpec.limit then
-                  insertCardSet(cardSet, cardList.limitedCardList, cardMetadata, cardId, cardSpec["not"], exclusionSet)
+                  insertCardSet(cardSet, cardList.limitedCardList, cardMetadata, cardId, cardSpec["not"], exclusionSet, cardSpec.type)
                 else
-                  insertCardSet(cardSet, cardList, cardMetadata, cardId, cardSpec["not"], exclusionSet)
+                  insertCardSet(cardSet, cardList, cardMetadata, cardId, cardSpec["not"], exclusionSet, cardSpec.type)
                 end
               end
             end
@@ -122,19 +267,31 @@ function placeCards(isUpgraded, alt_click)
 end
 
 
-function insertCardSet(cardSet, cardList, cardMetadata, cardId, isExclusion, exclusionSet)
+function insertCardSet(cardSet, cardList, cardMetadata, cardId, isExclusion, exclusionSet, types)
+  local allowedTypes = {}
+  if types then
+    for _, cardType in ipairs(types) do
+      allowedTypes[cardType] = true
+    end
+  else
+    allowedTypes = {
+      Skill = true,
+      Event = true,
+      Asset = true
+    }
+  end
   if isExclusion then
     exclusionSet[cardId] = true
   elseif not cardSet[cardId] and not exclusionSet[cardId] then
-    if cardMetadata.type == "Skill" then
+    if cardMetadata.type == "Skill" and allowedTypes.Skill then
       table.insert(cardList.skillList, cardId)
       cardSet[cardId] = true
       return true
-    elseif cardMetadata.type == "Event" then
+    elseif cardMetadata.type == "Event" and allowedTypes.Event then
       table.insert(cardList.eventList, cardId)
       cardSet[cardId] = true
       return true
-    elseif cardMetadata.type == "Asset" then
+    elseif cardMetadata.type == "Asset" and allowedTypes.Asset then
       table.insert(cardList.assetList, cardId)
       cardSet[cardId] = true
       return true
