@@ -20,45 +20,24 @@ function onload(saved_data)
         Vector(-4.5, 2, -7.2)
     }
 
-    debugMode = false
+    setupDeckPosition = Vector(4.05, 0, -7.2)
 
-    --todo create new button to reveal the first two cards (unless they are already revealed)
+    unrevealCardsWhenShifting = false
+
+    self.addContextMenuItem("Keep cards revealed", toggleRevealCards)
+
+    --todo need to worry about rotation when using vectors
     --todo create help button with explanations maybe
-    --todo create button to put first two cards on the back of the line  
 end
 
-function doNothing()
-    
-end
-
-function onCollisionEnter(info)
-    if not debugMode then
-        return
-    end
-
-    local object = getObjectFromGUID(info.collision_object.getGUID())
-
-    if object.tag == 'Card' then
-        log(findOffsetDistance(self.getPosition(), object.getPosition(), object))
-        log('--------------------') 
-    end
+function toggleRevealCards()
+    unrevealCardsWhenShifting = not unrevealCardsWhenShifting
 end
 
 function createAllButtons()
-    -- self.createButton(b_1)
-    -- self.createButton(b_2)
-    -- self.createButton(b_3)
-    -- self.createButton(b_4)
-    -- self.createButton(b_5)
-    -- self.createButton(b_6)
-    -- self.createButton(b_7)
-    -- self.createButton(b_8)
-    -- self.createButton(b_9)
-    -- self.createButton(b_10)
-
-    -- self.createButton(b_placeDeckHereTEMP)
-
     self.createButton(b_setup)
+    self.createButton(b_reveal)
+    self.createButton(b_done)
 end
 
 function findOffsetDistance(p1, p2, obj)
@@ -75,9 +54,8 @@ function findOffsetDistance(p1, p2, obj)
 end
 
 function setupHelper()
-    castOrigin = self.getPosition() + Vector(4.05, 0, -7.2)
-
-    deckGUID = false;
+    local castOrigin = self.getPosition() + setupDeckPosition
+    local deckGUID = false;
 
     local hitList = Physics.cast({
         origin       = castOrigin,
@@ -93,19 +71,19 @@ function setupHelper()
         end
     end
 
-    if (not deckGUID) then
+    if not deckGUID then
         print('Underworld Market Helper: No deck found.')
         return
     end
 
-    deck = getObjectFromGUID(deckGUID)
+    local deck = getObjectFromGUID(deckGUID)
 
-    if (deck.getQuantity() ~= 10) then
+    if deck.getQuantity() ~= 10 then
         print('Underworld Market Helper: Deck must include exactly 10 cards.')
         return
     end
 
-    illicitCount = 0
+    local illicitCount = 0
 
     for _, card in ipairs(deck.getObjects()) do
         decodedGMNotes = JSON.decode(card.gm_notes)
@@ -115,12 +93,17 @@ function setupHelper()
         end
     end
 
-    if (illicitCount ~= 10) then
+    if illicitCount ~= 10 then
         print('Underworld Market Helper: Deck must include 10 Illicit cards.')
         return
     end
 
-    deck.shuffle()
+    if deck.is_face_down then
+        deck.shuffle()
+    else
+        deck.flip()
+        deck.shuffle()
+    end
 
     Wait.time(function()
         for i, card in ipairs(deck.getObjects()) do
@@ -130,6 +113,114 @@ function setupHelper()
             })
         end
     end, 0.5)
+end
+
+function revealFirstTwoCards()
+    local count = 0
+    
+    for i, pos in ipairs(cardPositions) do
+        local hitList = Physics.cast({
+            origin       = self.getPosition() + cardPositions[i],
+            direction    = {0,-1,0},
+            size         = {x=1, y=1, z=1},
+            type         = 1,
+            max_distance = 2
+        })
+
+        for _, hit in ipairs(hitList) do
+            if hit.hit_object != self and hit.hit_object.tag == "Card" then
+                count = count + 1
+
+                if hit.hit_object.is_face_down then
+                    hit.hit_object.flip()
+                end
+            end
+        end
+
+        if count == 2 then
+            break
+        end
+    end
+end
+
+function shiftCards()
+    local cards = {}
+    local count = 0
+    local firstCardGUID = nil
+    local secondCardGUID = nil
+    
+    for i, pos in ipairs(cardPositions) do
+        local hitList = Physics.cast({
+            origin       = self.getPosition() + cardPositions[i],
+            direction    = {0,-1,0},
+            size         = {x=1, y=1, z=1},
+            type         = 1,
+            max_distance = 2
+        })
+
+        local hitGUID = nil
+
+        for _, hit in ipairs(hitList) do
+            if hit.hit_object != self and hit.hit_object.tag == "Card" then
+                table.insert(cards, hit.hit_object.getGUID())
+                count = count + 1
+                hitGUID = hit.hit_object.getGUID()
+            end
+        end
+
+        if i == 1 then
+            firstCardGUID = hitGUID
+        end
+
+        if i == 2 then
+            secondCardGUID = hitGUID
+        end
+    end
+
+    if count >= 2 then
+        local firstCard = nil
+        local secondCard = nil
+
+        if firstCardGUID ~= nil then
+            firstCard = getObjectFromGUID(firstCardGUID)
+        end
+
+        if secondCardGUID ~= nil then
+            secondCard = getObjectFromGUID(secondCardGUID)
+        end
+
+        if firstCard ~= nil and secondCard ~= nil then
+            local shiftingCard = table.remove(cards, 1)
+            table.insert(cards, shiftingCard)
+
+            shiftingCard = table.remove(cards, 1)
+            table.insert(cards, shiftingCard)
+
+            maybeFlip(firstCard)
+            maybeFlip(secondCard)
+        elseif firstCard ~= nil then
+            local shiftingCard = table.remove(cards, 1)
+            table.insert(cards, shiftingCard)
+
+            maybeFlip(firstCard)
+        elseif secondCard ~= nil then
+            local shiftingCard = table.remove(cards, 1)
+            table.insert(cards, shiftingCard)
+
+            maybeFlip(secondCard)
+        end
+
+        for i, cardGUID in ipairs(cards) do
+            local card = getObjectFromGUID(cardGUID)
+            card.setPositionSmooth(self.getPosition() + cardPositions[i], false, false)
+        end
+    end
+end
+
+function maybeFlip(card)
+    if unrevealCardsWhenShifting and not card.is_face_down then
+        card.flip()
+    end
 end
 
 function generateButtonParams()
@@ -142,114 +233,22 @@ function generateButtonParams()
         height = 35,
         font_size = 50
     }
-    b_1 = {
-        index = 0,
-        click_function = 'doNothing',
+    b_reveal = {
+        click_function = 'revealFirstTwoCards',
         function_owner = self,
-        label = '1',
-        position = {-1.6,0.05,0.05},
-        font_color = {1,1,1,100},
-        width = 0,
-        height = 0,
-        font_size = 250
+        label = 'Reveal',
+        position = {-1.6,0.05,-1.38},
+        width = 275,
+        height = 35,
+        font_size = 50
     }
-    b_2 = {
-        index = 0,
-        click_function = 'doNothing',
+    b_done = {
+        click_function = 'shiftCards',
         function_owner = self,
-        label = '2',
-        position = {-0.8,0.05,0.05},
-        font_color = {1,1,1,100},
-        width = 0,
-        height = 0,
-        font_size = 250
-    }
-    b_3 = {
-        index = 0,
-        click_function = 'doNothing',
-        function_owner = self,
-        label = '3',
-        position = {0,0.05,0.05},
-        font_color = {1,1,1,100},
-        width = 0,
-        height = 0,
-        font_size = 250
-    }
-    b_4 = {
-        index = 0,
-        click_function = 'doNothing',
-        function_owner = self,
-        label = '4',
-        position = {0.8,0.05,0.05},
-        font_color = {1,1,1,100},
-        width = 0,
-        height = 0,
-        font_size = 250
-    }
-    b_5 = {
-        index = 0,
-        click_function = 'doNothing',
-        function_owner = self,
-        label = '5',
-        position = {1.6,0.05,0.05},
-        font_color = {1,1,1,100},
-        width = 0,
-        height = 0,
-        font_size = 250
-    }
-    b_6 = {
-        index = 0,
-        click_function = 'doNothing',
-        function_owner = self,
-        label = '6',
-        position = {-1.6,0.05,1.0},
-        font_color = {1,1,1,100},
-        width = 0,
-        height = 0,
-        font_size = 250
-    }
-    b_7 = {
-        index = 0,
-        click_function = 'doNothing',
-        function_owner = self,
-        label = '7',
-        position = {-0.8,0.05,1.0},
-        font_color = {1,1,1,100},
-        width = 0,
-        height = 0,
-        font_size = 250
-    }
-    b_8 = {
-        index = 0,
-        click_function = 'doNothing',
-        function_owner = self,
-        label = '8',
-        position = {0,0.05,1.0},
-        font_color = {1,1,1,100},
-        width = 0,
-        height = 0,
-        font_size = 250
-    }
-    b_9 = {
-        index = 0,
-        click_function = 'doNothing',
-        function_owner = self,
-        label = '9',
-        position = {0.8,0.05,1.0},
-        font_color = {1,1,1,100},
-        width = 0,
-        height = 0,
-        font_size = 250
-    }
-    b_10 = {
-        index = 0,
-        click_function = 'doNothing',
-        function_owner = self,
-        label = '10',
-        position = {1.6,0.05,1.0},
-        font_color = {1,1,1,100},
-        width = 0,
-        height = 0,
-        font_size = 250
+        label = 'Done',
+        position = {-1.6,0.05,-0.98},
+        width = 275,
+        height = 35,
+        font_size = 50
     }
 end
