@@ -1,5 +1,10 @@
 require("playercards/PlayerCardPanelData")
 local spawnBag = require("playercards/SpawnBag")
+local spawnBagSaveStates = {
+  default = nil,
+  middle = nil
+}
+local currentState = "default"
 local arkhamDb = require("arkhamdb/ArkhamDb")
 local allCardsBagApi = require("playercards/AllCardsBagApi")
 
@@ -292,7 +297,7 @@ end
 function createClearButton()
   self.createButton({
     function_owner = self,
-    click_function = "deleteAll",
+    click_function = "clearCardsButton",
     position = Vector(0, 0.1, 0.852),
     rotation = Vector(0, 0, 0),
     height = 170,
@@ -384,9 +389,23 @@ end
 
 -- Clears the table and updates positions based on scale.  Should be called before ANY card
 -- placement
-function prepareToPlaceCards()
+function prepareToPlaceCards(targetState)
+  swapState(targetState)
   deleteAll()
   scalePositions()
+end
+
+function swapState(targetState) 
+  local targetState = targetState or "default"
+  if targetState ~= currentState then
+    spawnBagSaveStates[currentState] = spawnBag.getStateForSave()
+    if spawnBagSaveStates[targetState] then
+      spawnBag.loadFromSave(spawnBagSaveStates[targetState])
+    else
+      spawnBag = require("playercards/SpawnBag")
+    end
+    currentState = targetState
+  end
 end
 
 -- Updates the positions based on the current object scale to ensure the relative layout functions
@@ -414,6 +433,11 @@ end
 -- Deletes all cards currently placed on the table
 function deleteAll()
   spawnBag.recall(true)
+end
+
+function clearCardsButton(_, _, _)
+  swapState("default")
+  deleteAll()
 end
 
 -- Spawn an investigator group, based on the current UI setting for either investigators or starter
@@ -765,7 +789,8 @@ function spawnCardsByType(params)
   local rotation      = params.rotation or FACE_UP_ROTATION
   local spread        = params.spread or true
   local spreadCols    = params.spreadCols or 20
-  prepareToPlaceCards()
+  local targetState   = params.targetState or "default"
+  prepareToPlaceCards(targetState)
   local groupPos = Vector(startPositions[startPos])
   if #cardList.skillList > 0 then
     spawnBag.spawn({

@@ -1,5 +1,10 @@
-local playerCardPanelApi = require("playercards/PlayerCardPanelApi")
-local allCardsBagApi = require("playercards/AllCardsBagApi")
+local playerCardPanelApi  = require("playercards/PlayerCardPanelApi")
+local allCardsBagApi      = require("playercards/AllCardsBagApi")
+local deckZoneGUID        = "cba5d4"
+local deckObject          = nil
+local placingDeck         = false
+local placingCard         = false
+
 local cardLookupTable = {
   faction =   function(specInstance, isUpgraded) return allCardsBagApi.getCardsByClassAndLevel({ class = specInstance, upgraded = isUpgraded }) end,
   trait   =   function(specInstance) return allCardsBagApi.getCardsByTrait(specInstance) end,
@@ -90,24 +95,59 @@ function onLoad()
   })
 end
 
+function onObjectEnterZone(zone, object)
+  if zone.guid == deckZoneGUID and deckObject and not placingDeck and not placingCard then
+    log("Entered")
+    placingCard = true
+    deckObject.putObject(object.reload())
+    Wait.frames(function() placingCard = false end, 5)
+  end
+end
+
+function onObjectLeaveZone(zone, object)
+  if zone.guid == deckZoneGUID and deckObject and not placingDeck and not placingCard then
+    log("Left")
+    local targetId = JSON.decode(object.getGMNotes()).id
+    for _, card in ipairs(deckObject.getObjects()) do
+      if JSON.decode(card.gm_notes).id == targetId then
+        local targetCard = deckObject.takeObject({guid = card.guid})
+        Wait.frames(function() destroyObject(targetCard) end, 3)
+        -- destroyObject(object)
+        break
+      end
+    end 
+  end
+end
+
 function onCollisionEnter(info)
   --Detects if PlayerDeck object (a 'Deck Coin') has been placed on the deck builder
-  if info.collision_object.hasTag("Investigator") then
+  objectData = info.collision_object.getData()
+  if objectData.Name == "Deck" then
+    deckObject = info.collision_object
+    placeDeck()
+    playerCardPanelApi.disable()
+  elseif info.collision_object.hasTag("Investigator") then
     investigatorData = JSON.decode(info.collision_object.getGMNotes()) 
     broadcastToAll("Investigator Detected: " .. info.collision_object.getName(), Color.Green)
     if investigatorData.deck_requirements.choices then
       createChoiceButtons()
     end
-  end
-
-  
+  end  
 end
 
 function onCollisionExit(info)
-  if JSON.decode(info.collision_object.getGMNotes()).id == investigatorData.id then
+  if objectData.Name == "Deck" then
+    removeDeck()
+  elseif info.collision_object.hasTag("Investigator") and JSON.decode(info.collision_object.getGMNotes()).id == investigatorData.id then
     investigatorData = nil
-    playerCardPanelApi.deleteAll()
+    playerCardPanelApi.deleteAll("middle")
     resetChoiceButtons()
+  end
+end
+
+function onObjectDestroy(object)
+  if object == deckObject then
+    removeDeck()
   end
 end
 
@@ -181,6 +221,53 @@ function toggleChoiceButton(buttonIndex, alt_click)
   end
 end
 
+function placeDeck()
+  placingDeck = true
+
+  local cardList = {
+    skillList = {},
+    eventList = {},
+    assetList = {}
+  }
+  cardList["limitedCardList"] = {
+    skillList = {},
+    eventList = {},
+    assetList = {}
+  }
+
+  for _, card in ipairs(deckObject.getObjects()) do
+    local cardId = JSON.decode(card.gm_notes).id
+    local cardMetadata = allCardsBagApi.getCardById({ id = cardId }).metadata
+    if cardMetadata.type == "Skill" then
+      table.insert(cardList.skillList, cardId)
+    elseif cardMetadata.type == "Event" then
+      table.insert(cardList.eventList, cardId)
+    elseif cardMetadata.type == "Asset" then
+      table.insert(cardList.assetList, cardId)
+    end
+  end
+
+  cardList.skillList = allCardsBagApi.sortCardsTable(cardList.skillList)
+  cardList.eventList = allCardsBagApi.sortCardsTable(cardList.eventList)
+  cardList.assetList = allCardsBagApi.sortCardsTable(cardList.assetList)
+
+  playerCardPanelApi.spawnCardsByType({
+    cardList = cardList,
+    name = "customDeck",
+    startPos = "other",
+    spread = true,
+    spreadCols = 20,
+    targetState = "default"
+  })
+  Wait.frames(function() placingDeck = false end, 5)
+end
+
+function removeDeck()
+  deckObject = nil
+  playerCardPanelApi.deleteAll("default")
+  playerCardPanelApi.enable()
+end
+
 function placeCardsBasic(_, _, alt_click)
   placeCards(false, alt_click)
 end
@@ -192,7 +279,7 @@ end
 function placeCards(isUpgraded, alt_click)
   if (alt_click) then
     --Clear all cards
-    playerCardPanelApi.deleteAll()
+    playerCardPanelApi.deleteAll("middle")
   else
     local choiceSelection = {}
     --Determine investigator placed on object
@@ -261,7 +348,8 @@ function placeCards(isUpgraded, alt_click)
       name = "deckOptions",
       startPos = "deckBuilder",
       spread = true,
-      spreadCols = 30
+      spreadCols = 30,
+      targetState = "middle"
     })
   end
 end
