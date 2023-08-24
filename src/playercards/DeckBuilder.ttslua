@@ -1,3 +1,5 @@
+require("playercards/PlayerCardSpawner")
+
 local playerCardPanelApi  = require("playercards/PlayerCardPanelApi")
 local allCardsBagApi      = require("playercards/AllCardsBagApi")
 local deckZoneGUID        = "cba5d4"
@@ -9,6 +11,48 @@ local cardLookupTable = {
   faction =   function(specInstance, isUpgraded) return allCardsBagApi.getCardsByClassAndLevel({ class = specInstance, upgraded = isUpgraded }) end,
   trait   =   function(specInstance) return allCardsBagApi.getCardsByTrait(specInstance) end,
   special =   function(specInstance) return allCardsBagApi.getCardsBySpecialCriteria(specInstance) end
+}
+
+local deckTokenData = {
+  GUID = "51b1c9",
+  Name = "Custom_Model",
+  Transform = {
+    posX = 47,
+    posY = 2,
+    posZ = 46.46,
+    rotX = 0,
+    rotY = 270,
+    rotZ = 0,
+    scaleX = 1.5,
+    scaleY = 1.5,
+    scaleZ = 1.5
+  },
+  Nickname = "Arkham Coin",
+  Description = "SCED Importer Token",
+  GMNotes = "",
+  Tags = {
+    "DeckBuilderToken"
+  },
+  CustomMesh = {
+    MeshURL = "http://cloud-3.steamusercontent.com/ugc/943949966265929204/A38BB5D72419E6298385556D931877C0A1A55C17/",
+    DiffuseURL = "http://cloud-3.steamusercontent.com/ugc/254843371583188147/920981125E37B5CEB6C400E3FD353A2C428DA969/",
+    NormalURL = "",
+    ColliderURL = "http://cloud-3.steamusercontent.com/ugc/943949966265929204/A38BB5D72419E6298385556D931877C0A1A55C17/",
+    Convex = true,
+    MaterialIndex = 2,
+    TypeIndex = 0,
+    CustomShader = {
+    SpecularColor = {
+      r = 0.7222887,
+      g = 0.507659256,
+      b = 0.339915335
+    },
+    SpecularIntensity = 0.4,
+    SpecularSharpness = 7.0,
+    FresnelStrength = 0.0
+    },
+    CastShadows = true
+  }
 }
 
 local investigatorData = nil
@@ -84,7 +128,7 @@ function onLoad()
   self.createButton({
     function_owner = self,
     label          = "Export",
-    click_function = "placeCardsUpgraded",
+    click_function = "exportDeck",
     tooltip        = "Transform Deck Into Coin!",
     position       = { 0, 0.1, 2 },
     scale          = {0.375, 1, 0.375},
@@ -132,7 +176,9 @@ function onCollisionEnter(info)
     if investigatorData.deck_requirements.choices then
       createChoiceButtons()
     end
-  end  
+  elseif info.collision_object.hasTag("DeckBuilderToken") then
+    importDeck(info.collision_object)
+  end
 end
 
 function onCollisionExit(info)
@@ -266,6 +312,78 @@ function removeDeck()
   deckObject = nil
   playerCardPanelApi.deleteAll("default")
   playerCardPanelApi.enable()
+end
+
+function exportDeck(_, _, _) 
+  if(deckObject and investigatorData) then
+    local deckList = {
+      slots = { },
+      investigatorId  = "",
+      bondedList = { },
+      customizations = { },
+      loadAltInvestigator = "normal"
+    }
+    -- Handle investigator
+    deckList.investigatorId = investigatorData.id
+    -- TODO: Handle alternate art
+    for _, card in ipairs(deckObject.getObjects()) do
+      -- Handle basic card addition
+      local cardMetadata = JSON.decode(card.gm_notes)
+      local cardId = cardMetadata.id
+      if deckList.slots[cardId] then
+        deckList.slots[cardId] = deckList.slots[cardId] + 1
+      else
+        deckList.slots[cardId] = 1
+      end
+      -- Handle bonded cards
+      if cardMetadata.bonded then
+        for _, bond in ipairs(cardMetadata.bonded) do
+          if deckList.bondedList[bond.id] then
+            deckList.bondedList[bond.id] = deckList.bondedList[bond.id] + bond.count
+          else
+            deckList.bondedList[bond.id] = bond.count
+          end
+        end
+      end
+      -- TODO: Handle customizable cards
+    end
+    deckTokenData.GMNotes = JSON.encode(deckList)
+    deckTokenData.Nickname = deckObject.getName()
+    spawnObjectData({
+      data = deckTokenData
+    })
+    destroyObject(deckObject)
+    -- destroyObject
+  else
+    broadcastToAll("Missing Deck and/or Investigator", Color.Red)
+  end
+end
+
+function importDeck(coinObject)
+  local deckData = JSON.decode(coinObject.getGMNotes())
+  destroyObject(coinObject)
+  local cardsToSpawn = {}
+  for cardId, cardCount in pairs(deckData.slots) do
+    local card = allCardsBagApi.getCardById({ id = cardId })
+    if card ~= nil then
+      for i = 1, cardCount do
+        table.insert(cardsToSpawn, { data = card.data, metadata = card.metadata})
+      end
+    end
+  end
+  Spawner.spawnCards(
+    cardsToSpawn,
+    { x = 53.22, y = 2, z = 46.46},
+    { x = 0.00, y = 270.00, z = 0.00},
+    true,
+    function() end
+  )
+  log(allCardsBagApi.getCardById({ id = deckData.investigatorId }))
+  Spawner.spawnCards(
+    {allCardsBagApi.getCardById({ id = deckData.investigatorId })},
+    { x = 60.92,  y = 2, z = 46.51},
+    { x = 0.00, y = 270.00, z = 0.00}
+  )
 end
 
 function placeCardsBasic(_, _, alt_click)
