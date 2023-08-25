@@ -1,8 +1,8 @@
 require("playercards/PlayerCardPanelData")
 local spawnBag = require("playercards/SpawnBag")
 local spawnBagSaveStates = {
-  default = nil,
-  middle = nil
+  default = spawnBag.getStateForSave(),
+  middle = spawnBag.getStateForSave()
 }
 local currentState = "default"
 local arkhamDb = require("arkhamdb/ArkhamDb")
@@ -50,7 +50,7 @@ local START_POSITIONS = {
   classCards = Vector(CARD_WIDTH * 9.5, 2, 1.4),
   investigator = Vector(6 * 2.5, 2, 1.3),
   cycle = Vector(CARD_WIDTH * 9.5, 2, 2.4),
-  deckBuilder = Vector(CARD_WIDTH * -16.4, 2, -0.7),
+  deckBuilder = Vector(CARD_WIDTH * -14, 2, -0.7),
   other = Vector(CARD_WIDTH * 9.5, 2, 1.4),
   randomWeakness = Vector(0, 2, 1.4),
   -- Because the card spread is handled by the SpawnBag, we don't know (programatically) where this
@@ -395,15 +395,11 @@ function prepareToPlaceCards(targetState)
   scalePositions()
 end
 
-function swapState(targetState) 
+function swapState(targetState)
   local targetState = targetState or "default"
   if targetState ~= currentState then
     spawnBagSaveStates[currentState] = spawnBag.getStateForSave()
-    if spawnBagSaveStates[targetState] then
-      spawnBag.loadFromSave(spawnBagSaveStates[targetState])
-    else
-      spawnBag = require("playercards/SpawnBag")
-    end
+    spawnBag.loadFromSave(spawnBagSaveStates[targetState])
     currentState = targetState
   end
 end
@@ -824,6 +820,17 @@ function spawnCardsByType(params)
       spreadCols = spreadCols
     })
     groupPos.z = groupPos.z + math.ceil(#cardList.assetList / spreadCols) * cardRowOffset + cardGroupOffset * 2
+  end
+  if #cardList.otherList > 0 then
+    spawnBag.spawn({
+      name = name .. "other",
+      cards = cardList.otherList,
+      globalPos = self.positionToWorld(groupPos),
+      rotation = rotation,
+      spread = spread,
+      spreadCols = spreadCols
+    })
+    groupPos.z = groupPos.z + math.ceil(#cardList.otherList / spreadCols) * cardRowOffset + cardGroupOffset * 2
   end
   if #cardList.limitedCardList.skillList > 0 then
     spawnBag.spawn({

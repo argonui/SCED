@@ -55,6 +55,7 @@ local deckTokenData = {
   }
 }
 
+local investigatorObject = nil
 local investigatorData = nil
 local sortMethod = "default"
 local choiceCount = 0
@@ -141,7 +142,7 @@ end
 
 function onObjectEnterZone(zone, object)
   if zone.guid == deckZoneGUID and deckObject and not placingDeck and not placingCard then
-    log("Entered")
+    log("Entered Zone")
     placingCard = true
     deckObject.putObject(object.reload())
     Wait.frames(function() placingCard = false end, 5)
@@ -150,7 +151,7 @@ end
 
 function onObjectLeaveZone(zone, object)
   if zone.guid == deckZoneGUID and deckObject and not placingDeck and not placingCard then
-    log("Left")
+    log("Left Zone")
     local targetId = JSON.decode(object.getGMNotes()).id
     for _, card in ipairs(deckObject.getObjects()) do
       if JSON.decode(card.gm_notes).id == targetId then
@@ -165,14 +166,33 @@ end
 
 function onCollisionEnter(info)
   --Detects if PlayerDeck object (a 'Deck Coin') has been placed on the deck builder
-  objectData = info.collision_object.getData()
+  local objectData = info.collision_object.getData()
   if objectData.Name == "Deck" then
     deckObject = info.collision_object
     placeDeck()
     playerCardPanelApi.disable()
   elseif info.collision_object.hasTag("Investigator") then
-    investigatorData = JSON.decode(info.collision_object.getGMNotes()) 
+    investigatorObject = info.collision_object
+    investigatorData = JSON.decode(investigatorObject.getGMNotes()) 
     broadcastToAll("Investigator Detected: " .. info.collision_object.getName(), Color.Green)
+    if investigatorData.deck_requirements.signatures then
+      local cardsToSpawn = {}
+      for cardId, cardCount in pairs(investigatorData.deck_requirements.signatures) do
+        local card = allCardsBagApi.getCardById({ id = cardId })
+        if card ~= nil then
+          for i = 1, cardCount do
+            table.insert(cardsToSpawn, { data = card.data, metadata = card.metadata})
+          end
+        end
+      end
+      Spawner.spawnCards(
+        cardsToSpawn,
+        { x = 53.22, y = 2, z = 46.46},
+        { x = 0.00, y = 270.00, z = 0.00},
+        true,
+        function() end
+      )
+    end
     if investigatorData.deck_requirements.choices then
       createChoiceButtons()
     end
@@ -182,10 +202,13 @@ function onCollisionEnter(info)
 end
 
 function onCollisionExit(info)
+  local objectData = info.collision_object.getData()
+  log(investigatorObject == info.collision_object)
   if objectData.Name == "Deck" then
     removeDeck()
-  elseif info.collision_object.hasTag("Investigator") and JSON.decode(info.collision_object.getGMNotes()).id == investigatorData.id then
+  elseif investigatorObject == info.collision_object then
     investigatorData = nil
+    investigatorObject = nil
     playerCardPanelApi.deleteAll("middle")
     resetChoiceButtons()
   end
@@ -194,6 +217,11 @@ end
 function onObjectDestroy(object)
   if object == deckObject then
     removeDeck()
+  elseif object == investigatorObject then
+    investigatorData = nil
+    investigatorObject = nil
+    playerCardPanelApi.deleteAll("middle")
+    resetChoiceButtons()
   end
 end
 
@@ -273,7 +301,8 @@ function placeDeck()
   local cardList = {
     skillList = {},
     eventList = {},
-    assetList = {}
+    assetList = {},
+    otherList = {}
   }
   cardList["limitedCardList"] = {
     skillList = {},
@@ -290,12 +319,15 @@ function placeDeck()
       table.insert(cardList.eventList, cardId)
     elseif cardMetadata.type == "Asset" then
       table.insert(cardList.assetList, cardId)
+    else
+      table.insert(cardList.otherList, cardId)
     end
   end
 
   cardList.skillList = allCardsBagApi.sortCardsTable(cardList.skillList)
   cardList.eventList = allCardsBagApi.sortCardsTable(cardList.eventList)
   cardList.assetList = allCardsBagApi.sortCardsTable(cardList.assetList)
+  cardList.otherList = allCardsBagApi.sortCardsTable(cardList.otherList)
 
   playerCardPanelApi.spawnCardsByType({
     cardList = cardList,
@@ -353,7 +385,7 @@ function exportDeck(_, _, _)
       data = deckTokenData
     })
     destroyObject(deckObject)
-    -- destroyObject
+    destroyObject(investigatorObject)
   else
     broadcastToAll("Missing Deck and/or Investigator", Color.Red)
   end
@@ -422,7 +454,8 @@ function placeCards(isUpgraded, alt_click)
     local cardList = {
       skillList = {},
       eventList = {},
-      assetList = {}
+      assetList = {},
+      otherList = {}
     }
     cardList["limitedCardList"] = {
       skillList = {},
@@ -458,6 +491,7 @@ function placeCards(isUpgraded, alt_click)
     cardList.skillList = allCardsBagApi.sortCardsTable(cardList.skillList)
     cardList.eventList = allCardsBagApi.sortCardsTable(cardList.eventList)
     cardList.assetList = allCardsBagApi.sortCardsTable(cardList.assetList)
+    cardList.otherList = allCardsBagApi.sortCardsTable(cardList.otherList)
     cardList.limitedCardList.skillList = allCardsBagApi.sortCardsTable(cardList.limitedCardList.skillList)
     cardList.limitedCardList.eventList = allCardsBagApi.sortCardsTable(cardList.limitedCardList.eventList)
     cardList.limitedCardList.assetList = allCardsBagApi.sortCardsTable(cardList.limitedCardList.assetList)
@@ -466,7 +500,7 @@ function placeCards(isUpgraded, alt_click)
       name = "deckOptions",
       startPos = "deckBuilder",
       spread = true,
-      spreadCols = 30,
+      spreadCols = 35,
       targetState = "middle"
     })
   end
@@ -501,6 +535,8 @@ function insertCardSet(cardSet, cardList, cardMetadata, cardId, isExclusion, exc
       table.insert(cardList.assetList, cardId)
       cardSet[cardId] = true
       return true
+    else
+      table.insert(cardList.otherList, cardId)
     end
   end
   return false
