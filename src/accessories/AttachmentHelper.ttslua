@@ -16,6 +16,11 @@ local BACKGROUNDS = {
     fontcolor = { 0, 0, 0 }
   },
   {
+    title     = "Binder's Jar",
+    url       = "http://cloud-3.steamusercontent.com/ugc/2021606446228642191/4C149527851C1DBB3015F93DE91667937A3F91DD/",
+    fontcolor = { 1, 1, 1 }
+  },
+  {
     title     = "Crystallizer of Dreams",
     url       = "http://cloud-3.steamusercontent.com/ugc/1915746489207280958/100F16441939E5E23818651D1EB5C209BF3125B9/",
     fontcolor = { 1, 1, 1 }
@@ -31,6 +36,21 @@ local BACKGROUNDS = {
     fontcolor = { 1, 1, 1 }
   },
   {
+    title     = "Ikiaq",
+    url       = "http://cloud-3.steamusercontent.com/ugc/2021606446228198966/5A408D8D760221DEA164E986B9BE1F79C4803071/",
+    fontcolor = { 1, 1, 1 }
+  },
+  {
+    title     = "Katja Eastbank",
+    url       = "http://cloud-3.steamusercontent.com/ugc/2021606446228203475/62EEE12F4DB1EB80D79B087677459B954380215F/",
+    fontcolor = { 1, 1, 1 }
+  },
+  {
+    title     = "Ravenous",
+    url       = "http://cloud-3.steamusercontent.com/ugc/2021606446228208075/EAC598A450BEE504A7FE179288F1FBBF7ABFA3E0/",
+    fontcolor = { 0, 0, 0 }
+  },
+  {
     title     = "Sefina Rousseau",
     url       = "http://cloud-3.steamusercontent.com/ugc/1754695635919099826/3C3CBFFAADB2ACA9957C736491F470AE906CC953/",
     fontcolor = { 0, 0, 0 }
@@ -38,6 +58,11 @@ local BACKGROUNDS = {
   {
     title     = "Stick to the Plan",
     url       = "http://cloud-3.steamusercontent.com/ugc/2018214163838897493/8E38B96C5A8D703A59009A932432CBE21ABE63A2/",
+    fontcolor = { 1, 1, 1 }
+  },
+  {
+    title     = "Subject 5U-21",
+    url       = "http://cloud-3.steamusercontent.com/ugc/2021606446228199363/CE43D58F37C9F48BDD6E6E145FE29BADEFF4DBC5/",
     fontcolor = { 1, 1, 1 }
   },
   {
@@ -84,6 +109,41 @@ function getFontColor()
   return { 1, 1, 1 }
 end
 
+-- attempt to load image from below card when dropped
+function onDrop(playerColor)
+  local pos = self.getPosition():setAt("y", 2)
+  local search = Physics.cast({
+    direction    = { 0, -1, 0 },
+    max_distance = 2,
+    type         = 3,
+    size         = { 0.1, 0.1, 0.1 },
+    origin       = pos
+  })
+
+  local syncName
+  for _, v in ipairs(search) do
+    if v.hit_object.tag == "Card" then
+      syncName = v.hit_object.getName()
+      break
+    end
+  end
+
+  if not syncName then return end
+
+  -- remove level information fron syncName
+  syncName = syncName:gsub("%s%(%d%)", "")
+
+  -- loop through background table
+  for _, bgInfo in ipairs(BACKGROUNDS) do
+    if bgInfo.title == syncName then
+      printToColor("Background for '" .. syncName .. "' loaded!", playerColor, "Green")
+      updateImage(bgInfo.url)
+      return
+    end
+  end
+  printToColor("Didn't find background for '" .. syncName .. "'!", playerColor, "Orange")
+end
+
 -- called by context menu to change background image
 function selectImage(color)
   -- generate list of options
@@ -94,11 +154,17 @@ function selectImage(color)
 
   -- prompt user to select option
   Player[color].showOptionsDialog("Select image:", options, 1, function(_, optionIndex)
-    local customInfo = self.getCustomObject()
-    customInfo.diffuse = BACKGROUNDS[optionIndex].url
-    self.setCustomObject(customInfo)
-    self.reload()
+    updateImage(BACKGROUNDS[optionIndex].url)
   end)
+end
+
+-- sets background to the provided URL
+function updateImage(url)
+  self.script_state = JSON.encode({ cardsInBag, showCost, showIcons })
+  local customInfo = self.getCustomObject()
+  customInfo.diffuse = url
+  self.setCustomObject(customInfo)
+  self.reload()
 end
 
 -- only allow cards to enter, split decks and reject other objects

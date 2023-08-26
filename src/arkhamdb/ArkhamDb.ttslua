@@ -146,6 +146,7 @@ do
     internal.maybeAddCustomizeUpgradeSheets(slots)
     internal.maybeAddSummonedServitor(slots)
     internal.maybeAddOnTheMend(slots, playerColor)
+    internal.maybeAddRealityAcidReference(slots)
     local bondList = internal.extractBondedCards(slots)
     internal.checkTaboos(deck.taboo_id, slots, playerColor)
 
@@ -166,18 +167,13 @@ do
   ---@param playerColor String Color of the player this deck is being loaded for. Used for broadcast
   ---    if a weakness is added.
   internal.maybeDrawRandomWeakness = function(slots, playerColor)
-    local randomWeaknessAmount = 0
-    for cardId, cardCount in pairs(slots) do
-      if cardId == RANDOM_WEAKNESS_ID then
-        randomWeaknessAmount = cardCount
-        break
-      end
-    end
+    local randomWeaknessAmount = slots[RANDOM_WEAKNESS_ID] or 0
+    slots[RANDOM_WEAKNESS_ID] = nil
+
     if randomWeaknessAmount ~= 0 then
       for i=1, randomWeaknessAmount do
         local weaknessId = allCardsBagApi.getRandomWeaknessId()
-        slots[weaknessId] = 1
-        slots[RANDOM_WEAKNESS_ID] = nil
+        slots[weaknessId] = (slots[weaknessId] or 0) + 1
       end
       internal.maybePrint("Added " .. randomWeaknessAmount .. " random basic weakness(es) to deck", playerColor)
     end
@@ -275,6 +271,15 @@ do
         internal.maybePrint("Something went wrong with the load, adding 4 copies of On the Mend", playerColor)
         slots["09006"] = 4
       end
+    end
+  end
+
+  -- Process the card list looking for Reality Acid and adds the reference sheet when needed
+  ---@param slots Table The slot list for cards in this deck. Table key is the cardId, value is the number
+  --     of those cards which will be spawned
+  internal.maybeAddRealityAcidReference = function(slots)
+    if slots["89004"] ~= nil then
+      slots["89005"] = 1
     end
   end
 
