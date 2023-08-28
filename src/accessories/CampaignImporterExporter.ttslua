@@ -1,0 +1,298 @@
+local campaignTokenData = {
+  GUID = "51b1c9",
+  Name = "Custom_Model",
+  Transform = {
+    posX = -21.25,
+    posY = 1.68,
+    posZ = 55.59,
+    rotX = 0,
+    rotY = 270,
+    rotZ = 0,
+    scaleX = 2,
+    scaleY = 2,
+    scaleZ = 2
+  },
+  Nickname = "Arkham Coin",
+  Description = "SCED Importer Token",
+  GMNotes = "",
+  Tags = {
+    "ImporterToken"
+  },
+  CustomMesh = {
+    MeshURL = "http://cloud-3.steamusercontent.com/ugc/943949966265929204/A38BB5D72419E6298385556D931877C0A1A55C17/",
+    DiffuseURL = "http://cloud-3.steamusercontent.com/ugc/254843371583188147/920981125E37B5CEB6C400E3FD353A2C428DA969/",
+    NormalURL = "",
+    ColliderURL = "http://cloud-3.steamusercontent.com/ugc/943949966265929204/A38BB5D72419E6298385556D931877C0A1A55C17/",
+    Convex = true,
+    MaterialIndex = 2,
+    TypeIndex = 0,
+    CustomShader = {
+    SpecularColor = {
+      r = 0.7222887,
+      g = 0.507659256,
+      b = 0.339915335
+    },
+    SpecularIntensity = 0.4,
+    SpecularSharpness = 7.0,
+    FresnelStrength = 0.0
+    },
+    CastShadows = true
+  }
+}
+
+-- counter GUIDS (4x damage and 4x horror)
+local DAMAGE_HORROR_GUIDS = {
+  "eb08d6"; "e64eec"; "1f5a0a"; "591a45";
+  "468e88"; "0257d9"; "7b5729"; "beb964";
+  }
+
+local chaosBagApi = require("chaosbag/ChaosBagApi")
+local playAreaApi = require("core/PlayAreaApi")
+local deckImporterApi = require("arkhamdb/DeckImporterApi")
+local optionPanelApi = require("core/OptionPanelApi")
+local blessCurseApi = require("chaosbag/BlessCurseManagerApi")
+
+local TOUR_GUID = "0e5aa8"
+
+local campaignBoxGUID
+
+function onLoad(save_state)
+  campaignBoxGUID = ""
+
+  self.createButton({
+    click_function = "findCampaignFromToken",
+    function_owner = self,
+    label = "Import",
+    tooltip = "Load in a campaign save from a token!\n\n(Token can be anywhere on the table, but ensure there is only 1!)",    
+    position = {x=-1, y=0.2, z=0},
+    font_size = 400,
+    width = 1400,
+    height = 600,
+    scale = {0.5, 1, 0.5},
+  })
+  self.createButton({
+    click_function = "createCampaignToken",
+    function_owner = self,
+    label = "Export",
+    tooltip = "Create a campaign save token!\n\n(Ensure all chaos tokens have been unsealed!)",
+    position = {x=1, y=0.2, z=0},
+    font_size = 400,
+    width = 1400,
+    height = 600,
+    scale = {0.5, 1, 0.5},
+  })
+end
+
+-- The main import functions.  Due to timing concerns, has to be split up into several separate methods to allow for Wait conditions
+
+-- Identifies import token, determines campaign box and downloads it (if needed)
+function findCampaignFromToken(_, _, _)
+  local coin = nil
+  local coinObjects = getObjectsWithTag("ImporterToken")
+  if #coinObjects == 0 then
+    broadcastToAll("Could not find importer token", Color.Red)
+  elseif #coinObjects > 1 then
+    broadcastToAll("More than 1 importer token found. Please delete all but 1 importer token", Color.Yellow)    
+  else
+    coin = coinObjects[1]
+    local importData = JSON.decode(coin.getGMNotes())
+    campaignBoxGUID = importData["box"]
+    local campaignBox = getObjectFromGUID(campaignBoxGUID)
+    if campaignBox.type == "Generic" then
+      campaignBox.call("buttonClick_download")
+    end
+    Wait.condition(
+      function()
+        if #campaignBox.getObjects() > 0 then
+          placeCampaignFromToken(importData)
+        else
+          createCampaignFromToken(importData)
+        end
+      end,
+      function()
+        local obj = getObjectFromGUID(campaignBoxGUID)
+        if obj == nil then 
+          return false 
+        else
+          return obj.type == "Bag" and obj.getLuaScript() ~= ""
+        end
+      end,
+      2,
+      function() broadcastToAll("Error loading campaign box") end
+    ) 
+  end
+end
+
+-- After box has been downloaded, places content on table
+function placeCampaignFromToken(importData)
+  getObjectFromGUID(campaignBoxGUID).call("buttonClick_place")
+  Wait.condition(
+    function() createCampaignFromToken(importData) end,
+    function() return findCampaignLog() ~= nil end,
+    2,
+    function() broadcastToAll("Error placing campaign box") end
+  )
+end
+
+-- After content is placed on table, conducts all the other import operations
+function createCampaignFromToken(importData)
+  findCampaignLog().destruct()
+  --create campaign log
+  spawnObjectData({data = importData["log"]}) 
+  --create chaos bag
+  chaosBagApi.setChaosBagState(importData["bag"])
+  --populate trauma values
+  if importData["trauma"] then
+    updateCounters(importData["trauma"])
+  end
+  --populate ArkhamDB deck IDs
+  if importData["decks"] then
+    deckImporterApi.setUiState(importData["decks"])
+  end
+  --set investigator count
+  playAreaApi.setInvestigatorCount(importData["clueCount"])
+  --set campaign guide page
+  local guide = findCampaignGuide()
+  if guide then
+    Wait.condition(
+      -- Called after the condition function returns true
+      function()
+        log("Campaign Guide import successful!")
+      end,
+      -- Condition function that is called continiously until returs true or timeout is reached 
+      function()
+        guide.Book.setPage(importData["guide"])
+        return guide.Book.getPage() == importData["guide"]
+      end,
+      -- Amount of time in seconds until the Wait times out
+      1,
+      -- Called if the Wait times out
+      function()
+        log("Campaign Guide import failed!")
+      end
+    )
+  end
+  Wait.time(
+    function() optionPanelApi.loadSettings(importData["options"]) end,
+    0.5
+  )
+  getObjectFromGUID(TOUR_GUID).destruct()
+  playAreaApi.updateSurface(importData["playmat"])
+  broadcastToAll("Campaign successfully imported!", Color.Green)
+end
+
+
+-- Creates a campaign token with save data encoded into GM Notes based on the current state of the table
+function createCampaignToken(_, playerColor, _)
+  -- clean up chaos tokens
+  blessCurseApi.removeAll(playerColor)
+  chaosBagApi.releaseAllSealedTokens(playerColor)
+
+  local campaignBoxGUID = ""
+  -- find active campaign
+  for _, obj in ipairs(getObjectsWithTag("CampaignBox")) do
+    if obj.type == "Bag" and #obj.getObjects() == 0 then
+      if campaignBoxGUID ~= "" then
+        broadcastToAll("Multiple empty campaign box detected; delete all but one.", Color.Red)
+        return
+      end
+      campaignBoxGUID = obj.getGUID()
+    end
+  end
+  if campaignBoxGUID == "" then
+    broadcastToAll("Campaign box with all placed objects not found!", Color.Red)
+    return
+  end
+  local campaignLog = findCampaignLog()
+  if campaignLog == nil then
+    broadcastToAll("Campaign log not found!", Color.Red)
+    return
+  end
+  local traumaValues = nil
+  local counterData = campaignLog.getVar("ref_buttonData")
+  if counterData ~= nil then
+    traumaValues = {}
+    printToAll("Trauma values found in campaign log!", "Green")
+    for i = 1, 10, 3 do
+      traumaValues[1 + (i - 1) / 3] = counterData.counter[i].value
+      traumaValues[5 + (i - 1) / 3] = counterData.counter[i + 1].value
+    end
+  else
+    printToAll("Trauma values could not be found in campaign log!", "Yellow")
+    printToAll("Default values for health and sanity loaded.", "Yellow")
+  end
+  local campaignGuide = findCampaignGuide()
+  if campaignGuide == nil then
+    broadcastToAll("Campaign guide not found!", Color.Red)
+    return
+  end
+  local campaignGuidePage = campaignGuide.Book.getPage()
+  local campaignData = {
+    box = campaignBoxGUID,
+    log = campaignLog.getData(),
+    bag = chaosBagApi.getChaosBagState(),
+    trauma = traumaValues,
+    decks = deckImporterApi.getUiState(),
+    clueCount = playAreaApi.getInvestigatorCount(),
+    guide = campaignGuidePage,
+    options = optionPanelApi.getOptions(),
+    playmat = playAreaApi.getSurface()
+  }
+  campaignTokenData.GMNotes = JSON.encode(campaignData)
+  campaignTokenData.Nickname = os.date("%b %d ") .. getObjectFromGUID(campaignBoxGUID).getName() .. " Save"
+  spawnObjectData({
+    data = campaignTokenData,
+    position = {-21.25, 1.68, 55.59}
+  })
+  broadcastToAll("Campaign successfully exported! Save coin object to import on a fresh save", Color.Green)
+end
+
+
+-- helper functions
+
+function findCampaignLog()
+  local campaignLog = getObjectsWithTag("CampaignLog")
+  if campaignLog then
+    if #campaignLog == 1 then
+    return campaignLog[1]
+    else
+      broadcastToAll("More than 1 campaign log detected; delete all but one.", Color.Red)
+      return nil
+    end
+  else
+    return nil
+  end
+end
+
+function findCampaignGuide() 
+  local campaignGuide = getObjectsWithTag("CampaignGuide")
+  if campaignGuide then
+    if #campaignGuide == 1 then
+      return campaignGuide[1]
+      else
+        broadcastToAll("More than 1 campaign guide detected; delete all but one.", Color.Red)
+        return nil
+      end
+  else
+    return nil
+  end
+end
+
+function updateCounters(tableOfNewValues)
+  if tonumber(tableOfNewValues) then
+    local value = tableOfNewValues
+    tableOfNewValues = {}
+    for i = 1, #DAMAGE_HORROR_GUIDS do
+      table.insert(tableOfNewValues, value)
+    end
+  end
+  
+  for i, guid in ipairs(DAMAGE_HORROR_GUIDS) do
+    local TOKEN = getObjectFromGUID(guid)
+    if TOKEN ~= nil then
+      TOKEN.call("updateVal", tableOfNewValues[i])
+    else
+      printToAll(": No. " .. i .. " could not be found.", "Yellow")
+    end
+  end
+end

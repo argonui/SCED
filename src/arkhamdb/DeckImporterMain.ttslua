@@ -3,10 +3,9 @@ require("playercards/PlayerCardSpawner")
 
 local playmatApi = require("playermat/PlaymatApi")
 local playAreaApi = require("core/PlayAreaApi")
+local allCardsBagApi = require("playercards/AllCardsBagApi")
 local arkhamDb = require("arkhamdb/ArkhamDb")
 local zones = require("playermat/Zones")
-
-local ALL_CARDS_GUID = "15bb07"
 
 function onLoad(script_state)
   initializeUi(JSON.decode(script_state))
@@ -72,11 +71,10 @@ end
 ---@param loadAltInvestigator String Contains the name of alternative art for the investigator ("normal", "revised" or "promo")
 function loadCards(slots, investigatorId, bondedList, customizations, playerColor, loadAltInvestigator)
   function coinside()
-    local allCardsBag = getObjectFromGUID(ALL_CARDS_GUID)
     local yPos = {}
     local cardsToSpawn = {}
     for cardId, cardCount in pairs(slots) do
-      local card = allCardsBag.call("getCardById", { id = cardId })
+      local card = allCardsBagApi.getCardById(cardId)
       if card ~= nil then
         local cardZone = getDefaultCardZone(card.metadata, bondedList)
         for i = 1, cardCount do
@@ -91,6 +89,7 @@ function loadCards(slots, investigatorId, bondedList, customizations, playerColo
     handleUnderworldMarket(cardsToSpawn, playerColor)
     handleHunchDeck(investigatorId, cardsToSpawn, playerColor)
     handleCustomizableUpgrades(cardsToSpawn, customizations)
+    handlePeteSignatureAssets(investigatorId, cardsToSpawn)
 
     -- Split the card list into separate lists for each zone
     local zoneDecks = buildZoneLists(cardsToSpawn)
@@ -185,8 +184,7 @@ end
 -- Returns the simple name of a card given its ID.  This will find the card and strip any trailing
 -- SCED-specific suffixes such as (Taboo) or (Level)
 function getCardName(cardId)
-  local allCardsBag = getObjectFromGUID(ALL_CARDS_GUID)
-  local card = allCardsBag.call("getCardById", { id = cardId })
+  local card = allCardsBagApi.getCardById(cardId)
   if (card ~= nil) then
     local name = card.data.Nickname
     if (string.find(name, " %(")) then
@@ -387,6 +385,27 @@ function handleCustomizableUpgrades(cardList, customizations)
 
         -- write the loaded values to the save_data of the sheets
         card.data["LuaScriptState"] = JSON.encode({ selections = selectedUpgrades })
+      end
+    end
+  end
+end
+
+-- Handles cards that start in play under specific conditions for Ashcan Pete (Regular Pete - Duke, Parallel Pete - Guitar)
+---@param investigatorId String ID for the deck's investigator card. Passed separately because the
+---    investigator may not be included in the cardList
+---@param cardList Table Deck list being created
+function handlePeteSignatureAssets(investigatorId, cardList)
+  log(investigatorId)
+  if investigatorId == "02005" or investigatorId == "02005-pb" then -- regular Pete's front
+    for i, card in ipairs(cardList) do
+      if card.metadata.id == "02014" then -- Duke
+        card.zone = "BlankTop"
+      end
+    end
+  elseif investigatorId == "02005-p" or investigatorId == "02005-pf" then -- parallel Pete's front
+    for i, card in ipairs(cardList) do
+      if card.metadata.id == "90047" then -- Pete's Guitar
+        card.zone = "BlankTop"
       end
     end
   end
