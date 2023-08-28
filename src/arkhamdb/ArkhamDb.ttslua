@@ -1,5 +1,6 @@
 do
   local playAreaApi = require("core/PlayAreaApi")
+  local allCardsBagApi = require("playercards/AllCardsBagApi")
   local ArkhamDb = { }
   local internal = { }
 
@@ -56,8 +57,7 @@ do
       callback)
     -- Get a simple card to see if the bag indexes are complete. If not, abort
     -- the deck load. The called method will handle player notification.
-    local allCardsBag = getObjectFromGUID(configuration.card_bag_guid)
-    local checkCard = allCardsBag.call("getCardById", { id = "01001" })
+    local checkCard = allCardsBagApi.getCardById("01001")
     if (checkCard ~= nil and checkCard.data == nil) then
       return
     end
@@ -146,6 +146,7 @@ do
     internal.maybeAddCustomizeUpgradeSheets(slots)
     internal.maybeAddSummonedServitor(slots)
     internal.maybeAddOnTheMend(slots, playerColor)
+    internal.maybeAddRealityAcidReference(slots)
     local bondList = internal.extractBondedCards(slots)
     internal.checkTaboos(deck.taboo_id, slots, playerColor)
 
@@ -166,19 +167,13 @@ do
   ---@param playerColor String Color of the player this deck is being loaded for. Used for broadcast
   ---    if a weakness is added.
   internal.maybeDrawRandomWeakness = function(slots, playerColor)
-    local allCardsBag = getObjectFromGUID(configuration.card_bag_guid)
-    local randomWeaknessAmount = 0
-    for cardId, cardCount in pairs(slots) do
-      if cardId == RANDOM_WEAKNESS_ID then
-        randomWeaknessAmount = cardCount
-        break
-      end
-    end
+    local randomWeaknessAmount = slots[RANDOM_WEAKNESS_ID] or 0
+    slots[RANDOM_WEAKNESS_ID] = nil
+
     if randomWeaknessAmount ~= 0 then
       for i=1, randomWeaknessAmount do
-        local weaknessId = allCardsBag.call("getRandomWeaknessId")
-        slots[weaknessId] = 1
-        slots[RANDOM_WEAKNESS_ID] = nil
+        local weaknessId = allCardsBagApi.getRandomWeaknessId()
+        slots[weaknessId] = (slots[weaknessId] or 0) + 1
       end
       internal.maybePrint("Added " .. randomWeaknessAmount .. " random basic weakness(es) to deck", playerColor)
     end
@@ -243,10 +238,9 @@ do
   ---@param slots Table The slot list for cards in this deck. Table key is the cardId, value is the number
   --     of those cards which will be spawned
   internal.maybeAddCustomizeUpgradeSheets = function(slots)
-    local allCardsBag = getObjectFromGUID(configuration.card_bag_guid)
     for cardId, _ in pairs(slots) do
       -- upgrade sheets for customizable cards
-      local upgradesheet = allCardsBag.call("getCardById", { id = cardId .. "-c" })
+      local upgradesheet = allCardsBagApi.getCardById(cardId .. "-c")
       if upgradesheet ~= nil then
         slots[cardId .. "-c"] = 1
       end
@@ -280,15 +274,23 @@ do
     end
   end
 
+  -- Process the card list looking for Reality Acid and adds the reference sheet when needed
+  ---@param slots Table The slot list for cards in this deck. Table key is the cardId, value is the number
+  --     of those cards which will be spawned
+  internal.maybeAddRealityAcidReference = function(slots)
+    if slots["89004"] ~= nil then
+      slots["89005"] = 1
+    end
+  end
+
   -- Process the slot list and looks for any cards which are bonded to those in the deck. Adds those cards to the slot list.
   ---@param slots Table The slot list for cards in this deck. Table key is the cardId, value is the number of those cards which will be spawned
   internal.extractBondedCards = function(slots)
-    local allCardsBag = getObjectFromGUID(configuration.card_bag_guid)
     -- Create a list of bonded cards first so we don't modify slots while iterating
     local bondedCards = { }
     local bondedList = { }
     for cardId, cardCount in pairs(slots) do
-      local card = allCardsBag.call("getCardById", { id = cardId })
+      local card = allCardsBagApi.getCardById(cardId)
       if (card ~= nil and card.metadata.bonded ~= nil) then
         for _, bond in ipairs(card.metadata.bonded) do
           bondedCards[bond.id] = bond.count
@@ -312,15 +314,14 @@ do
   ---@param slots Table The slot list for cards in this deck. Table key is the cardId, value is the number of those cards which will be spawned
   internal.checkTaboos = function(tabooId, slots, playerColor)
     if tabooId then
-      local allCardsBag = getObjectFromGUID(configuration.card_bag_guid)
       for cardId, _ in pairs(tabooList[tabooId].cards) do
         if slots[cardId] ~= nil then
           -- Make sure there's a taboo version of the card before we replace it
           -- SCED only maintains the most recent taboo cards. If a deck is using
           -- an older taboo list it's possible the card isn't a taboo any more
-          local tabooCard = allCardsBag.call("getCardById", { id = cardId .. "-t" })
+          local tabooCard = allCardsBagApi.getCardById(cardId .. "-t")
           if tabooCard == nil then
-            local basicCard = allCardsBag.call("getCardById", { id = cardId })
+            local basicCard = allCardsBagApi.getCardById(cardId)
             internal.maybePrint("Taboo version for " .. basicCard.data.Nickname .. " is not available. Using standard version", playerColor)
           else
             slots[cardId .. "-t"] = slots[cardId]
