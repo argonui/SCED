@@ -1,5 +1,4 @@
---[[
-Cleans up the table for the next scenario in a campaign:
+--[[ Cleans up the table for the next scenario in a campaign:
 - sets counters to default values (resources and doom) or trauma values (health and sanity, if not disabled) from campaign log
 - puts everything on playmats and hands into respective trashcans
 - use the IGNORE_TAG to exclude objects from tidying (default: "CleanUpHelper_Ignore")]]
@@ -57,7 +56,14 @@ local PHYSICS_POSITION          = {
   { -00.0, 2, -27 }
 }
 
-local PHYSICS_ROTATION          = { 270, 270, 0, 180, 270, 0 }
+local PHYSICS_ROTATION          = {
+  270,
+  270,
+  0,
+  180,
+  270,
+  0
+}
 
 local PHYSICS_SCALE             = {
   { 36.6, 1, 14.5 },
@@ -76,6 +82,8 @@ options["removeDrawnLines"]     = false
 
 local buttonParameters          = {}
 buttonParameters.function_owner = self
+
+local loadingFailedBefore       = false
 
 ---------------------------------------------------------
 -- option loading and GUI setup
@@ -256,16 +264,7 @@ function getTrauma()
     return
   end
   campaignLog = campaignLog.hit_object
-
-  -- set campaign log to first state
-  local stateId = campaignLog.getStateId()
-  if stateId ~= 1 then
-    campaignLog = campaignLog.setState(1)
-  end
-
-  -- small delay to account for potential state change
-  local spawnDelay = 0.1
-  Wait.time(loadTrauma, spawnDelay)
+  loadTrauma()
 end
 
 -- gets data from campaign log if possible
@@ -276,9 +275,21 @@ function loadTrauma()
     printToAll("Trauma values found in campaign log!", "Green")
     RESET_VALUES = campaignLog.call("returnTrauma")
     updateCounters(DAMAGE_HORROR_GUIDS, RESET_VALUES, "Damage / Horror")
-  else
+    loadingFailedBefore       = false
+  elseif loadingFailedBefore then
     printToAll("Trauma values could not be found in campaign log!", "Yellow")
     printToAll("Default values for health and sanity loaded.", "Yellow")
+    loadingFailedBefore       = false
+  else
+    -- set campaign log to first state
+    local stateId = campaignLog.getStateId()
+    if stateId ~= 1 then
+      campaignLog = campaignLog.setState(1)
+    end
+    loadingFailedBefore = true
+    -- small delay to account for potential state change
+    local spawnDelay = 0.1
+    Wait.time(loadTrauma, spawnDelay)
   end
 end
 
