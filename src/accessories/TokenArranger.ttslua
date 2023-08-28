@@ -37,6 +37,8 @@ local TOKEN_NAMES     = {
   ""
 }
 
+local chaosBagApi = require("chaosbag/ChaosBagApi")
+
 -- saving the precedence settings and information on the most recently loaded data
 function onSave()
   return JSON.encode({
@@ -59,7 +61,6 @@ function onLoad(saveState)
   end
 
   createButtonsAndInputs(true)
-  layout()
 
   -- context menu items
   self.addContextMenuItem("Load default values", function()
@@ -73,8 +74,7 @@ function onLoad(saveState)
       percentage = false
     else
       percentage = "basic"
-      broadcastToAll("Percentages are unreliable when using tokens that draw other tokens (bless or curse for example).",
-      "Yellow")
+      broadcastToAll("Percentages are unreliable when using tokens that draw other tokens (bless or curse for example).", "Yellow")
     end
     layout()
   end)
@@ -85,8 +85,7 @@ function onLoad(saveState)
     else
       percentage = "cumulative"
     end
-    broadcastToAll("Percentages are unreliable when using tokens that draw other tokens (bless or curse for example).",
-    "Yellow")
+    broadcastToAll("Percentages are unreliable when using tokens that draw other tokens (bless or curse for example).", "Yellow")
     layout()
   end)
 end
@@ -228,51 +227,54 @@ function deleteCopiedTokens()
   createButtonsAndInputs()
 end
 
--- creates percentage representation buttons
-function createPercentageButton(basePercentage, valueCount, tokenName, cumulativePercentage)
-  local buttonScale, offset, textColor, labelString
+-- creates buttons as labels as display for percentage values
+function createPercentageButton(tokenCount, valueCount, tokenName)
+  -- parameters for button creation
+  local percentageLabel = {}
+  percentageLabel.click_function = "none"
+  percentageLabel.width = 0
+  percentageLabel.height = 0
+  local startPos = Vector(2.3, -0.05, 0.875 * valueCount)
 
   if percentage == "cumulative" then
-    buttonScale = {1.5, 1.5, 1.5}
-    offset = -2.85
+    percentageLabel.scale = {1.5, 1.5, 1.5}
+    percentageLabel.position = startPos - Vector(0, 0, 2.85)
   else
-    buttonScale = {2, 2, 2}
-    offset = -2.675
+    percentageLabel.scale = {2, 2, 2}
+    percentageLabel.position = startPos - Vector(0, 0, 2.675)
   end
 
-  -- if this is a cumulative button (bottom one of the two created buttons)
-  if cumulativePercentage then
-    offset = -2.45
-    textColor = {1, 1, 1}
+  -- determine font_color
+  if tokenName == "Elder Sign" then
+    percentageLabel.font_color = {0.35, 0.71, 0.85}
+  elseif tokenName == "Auto-fail" then
+    percentageLabel.font_color = {0.86, 0.1, 0.1}
+  -- check if the tokenName contains letters (e.g. symbol token)
+  elseif string.match(tokenName, "%a") ~= nil then
+    percentageLabel.font_color = {0.68, 0.53, 0.86}
+  else
+    percentageLabel.font_color = {0.85, 0.67, 0.33}
+  end
+
+  -- create label for base percentage
+  local basePercentage = math.floor((tokenCount.row / tokenCount.total) * 10000) / 100
+  percentageLabel.label = string.format("%s", string.format("%05.2f", basePercentage) .. "%")
+  self.createButton(percentageLabel)
+
+  -- optionally create label for cumulative percentage
+  if percentage == "cumulative" then
+    percentageLabel.position = startPos - Vector(0, 0, 2.45)
+    percentageLabel.font_color = {1, 1, 1}
     
     -- only display one digit for 100%
-    if cumulativePercentage == 100 then
-      labelString = string.format("%s", string.format("%05.1f", cumulativePercentage) .. "%")
+    if tokenCount.sum == tokenCount.total then
+      percentageLabel.label = "100.0%"
     else
-      labelString = string.format("%s", string.format("%05.2f", cumulativePercentage) .. "%")
+      local cumulativePercentage = math.floor((tokenCount.sum / tokenCount.total) * 10000) / 100
+      percentageLabel.label = string.format("%s", string.format("%05.2f", cumulativePercentage) .. "%")
     end
-  else
-    labelString = string.format("%s", string.format("%05.2f", basePercentage) .. "%")
-    if tokenName == "Elder Sign" then
-      textColor = {0.35, 0.71, 0.85}
-    elseif tokenName == "Auto-fail" then
-      textColor = {0.86, 0.1, 0.1}
-    elseif tokenName then
-      textColor = {0.68, 0.53, 0.86}
-    else
-      textColor = {0.85, 0.67, 0.33}
-    end
+    self.createButton(percentageLabel)
   end
-
-  self.createButton({
-    label = labelString,
-    click_function = "none",
-    width = 0,
-    height = 0,
-    scale = buttonScale,
-    font_color = textColor,
-    position = Vector(2.3, -0.05, offset + 0.875 * valueCount)
-  })
 end
 
 -- main function (delete old tokens, clone chaos bag content, sort it and position it)
@@ -287,19 +289,18 @@ function layout(_, _, isRightClick)
     return
   end
 
-  local chaosBag = Global.call("findChaosBag")
+  local chaosBag = chaosBagApi.findChaosBag()
   local data = {}
 
   -- clone tokens from chaos bag (default position above trash can)
   for i, obj in ipairs(chaosBag.getData().ContainedObjects) do
     obj["Tags"] = { "tempToken" }
+    local value = tonumber(obj.Nickname)
+    local precedence = tokenPrecedence[obj.Nickname]
     local spawnedObj = spawnObjectData({
       data = obj,
       position = { 0.49, 3, 0 }
     })
-
-    local value = tonumber(obj.Nickname)
-    local precedence = tokenPrecedence[obj.Nickname]
 
     data[i] = {
       token = spawnedObj,
@@ -323,50 +324,37 @@ function layout(_, _, isRightClick)
 
   local location = { x = pos.x, y = pos.y, z = pos.z }
   local currentValue = data[1].value
-  local tokenCount = 0
+  local tokenCount = { row = 0, sum = 0, total = #data }
 	local valueCount = 1
-	local cumulativePercentage = 0
   local tokenName = false
 
-  for _, item in ipairs(data) do
+  for i, item in ipairs(data) do
+    -- this is true for the first token in a new row
     if item.value ~= currentValue then
       if percentage then
-        local basePercentage = math.floor((tokenCount / #data) * 10000) / 100
-        createPercentageButton(basePercentage, valueCount, tokenName)
-        if percentage == "cumulative" then
-          cumulativePercentage = cumulativePercentage + basePercentage
-          createPercentageButton(basePercentage, valueCount, tokenName, cumulativePercentage)
-        end
+        tokenCount.sum = tokenCount.sum + tokenCount.row
+        createPercentageButton(tokenCount, valueCount, tokenName)
       end
 
-      location.x   = location.x - 1.75
-      location.z   = pos.z
-      currentValue = item.value
-      valueCount   = valueCount + 1
-      tokenCount   = 0
+      location.x     = location.x - 1.75
+      location.z     = pos.z
+      currentValue   = item.value
+      valueCount     = valueCount + 1
+      tokenCount.row = 0
     end
     
     item.token.setPosition(location)
     item.token.setRotation(self.getRotation())
+    item.token.setLock(true)
     location.z = location.z - 1.75
-    tokenCount = tokenCount + 1
     tokenName  = item.token.getName()
-
-    -- set tokenName to false if it does not contain letters
-    -- tokenName is used by `createPercentageButton()` to determine the textcolor for percentages
-    if string.match(tokenName, "%a") == nil then
-      tokenName = false
-    end
+    tokenCount.row = tokenCount.row + 1
   end
 
   -- this is repeated to create the button for the last token
   if percentage then
-    local basePercentage = math.floor((tokenCount / #data) * 10000) / 100
-    createPercentageButton(basePercentage, valueCount, tokenName)
-    if percentage == "cumulative" then
-      cumulativePercentage = cumulativePercentage + basePercentage
-      createPercentageButton(basePercentage, valueCount, tokenName, cumulativePercentage)
-    end
+    tokenCount.sum = tokenCount.sum + tokenCount.row
+    createPercentageButton(tokenCount, valueCount, tokenName)
   end
 
   -- introducing a small delay to limit update calls

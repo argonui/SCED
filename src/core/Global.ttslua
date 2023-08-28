@@ -42,10 +42,20 @@ local navigationOverlayApi = require("core/NavigationOverlayApi")
 local tokenChecker = require("core/token/TokenChecker")
 
 -- online functionality related variables
-local MOD_VERSION = "3.1.0"
+local MOD_VERSION = "3.2.0"
 local SOURCE_REPO = 'https://raw.githubusercontent.com/chr1z93/loadable-objects/main'
 local library, requestObj, modMeta, notificationVisible
 local acknowledgedUpgradeVersions = {}
+
+local LANGUAGES = {
+  { code = "zh_CN", name = "简体中文" },
+  { code = "zh_TW", name = "繁體中文" },
+  { code = "de", name = "Deutsch" },
+  { code = "en", name = "English" },
+  { code = "es", name = "Español" },
+  { code = "fr", name = "Français" },
+  { code = "it", name = "Italiano" }
+}
 
 ---------------------------------------------------------
 -- data for tokens
@@ -538,8 +548,37 @@ function getDataValue(storage, key)
   end
 end
 
+function createChaosTokenNameLookupTable()
+  local namesToIds = {}
+  for k, v in pairs(ID_URL_MAP) do
+    namesToIds[v.name] = k
+  end
+  return namesToIds
+end
+
+-- returns a Table List of chaos token ids in the current chaos bag
+---@api chaosbag/ChaosBagApi
+function getChaosBagState()
+  local tokens = {}
+  local invertedTable = createChaosTokenNameLookupTable()
+  local chaosbag = findChaosBag()
+
+  for _, v in ipairs(chaosbag.getObjects()) do
+    local id = invertedTable[v.name]
+    if id then
+      table.insert(tokens, id)
+    else
+      printToAll(v.name .. " token not recognized. Will not be recorded.", "Yellow")
+    end
+  end
+
+  return tokens
+
+end
+
 -- respawns the chaos bag with a new state of tokens
 ---@param tokenList Table List of chaos token ids
+---@api chaosbag/ChaosBagApi
 function setChaosBagState(tokenList)
   if not canTouchChaosTokens() then return end
 
@@ -847,15 +886,32 @@ function onClick_toggleOption(_, id)
   applyOptionPanelChange(id, state)
 end
 
+-- called by the language selection dropdown
+function languageSelected(_, selectedIndex, id)
+  optionPanel[id] = LANGUAGES[tonumber(selectedIndex) + 1].code
+end
+
+-- returns the ID (position in the table) for a provided language code
+function returnLanguageId(code)
+  for index, tbl in ipairs(LANGUAGES) do
+    if tbl.code == code then
+      return index
+    end
+  end
+end
+
 -- sets the option panel to the correct state (corresponding to 'optionPanel')
 function updateOptionPanelState()
-  for id, enabled in pairs(optionPanel) do
-    if (type(enabled) == "boolean" and enabled)
-        or (type(enabled) == "string" and enabled)
-        or (type(enabled) == "table" and #enabled ~= 0) then
-      self.UI.setAttribute(id, "isOn", true)
+  for id, optionValue in pairs(optionPanel) do
+    if id == "cardLanguage" and type(optionValue) == "string" then
+      local dropdownId = returnLanguageId(optionValue) - 1
+      UI.setAttribute(id, "value", dropdownId)
+    elseif (type(optionValue) == "boolean" and optionValue)
+        or (type(optionValue) == "string" and optionValue)
+        or (type(optionValue) == "table" and #optionValue ~= 0) then
+      UI.setAttribute(id, "isOn", true)
     else
-      self.UI.setAttribute(id, "isOn", "False")
+      UI.setAttribute(id, "isOn", "False")
     end
   end
 end
@@ -895,10 +951,6 @@ function applyOptionPanelChange(id, state)
   elseif id == "showTitleSplash" then
     optionPanel[id] = state
 
-  -- option: Show token arranger
-  elseif id == "showTokenArranger" then
-    optionPanel[id] = spawnOrRemoveHelper(state, "Token Arranger", {-42.3, 1.6, -46.5})
-
   -- option: Show clean up helper
   elseif id == "showCleanUpHelper" then
     optionPanel[id] = spawnOrRemoveHelper(state, "Clean Up Helper", {-66, 1.6, 46})
@@ -918,10 +970,6 @@ function applyOptionPanelChange(id, state)
       local rot = playmatApi.returnRotation(color)
       optionPanel[id][i] = spawnOrRemoveHelper(state, "Search Assistant", pos, rot)
     end
-
-  -- option: Show chaos bag manager
-  elseif id == "showChaosBagManager" then
-    optionPanel[id] = spawnOrRemoveHelper(state, "Chaos Bag Manager", {-66, 1.6, -49.5})
 
   -- option: Show attachment helper
   elseif id == "showAttachmentHelper" then
@@ -948,7 +996,9 @@ end
 ---@param rotation Vector Rotation of the object for spawning (default: {0, 270, 0})
 ---@return. GUID of the spawnedObj (or nil if object was removed)
 function spawnOrRemoveHelper(state, name, position, rotation)
-  if state then
+  if (type(state) == "table" and #state == 0) then
+    return removeHelperObject(name)
+  elseif state then
     Player.getPlayers()[1].pingTable(position)
     return spawnHelperObject(name, position, rotation).getGUID()
   else
@@ -991,11 +1041,9 @@ end
 function removeHelperObject(name)
   -- links objects name to the respective option name (to grab the GUID for removal)
   local referenceTable = {
-    ["Token Arranger"]        = "showTokenArranger",
     ["Clean Up Helper"]       = "showCleanUpHelper",
     ["Hand Helper"]           = "showHandHelper",
     ["Search Assistant"]      = "showSearchAssistant",
-    ["Chaos Bag Manager"]     = "showChaosBagManager",
     ["Displacement Tool"]     = "showDisplacementTool",
     ["Custom Playmat Images"] = "showCustomPlaymatImages",
     ["Attachment Helper"]     = "showAttachmentHelper",
@@ -1018,6 +1066,15 @@ function removeHelperObject(name)
   end
 end
 
+-- loads saved options
+function loadSettings(newOptions)
+  optionPanel = newOptions
+  updateOptionPanelState()
+  for id, state in pairs(optionPanel) do
+    applyOptionPanelChange(id, state)
+  end
+end
+
 -- loads the default options
 function onClick_defaultSettings()
   for id, _ in pairs(optionPanel) do
@@ -1034,7 +1091,6 @@ function onClick_defaultSettings()
     playAreaSnapTags = true,
     showAttachmentHelper = false,
     showCleanUpHelper = false,
-    showChaosBagManager = false,
     showCustomPlaymatImages = false,
     showCYOA = false,
     showDisplacementTool = false,
@@ -1042,7 +1098,6 @@ function onClick_defaultSettings()
     showHandHelper = {},
     showSearchAssistant = {},
     showTitleSplash = true,
-    showTokenArranger = false,
     useClueClickers = false,
     useSnapTags = true
   }
