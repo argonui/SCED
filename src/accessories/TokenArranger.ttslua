@@ -18,6 +18,12 @@ inputParameters.alignment       = 3
 inputParameters.validation      = 2
 inputParameters.tab             = 2
 
+local percentageLabel           = {}
+percentageLabel.function_owner  = self
+percentageLabel.click_function  = "none"
+percentageLabel.width           = 0
+percentageLabel.height          = 0
+
 -- variables with save function
 local tokenPrecedence = {}
 local percentage      = false
@@ -58,7 +64,7 @@ function onLoad(saveState)
     Wait.time(function() onTokenDataChanged(mythosAreaApi.returnTokenData()) end, 0.2)
   end
 
-  createButtonsAndInputs(true)
+  createButtonsAndInputs()
 
   -- context menu items
   self.addContextMenuItem("Load default values", function()
@@ -96,23 +102,6 @@ function onDrop() Wait.time(layout, 1.5) end
 
 -- delete temporary tokens when picked up
 function onPickUp() deleteCopiedTokens() end
-
--- helper functions to carry index
-function attachIndex(click_function, index)
-  local fn_name = click_function .. index
-  _G[fn_name] = function(_, _, isRightClick)
-    _G[click_function](isRightClick, index)
-  end
-  return fn_name
-end
-
-function attachIndex2(input_function, index)
-  local fn_name = input_function .. index
-  _G[fn_name] = function(_, _, input, selected)
-    _G[input_function](input, selected, index)
-  end
-  return fn_name
-end
 
 -- click_function for buttons on chaos tokens
 function tokenClick(isRightClick, index)
@@ -154,8 +143,8 @@ function loadDefaultValues()
   }
 end
 
--- creates buttons and inputs (if argument is true)
-function createButtonsAndInputs(loadInputs)
+-- creates buttons and inputs
+function createButtonsAndInputs()
   local offset = 0.725
   local pos    = { x = { -1.067, 0.377 }, z = -2.175 }
 
@@ -169,15 +158,17 @@ function createButtonsAndInputs(loadInputs)
       inputParameters.position  = { pos.x[2] + offset, 0.1, pos.z + (i - 5) * offset }  
     end
 
-    buttonParameters.click_function  = attachIndex("tokenClick", i)
-    self.createButton(buttonParameters)
+    buttonParameters.click_function = "tokenClick" .. i
+    inputParameters.input_function  = "tokenInput" .. i
+    inputParameters.value           = tokenPrecedence[TOKEN_NAMES[i]][1]
 
-    -- only create inputs on initial load
-    if loadInputs then
-      inputParameters.input_function = attachIndex2("tokenInput", i)
-      inputParameters.value          = tokenPrecedence[TOKEN_NAMES[i]][1]
-      self.createInput(inputParameters)
-    end
+    -- setting click-/inputfunction
+    self.setVar(buttonParameters.click_function, function(_, _, isRightClick) tokenClick(isRightClick, i) end)
+    self.setVar(inputParameters.input_function, function(_, _, input, selected) tokenInput(input, selected, i) end)
+
+    -- button/input creation
+    self.createButton(buttonParameters)
+    self.createInput(inputParameters)
   end
 
   -- index 10: "Update / Hide" button
@@ -205,7 +196,7 @@ end
 
 -- order function for data sorting
 function tokenValueComparator(left, right)
-  if (left.value ~= right.value) then
+  if left.value ~= right.value then
     return left.value > right.value
   elseif left.order ~= right.order then
     return left.order < right.order
@@ -220,18 +211,17 @@ function deleteCopiedTokens()
     token.destruct()
   end
 
-  -- this removes the percentage buttons
-  self.clearButtons()
-  createButtonsAndInputs()
+  -- this removes the percentage buttons (by index 11+)
+  local buttonCount = #self.getButtons()
+  if buttonCount < 12 then return end
+
+  for i = buttonCount, 12, -1 do
+    self.removeButton(i - 1)
+  end
 end
 
 -- creates buttons as labels as display for percentage values
 function createPercentageButton(tokenCount, valueCount, tokenName)
-  -- parameters for button creation
-  local percentageLabel = {}
-  percentageLabel.click_function = "none"
-  percentageLabel.width = 0
-  percentageLabel.height = 0
   local startPos = Vector(2.3, -0.05, 0.875 * valueCount)
 
   if percentage == "cumulative" then
@@ -287,10 +277,15 @@ function layout(_, _, isRightClick)
     return
   end
 
+   -- get ChaosBag and stop if not found
   local chaosBag = Global.call("findChaosBag")
-  local data = {}
+  if not chaosBag then
+    updating = false
+    return
+  end
 
   -- clone tokens from chaos bag (default position above trash can)
+  local data = {}
   for i, objData in ipairs(chaosBag.getData().ContainedObjects) do
     objData["Tags"] = { "tempToken" }
     local value = tonumber(objData.Nickname)
@@ -324,7 +319,6 @@ function layout(_, _, isRightClick)
   local tokenName = false
 
   for i, item in ipairs(data) do
-
     -- this is true for the first token in a new row
     if item.value ~= currentValue then
       if percentage then
@@ -339,14 +333,12 @@ function layout(_, _, isRightClick)
       tokenCount.row = 0
     end
 
-    local spawnedObj = spawnObjectData({
+    spawnObjectData({
       data = item.token,
-      position = { 0.49, 2 + 0.5*i, 0 }
+      position = location,
+      rotation = rotation
     })
-    spawnedObj.setPosition(location)
-    spawnedObj.setRotation(rotation)
-    spawnedObj.setLock(true)
-    tokenName  = spawnedObj.getName()
+    tokenName  = item.token.Nickname
     location.z = location.z - 1.75
     tokenCount.row = tokenCount.row + 1
   end
