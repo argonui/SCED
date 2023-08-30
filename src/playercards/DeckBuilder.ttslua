@@ -8,7 +8,7 @@ local placingDeck         = false
 local placingCard         = false
 
 local cardLookupTable = {
-  faction =   function(specInstance, isUpgraded) return allCardsBagApi.getCardsByClassAndLevel({ class = specInstance, upgraded = isUpgraded }) end,
+  faction =   function(specInstance, isUpgraded) return allCardsBagApi.getCardsByClassAndLevel(specInstance, isUpgraded ) end,
   trait   =   function(specInstance) return allCardsBagApi.getCardsByTrait(specInstance) end,
   special =   function(specInstance) return allCardsBagApi.getCardsBySpecialCriteria(specInstance) end
 }
@@ -144,8 +144,9 @@ function onObjectEnterZone(zone, object)
   if zone.guid == deckZoneGUID and deckObject and not placingDeck and not placingCard then
     log("Entered Zone")
     placingCard = true
-    deckObject.putObject(object.reload())
-    Wait.frames(function() placingCard = false end, 5)
+    local newObject = object.reload()
+    Wait.frames(function() deckObject.putObject(newObject) end, 5)
+    Wait.frames(function() placingCard = false end, 10)
   end
 end
 
@@ -175,14 +176,14 @@ function onCollisionEnter(info)
     investigatorObject = info.collision_object
     investigatorData = JSON.decode(investigatorObject.getGMNotes()) 
     if not investigatorData.deck_requirements or not investigatorData.deck_options then
-      broadcastToAll("No Investigator Deckbuilding Metadata Detected)
+      broadcastToAll("No Investigator Deckbuilding Metadata Detected")
       return
     end
     broadcastToAll("Investigator Detected: " .. info.collision_object.getName(), Color.Green)
-    if investigatorData.deck_requirements.signatures then
+    if investigatorData.deck_requirements.signatures and deckObject == nil and not placingDeck then
       local cardsToSpawn = {}
       for cardId, cardCount in pairs(investigatorData.deck_requirements.signatures) do
-        local card = allCardsBagApi.getCardById({ id = cardId })
+        local card = allCardsBagApi.getCardById(cardId)
         if card ~= nil then
           for i = 1, cardCount do
             table.insert(cardsToSpawn, { data = card.data, metadata = card.metadata})
@@ -316,12 +317,12 @@ function placeDeck()
 
   for _, card in ipairs(deckObject.getObjects()) do
     local cardId = JSON.decode(card.gm_notes).id
-    local cardMetadata = allCardsBagApi.getCardById({ id = cardId }).metadata
+    local cardMetadata = allCardsBagApi.getCardById(cardId).metadata
     if cardMetadata.type == "Skill" then
       table.insert(cardList.skillList, cardId)
     elseif cardMetadata.type == "Event" then
       table.insert(cardList.eventList, cardId)
-    elseif cardMetadata.type == "Asset" then
+    elseif cardMetadata.type == "Asset" and not cardMetadata.permanent then
       table.insert(cardList.assetList, cardId)
     else
       table.insert(cardList.otherList, cardId)
@@ -400,13 +401,14 @@ function importDeck(coinObject)
   destroyObject(coinObject)
   local cardsToSpawn = {}
   for cardId, cardCount in pairs(deckData.slots) do
-    local card = allCardsBagApi.getCardById({ id = cardId })
+    local card = allCardsBagApi.getCardById(cardId)
     if card ~= nil then
       for i = 1, cardCount do
         table.insert(cardsToSpawn, { data = card.data, metadata = card.metadata})
       end
     end
   end
+  placingDeck = true
   Spawner.spawnCards(
     cardsToSpawn,
     { x = 53.22, y = 2, z = 46.46},
@@ -414,9 +416,9 @@ function importDeck(coinObject)
     true,
     function() end
   )
-  log(allCardsBagApi.getCardById({ id = deckData.investigatorId }))
+  log(allCardsBagApi.getCardById(deckData.investigatorId))
   Spawner.spawnCards(
-    {allCardsBagApi.getCardById({ id = deckData.investigatorId })},
+    {allCardsBagApi.getCardById(deckData.investigatorId)},
     { x = 60.92,  y = 2, z = 46.51},
     { x = 0.00, y = 270.00, z = 0.00}
   )
@@ -478,7 +480,7 @@ function placeCards(isUpgraded, alt_click)
         for _, specInstance in ipairs(cardSpec[specType]) do
           if (cardSpec.choiceName == choiceSelection[cardSpec.choiceName]) and ((cardSpec.level.min == 0 and not isUpgraded) or (cardSpec.level.max > 0 and isUpgraded)) then
             for _, cardId in ipairs(cardLookupTable[specType](specInstance, isUpgraded)) do
-              local cardMetadata = allCardsBagApi.getCardById({ id = cardId }).metadata
+              local cardMetadata = allCardsBagApi.getCardById(cardId).metadata
               if isUpgraded == (cardMetadata.level > 0) and cardMetadata.level >= cardSpec.level.min and cardMetadata.level <= cardSpec.level.max then
                 if cardSpec.limit and sortMethod == "limited" then
                   insertCardSet(cardSet, cardList.limitedCardList, cardMetadata, cardId, cardSpec["not"], exclusionSet, cardSpec.type)
