@@ -318,11 +318,13 @@ function placeDeck()
   for _, card in ipairs(deckObject.getObjects()) do
     local cardId = JSON.decode(card.gm_notes).id
     local cardMetadata = allCardsBagApi.getCardById(cardId).metadata
-    if cardMetadata.type == "Skill" then
+    if not cardMetadata.level or cardMetadata.permanent then
+      table.insert(cardList.otherList, cardId)
+    elseif cardMetadata.type == "Skill" then
       table.insert(cardList.skillList, cardId)
     elseif cardMetadata.type == "Event" then
       table.insert(cardList.eventList, cardId)
-    elseif cardMetadata.type == "Asset" and not cardMetadata.permanent then
+    elseif cardMetadata.type == "Asset" then
       table.insert(cardList.assetList, cardId)
     else
       table.insert(cardList.otherList, cardId)
@@ -398,6 +400,7 @@ end
 
 function importDeck(coinObject)
   local deckData = JSON.decode(coinObject.getGMNotes())
+  local deckName = coinObject.getName()
   destroyObject(coinObject)
   local cardsToSpawn = {}
   for cardId, cardCount in pairs(deckData.slots) do
@@ -414,7 +417,7 @@ function importDeck(coinObject)
     { x = 53.22, y = 2, z = 46.46},
     { x = 0.00, y = 270.00, z = 0.00},
     true,
-    function() end
+    function(obj) obj.setName(deckName) end
   )
   log(allCardsBagApi.getCardById(deckData.investigatorId))
   Spawner.spawnCards(
