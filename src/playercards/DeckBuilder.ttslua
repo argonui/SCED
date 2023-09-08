@@ -23,9 +23,9 @@ local deckTokenData = {
     rotX = 0,
     rotY = 270,
     rotZ = 0,
-    scaleX = 1.5,
-    scaleY = 1.5,
-    scaleZ = 1.5
+    scaleX = 1,
+    scaleY = 1,
+    scaleZ = 1
   },
   Nickname = "Arkham Coin",
   Description = "SCED Importer Token",
@@ -35,7 +35,7 @@ local deckTokenData = {
   },
   CustomMesh = {
     MeshURL = "http://cloud-3.steamusercontent.com/ugc/943949966265929204/A38BB5D72419E6298385556D931877C0A1A55C17/",
-    DiffuseURL = "http://cloud-3.steamusercontent.com/ugc/254843371583188147/920981125E37B5CEB6C400E3FD353A2C428DA969/",
+    DiffuseURL = "http://cloud-3.steamusercontent.com/ugc/254843371583186619/365F95EC37B9B27DA32781DB460F0B70DB22F43F/",
     NormalURL = "",
     ColliderURL = "http://cloud-3.steamusercontent.com/ugc/943949966265929204/A38BB5D72419E6298385556D931877C0A1A55C17/",
     Convex = true,
@@ -170,6 +170,7 @@ function onCollisionEnter(info)
   local objectData = info.collision_object.getData()
   if objectData.Name == "Deck" then
     deckObject = info.collision_object
+    checkForCustomizableUpgrades()
     placeDeck()
     playerCardPanelApi.disable()
   elseif info.collision_object.hasTag("Investigator") then
@@ -208,8 +209,8 @@ end
 
 function onCollisionExit(info)
   local objectData = info.collision_object.getData()
-  log(investigatorObject == info.collision_object)
   if objectData.Name == "Deck" then
+    updateCustomizableUpgrades()
     removeDeck()
   elseif investigatorObject == info.collision_object then
     investigatorData = nil
@@ -315,10 +316,15 @@ function placeDeck()
     assetList = {}
   }
 
+  local customizableList = {}
+
   for _, card in ipairs(deckObject.getObjects()) do
     local cardId = JSON.decode(card.gm_notes).id
     local cardMetadata = allCardsBagApi.getCardById(cardId).metadata
     if not cardMetadata.level or cardMetadata.permanent then
+      if string.match(cardMetadata.id, "-c$") then
+        customizableList[cardMetadata.id] = card
+      end
       table.insert(cardList.otherList, cardId)
     elseif cardMetadata.type == "Skill" then
       table.insert(cardList.skillList, cardId)
@@ -344,7 +350,52 @@ function placeDeck()
     spreadCols = 20,
     targetState = "default"
   })
+  Wait.frames(function() displayCustomizableUpgrades(customizableList) end, 5)
+end
+
+function displayCustomizableUpgrades(customizableList) 
+  for _, card in ipairs(getObjectFromGUID(deckZoneGUID).getObjects()) do
+    local customSheet = customizableList[JSON.decode(card.getGMNotes()).id]
+    if customSheet then
+      card.script_state = customSheet.lua_script_state
+      card.reload()
+    end
+  end
   Wait.frames(function() placingDeck = false end, 5)
+end
+
+function updateCustomizableUpgrades()
+  local customizableList = { isFormatted = true }
+  for _, card in ipairs(getObjectFromGUID(deckZoneGUID).getObjects()) do
+    local customSheetId = JSON.decode(card.getGMNotes()).id
+    if string.match(customSheetId, "-c$") then
+      customizableList[customSheetId] = card.script_state
+    end
+  end
+  log(customizableList)
+  if next(customizableList) then
+    deckObject.setGMNotes(JSON.encode(customizableList))
+  end
+  return customizableList
+end
+
+function checkForCustomizableUpgrades()
+  if deckObject.getGMNotes() ~= "" then
+    local customizableList = JSON.decode(deckObject.getGMNotes())
+    local deckData = deckObject.getData()
+    deckData.GMNotes = ""
+    local cardList = {}
+    destroyObject(deckObject)
+    for _, card in ipairs(deckData.ContainedObjects) do
+      local customSheetId = JSON.decode(card.GMNotes).id
+      if string.match(customSheetId, "-c$") then
+        card.LuaScriptState = customizableList[customSheetId]
+      end
+      table.insert(cardList, card)
+    end
+    deckData.ContainedObjects = cardList
+    deckObject = spawnObjectData({data = deckData})
+  end
 end
 
 function removeDeck()
@@ -353,13 +404,13 @@ function removeDeck()
   playerCardPanelApi.enable()
 end
 
-function exportDeck(_, _, _) 
+function exportDeck(_, _, _)
   if(deckObject and investigatorData) then
     local deckList = {
       slots = { },
       investigatorId  = "",
       bondedList = { },
-      customizations = { },
+      customizations = updateCustomizableUpgrades(),
       loadAltInvestigator = "normal"
     }
     -- Handle investigator
@@ -402,6 +453,9 @@ function importDeck(coinObject)
   local deckData = JSON.decode(coinObject.getGMNotes())
   local deckName = coinObject.getName()
   destroyObject(coinObject)
+  if investigatorObject then
+    destroyObject(investigatorObject)
+  end
   local cardsToSpawn = {}
   for cardId, cardCount in pairs(deckData.slots) do
     local card = allCardsBagApi.getCardById(cardId)
@@ -419,12 +473,22 @@ function importDeck(coinObject)
     true,
     function(obj) obj.setName(deckName) end
   )
-  log(allCardsBagApi.getCardById(deckData.investigatorId))
   Spawner.spawnCards(
     {allCardsBagApi.getCardById(deckData.investigatorId)},
     { x = 60.92,  y = 2, z = 46.51},
     { x = 0.00, y = 270.00, z = 0.00}
   )
+  Wait.condition(function()
+    deckObject.setGMNotes(JSON.encode(deckData.customizations))
+    checkForCustomizableUpgrades()
+  end,
+  function()
+    if deckObject then
+      return true
+    else
+      return false
+    end
+  end)
 end
 
 function placeCardsBasic(_, _, alt_click)
