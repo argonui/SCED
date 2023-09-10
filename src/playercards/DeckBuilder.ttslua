@@ -6,6 +6,7 @@ local deckZoneGUID        = "cba5d4"
 local deckObject          = nil
 local placingDeck         = false
 local placingCard         = false
+local editingDeck         = false
 
 local cardLookupTable = {
   faction =   function(specInstance, isUpgraded) return allCardsBagApi.getCardsByClassAndLevel(specInstance, isUpgraded ) end,
@@ -168,10 +169,10 @@ end
 function onCollisionEnter(info)
   --Detects if PlayerDeck object (a 'Deck Coin') has been placed on the deck builder
   local objectData = info.collision_object.getData()
-  if objectData.Name == "Deck" then
+  if objectData.Name == "Deck" and not editingDeck then
     deckObject = info.collision_object
     checkForCustomizableUpgrades()
-    placeDeck()
+    Wait.condition(placeDeck, function() return not editingDeck end)
     playerCardPanelApi.disable()
   elseif info.collision_object.hasTag("Investigator") then
     investigatorObject = info.collision_object
@@ -209,7 +210,7 @@ end
 
 function onCollisionExit(info)
   local objectData = info.collision_object.getData()
-  if objectData.Name == "Deck" then
+  if objectData.Name == "Deck" and not editingDeck then
     updateCustomizableUpgrades()
     removeDeck()
   elseif investigatorObject == info.collision_object then
@@ -221,7 +222,7 @@ function onCollisionExit(info)
 end
 
 function onObjectDestroy(object)
-  if object == deckObject then
+  if object == deckObject and not editingDeck then
     removeDeck()
   elseif object == investigatorObject then
     investigatorData = nil
@@ -381,6 +382,7 @@ end
 
 function checkForCustomizableUpgrades()
   if deckObject.getGMNotes() ~= "" then
+    editingDeck = true
     local customizableList = JSON.decode(deckObject.getGMNotes())
     local deckData = deckObject.getData()
     deckData.GMNotes = ""
@@ -395,6 +397,7 @@ function checkForCustomizableUpgrades()
     end
     deckData.ContainedObjects = cardList
     deckObject = spawnObjectData({data = deckData})
+    Wait.frames(function() editingDeck = false end, 5)
   end
 end
 
