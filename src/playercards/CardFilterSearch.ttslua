@@ -186,28 +186,26 @@ end
 
 function createFilterCardList(tokenList)
   local filterCardList = {}
-  local parenthesesOperator = ""
-  local parenthesesCardSet = {}
-  local insideParentheses = false
+  local parenthesesLevel = 0
+  local parenthesesData = {}
   local previousToken = ""
 
 
   for _, token in ipairs(tokenList) do
     if token == "(" then
-      if insideParentheses then
-        broadcastToAll("Cannot nest parentheses", Color.Red)
-        return
-      end
-      insideParentheses = true
-      parenthesesOperator = previousToken
-      parenthesesCardSet = filterCardList
+      parenthesesLevel = parenthesesLevel + 1
+      parenthesesData[parenthesesLevel] = {
+        operator = previousToken,
+        cardSet = filterCardList
+      }
       filterCardList = {}
     elseif token == ")" then
-      if not insideParentheses then
+      if parenthesesLevel < 1 then
         broadcastToAll("Closing parentheses without opening", Color.Red)
-        return
+        return {}
       end
-      insideParentheses = false
+      local parenthesesOperator = parenthesesData[parenthesesLevel].operator
+      local parenthesesCardSet = parenthesesData[parenthesesLevel].cardSet
       if parenthesesOperator == "&" then
         local replacementList = {}
         for cardId, _ in pairs(filterCardList) do
@@ -216,13 +214,14 @@ function createFilterCardList(tokenList)
           end
         end
         parenthesesCardSet = replacementList
-      elseif parenthesesOperator == "" or parenthesesOperator == "|" then
+      elseif parenthesesOperator == "" or parenthesesOperator == "|" or parenthesesOperator == "(" or parenthesesOperator == ")" then
         for cardId, _ in pairs(filterCardList) do
           parenthesesCardSet[cardId] = true
         end
       end
       filterCardList = parenthesesCardSet
-      parenthesesCardSet = {}
+      parenthesesData[parenthesesLevel] = {}
+      parenthesesLevel = parenthesesLevel - 1
     elseif token ~= "&" and token ~= "|" then
       local filter    =   string.sub(token, 1, 1)
       local operator  =   string.sub(token, 2, 2)
@@ -231,7 +230,7 @@ function createFilterCardList(tokenList)
 
       if not filterOptions[filter] then
         broadcastToAll("Invalid filter type", Color.Red)
-        return
+        return {}
       end
 
       if operator == ":" or operator == "!" then
@@ -278,7 +277,7 @@ function createFilterCardList(tokenList)
           matchingCards = allCardsBagApi.getPermanents()
         else
           broadcastToAll("Invalid combination of filter type and operator", Color.Red)
-          return
+          return {}
         end
       elseif operator == "<" or operator == ">" then
         value = tonumber(value)
@@ -341,14 +340,16 @@ function createFilterCardList(tokenList)
           end
         else
           broadcastToAll("Invalid combination of filter type and operator", Color.Red)
-          return
+          return {}
         end
       else
         broadcastToAll("Invalid filter operator", Color.Red)
+        return {}
       end
 
       if not matchingCards then
         broadcastToAll("Error in filter input", Color.Red)
+        return {}
       else 
         if operator == "!" or operator == ">" then
           matchingCards = allCardsBagApi.getOppositeCards(matchingCards)
@@ -371,6 +372,11 @@ function createFilterCardList(tokenList)
       end
     end
     previousToken = token
+  end
+
+  if parenthesesLevel > 0 then
+    broadcastToAll("Did not close " .. parenthesesLevel .. " parentheses", Color.Red)
+    return {}
   end
 
   local finalList = {}
