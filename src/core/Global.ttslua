@@ -27,7 +27,6 @@ local NOT_INTERACTABLE = {
 
 local chaosTokens = {}
 local chaosTokensLastMat = nil
-local IS_RESHUFFLING = false
 local bagSearchers = {}
 local MAT_COLORS = {"White", "Orange", "Green", "Red"}
 local hideTitleSplashWaitFunctionId = nil
@@ -138,14 +137,6 @@ function onLoad(savedData)
   math.randomseed(os.time())
 end
 
----------------------------------------------------------
--- encounter card drawing
----------------------------------------------------------
-
-function isDeck(x) return x.tag == 'Deck' end
-
-function isCardOrDeck(x) return x.tag == 'Card' or x.tag == 'Deck' end
-
 -- Event hook for any object search.  When chaos tokens are manipulated while the chaos bag
 -- container is being searched, a TTS bug can cause tokens to duplicate or vanish.  We lock the
 -- chaos bag during search operations to avoid this.
@@ -172,82 +163,6 @@ end
 function tryObjectEnterContainer(container, object)
   playAreaAPI.tryObjectEnterContainer(container, object)
   return true
-end
-
-function drawEncountercard(params)
-  local position = params[1]
-  local rotation = params[2]
-  local alwaysFaceUp = params[3]
-  local card
-  local items = findInRadiusBy(ENCOUNTER_DECK_POS, 4, isCardOrDeck)
-  if #items > 0 then
-    for _, v in ipairs(items) do
-      if v.tag == 'Deck' then
-        card = v.takeObject({index = 0})
-        break
-      end
-    end
-    -- we didn't find the deck so just pull the first thing we did find
-    if card == nil then card = items[1] end
-    actualEncounterCardDraw(card, params)
-  else
-    -- nothing here, time to reshuffle
-    reshuffleEncounterDeck(params)
-  end
-end
-
-function actualEncounterCardDraw(card, params)
-  local position = params[1]
-  local rotation = params[2]
-  local alwaysFaceUp = params[3]
-  local faceUpRotation = 0
-  if not alwaysFaceUp then
-    local metadata = JSON.decode(card.getGMNotes()) or {}
-    if metadata.hidden or getObjectFromGUID(DATA_HELPER_GUID).call('checkHiddenCard', card.getName()) then
-      faceUpRotation = 180
-    end
-  end
-  card.setPositionSmooth(position, false, false)
-  card.setRotationSmooth({0, rotation.y, faceUpRotation}, false, false)
-end
-
-function reshuffleEncounterDeck(params)
-  -- finishes moving the deck back and draws a card
-  local function move(deck)
-    deck.setPositionSmooth({ENCOUNTER_DECK_POS[1], ENCOUNTER_DECK_POS[2] + 2, ENCOUNTER_DECK_POS[3]}, false, true)
-    actualEncounterCardDraw(deck.takeObject({index=0}), params)
-    Wait.time(function() IS_RESHUFFLING = false end, 1)
-  end
-  -- bail out if we're mid reshuffle
-  if IS_RESHUFFLING then return end
-  local discarded = findInRadiusBy(ENCOUNTER_DECK_DISCARD_POSITION, 4, isDeck)
-  if #discarded > 0 then
-    IS_RESHUFFLING = true
-    local deck = discarded[1]
-    if not deck.is_face_down then deck.flip() end
-    deck.shuffle()
-    Wait.time(|| move(deck), 0.3)
-  else
-    printToAll("Couldn't find encounter discard pile to reshuffle.", {1, 0, 0})
-  end
-end
-
-function findInRadiusBy(pos, radius, filter)
-  local objList = Physics.cast({
-    origin = pos,
-    direction = {0, 1, 0},
-    type = 2,
-    size = {radius, radius, radius},
-    max_distance = 0
-  })
-
-  local filteredList = {}
-  for _, obj in ipairs(objList) do
-    if filter and filter(obj.hit_object) then
-      table.insert(filteredList, obj.hit_object)
-    end
-  end
-  return filteredList
 end
 
 ---------------------------------------------------------
