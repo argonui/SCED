@@ -17,7 +17,7 @@ inputParameters.font_size      = 50
 local buttonParameters          = {}
 buttonParameters.function_owner = self
 buttonParameters.height         = 100
-buttonParameters.width          = 1000
+buttonParameters.width          = 900
 buttonParameters.font_size      = 75
 
 local filterOptions = {
@@ -47,9 +47,14 @@ function onLoad(saved_data)
     -- inputParameters.value = loaded_data[3] or ""
 
     -- index 0: button for spawn mode
-    buttonParameters.click_function = "filterSearch"
-    buttonParameters.label          = "Spawn matching cards!"
-    buttonParameters.position       = { 0, 0.1, -0.5 }
+    buttonParameters.click_function = "newFilterSearch"
+    buttonParameters.label          = "Spawn matching cards"
+    buttonParameters.position       = { -1, 0.1, -0.5 }
+    self.createButton(buttonParameters)
+
+    buttonParameters.click_function = "existingFilterSearch"
+    buttonParameters.label          = "Filter placed cards"
+    buttonParameters.position       = { 1, 0.1, -0.5 }
     self.createButton(buttonParameters)
 
     -- -- index 1: button for spawn mode
@@ -78,25 +83,44 @@ end
 function input_func(_, _, input, stillEditing)
   if not stillEditing then
       inputParameters.value = input
-  elseif string.find(input, "%\n") ~= nil then
-      inputParameters.value = input.gsub(input, "%\n", "")
-      filterSearch()
-      self.removeInput(0)
-      self.createInput(inputParameters)
+  -- elseif string.find(input, "%\n") ~= nil then
+  --     inputParameters.value = input.gsub(input, "%\n", "")
+  --     filterSearch()
+  --     self.removeInput(0)
+  --     self.createInput(inputParameters)
   end
 end
 
-function filterSearch(_, _, alt_click)
+function newFilterSearch (_, _, alt_click)
   if alt_click then
     playerCardPanelApi.deleteAll("default")
     return
   end
-  
   if inputParameters.value == nil or string.len(inputParameters.value) == 0 then
-      printToAll("Please enter a search string.", "Yellow")
-      return
+    printToAll("Please enter a search string.", "Yellow")
+    return
   end
-  
+  filterSearch(inputParameters.value)
+end
+
+function existingFilterSearch (_, _, alt_click)
+  if alt_click then
+    playerCardPanelApi.deleteAll("default")
+    return
+  end
+  if inputParameters.value == nil or string.len(inputParameters.value) == 0 then
+    printToAll("Please enter a search string.", "Yellow")
+    return
+  end
+  local placedCards = {}
+  for guid, _ in pairs(playerCardPanelApi.getPlacedCards()) do
+    placedCards[JSON.decode(getObjectFromGUID(guid).getGMNotes()).id] = true
+  end
+  filterSearch("& " .. inputParameters.value, placedCards)
+end
+
+function filterSearch(filterString, startingCards)
+
   if not allCardsBagApi.isBagPresent() then
       printToAll("Player card bag couldn't be found.", "Red")
       return
@@ -110,7 +134,7 @@ function filterSearch(_, _, alt_click)
   local current = ""
   local prev = ""
   local inside_string = false
-  for char in inputParameters.value:gmatch('.') do
+  for char in filterString:gmatch('.') do
       if char == '"' then
         inside_string = not inside_string
         char = ''
@@ -140,7 +164,7 @@ function filterSearch(_, _, alt_click)
   end
 
   playerCardPanelApi.spawnCardList({
-    cardList = createFilterCardList(tokens),
+    cardList = createFilterCardList(tokens, startingCards),
     name = "filterSearch",
     startPos = "other",
     spread = true,
@@ -184,8 +208,13 @@ function addToken(tokenList, token, prevType)
 end
 
 
-function createFilterCardList(tokenList)
-  local filterCardList = {}
+function createFilterCardList(tokenList, startingCardSet)
+  local filterCardList = startingCardSet or {}
+  local includeOthers = false
+  if next(filterCardList) then
+    includeOthers = true
+  end
+  log(includeOthers)
   local parenthesesLevel = 0
   local parenthesesData = {}
   local previousToken = ""
@@ -286,7 +315,7 @@ function createFilterCardList(tokenList)
         end
         -- Class
         if filter == "f" then
-          for _, cardId in ipairs(allCardsBagApi.getAllCards()) do
+          for _, cardId in ipairs(allCardsBagApi.getAllCards(includeOthers)) do
             local card = allCardsBagApi.getCardById(cardId)
             if card.metadata.class then
               if select(2, string.gsub(card.metadata.class, "|", "")) < value - 1 then
@@ -352,7 +381,7 @@ function createFilterCardList(tokenList)
         return {}
       else 
         if operator == "!" or operator == ">" then
-          matchingCards = allCardsBagApi.getOppositeCards(matchingCards)
+          matchingCards = allCardsBagApi.getOppositeCards(matchingCards, includeOthers)
         end
 
         
