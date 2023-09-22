@@ -14,6 +14,17 @@ inputParameters.width          = 1900
 inputParameters.height         = 130
 inputParameters.font_size      = 50
 
+local BUTTON_LABELS               = {}
+BUTTON_LABELS["filter"]           = {}
+BUTTON_LABELS["filter"][true]     = "Mode: SPAWN NEW"
+BUTTON_LABELS["filter"][false]    = "Mode: FILTER PLACED"
+BUTTON_LABELS["location"]         = {}
+BUTTON_LABELS["location"][true]   = "Mode: TARGET BELOW"
+BUTTON_LABELS["location"][false]  = "Mode: TARGET RIGHT"
+
+local filterSetting = true
+local targetLocation = true
+
 local buttonParameters          = {}
 buttonParameters.function_owner = self
 buttonParameters.height         = 100
@@ -23,51 +34,37 @@ buttonParameters.font_size      = 75
 local filterOptions = {
   y = "cycle",
   f = "class",
-  k = "trait",
+  k = "traits",
   o = "cost",
-  w = "willpower icons",
-  c = "combat icons",
-  i = "intellect icons",
-  a = "agility icons",
-  d = "wild icons",
+  w = "willpowerIcons",
+  c = "combatIcons",
+  i = "intellectIcons",
+  a = "agilityIcons",
+  d = "wildIcons",
   t = "type",
   p = "level",
   --z = "slot",
   v = "permanent",
-  --u = "uses"
+  u = "uses"
 }
 
--- main code
-function onSave() return JSON.encode({  }) end
+function onLoad()
 
-function onLoad(saved_data)
-    -- local loaded_data     = JSON.decode(saved_data)
-    -- spawnAll              = loaded_data[1] or false
-    -- searchExact           = loaded_data[2] or false
-    -- inputParameters.value = loaded_data[3] or ""
-
-    -- index 0: button for spawn mode
+    -- index 0: button for executing filter
     buttonParameters.click_function = "newFilterSearch"
-    buttonParameters.label          = "Spawn matching cards"
+    buttonParameters.label          = "Spawn matching cards!"
+    buttonParameters.position       = { 0, 0.1, 0 }
+    self.createButton(buttonParameters)
+    -- index 1: button for filter mode
+    buttonParameters.click_function = "filterMode"
+    buttonParameters.label          = BUTTON_LABELS["filter"][filterSetting]
     buttonParameters.position       = { -1, 0.1, -0.5 }
     self.createButton(buttonParameters)
-
-    buttonParameters.click_function = "existingFilterSearch"
-    buttonParameters.label          = "Filter placed cards"
+    -- index 2: button for location mode
+    buttonParameters.click_function = "locationMode"
+    buttonParameters.label          = BUTTON_LABELS["location"][targetLocation]
     buttonParameters.position       = { 1, 0.1, -0.5 }
     self.createButton(buttonParameters)
-
-    -- -- index 1: button for spawn mode
-    -- buttonParameters.click_function = "spawnMode"
-    -- buttonParameters.label          = BUTTON_LABELS["spawn"][spawnAll]
-    -- buttonParameters.position[3]    = buttonParameters.position[3] + 0.4
-    -- self.createButton(buttonParameters)
-
-    -- -- index 2: button for search mode
-    -- buttonParameters.click_function = "searchMode"
-    -- buttonParameters.label          = BUTTON_LABELS["search"][searchExact]
-    -- buttonParameters.position[3]    = buttonParameters.position[3] + 0.4
-    -- self.createButton(buttonParameters)
 
     self.createInput(inputParameters)
 
@@ -83,17 +80,40 @@ end
 function input_func(_, _, input, stillEditing)
   if not stillEditing then
       inputParameters.value = input
-  -- elseif string.find(input, "%\n") ~= nil then
-  --     inputParameters.value = input.gsub(input, "%\n", "")
-  --     filterSearch()
-  --     self.removeInput(0)
-  --     self.createInput(inputParameters)
+  elseif string.find(input, "%\n") ~= nil then
+      inputParameters.value = input.gsub(input, "%\n", "")
+      if filterSetting then
+        newFilterSearch()
+      else
+        existingFilterSearch()
+      end
+      self.removeInput(0)
+      self.createInput(inputParameters)
   end
 end
 
-function newFilterSearch (_, _, alt_click)
+function filterMode(_, _, _)
+  filterSetting = not filterSetting
+  self.editButton({ index = 1, label = BUTTON_LABELS["filter"][filterSetting] })
+  if filterSetting then
+    self.editButton({ index = 0, click_function = "newFilterSearch" })
+  else
+    self.editButton({ index = 0, click_function = "existingFilterSearch" })
+  end
+end
+
+function locationMode(_, _, _)
+  targetLocation = not targetLocation
+  self.editButton({ index = 2, label = BUTTON_LABELS["location"][targetLocation] })
+end
+
+function newFilterSearch(_, _, alt_click)
   if alt_click then
-    playerCardPanelApi.deleteAll("default")
+    if targetLocation then
+      playerCardPanelApi.deleteAll("default")
+    else
+      playerCardPanelApi.deleteAll("middle")
+    end
     return
   end
   if inputParameters.value == nil or string.len(inputParameters.value) == 0 then
@@ -103,9 +123,13 @@ function newFilterSearch (_, _, alt_click)
   filterSearch(inputParameters.value)
 end
 
-function existingFilterSearch (_, _, alt_click)
+function existingFilterSearch(_, _, alt_click)
   if alt_click then
-    playerCardPanelApi.deleteAll("default")
+    if targetLocation then
+      playerCardPanelApi.deleteAll("default")
+    else
+      playerCardPanelApi.deleteAll("middle")
+    end
     return
   end
   if inputParameters.value == nil or string.len(inputParameters.value) == 0 then
@@ -114,7 +138,11 @@ function existingFilterSearch (_, _, alt_click)
   end
   local placedCards = {}
   for guid, _ in pairs(playerCardPanelApi.getPlacedCards()) do
-    placedCards[JSON.decode(getObjectFromGUID(guid).getGMNotes()).id] = true
+    local cardId = JSON.decode(getObjectFromGUID(guid).getGMNotes()).id
+    if not placedCards[cardId] then
+      placedCards[cardId] = 0
+    end
+    placedCards[cardId] = placedCards[cardId] + 1
   end
   filterSearch("& " .. inputParameters.value, placedCards)
 end
@@ -163,13 +191,24 @@ function filterSearch(filterString, startingCards)
       addToken(tokens, current, prev)
   end
 
+  local targetLoc
+  local targetSta
+
+  if targetLocation then
+    targetLoc = "other"
+    targetSta = "default"
+  else
+    targetLoc = "deckBuilder"
+    targetSta = "middle"
+  end
+
   playerCardPanelApi.spawnCardList({
     cardList = createFilterCardList(tokens, startingCards),
     name = "filterSearch",
-    startPos = "other",
+    startPos = targetLoc,
     spread = true,
     spreadCols = 20,
-    targetState = "default"
+    targetState = targetSta
   })
 end
 
@@ -214,7 +253,6 @@ function createFilterCardList(tokenList, startingCardSet)
   if next(filterCardList) then
     includeOthers = true
   end
-  log(includeOthers)
   local parenthesesLevel = 0
   local parenthesesData = {}
   local previousToken = ""
@@ -265,51 +303,59 @@ function createFilterCardList(tokenList, startingCardSet)
       if operator == ":" or operator == "!" then
         -- Cycle
         if filter == "y" then
-          matchingCards = allCardsBagApi.getCardsByCycle(value)
+          matchingCards = allCardsBagApi.getCardsByCycle(value, includeOthers)
         -- Class
         elseif filter == "f" then
-          matchingCards = allCardsBagApi.getCardsByClassAndLevel(value, false)
-          for _, cardId in ipairs(allCardsBagApi.getCardsByClassAndLevel(value, true)) do
-            table.insert(matchingCards, cardId)
-          end
+          matchingCards = allCardsBagApi.getCardsByClass(value, includeOthers)
         -- Trait
         elseif filter == "k" then
-          matchingCards = allCardsBagApi.getCardsByTrait(value)
+          matchingCards = allCardsBagApi.getCardsByTrait(value, includeOthers)
         -- Cost
         elseif filter == "o" then
-          matchingCards = allCardsBagApi.getCardsByCost(value)
+          matchingCards = allCardsBagApi.getCardsByCost(value, includeOthers)
         -- Type
         elseif filter == "t" then
-          matchingCards = allCardsBagApi.getCardsByType(value)
+          matchingCards = allCardsBagApi.getCardsByType(value, includeOthers)
         -- Level
         elseif filter == "p" then
-          matchingCards = allCardsBagApi.getCardsByLevel(value)
+          matchingCards = allCardsBagApi.getCardsByLevel(value, includeOthers)
         -- Willpower Icons
         elseif filter == "w" then
-          matchingCards = allCardsBagApi.getCardsByIcon("willpower", value)
+          matchingCards = allCardsBagApi.getCardsByIcon("willpower", value, includeOthers)
         -- Intellect Icons
         elseif filter == "i" then
-          matchingCards = allCardsBagApi.getCardsByIcon("intellect", value)
+          matchingCards = allCardsBagApi.getCardsByIcon("intellect", value, includeOthers)
         -- Agility Icons
         elseif filter == "a" then
-          matchingCards = allCardsBagApi.getCardsByIcon("agility", value)
+          matchingCards = allCardsBagApi.getCardsByIcon("agility", value, includeOthers)
         -- Combat Icons
         elseif filter == "c" then
-          matchingCards = allCardsBagApi.getCardsByIcon("combat", value)
+          matchingCards = allCardsBagApi.getCardsByIcon("combat", value, includeOthers)
         -- Wild Icons
         elseif filter == "d" then
-          matchingCards = allCardsBagApi.getCardsByIcon("wild", value)
+          matchingCards = allCardsBagApi.getCardsByIcon("wild", value, includeOthers)
         -- Slot
         --elseif filter == "z" then
+        -- Uses
+        elseif filter == "u" then
+          if tonumber(value) then
+            matchingCards = allCardsBagApi.getCardsByUses(tonumber(value), includeOthers)
+          else
+            matchingCards = allCardsBagApi.getCardsByUses(value, includeOthers)
+          end
         -- Permanent
         elseif filter == "v" then
-          matchingCards = allCardsBagApi.getPermanents()
+          matchingCards = allCardsBagApi.getPermanents(includeOthers)
         else
           broadcastToAll("Invalid combination of filter type and operator", Color.Red)
           return {}
         end
       elseif operator == "<" or operator == ">" then
         value = tonumber(value)
+        if not value then
+          broadcastToAll("Arithmetic operators require numeric values", Color.Red)
+          return {}
+        end
         if operator == ">" then
           value = value + 1
         end
@@ -326,7 +372,7 @@ function createFilterCardList(tokenList, startingCardSet)
         -- Cost
         elseif filter == "o" then
           for i = value - 1, 0, -1 do
-            for _, cardId in ipairs(allCardsBagApi.getCardsByCost(i)) do
+            for _, cardId in ipairs(allCardsBagApi.getCardsByCost(i, includeOthers)) do
               table.insert(matchingCards, cardId)
             end
           end
@@ -335,35 +381,42 @@ function createFilterCardList(tokenList, startingCardSet)
         -- Intellect Icons
         elseif filter == "i" then
           for i = value - 1, 0, -1 do
-            for _, cardId in ipairs(allCardsBagApi.getCardsByIcon("intellect", i)) do
+            for _, cardId in ipairs(allCardsBagApi.getCardsByIcon("intellect", i, includeOthers)) do
               table.insert(matchingCards, cardId)
             end
           end
         -- Agility Icons
         elseif filter == "a" then
           for i = value - 1, 0, -1 do
-            for _, cardId in ipairs(allCardsBagApi.getCardsByIcon("agility", i)) do
+            for _, cardId in ipairs(allCardsBagApi.getCardsByIcon("agility", i, includeOthers)) do
               table.insert(matchingCards, cardId)
             end
           end
         -- Combat Icons
         elseif filter == "c" then
           for i = value - 1, 0, -1 do
-            for _, cardId in ipairs(allCardsBagApi.getCardsByIcon("combat", i)) do
+            for _, cardId in ipairs(allCardsBagApi.getCardsByIcon("combat", i, includeOthers)) do
               table.insert(matchingCards, cardId)
             end
           end
         -- Wild Icons
         elseif filter == "d" then
           for i = value - 1, 0, -1 do
-            for _, cardId in ipairs(allCardsBagApi.getCardsByIcon("wild", i)) do
+            for _, cardId in ipairs(allCardsBagApi.getCardsByIcon("wild", i, includeOthers)) do
               table.insert(matchingCards, cardId)
             end
           end
         -- Level
         elseif filter == "p" then
           for i = value - 1, 0, -1 do
-            for _, cardId in ipairs(allCardsBagApi.getCardsByLevel(i)) do
+            for _, cardId in ipairs(allCardsBagApi.getCardsByLevel(i, includeOthers)) do
+              table.insert(matchingCards, cardId)
+            end
+          end
+        -- Uses
+        elseif filter == "u" then
+          for i = value - 1, 0, -1 do
+            for _, cardId in ipairs(allCardsBagApi.getCardsByUses(i, includeOthers)) do
               table.insert(matchingCards, cardId)
             end
           end
@@ -376,20 +429,16 @@ function createFilterCardList(tokenList, startingCardSet)
         return {}
       end
 
-      if not matchingCards then
-        broadcastToAll("Error in filter input", Color.Red)
-        return {}
-      else 
+      if matchingCards then 
         if operator == "!" or operator == ">" then
-          matchingCards = allCardsBagApi.getOppositeCards(matchingCards, includeOthers)
+          matchingCards = allCardsBagApi.getOppositeCards(matchingCards, filterOptions[filter], includeOthers)
         end
-
         
         if previousToken == "&" then
           local replacementList = {}
           for _, cardId in ipairs(matchingCards) do
             if filterCardList[cardId] then
-              replacementList[cardId] = true
+              replacementList[cardId] = filterCardList[cardId]
             end
           end
           filterCardList = replacementList
@@ -398,6 +447,9 @@ function createFilterCardList(tokenList, startingCardSet)
             filterCardList[cardId] = true
           end
         end
+      else
+        broadcastToAll("Error in filter input", Color.Red)
+        return { }
       end
     end
     previousToken = token
@@ -410,10 +462,19 @@ function createFilterCardList(tokenList, startingCardSet)
 
   local finalList = {}
 
-  for cardId, _ in pairs(filterCardList) do
+  for cardId, count in pairs(filterCardList) do
+    if type(count) == "number" then
+      for i = count - 1, 1, -1 do
+        table.insert(finalList, cardId)
+      end
+    end
     table.insert(finalList, cardId)
   end
 
+  if not next(finalList) then
+    broadcastToAll("No matches found", Color.Yellow)
+    return {}
+  end
   -- for cardId, _ in pairs(filterCardList) do
   --   local card = allCardsBagApi.getCardById(cardId)
   --   if card ~= nil then
