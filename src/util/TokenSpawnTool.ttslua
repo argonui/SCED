@@ -8,15 +8,58 @@ TOKEN_INDEX[7] = "doom"
 TOKEN_INDEX[8] = "clue"
 TOKEN_INDEX[9] = "resource"
 
+local stateTable = {
+  ["resource"] = 1,
+  ["ammo"] = 2,
+  ["bounty"] = 3,
+  ["charge"] = 4,
+  ["evidence"] = 5,
+  ["secret"] = 6,
+  ["supply"] = 7
+}
+
 ---@param index number Index of the pressed key
 ---@param playerColor string Color of the triggering player
 function onScriptingButtonDown(index, playerColor)
   local tokenType = TOKEN_INDEX[index]
   if not tokenType then return end
 
-  local player = Player[playerColor]
-  local rotation = { x = 0, y = player.getPointerRotation(), z = 0 }
-  local position = player.getPointerPosition() + Vector(0, 0.2, 0)
+  local rotation = { x = 0, y = Player[playerColor].getPointerRotation(), z = 0 }
+  local position = Player[playerColor].getPointerPosition() + Vector(0, 0.2, 0)
+  local subType = ""
+  local callback = nil
 
-  tokenManager.spawnToken(position, tokenType, rotation)
+  -- check for subtype of resource based on card below
+  if tokenType == "resource" then
+    local search = Physics.cast({
+      direction    = { 0, -1, 0 },
+      max_distance = 2,
+      type         = 3,
+      size         = { 0.1, 0.1, 0.1 },
+      origin       = position:setAt("y", 2)
+    })
+
+    for _, v in ipairs(search) do
+      if v.hit_object.tag == "Card" and not v.hit_object.is_face_down then
+        local metadata = JSON.decode(v.hit_object.getGMNotes()) or {}
+        local uses = metadata.uses or {}
+
+        for _, useInfo in ipairs(uses) do
+          if useInfo.token == "resource" then
+            subType = useInfo.type
+            break
+          end
+        end
+        break
+      end
+    end
+    
+    -- this is used to load the correct state for additional resource tokens (e.g. "Ammo")
+    local stateID = stateTable[string.lower(subType)]
+    if stateID ~= nil and stateID ~= 1 then
+      callback = function(spawned) spawned.setState(stateID) end
+    end
+  end
+
+  tokenManager.spawnToken(position, tokenType, rotation, callback)
 end
