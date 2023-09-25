@@ -1,12 +1,19 @@
+local blessCurseManagerApi = require("chaosbag/BlessCurseManagerApi")
+local mythosAreaApi = require("core/MythosAreaApi")
+local navigationOverlayApi = require("core/NavigationOverlayApi")
+local playAreaApi = require("core/PlayAreaApi")
+local playmatApi = require("playermat/PlaymatApi")
+local soundCubeApi = require("core/SoundCubeApi")
+local tokenArrangerApi = require("accessories/TokenArrangerApi")
+local tokenChecker = require("core/token/TokenChecker")
+local tokenManager = require("core/token/TokenManager")
+
 ---------------------------------------------------------
 -- general setup
 ---------------------------------------------------------
 
 ENCOUNTER_DECK_POS = {-3.93, 1, 5.76}
 ENCOUNTER_DECK_DISCARD_POSITION = {-3.85, 1, 10.38}
-
--- optionPanel data
-optionPanel = {}
 
 -- GUID of data helper
 DATA_HELPER_GUID = "708279"
@@ -31,15 +38,6 @@ local IS_RESHUFFLING = false
 local bagSearchers = {}
 local MAT_COLORS = {"White", "Orange", "Green", "Red"}
 local hideTitleSplashWaitFunctionId = nil
-local playmatApi = require("playermat/PlaymatApi")
-local tokenManager = require("core/token/TokenManager")
-local playAreaAPI = require("core/PlayAreaApi")
-local soundCubeApi = require("core/SoundCubeApi")
-local mythosAreaApi = require("core/MythosAreaApi")
-local tokenArrangerApi = require("accessories/TokenArrangerApi")
-local blessCurseManagerApi = require("chaosbag/BlessCurseManagerApi")
-local navigationOverlayApi = require("core/NavigationOverlayApi")
-local tokenChecker = require("core/token/TokenChecker")
 
 -- online functionality related variables
 local MOD_VERSION = "3.2.0"
@@ -47,6 +45,8 @@ local SOURCE_REPO = 'https://raw.githubusercontent.com/chr1z93/loadable-objects/
 local library, requestObj, modMeta, notificationVisible
 local acknowledgedUpgradeVersions = {}
 
+-- optionPanel data
+optionPanel = {}
 local LANGUAGES = {
   { code = "zh_CN", name = "简体中文" },
   { code = "zh_TW", name = "繁體中文" },
@@ -55,6 +55,11 @@ local LANGUAGES = {
   { code = "es", name = "Español" },
   { code = "fr", name = "Français" },
   { code = "it", name = "Italiano" }
+}
+local RESOURCE_OPTIONS = {
+  "enabled",
+  "custom",
+  "disabled"
 }
 
 ---------------------------------------------------------
@@ -170,7 +175,7 @@ end
 -- This requires the try method as cards won't exist any more after they enter a deck, so the lines
 -- can't be cleared.
 function tryObjectEnterContainer(container, object)
-  playAreaAPI.tryObjectEnterContainer(container, object)
+  playAreaApi.tryObjectEnterContainer(container, object)
   return true
 end
 
@@ -900,11 +905,28 @@ function returnLanguageId(code)
   end
 end
 
+-- called by the resource counter selection dropdown
+function resourceCounterSelected(_, selectedIndex, id)
+  optionPanel[id] = RESOURCE_OPTIONS[tonumber(selectedIndex) + 1]
+end
+
+-- returns the ID for the provided option name
+function returnResourceCounterId(name)
+  for index, optionName in ipairs(RESOURCE_OPTIONS) do
+    if optionName == name then
+      return index
+    end
+  end
+end
+
 -- sets the option panel to the correct state (corresponding to 'optionPanel')
 function updateOptionPanelState()
   for id, optionValue in pairs(optionPanel) do
     if id == "cardLanguage" and type(optionValue) == "string" then
       local dropdownId = returnLanguageId(optionValue) - 1
+      UI.setAttribute(id, "value", dropdownId)
+    elseif id == "useResourceCounters" and type(optionValue) == "string" then
+      local dropdownId = returnResourceCounterId(optionValue) - 1
       UI.setAttribute(id, "value", dropdownId)
     elseif (type(optionValue) == "boolean" and optionValue)
         or (type(optionValue) == "string" and optionValue)
@@ -938,13 +960,9 @@ function applyOptionPanelChange(id, state)
     -- update master clue counter
     getObjectFromGUID("4a3aa4").setVar("useClickableCounters", state)
 
-  -- option: Clickable resource counters
-  elseif id == "useResourceCounters" then
-    optionPanel[id] = state
-
   -- option: Play area snap tags
   elseif id == "playAreaSnapTags" then
-    playAreaAPI.setLimitSnapsByType(state)
+    playAreaApi.setLimitSnapsByType(state)
     optionPanel[id] = state
 
   -- option: Show Title on placing scenarios
@@ -1086,8 +1104,9 @@ function onClick_defaultSettings()
     applyOptionPanelChange(id, state)
   end
 
-  -- clean reset of variable
+  -- clean reset of variables
   optionPanel = {
+    cardLanguage = "en",
     playAreaSnapTags = true,
     showAttachmentHelper = false,
     showCleanUpHelper = false,
@@ -1099,6 +1118,7 @@ function onClick_defaultSettings()
     showSearchAssistant = {},
     showTitleSplash = true,
     useClueClickers = false,
+    useResourceCounters = "disabled",
     useSnapTags = true
   }
 
