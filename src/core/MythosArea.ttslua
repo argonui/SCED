@@ -12,9 +12,16 @@ local ENCOUNTER_DISCARD_AREA = {
   lowerRight = { x = 1.58, z = 0.38 },
 }
 
-local currentScenario
-local useFrontData
-local tokenData
+-- global position of encounter deck and discard pile
+local ENCOUNTER_DECK_POS = { x = -3.93, y = 1, z = 5.76 }
+local ENCOUNTER_DISCARD_POSITION = { x = -3.85, y = 1, z = 10.38 }
+local isReshuffling = false
+
+-- scenario metadata
+local currentScenario, useFrontData, tokenData
+
+-- GUID of data helper
+local DATA_HELPER_GUID = "708279"
 
 local TRASHCAN
 local TRASHCAN_GUID = "70b9f6"
@@ -117,6 +124,68 @@ function returnTokenData()
   }
 end
 
+---------------------------------------------------------
+-- encounter card drawing
+---------------------------------------------------------
+
+-- 'params' contains the position, rotation and a boolean to force a faceup draw
+function drawEncounterCard(params)
+  local card
+  local items = searchArea(ENCOUNTER_DECK_POS, { 3, 1, 4 }, isCardOrDeck)
+  if #items > 0 then
+    for _, j in ipairs(items) do
+      local v = j.hit_object
+      if v.tag == 'Deck' then
+        card = v.takeObject({ index = 0 })
+        break
+      end
+    end
+    -- we didn't find the deck so just pull the first thing we did find
+    if card == nil then card = items[1].hit_object end
+    actualEncounterCardDraw(card, params)
+  else
+    -- nothing here, time to reshuffle
+    reshuffleEncounterDeck(params)
+  end
+end
+
+function actualEncounterCardDraw(card, params)
+  local faceUpRotation = 0
+  if not params.alwaysFaceUp then
+    local metadata = JSON.decode(card.getGMNotes()) or {}
+    if metadata.hidden or getObjectFromGUID(DATA_HELPER_GUID).call('checkHiddenCard', card.getName()) then
+      faceUpRotation = 180
+    end
+  end
+  card.setPositionSmooth(params.pos, false, false)
+  card.setRotationSmooth({ 0, params.rotY, faceUpRotation }, false, false)
+end
+
+function reshuffleEncounterDeck(params)
+  -- flag to avoid multiple calls
+  if isReshuffling then return end
+  isReshuffling = true
+
+  -- shuffle and flip deck, draw card after completion
+  local discarded = searchArea(ENCOUNTER_DISCARD_POSITION, { 3, 1, 4 }, isDeck)
+  if #discarded > 0 then
+    local deck = discarded[1].hit_object
+    if not deck.is_face_down then deck.flip() end
+    deck.shuffle()
+    deck.setPositionSmooth(Vector(ENCOUNTER_DECK_POS) + Vector(0, 2, 0), false, true)
+    Wait.time(function() actualEncounterCardDraw(deck.takeObject({ index = 0 }), params) end, 0.5)
+  else
+    printToAll("Couldn't find encounter discard pile to reshuffle.", { 1, 0, 0 })
+  end
+
+  -- disable flag
+  Wait.time(function() isReshuffling = false end, 1)
+end
+
+---------------------------------------------------------
+-- helper functions
+---------------------------------------------------------
+
 -- Simple method to check if the given point is in a specified area.  Local use only,
 ---@param point Vector.  Point to check, only x and z values are relevant
 ---@param bounds Table.  Defined area to see if the point is within.  See MAIN_PLAY_AREA for sample
@@ -124,16 +193,15 @@ end
 ---@return Boolean.  True if the point is in the area defined by bounds
 function inArea(point, bounds)
   return (point.x < bounds.upperLeft.x
-      and point.x > bounds.lowerRight.x
-      and point.z < bounds.upperLeft.z
-      and point.z > bounds.lowerRight.z)
+    and point.x > bounds.lowerRight.x
+    and point.z < bounds.upperLeft.z
+    and point.z > bounds.lowerRight.z)
 end
 
 -- removes tokens from the provided card/deck
 function removeTokensFromObject(object)
   for _, v in ipairs(searchArea(object.getPosition(), { 3, 1, 4 })) do
     local obj = v.hit_object
-
     if obj.getGUID() ~= "4ee1f2" and -- table
         obj ~= self and
         obj.type ~= "Deck" and
@@ -146,13 +214,31 @@ function removeTokensFromObject(object)
   end
 end
 
-function searchArea(origin, size)
-  return Physics.cast({
+-- searches an area and optionally filters the result
+function searchArea(origin, size, filter)
+  local objList = Physics.cast({
     origin       = origin,
-    direction    = {0, 1, 0},
+    direction    = { 0, 1, 0 },
     orientation  = self.getRotation(),
     type         = 3,
     size         = size,
     max_distance = 1
   })
+
+  if filter then
+    local filteredList = {}
+    for _, obj in ipairs(objList) do
+      if filter(obj.hit_object) then
+        table.insert(filteredList, obj)
+      end
+    end
+    return filteredList
+  else
+    return objList
+  end
 end
+
+-- filter functions for searchArea
+function isDeck(x) return x.tag == 'Deck' end
+
+function isCardOrDeck(x) return x.tag == 'Card' or x.tag == 'Deck' end
