@@ -1,5 +1,4 @@
---[[
-Cleans up the table for the next scenario in a campaign:
+--[[ Cleans up the table for the next scenario in a campaign:
 - sets counters to default values (resources and doom) or trauma values (health and sanity, if not disabled) from campaign log
 - puts everything on playmats and hands into respective trashcans
 - use the IGNORE_TAG to exclude objects from tidying (default: "CleanUpHelper_Ignore")]]
@@ -36,6 +35,7 @@ local DAMAGE_HORROR_GUIDS       = {
   "468e88", "0257d9", "7b5729", "beb964",
 }
 
+local campaignLog
 local RESET_VALUES              = {}
 
 -- GUIDS of objects (in order of ownership relating to 'COLORS')
@@ -56,7 +56,14 @@ local PHYSICS_POSITION          = {
   { -00.0, 2, -27 }
 }
 
-local PHYSICS_ROTATION          = { 270, 270, 0, 180, 270, 0 }
+local PHYSICS_ROTATION          = {
+  270,
+  270,
+  0,
+  180,
+  270,
+  0
+}
 
 local PHYSICS_SCALE             = {
   { 36.6, 1, 14.5 },
@@ -75,6 +82,8 @@ options["removeDrawnLines"]     = false
 
 local buttonParameters          = {}
 buttonParameters.function_owner = self
+
+local loadingFailedBefore       = false
 
 ---------------------------------------------------------
 -- option loading and GUI setup
@@ -166,9 +175,14 @@ function cleanUp(_, color)
   soundCubeApi.playSoundByName("Vacuum")
   ignoreCustomDataHelper()
   getTrauma()
-  updateCounters(DAMAGE_HORROR_GUIDS, RESET_VALUES, "Damage / Horror")
-  updateCounters(RESOURCE_GUIDS, 5, "Resources")
-  updateCounters(CLUE_CLICKER_GUIDS, 0, "Clue clickers")
+
+  -- delay to account for potential state change
+  Wait.time(function()
+    updateCounters(RESOURCE_GUIDS, 5, "Resource")
+    updateCounters(CLUE_CLICKER_GUIDS, 0, "Clue clicker")
+    updateCounters(DAMAGE_HORROR_GUIDS, RESET_VALUES, "Damage / Horror")
+  end, 0.2)
+
   resetSkillTrackers()
   resetDoomCounter()
   blessCurseManagerApi.removeAll(color)
@@ -185,20 +199,16 @@ end
 -- modular functions, called by other functions
 ---------------------------------------------------------
 
-function updateCounters(tableOfGUIDs, tableOfNewValues, info)
-  if tonumber(tableOfNewValues) then
-    local value = tableOfNewValues
-    tableOfNewValues = {}
-    for i = 1, #tableOfGUIDs do
-      table.insert(tableOfNewValues, value)
-    end
-  end
+function updateCounters(tableOfGUIDs, newValues, info)
+  -- instead of a table, this will be used if just a single value is provided
+  local singleValue = tonumber(newValues)
 
   for i, guid in ipairs(tableOfGUIDs) do
     local TOKEN = getObjectFromGUID(guid)
+    local newValue = singleValue or newValues[i]
 
     if TOKEN ~= nil then
-      TOKEN.call("updateVal", tableOfNewValues[i])
+      TOKEN.call("updateVal", newValue)
     else
       printToAll(info .. ": No. " .. i .. " could not be found.", "Yellow")
     end
@@ -220,10 +230,10 @@ end
 
 -- reset doom on agenda
 function resetDoomCounter()
-  local doomcounter = getObjectFromGUID("85c4c6")
+  local doomCounter = getObjectFromGUID("85c4c6")
 
-  if doomcounter ~= nil then
-    doomcounter.call("updateVal")
+  if doomCounter ~= nil then
+    doomCounter.call("updateVal")
   else
     printToAll("Doom counter could not be found.", "Yellow")
   end
@@ -232,7 +242,9 @@ end
 -- gets the GUID of a custom data helper (if present) and adds it to the ignore list
 function ignoreCustomDataHelper()
   local customDataHelper = playAreaApi.getCustomDataHelper()
-  if customDataHelper then table.insert(IGNORE_GUIDS, customDataHelper.getGUID()) end
+  if customDataHelper then
+    table.insert(IGNORE_GUIDS, customDataHelper.getGUID())
+  end
 end
 
 -- read values for trauma from campaign log if enabled
@@ -249,24 +261,40 @@ function getTrauma()
   end
 
   -- get campaign log
-  local campaignLog = findObjects(6)[1]
+  campaignLog = findObjects(6)[1]
   if campaignLog == nil then
     printToAll("Campaign log not found in standard position!", "Yellow")
     printToAll("Default values for health and sanity loaded.", "Yellow")
     return
   end
+  campaignLog = campaignLog.hit_object
+  loadTrauma()
+end
 
-  -- get data from campaign log if possible
-  local counterData = campaignLog.hit_object.getVar("ref_buttonData")
-  if counterData ~= nil then
+-- gets data from campaign log if possible
+function loadTrauma()
+  -- check if "returnTrauma" function exists to avoid calling nil
+  local trauma = campaignLog.getVar("returnTrauma")
+
+  if trauma ~= nil then
     printToAll("Trauma values found in campaign log!", "Green")
-    for i = 1, 10, 3 do
-      RESET_VALUES[1 + (i - 1) / 3] = counterData.counter[i].value
-      RESET_VALUES[5 + (i - 1) / 3] = counterData.counter[i + 1].value
-    end
-  else
+    RESET_VALUES = campaignLog.call("returnTrauma")
+    loadingFailedBefore = false
+  elseif loadingFailedBefore then
     printToAll("Trauma values could not be found in campaign log!", "Yellow")
     printToAll("Default values for health and sanity loaded.", "Yellow")
+    loadingFailedBefore = false
+  else
+    -- set campaign log to first state
+    local stateId = campaignLog.getStateId()
+
+    if stateId ~= 1 then
+      campaignLog = campaignLog.setState(1)
+    end
+    loadingFailedBefore = true
+
+    -- small delay to account for potential state change
+    Wait.time(loadTrauma, 0.1)
   end
 end
 
