@@ -1,20 +1,9 @@
--- common parameters
-local castParameters        = {}
-castParameters.direction    = { 0, 1, 0 }
-castParameters.type         = 3
-castParameters.max_distance = 0
+local playmatApi = require("playermat/PlaymatApi")
 
-local zone
+local ZONE, TRASH
 local doomURL    = "https://i.imgur.com/EoL7yaZ.png"
 local IGNORE_TAG = "DoomCounter_ignore"
-
--- playermats 1 to 4
-local originAndSize = {
-  { origin = { -55, 1.6, 16.5 }, size = { 12, 1, 25 } },
-  { origin = { -55, 1.6, -16.5 }, size = { 12, 1, 25 } },
-  { origin = { -25, 1.6, 27 }, size = { 25, 1, 12 } },
-  { origin = { -25, 1.6, -27 }, size = { 25, 1, 12 } }
-}
+local COLORS     = { "White", "Orange", "Green", "Red" }
 
 -- create button, context menu and start loop
 function onLoad()
@@ -31,33 +20,32 @@ function onLoad()
     color = { 0, 0, 0, 0 }
   })
 
-  zone = getObjectFromGUID("a2f932")
+  trash = Global.call("getObjectFromMemo", {matColor = "Mythos", type = "Trash"})
+  ZONE = Global.call("getObjectFromMemo", {matColor = "Mythos", type = "PlayAreaZone"})
   loopID = Wait.time(countDoom, 2, -1)
 end
 
 -- main function
 function countDoom()
   local doom = 0
-  for i = 1, 5 do doom = doom + search(i) end
+  for i = 1, 5 do
+    if i = 5 then
+      objList = ZONE.getObjects()
+    else
+      objList = playmatApi.searchAroundPlaymat(COLORS[i])
+    end
+
+    doom = doom + countDoomFromList(objList)
+  end
   self.editButton({ index = 0, label = tostring(doom) })
 end
 
--- searches playermats (num = 1-4) or the scripting zone (num = 5)
-function search(num)
-  local val = 0
-  if num == 5 then
-    for _, obj in ipairs(zone.getObjects()) do
-      val = val + isDoom(obj)
-    end
-  else
-    castParameters.origin = originAndSize[num].origin
-    castParameters.size = originAndSize[num].size
-
-    for _, obj in ipairs(Physics.cast(castParameters)) do
-      val = val + isDoom(obj.hit_object)
-    end
+function countDoomFromList(objList)
+  local count = 0
+  for _, obj in ipairs(objList) do
+    count = count + isDoom(obj)
   end
-  return val
+  return count
 end
 
 -- checks an object for the doom image and gets quantity (for stacks)
@@ -73,34 +61,30 @@ end
 
 -- removes doom from playermats / playarea
 function removeDoom(options)
-  local trashCan = getObjectFromGUID("70b9f6")
   local count = 0
+
   if options.Playermats then
     for i = 1, 4 do
-      castParameters.origin = originAndSize[i].origin
-      castParameters.size = originAndSize[i].size
-
-      for _, obj in ipairs(Physics.cast(castParameters)) do
-        local obj = obj.hit_object
-        local amount = isDoom(obj)
-        if amount > 0 then
-          trashCan.putObject(obj)
-          count = count + amount
-        end
-      end
+      count = removeDoomFromList(playmatApi.searchAroundPlaymat(COLORS[i]))
     end
     broadcastToAll(count .. " doom removed from Playermats.", "White")
   end
 
-  local count = 0
   if options.Playarea then
-    for _, obj in ipairs(zone.getObjects()) do
-      local amount = isDoom(obj)
-      if amount > 0 then
-        trashCan.putObject(obj)
-        count = count + amount
-      end
-    end
-    broadcastToAll(count .. " doom removed from Playarea.", "White")
+    count = removeDoomFromList(ZONE.getObjects())
+    broadcastToAll(count .. " doom removed from Playerarea.", "White")
   end
+end
+
+-- removes doom from provided object list and returns the removed amount
+function removeDoomFromList(objList)
+  local count = 0
+  for _, obj in ipairs(objList) do
+    local amount = isDoom(obj)
+    if amount > 0 then
+      TRASH.putObject(obj)
+      count = count + amount
+    end
+  end
+  return count
 end
