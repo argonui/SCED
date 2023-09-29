@@ -1,217 +1,211 @@
 do
-  local PlaymatApi = { }
-  local internal = { }
+  local PlaymatApi = {}
+  local internal = {}
 
-  -- Returns the color of the by position requested playermat as string
-  ---@param startPos Table Position of the search, table get's roughly cut into 4 quarters to assign a playermat
+  -- Returns the color of the closest playmat
+  ---@param startPos Table Starting position to get the closest mat from
   PlaymatApi.getMatColorByPosition = function(startPos)
-    if startPos.x < -42 then
-      if startPos.z > 0 then
-        return "White"
-      else
-        return "Orange"
+    local result, smallestDistance
+    for matColor, mat in pairs(internal.getMatForColor("All")) do
+      local distance = Vector.between(startPos, mat.getPosition()):magnitude()
+      if smallestDistance == nil or distance < smallestDistance then
+        smallestDistance = distance
+        result = matColor
       end
-    else
-      if startPos.z > 0 then
-        return "Green"
-      else
-        return "Red"
-      end
+    end
+    return result
+  end
+
+  -- Returns the color of the player's hand that is seated next to the playmat
+  ---@param matColor String Color of the playmat - White, Orange, Green or Red (does not support "All")
+  PlaymatApi.getPlayerColor = function(matColor)
+    for _, mat in pairs(internal.getMatForColor(matColor)) do
+      return mat.getVar("playerColor")
     end
   end
 
-  -- Returns the color of the player's hand that is seated next to the playermat
-  ---@param matColor String Color of the playermat
-  PlaymatApi.getPlayerColor = function(matColor)
-    local mat = Global.call("getObjectFromMemo", {matColor = matColor, type = "Playermat"})
-    return mat.getVar("playerColor")
-  end
-
-  -- Returns the color of the playermat that owns the playercolor's hand
-  ---@param handColor String Color of the playermat
+  -- Returns the color of the playmat that owns the playercolor's hand
+  ---@param handColor String Color of the playmat
   PlaymatApi.getMatColor = function(handColor)
-    local matColors = {"White", "Orange", "Green", "Red"}
-    for i, mat in ipairs(internal.getMatForColor("All")) do
-      local color = mat.getVar("playerColor")
-      if color == handColor then return matColors[i] end
+    for matColor, mat in pairs(internal.getMatForColor("All")) do
+      local playerColor = mat.getVar("playerColor")
+      if playerColor == handColor then return matColor end
     end
     return "NOT_FOUND"
   end
 
-  -- Returns the result of a cast in the specificed playermat's area
-  ---@param matColor String Color of the playermat
-  PlaymatApi.searchPlaymat = function(matColor)
-    local mat = Global.call("getObjectFromMemo", {matColor = matColor, type = "Playermat"})
-    return mat.call("searchAroundSelf")
-  end
-
-  -- Returns if there is the card "Dream-Enhancing Serum" on the requested playermat
-  ---@param matColor String Color of the playermat
+  -- Returns if there is the card "Dream-Enhancing Serum" on the requested playmat
+  ---@param matColor String Color of the playmat - White, Orange, Green or Red (does not support "All")
   PlaymatApi.isDES = function(matColor)
-    local mat = Global.call("getObjectFromMemo", {matColor = matColor, type = "Playermat"})
-    return mat.getVar("isDES")
+    for _, mat in pairs(internal.getMatForColor(matColor)) do
+      return mat.getVar("isDES")
+    end
   end
 
   -- Returns the draw deck of the requested playmat
-  ---@param matColor String Color of the playermat
+  ---@param matColor String Color of the playmat - White, Orange, Green or Red (does not support "All")
   PlaymatApi.getDrawDeck = function(matColor)
-    local mat = Global.call("getObjectFromMemo", {matColor = matColor, type = "Playermat"})
-    mat.call("getDrawDiscardDecks")
-    return mat.getVar("drawDeck")
+    for _, mat in pairs(internal.getMatForColor(matColor)) do
+      mat.call("getDrawDiscardDecks")
+      return mat.getVar("drawDeck")
+    end
   end
 
   -- Returns the position of the discard pile of the requested playmat
-  ---@param matColor String Color of the playermat
+  ---@param matColor String Color of the playmat - White, Orange, Green or Red (does not support "All")
   PlaymatApi.getDiscardPosition = function(matColor)
-    local mat = Global.call("getObjectFromMemo", {matColor = matColor, type = "Playermat"})
-    return mat.call("returnGlobalDiscardPosition")
+    for _, mat in pairs(internal.getMatForColor(matColor)) do
+      return mat.call("returnGlobalDiscardPosition")
+    end
   end
 
   -- Transforms a local position into a global position
   ---@param localPos Table Local position to be transformed
-  ---@param matColor String Color of the playermat
+  ---@param matColor String Color of the playmat - White, Orange, Green or Red (does not support "All")
   PlaymatApi.transformLocalPosition = function(localPos, matColor)
-    local mat = Global.call("getObjectFromMemo", {matColor = matColor, type = "Playermat"})
-    return mat.positionToWorld(localPos)
+    for _, mat in pairs(internal.getMatForColor(matColor)) do
+      return mat.positionToWorld(localPos)
+    end
   end
 
   -- Returns the rotation of the requested playmat
-  ---@param matColor String Color of the playermat
+  ---@param matColor String Color of the playmat - White, Orange, Green or Red (does not support "All")
   PlaymatApi.returnRotation = function(matColor)
-    local mat = Global.call("getObjectFromMemo", {matColor = matColor, type = "Playermat"})
-    return mat.getRotation()
+    for _, mat in pairs(internal.getMatForColor(matColor)) do
+      return mat.getRotation()
+    end
   end
 
   -- Triggers the Upkeep for the requested playmat
-  ---@param matColor String Color of the playermat
+  ---@param matColor String Color of the playmat - White, Orange, Green, Red or All
   ---@param playerColor String Color of the calling player (for messages)
   PlaymatApi.doUpkeepFromHotkey = function(matColor, playerColor)
-    local mat = Global.call("getObjectFromMemo", {matColor = matColor, type = "Playermat"})
-    return mat.call("doUpkeepFromHotkey", playerColor)
+    for _, mat in pairs(internal.getMatForColor(matColor)) do
+      mat.call("doUpkeepFromHotkey", playerColor)
+    end
   end
 
   -- Returns the active investigator id
-  ---@param matColor String Color of the playermat
+  ---@param matColor String Color of the playmat - White, Orange, Green or Red (does not support "All")
   PlaymatApi.returnInvestigatorId = function(matColor)
-    local mat = Global.call("getObjectFromMemo", {matColor = matColor, type = "Playermat"})
-    return mat.getVar("activeInvestigatorId")
+    for _, mat in pairs(internal.getMatForColor(matColor)) do
+      return mat.getVar("activeInvestigatorId")
+    end
   end
 
-  -- Sets the requested playermat's snap points to limit snapping to matching card types or not.  If
+  -- Sets the requested playmat's snap points to limit snapping to matching card types or not.  If
   -- matchTypes is true, the main card slot snap points will only snap assets, while the
   -- investigator area point will only snap Investigators.  If matchTypes is false, snap points will
   -- be reset to snap all cards.
-  ---@param matchCardTypes Boolean.  Whether snap points should only snap for the matching card
-  --     types.
-  ---@param matColor String for one of the active player colors - White, Orange, Green, Red.  Also
-  --     accepts "All" as a special value which will apply the setting to all four mats.
+  ---@param matchCardTypes Boolean Whether snap points should only snap for the matching card types
+  ---@param matColor String Color of the playmat - White, Orange, Green, Red or All
   PlaymatApi.setLimitSnapsByType = function(matchCardTypes, matColor)
-    for _, mat in ipairs(internal.getMatForColor(matColor)) do
+    for _, mat in pairs(internal.getMatForColor(matColor)) do
       mat.call("setLimitSnapsByType", matchCardTypes)
     end
   end
 
-  -- Sets the requested playermat's draw 1 button to visible
-  ---@param isDrawButtonVisible Boolean.  Whether the draw 1 button should be visible or not
-  ---@param matColor String for one of the active player colors - White, Orange, Green, Red.  Also
-  --     accepts "All" as a special value which will apply the setting to all four mats.
+  -- Sets the requested playmat's draw 1 button to visible
+  ---@param isDrawButtonVisible Boolean Whether the draw 1 button should be visible or not
+  ---@param matColor String Color of the playmat - White, Orange, Green, Red or All
   PlaymatApi.showDrawButton = function(isDrawButtonVisible, matColor)
-    for _, mat in ipairs(internal.getMatForColor(matColor)) do
+    for _, mat in pairs(internal.getMatForColor(matColor)) do
       mat.call("showDrawButton", isDrawButtonVisible)
     end
   end
 
-  -- Shows or hides the clickable clue counter for the requested playermat
-  ---@param showCounter Boolean.  Whether the clickable counter should be present or not
-  ---@param matColor String for one of the active player colors - White, Orange, Green, Red.  Also
-  --     accepts "All" as a special value which will apply the setting to all four mats.
+  -- Shows or hides the clickable clue counter for the requested playmat
+  ---@param showCounter Boolean Whether the clickable counter should be present or not
+  ---@param matColor String Color of the playmat - White, Orange, Green, Red or All
   PlaymatApi.clickableClues = function(showCounter, matColor)
-    for _, mat in ipairs(internal.getMatForColor(matColor)) do
+    for _, mat in pairs(internal.getMatForColor(matColor)) do
       mat.call("clickableClues", showCounter)
     end
   end
 
-  -- Removes all clues (to the trash for tokens and counters set to 0) for the requested playermat
-  ---@param matColor String for one of the active player colors - White, Orange, Green, Red.  Also
-  --     accepts "All" as a special value which will apply the setting to all four mats.
+  -- Removes all clues (to the trash for tokens and counters set to 0) for the requested playmat
+  ---@param matColor String Color of the playmat - White, Orange, Green, Red or All
   PlaymatApi.removeClues = function(matColor)
-    for _, mat in ipairs(internal.getMatForColor(matColor)) do
+    for _, mat in pairs(internal.getMatForColor(matColor)) do
       mat.call("removeClues")
     end
   end
 
-  -- Reports the clue count for the requested playermat
+  -- Reports the clue count for the requested playmat
   ---@param useClickableCounters Boolean Controls which type of counter is getting checked
   PlaymatApi.getClueCount = function(useClickableCounters, matColor)
     local count = 0
-    for _, mat in ipairs(internal.getMatForColor(matColor)) do
+    for _, mat in pairs(internal.getMatForColor(matColor)) do
       count = count + tonumber(mat.call("getClueCount", useClickableCounters))
     end
     return count
   end
 
   -- updates the specified owned counter
-  ---@param matColor String for one of the active player colors - White, Orange, Green, Red.  Also
-  --     accepts "All" as a special value which will return all four mats.
+  ---@param matColor String Color of the playmat - White, Orange, Green, Red or All
   ---@param type String Counter to target
   ---@param newValue Number Value to set the counter to
   ---@param modifier Number If newValue is not provided, the existing value will be adjusted by this modifier
   PlaymatApi.updateCounter = function(matColor, type, newValue, modifier)
-    for _, mat in ipairs(internal.getMatForColor(matColor)) do
+    for _, mat in pairs(internal.getMatForColor(matColor)) do
       mat.call("updateCounter", {type = type, newValue = newValue, modifier = modifier})
     end
   end
 
   -- returns the resource counter amount
-  ---@param matColor String Color of the playermat
+  ---@param matColor String Color of the playmat - White, Orange, Green or Red (does not support "All")
   ---@param type String Counter to target
   PlaymatApi.getCounterValue = function(matColor, type)
-    local mat = Global.call("getObjectFromMemo", {matColor = matColor, type = "Playermat"})
-    return mat.call("getCounterValue", type)
+    for _, mat in pairs(internal.getMatForColor(matColor)) do
+      return mat.call("getCounterValue", type)
+    end
   end
 
-
   -- resets the specified skill tracker to "1, 1, 1, 1"
-  ---@param matColor String for one of the active player colors - White, Orange, Green, Red.  Also
-  --     accepts "All" as a special value which will return all four mats.
+  ---@param matColor String Color of the playmat - White, Orange, Green, Red or All
   PlaymatApi.resetSkillTracker = function(matColor)
-    for _, mat in ipairs(internal.getMatForColor(matColor)) do
+    for _, mat in pairs(internal.getMatForColor(matColor)) do
       mat.call("resetSkillTracker")
     end
   end
 
+  -- finds all objects on the playmat and associated set aside zone and returns a table
+  ---@param matColor String Color of the playmat - White, Orange, Green or Red (does not support "All")
+  ---@param filter Function Optional filter function (return true for desired objects)
+  PlaymatApi.searchAroundPlaymat = function(matColor, filter)
+    for _, mat in pairs(internal.getMatForColor(matColor)) do
+      return mat.call("searchAroundSelf", filter)
+    end
+  end
+
   -- Discard a non-hidden card from the corresponding player's hand
+  ---@param matColor String Color of the playmat - White, Orange, Green, Red or All
   PlaymatApi.doDiscardOne = function(matColor)
-    for _, mat in ipairs(internal.getMatForColor(matColor)) do
+    for _, mat in pairs(internal.getMatForColor(matColor)) do
       mat.call("doDiscardOne")
     end
   end
 
+  -- Triggers the metadata sync for all playmats
   PlaymatApi.syncAllCustomizableCards = function()
-    for _, mat in ipairs(internal.getMatForColor("All")) do
+    for _, mat in pairs(internal.getMatForColor("All")) do
       mat.call("syncAllCustomizableCards")
     end
   end
 
-  PlaymatApi.updateClueClicker = function(matColor, val)
-    return Global.call("getObjectFromMemo", {matColor = matColor, type = "ClickableClueCounter"}).call("updateVal", val)
-  end
-
   -- Convenience function to look up a mat's object by color, or get all mats.
-  ---@param matColor String for one of the active player colors - White, Orange, Green, Red.  Also
-  --     accepts "All" as a special value which will return all four mats.
-  ---@return: Array of playermat objects.  If a single mat is requested, will return a single-element
-  --     array to simplify processing by consumers.
+  ---@param matColor String Color of the playmat - White, Orange, Green, Red or All
+  ---@return array Table Single-element if only single playmat is requested
   internal.getMatForColor = function(matColor)
     if matColor == "All" then
       return {
-        Global.call("getObjectFromMemo", {matColor = "White", type = "Playermat"}),
-        Global.call("getObjectFromMemo", {matColor = "Orange", type = "Playermat"}),
-        Global.call("getObjectFromMemo", {matColor = "Green", type = "Playermat"}),
-        Global.call("getObjectFromMemo", {matColor = "Red", type = "Playermat"})
+        White  = Global.call("getObjectFromMemo", {matColor = "White", type = "Playermat"}),
+        Orange = Global.call("getObjectFromMemo", {matColor = "Orange", type = "Playermat"}),
+        Green  = Global.call("getObjectFromMemo", {matColor = "Green", type = "Playermat"}),
+        Red    = Global.call("getObjectFromMemo", {matColor = "Red", type = "Playermat"})
       }
     else
-      return { Global.call("getObjectFromMemo", {matColor = matColor, type = "Playermat"}) }
+      return {matColor = Global.call("getObjectFromMemo", {matColor = matColor, type = "Playermat"}) }
     end
   end
 

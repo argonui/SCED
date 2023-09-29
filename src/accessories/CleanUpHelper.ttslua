@@ -15,39 +15,11 @@ local IGNORE_TAG                = "CleanUpHelper_ignore"
 
 -- colors and order for following tables
 local COLORS                    = { "White", "Orange", "Green", "Red", "Mythos" }
-
 local campaignLog
 local RESET_VALUES              = {}
-
--- values for physics.cast (4 entries for player zones, 5th entry for mythos area, 6th for campaign log)
-local PHYSICS_POSITION          = {
-  { -54.5, 2, 21 },
-  { -54.5, 2, -21 },
-  { -27.0, 2, 26 },
-  { -27.0, 2, -26 },
-  { -02.0, 2, 10 },
-  { -00.0, 2, -27 }
-}
-
-local PHYSICS_ROTATION          = {
-  270,
-  270,
-  0,
-  180,
-  270,
-  0
-}
-
-local PHYSICS_SCALE             = {
-  { 36.6, 1, 14.5 },
-  { 36.6, 1, 14.5 },
-  { 34.0, 1, 14.5 },
-  { 34.0, 1, 14.5 },
-  { 55.0, 1, 13.5 },
-  { 05.0, 1, 05.0 }
-}
-
+local loadingFailedBefore       = false
 local optionsVisible            = false
+
 local options                   = {}
 options["importTrauma"]         = true
 options["tidyPlayermats"]       = true
@@ -56,7 +28,6 @@ options["removeDrawnLines"]     = false
 local buttonParameters          = {}
 buttonParameters.function_owner = self
 
-local loadingFailedBefore       = false
 
 ---------------------------------------------------------
 -- option loading and GUI setup
@@ -202,13 +173,12 @@ function getTrauma()
   end
 
   -- get campaign log
-  campaignLog = findObjects(6)[1]
+  campaignLog = getObjectsWithTag("CampaignLog")[1]
   if campaignLog == nil then
     printToAll("Campaign log not found in standard position!", "Yellow")
     printToAll("Default values for health and sanity loaded.", "Yellow")
     return
   end
-  campaignLog = campaignLog.hit_object
   loadTrauma()
 end
 
@@ -306,9 +276,14 @@ function tidyPlayerMatCoroutine()
         return 1
       end
 
-      for _, entry in ipairs(findObjects(i)) do
-        local obj = entry.hit_object
+      local objList
+      if i < 5 then
+        objList = playmatApi.searchAroundPlaymat(COLORS[i])
+      else
+        objList = searchMythosArea()
+      end
 
+      for _, obj in ipairs(objList) do
         -- ignore these elements
         if obj.hasTag(IGNORE_TAG) == false
             and obj.hasTag("ActionToken") == false
@@ -317,7 +292,7 @@ function tidyPlayerMatCoroutine()
           coroutine.yield(0)
           trash.putObject(obj)
 
-          -- flip action tokens back to ready
+        -- flip action tokens back to ready
         elseif obj.hasTag("ActionToken") == false and obj.is_face_down then
           obj.flip()
         end
@@ -346,17 +321,23 @@ end
 -- helper functions
 ---------------------------------------------------------
 
--- find objects depending on index (1 to 4 for playermats, 5 for mythos area, 6 for campaign log)
-function findObjects(num)
-  return Physics.cast({
+-- find objects in the mythos area
+function searchMythosArea()
+  local searchResult = Physics.cast({
     direction    = { 0, 1, 0 },
     max_distance = 1,
     type         = 3,
-    size         = PHYSICS_SCALE[num],
-    origin       = PHYSICS_POSITION[num],
-    orientation  = { 0, PHYSICS_ROTATION[num], 0 },
+    size         = { 55, 1, 13.5 },
+    origin       = { -2, 2, 10 },
+    orientation  = { 0, 270, 0 },
     debug        = false
   })
+
+  local objList = {}
+  for _, v in ipairs(searchResult) do
+    table.insert(objList, v.hit_object)
+  end
+  return objList
 end
 
 -- checks if the object is owned by a playermat or the mythos, returns boolean
