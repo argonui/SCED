@@ -63,6 +63,7 @@ activeInvestigatorId = "00000"
 
 -- table of type-object reference pairs of all owned objects
 local ownedObjects = {}
+local matColor = JSON.decode(self.getMemo()).matColor
 
 -- variable to track the status of the "Show Draw Button" option
 local isDrawButtonVisible = false
@@ -83,7 +84,6 @@ function onLoad(save_state)
   self.interactable = DEBUG
 
   -- get object references to owned objects
-  local matColor= JSON.decode(self.getMemo()).matColor
   ownedObjects = Global.call("getObjectsForMatColor", matColor)
 
   -- button creation
@@ -392,10 +392,10 @@ function doUpkeep(_, clickedByColor, isRightClick)
 
   -- gain a resource (or two if playing Jenny Barnes)
   if string.match(activeInvestigatorId, "%d%d%d%d%d") == "02003" then
-    gainResources(2)
+    updateCounter({type = "ResourceCounter", modifier = 2})
     printToColor("Gaining 2 resources (Jenny)", messageColor)
   else
-    gainResources(1)
+    updateCounter({type = "ResourceCounter", modifier = 1})
   end
 
   -- draw a card (with handling for Patrice and Forced Learning)
@@ -419,18 +419,6 @@ function doUpkeep(_, clickedByColor, isRightClick)
   else
     drawCardsWithReshuffle(1)
   end
-end
-
--- adds the specified amount of resources to the resource counter
-function gainResources(amount)
-  local count = ownedObjects.ResourceCounter.getVar("val")
-  local add = tonumber(amount) or 0
-  ownedObjects.ResourceCounter.call("updateVal", count + add)
-end
-
--- returns the resource counter amount
-function getResourceCount()
-  return ownedObjects.ResourceCounter.getVar("val")
 end
 
 -- function for "draw 1 button" (that can be added via option panel)
@@ -820,6 +808,40 @@ end
 
 function setObjectState(obj, stateId)
   if obj.getStateId() ~= stateId then obj.setState(stateId) end
+end
+
+---------------------------------------------------------
+-- manipulation of owned objects
+---------------------------------------------------------
+
+-- updates the specific owned counter
+---@param param Table Contains the information to update:
+---   type: String Counter to target
+---   newValue: Number Value to set the counter to
+---   modifier: Number If newValue is not provided, the existing value will be adjusted by this modifier
+function updateCounter(param)
+  local counter = ownedObjects[param.type]
+  if counter ~= nil then
+    counter.call("updateVal", param.newValue or (counter.getVar("val") + param.modifier))
+  else
+    printToAll(param.type .. " for " .. matColor .. " could not be found.", "Yellow")
+  end
+end
+
+-- returns the resource counter amount
+---@param type String Counter to target
+function getCounterValue(type)
+  return ownedObjects.type.getVar("val")
+end
+
+-- set investigator skill tracker to "1, 1, 1, 1"
+function resetSkillTracker()
+    local obj = ownedObjects.InvestigatorSkillTracker
+    if obj ~= nil then
+      obj.call("updateStats", { 1, 1, 1, 1 })
+    else
+      printToAll("Skill tracker for " .. matColor .. " playmat could not be found.", "Yellow")
+    end
 end
 
 ---------------------------------------------------------

@@ -150,17 +150,34 @@ do
     return count
   end
 
-  -- Adds the specified amount of resources to the requested playermat's resource counter
-  PlaymatApi.gainResources = function(amount, matColor)
+  -- updates the specified owned counter
+  ---@param matColor String for one of the active player colors - White, Orange, Green, Red.  Also
+  --     accepts "All" as a special value which will return all four mats.
+  ---@param type String Counter to target
+  ---@param newValue Number Value to set the counter to
+  ---@param modifier Number If newValue is not provided, the existing value will be adjusted by this modifier
+  PlaymatApi.updateCounter = function(matColor, type, newValue, modifier)
     for _, mat in ipairs(internal.getMatForColor(matColor)) do
-      mat.call("gainResources", amount)
+      mat.call("updateCounter", {type = type, newValue = newValue, modifier = modifier})
     end
   end
 
-  -- Returns the resource counter amount for the requested playermat
-  PlaymatApi.getResourceCount = function(matColor)
+  -- returns the resource counter amount
+  ---@param matColor String Color of the playermat
+  ---@param type String Counter to target
+  PlaymatApi.getCounterValue = function(matColor, type)
     local mat = Global.call("getObjectFromMemo", {matColor = matColor, type = "Playermat"})
-    return mat.call("getResourceCount")
+    return mat.call("getCounterValue", type)
+  end
+
+
+  -- resets the specified skill tracker to "1, 1, 1, 1"
+  ---@param matColor String for one of the active player colors - White, Orange, Green, Red.  Also
+  --     accepts "All" as a special value which will return all four mats.
+  PlaymatApi.resetSkillTracker = function(matColor)
+    for _, mat in ipairs(internal.getMatForColor(matColor)) do
+      mat.call("resetSkillTracker")
+    end
   end
 
   -- Discard a non-hidden card from the corresponding player's hand
@@ -186,17 +203,15 @@ do
   ---@return: Array of playermat objects.  If a single mat is requested, will return a single-element
   --     array to simplify processing by consumers.
   internal.getMatForColor = function(matColor)
-    local targetMat = Global.call("getObjectFromMemo", {matColor = matColor, type = "Playermat"})
-    if targetMat != nil then
-      return { targetMatGuid }
-    end
     if matColor == "All" then
       return {
-        Global.call("getObjectFromMemo", {matColor = White, type = "Playermat"}),
-        Global.call("getObjectFromMemo", {matColor = Orange, type = "Playermat"}),
-        Global.call("getObjectFromMemo", {matColor = Green, type = "Playermat"}),
-        Global.call("getObjectFromMemo", {matColor = Red, type = "Playermat"})
+        Global.call("getObjectFromMemo", {matColor = "White", type = "Playermat"}),
+        Global.call("getObjectFromMemo", {matColor = "Orange", type = "Playermat"}),
+        Global.call("getObjectFromMemo", {matColor = "Green", type = "Playermat"}),
+        Global.call("getObjectFromMemo", {matColor = "Red", type = "Playermat"})
       }
+    else
+      return { Global.call("getObjectFromMemo", {matColor = matColor, type = "Playermat"}) }
     end
   end
 
