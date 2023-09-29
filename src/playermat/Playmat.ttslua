@@ -61,7 +61,10 @@ local ENCOUNTER_DISCARD_POSITION = { x = -3.85, y = 1.5, z = 10.38}
 -- global variable so it can be reset by the Clean Up Helper
 activeInvestigatorId = "00000"
 
-local MATCOLOR, TRASHCAN, STAT_TRACKER, RESOURCE_COUNTER, CLUE_COUNTER, CLUE_CLICKER
+-- table of type-object reference pairs of all owned objects
+local ownedObjects = {}
+
+-- variable to track the status of the "Show Draw Button" option
 local isDrawButtonVisible = false
 
 -- global variable to report "Dream-Enhancing Serum" status
@@ -79,14 +82,9 @@ end
 function onLoad(save_state)
   self.interactable = DEBUG
 
-  -- set MATCOLOR based on memo
-  MATCOLOR = JSON.decode(self.getMemo()).matColor
-
-  TRASHCAN         = Global.call("getObjectFromMemo", {matColor = MATCOLOR, type = "Trash"})
-  STAT_TRACKER     = Global.call("getObjectFromMemo", {matColor = MATCOLOR, type = "InvestigatorSkillTracker"})
-  RESOURCE_COUNTER = Global.call("getObjectFromMemo", {matColor = MATCOLOR, type = "ResourceCounter"})
-  CLUE_COUNTER     = Global.call("getObjectFromMemo", {matColor = MATCOLOR, type = "ClueCounter"})
-  CLUE_CLICKER     = Global.call("getObjectFromMemo", {matColor = MATCOLOR, type = "ClickableClueCounter"})
+  -- get object references to owned objects
+  local matColor= JSON.decode(self.getMemo()).matColor
+  ownedObjects = Global.call("getObjectsForMatColor", matColor)
 
   -- button creation
   for i = 1, 6 do
@@ -244,7 +242,7 @@ function makeDiscardHandlerFor(searchPosition, )
         chaosBag.putObject(obj)
       -- don't touch the table or this playmat itself
       elseif obj.guid ~= "4ee1f2" and obj ~= self then
-        TRASHCAN.putObject(obj)
+        ownedObjects.Trash.putObject(obj)
       end
     end
   end
@@ -425,14 +423,14 @@ end
 
 -- adds the specified amount of resources to the resource counter
 function gainResources(amount)
-  local count = RESOURCE_COUNTER.getVar("val")
+  local count = ownedObjects.ResourceCounter.getVar("val")
   local add = tonumber(amount) or 0
-  RESOURCE_COUNTER.call("updateVal", count + add)
+  ownedObjects.ResourceCounter.call("updateVal", count + add)
 end
 
 -- returns the resource counter amount
 function getResourceCount()
-  return RESOURCE_COUNTER.getVar("val")
+  return ownedObjects.ResourceCounter.getVar("val")
 end
 
 -- function for "draw 1 button" (that can be added via option panel)
@@ -584,7 +582,7 @@ function changeColor(clickedByColor)
   -- show the option dialog for color selection to the player that triggered this
   Player[clickedByColor].showOptionsDialog("Select a new color:", colorList, _, function(color)
     -- update the color of the hand zone
-    local handZone = Global.call("getObjectFromMemo", {matColor = MATCOLOR, "HandZone"})
+    local handZone = ownedObjects.HandZone
     handZone.setValue(color)
 
     -- if the seated player clicked this, reseat him to the new color
@@ -748,7 +746,7 @@ function removeTokensFromObject(object)
         obj.getLock() == false and
         obj.getDescription() ~= "Action Token" and
         not tokenChecker.isChaosToken(obj) then
-      TRASHCAN.putObject(obj)
+      ownedObjects.TrashCan.putObject(obj)
     end
   end
 end
@@ -767,11 +765,16 @@ function maybeUpdateActiveInvestigator(card)
     if notes.id == activeInvestigatorId then return end
     class = notes.class
     activeInvestigatorId = notes.id
-    STAT_TRACKER.call("updateStats", {notes.willpowerIcons, notes.intellectIcons, notes.combatIcons, notes.agilityIcons})
+    ownedObjects.InvestigatorSkillTracker.call("updateStats", {
+      notes.willpowerIcons,
+      notes.intellectIcons,
+      notes.combatIcons,
+      notes.agilityIcons
+    })
   elseif activeInvestigatorId ~= "00000" then
     class = "Neutral"
     activeInvestigatorId = "00000"
-    STAT_TRACKER.call("updateStats", {1, 1, 1, 1})
+    ownedObjects.InvestigatorSkillTracker.call("updateStats", {1, 1, 1, 1})
   else
     return
   end
@@ -869,29 +872,29 @@ end
 -- Spawns / destroys a clickable clue counter for this playmat with the correct amount of clues
 ---@param showCounter Boolean Whether the clickable clue counter should be present
 function clickableClues(showCounter)
-  local clickerPos = CLUE_CLICKER.getPosition()
+  local clickerPos = ownedObjects.ClickableClueCounter.getPosition()
   local clueCount = 0
 
   if showCounter then
     -- current clue count
-    clueCount = CLUE_COUNTER.getVar("exposedValue")
+    clueCount = ownedObjects.ClueCounter.getVar("exposedValue")
 
     -- remove clues
-    CLUE_COUNTER.call("removeAllClues")
+    ownedObjects.ClueCounter.call("removeAllClues")
 
     -- set value for clue clickers
-    CLUE_CLICKER.call("updateVal", clueCount)
+    ownedObjects.ClickableClueCounter.call("updateVal", clueCount)
 
     -- move clue counters up
     clickerPos.y = 1.52
-    CLUE_CLICKER.setPosition(clickerPos)
+    ownedObjects.ClickableClueCounter.setPosition(clickerPos)
   else
     -- current clue count
-    clueCount = CLUE_CLICKER.getVar("val")
+    clueCount = ownedObjects.ClickableClueCounter.getVar("val")
 
     -- move clue counters down
     clickerPos.y = 1.3
-    CLUE_CLICKER.setPosition(clickerPos)
+    ownedObjects.ClickableClueCounter.setPosition(clickerPos)
 
     -- spawn clues
     local pos = self.positionToWorld({x = -1.12, y = 0.05, z = 0.7})
@@ -904,8 +907,8 @@ end
 
 -- removes all clues (moving tokens to the trash and setting counters to 0)
 function removeClues()
-  CLUE_COUNTER.call("removeAllClues")
-  CLUE_CLICKER.call("updateVal", 0)
+  ownedObjects.ClueCounter.call("removeAllClues")
+  ownedObjects.ClickableClueCounter.call("updateVal", 0)
 end
 
 -- reports the clue count
@@ -914,9 +917,9 @@ function getClueCount(useClickableCounters)
   local count = 0
 
   if useClickableCounters then
-    count = tonumber(CLUE_CLICKER.getVar("val"))
+    count = tonumber(ownedObjects.ClickableClueCounter.getVar("val"))
   else
-    count = tonumber(CLUE_COUNTER.getVar("exposedValue"))
+    count = tonumber(ownedObjects.ClueCounter.getVar("exposedValue"))
   end
   return count
 end
