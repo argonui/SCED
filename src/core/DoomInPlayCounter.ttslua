@@ -20,38 +20,60 @@ function onLoad()
     color = { 0, 0, 0, 0 }
   })
 
-  trash = Global.call("getObjectFromMemo", {matColor = "Mythos", type = "Trash"})
-  ZONE = Global.call("getObjectFromMemo", {matColor = "Mythos", type = "PlayAreaZone"})
+  trash = Global.call("getObjectFromMemo", { matColor = "Mythos", type = "Trash" })
+  ZONE = Global.call("getObjectFromMemo", { matColor = "Mythos", type = "PlayAreaZone" })
   loopID = Wait.time(countDoom, 2, -1)
 end
 
 -- main function
 function countDoom()
-  local doom = 0
-  for i = 1, 4 do
-    doom = doom + countDoomFromList(playmatApi.searchAroundPlaymat(COLORS[i]))
+  local objList = {}
+
+  -- get doom objects in play area zone
+  for _, obj in ipairs(ZONE.getObjects()) do
+    if filterDoom(obj) then
+      table.insert(objList, obj)
+    end
   end
-  doom = doom + countDoomFromList(ZONE.getObjects())
+
+  -- get doom objects on playmats
+  for i = 1, 4 do
+    local playmatList = playmatApi.searchAroundPlaymat(COLORS[i])
+    for _, obj in ipairs(playmatList) do
+      if filterDoom(obj) then
+        table.insert(objList, obj)
+      end
+    end
+  end
+
+  local doom = countDoomFromList(objList)
   self.editButton({ index = 0, label = tostring(doom) })
 end
 
 function countDoomFromList(objList)
   local count = 0
   for _, obj in ipairs(objList) do
-    count = count + isDoom(obj)
+    count = count + getDoomAmount(obj)
   end
   return count
 end
 
--- checks an object for the doom image and gets quantity (for stacks)
-function isDoom(obj)
-  if (obj.is_face_down and obj.getCustomObject().image_bottom == doomURL) or
-      (obj.name == "Custom_Token" and obj.getCustomObject().image == doomURL) then
-    if not obj.hasTag(IGNORE_TAG) then
-      return math.abs(obj.getQuantity())
-    end
+function filterDoom(obj)
+  if (obj.is_face_down and obj.getCustomObject().image_bottom == doomURL)
+      or (obj.name == "Custom_Token" and obj.getCustomObject().image == doomURL) then
+    return true
+  else
+    return false
   end
-  return 0
+end
+
+-- gets quantity (for stacks) of doom
+function getDoomAmount(obj)
+  if not obj.hasTag(IGNORE_TAG) then
+    return math.abs(obj.getQuantity())
+  else
+    return 0
+  end
 end
 
 -- removes doom from playermats / playarea
@@ -64,7 +86,7 @@ function removeDoom(options)
     end
     broadcastToAll(count .. " doom removed from Playermats.", "White")
   end
-  
+
   if options.Playarea then
     count = removeDoomFromList(ZONE.getObjects())
     broadcastToAll(count .. " doom removed from Playerarea.", "White")
@@ -75,7 +97,7 @@ end
 function removeDoomFromList(objList)
   local count = 0
   for _, obj in ipairs(objList) do
-    local amount = isDoom(obj)
+    local amount = getDoomAmount(obj)
     if amount > 0 then
       TRASH.putObject(obj)
       count = count + amount
