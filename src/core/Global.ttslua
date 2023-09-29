@@ -170,6 +170,57 @@ function tryObjectEnterContainer(container, object)
   return true
 end
 
+-- gets the first object that matches the provided information
+---@param searchParam Table Contains matColor and type to search for
+function getObjectFromMemo(searchParam)
+  local matColor = searchParam.matColor
+  local type = searchParam.type
+  if matColor == nil or type == nil then return nil end
+  for _, obj in ipairs(getObjects()) do
+    local memo = obj.getMemo()
+    if memo then
+      local decoded = JSON.decode(memo) or {}
+      if decoded.matColor == matColor and decoded.type == type then
+        return obj
+      end
+    end
+  end
+  return nil
+end
+
+-- gets all objects that match the provided matcolor
+---@param matColor String Color of the playermat
+function getObjectsForMatColor(matColor)
+  if matColor == nil then return nil end
+  local objList = {}
+  for _, obj in ipairs(getObjects()) do
+    local memo = obj.getMemo()
+    if memo then
+      local decoded = JSON.decode(memo) or {}
+      if decoded.matColor == matColor then
+        table.insert(objList, obj)
+      end
+    end
+  end
+  return objList
+end
+
+-- gets all objects that match the provided type
+---@param type String Object to look for (usually name without spaces)
+function getObjectForType(type)
+  if type == nil then return nil end
+  for _, obj in ipairs(getObjects()) do
+    local memo = obj.getMemo()
+    if memo then
+      local decoded = JSON.decode(memo) or {}
+      if decoded.type == type then
+        table.insert(objList, obj)
+      end
+    end
+  end
+  return objList
+end
+
 ---------------------------------------------------------
 -- chaos token drawing
 ---------------------------------------------------------
@@ -963,8 +1014,12 @@ function spawnHelperObject(name, position, rotation, color)
   for _, obj in ipairs(sourceBag.getData().ContainedObjects) do
     if obj["Nickname"] == name then
       spawnTable.data = obj
+      
       -- this set the memo to identify the object at a later point (type = name without spaces)
-      spawnTable.data["Memo"] = "{\"matColor\":\"" .. color .. "\",\"type\":\"" .. name:gsub("%s+", "") .. "\"}"
+      if color then
+        spawnTable.data["Memo"] = "{\"matColor\":\"" .. color .. "\",\"type\":\"" .. name:gsub("%s+", "") .. "\"}"
+      end
+
       spawnTable.callback_function = function(spawnedObj)
         Wait.time(function() spawnedObj.setLock(true) end, 2)
       end
