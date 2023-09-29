@@ -61,7 +61,7 @@ local ENCOUNTER_DISCARD_POSITION = { x = -3.85, y = 1.5, z = 10.38}
 -- global variable so it can be reset by the Clean Up Helper
 activeInvestigatorId = "00000"
 
-local TRASHCAN, STAT_TRACKER, RESOURCE_COUNTER
+local MATCOLOR, TRASHCAN, STAT_TRACKER, RESOURCE_COUNTER
 local isDrawButtonVisible = false
 
 -- global variable to report "Dream-Enhancing Serum" status
@@ -79,9 +79,12 @@ end
 function onLoad(save_state)
   self.interactable = DEBUG
 
-  TRASHCAN = getObjectFromGUID(TRASHCAN_GUID)
-  STAT_TRACKER = getObjectFromGUID(STAT_TRACKER_GUID)
-  RESOURCE_COUNTER = getObjectFromGUID(RESOURCE_COUNTER_GUID)
+  -- set MATCOLOR based on memo
+  MATCOLOR = JSON.decode(self.getMemo()).matColor
+
+  TRASHCAN = getObjectFromMemo(MATCOLOR, "Trash")
+  STAT_TRACKER = getObjectFromMemo(MATCOLOR, "InvestigatorSkillTracker")
+  RESOURCE_COUNTER = getObjectFromMemo(MATCOLOR, "ResourceCounter")
 
   -- button creation
   for i = 1, 6 do
@@ -207,6 +210,35 @@ end
 
 function doNotReady(card)
   return card.getVar("do_not_ready") or false
+end
+
+-- rounds a number to the specified amount of decimal places
+---@param num Number Initial value
+---@param numDecimalPlaces Number Amount of decimal places
+function round(num, numDecimalPlaces)
+  local mult = 10^(numDecimalPlaces or 0)
+  return math.floor(num * mult + 0.5) / mult
+end
+
+-- gets the first object that matches the provided information
+---@param matColor String Color of the playermat
+---@param type String Object to look for (usually name without spaces)
+function getObjectFromMemo(matColor, type)
+  if matColor == nil or type == nil then
+    return nil
+  end
+
+  for _, obj in ipairs(getObjects()) do
+    local memo = obj.getMemo()
+    if memo then
+      local decoded = JSON.decode(memo) or {}
+      if decoded.matColor == matColor and decoded.type == type then
+        return obj
+      end
+    end
+  end
+
+  return nil
 end
 
 ---------------------------------------------------------
@@ -570,32 +602,8 @@ function changeColor(clickedByColor)
 
   -- show the option dialog for color selection to the player that triggered this
   Player[clickedByColor].showOptionsDialog("Select a new color:", colorList, _, function(color)
-    local HAND_ZONE_GUIDS = {
-      "a70eee", -- White
-      "5fe087", -- Orange
-      "0285cc", -- Green
-      "be2f17"  -- Red
-    }
-    local index
-    local startPos = self.getPosition()
-
-    -- get respective hand zone by position
-    if startPos.x < -42 then
-      if startPos.z > 0 then
-        index = 1
-      else
-        index = 2
-      end
-    else
-      if startPos.z > 0 then
-        index = 3
-      else
-        index = 4
-      end
-    end
-
     -- update the color of the hand zone
-    local handZone = getObjectFromGUID(HAND_ZONE_GUIDS[index])
+    local handZone = getObjectFromMemo(MATCOLOR, "HandZone")
     handZone.setValue(color)
 
     -- if the seated player clicked this, reseat him to the new color
@@ -880,8 +888,8 @@ end
 -- Spawns / destroys a clickable clue counter for this playmat with the correct amount of clues
 ---@param showCounter Boolean Whether the clickable clue counter should be present
 function clickableClues(showCounter)
-  local CLUE_COUNTER = getObjectFromGUID(CLUE_COUNTER_GUID)
-  local CLUE_CLICKER = getObjectFromGUID(CLUE_CLICKER_GUID)
+  local CLUE_COUNTER = getObjectFromMemo(MATCOLOR, "ClueCounter")
+  local CLUE_CLICKER = getObjectFromMemo(MATCOLOR, "ClickableClueCounter")
   local clickerPos = CLUE_CLICKER.getPosition()
   local clueCount = 0
 
@@ -917,8 +925,8 @@ end
 
 -- removes all clues (moving tokens to the trash and setting counters to 0)
 function removeClues()
-  local CLUE_COUNTER = getObjectFromGUID(CLUE_COUNTER_GUID)
-  local CLUE_CLICKER = getObjectFromGUID(CLUE_CLICKER_GUID)
+  local CLUE_COUNTER = getObjectFromMemo(MATCOLOR, "ClueCounter")
+  local CLUE_CLICKER = getObjectFromMemo(MATCOLOR, "ClickableClueCounter")
 
   CLUE_COUNTER.call("removeAllClues")
   CLUE_CLICKER.call("updateVal", 0)
@@ -930,10 +938,10 @@ function getClueCount(useClickableCounters)
   local count = 0
 
   if useClickableCounters then
-    local CLUE_CLICKER = getObjectFromGUID(CLUE_CLICKER_GUID)
+    local CLUE_CLICKER = getObjectFromMemo(MATCOLOR, "ClickableClueCounter")
     count = tonumber(CLUE_CLICKER.getVar("val"))
   else
-    local CLUE_COUNTER = getObjectFromGUID(CLUE_COUNTER_GUID)
+    local CLUE_COUNTER = getObjectFromMemo(MATCOLOR, "ClueCounter")
     count = tonumber(CLUE_COUNTER.getVar("exposedValue"))
   end
   return count
@@ -994,12 +1002,4 @@ function updatePlayerCards(args)
   local customDataHelper = getObjectFromGUID(args[1])
   local playerCardData = customDataHelper.getTable("PLAYER_CARD_DATA")
   tokenManager.addPlayerCardData(playerCardData)
-end
-
--- utility function for rounding
----@param num Number Initial value
----@param numDecimalPlaces Number Amount of decimal places
-function round(num, numDecimalPlaces)
-  local mult = 10^(numDecimalPlaces or 0)
-  return math.floor(num * mult + 0.5) / mult
 end
