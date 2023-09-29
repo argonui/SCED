@@ -15,9 +15,6 @@ local tokenManager = require("core/token/TokenManager")
 ENCOUNTER_DECK_POS = {-3.93, 1, 5.76}
 ENCOUNTER_DECK_DISCARD_POSITION = {-3.85, 1, 10.38}
 
--- GUID of data helper
-DATA_HELPER_GUID = "708279"
-
 -- GUIDs that will not be interactable (e.g. parts of the table)
 local NOT_INTERACTABLE = {
   "6161b4", -- Decoration-Map
@@ -32,6 +29,7 @@ local NOT_INTERACTABLE = {
   "975c39", -- vertical border right
 }
 
+local DATA_HELPER
 local chaosTokens = {}
 local chaosTokensLastMat = nil
 local bagSearchers = {}
@@ -99,14 +97,6 @@ ID_URL_MAP = {
 -- data for chaos token stat tracker
 ---------------------------------------------------------
 
-local MAT_GUID_TO_COLOR = {
-  ["Overall"] = "Overall",
-  ["8b081b"]  = "White",
-  ["bd0ff4"]  = "Orange",
-  ["383d8b"]  = "Green",
-  ["0840d5"]  = "Red"
-}
-
 local tokenDrawingStats = {
   ["Overall"] = {},
   ["8b081b"]  = {},
@@ -137,6 +127,7 @@ function onLoad(savedData)
     if obj ~= nil then obj.interactable = false end
   end
 
+  DATA_HELPER = getObjectFromMemo({matColor = "Mythos", type = "DataHelper"})
   resetChaosTokenStatTracker()
   getModVersion()
   math.randomseed(os.time())
@@ -191,8 +182,8 @@ end
 -- gets all objects that match the provided matcolor
 ---@param matColor String Color of the playermat
 function getObjectsForMatColor(matColor)
-  if matColor == nil then return nil end
   local objList = {}
+  if matColor == nil then return objList end
   for _, obj in ipairs(getObjects()) do
     local memo = obj.getMemo()
     if memo then
@@ -205,10 +196,11 @@ function getObjectsForMatColor(matColor)
   return objList
 end
 
--- gets all objects that match the provided type
+-- gets all objects that match the provided type, sorted by owner
 ---@param type String Object to look for (usually name without spaces)
-function getObjectForType(type)
-  if type == nil then return nil end
+function getObjectsForType(type)
+  local objList = {}
+  if type == nil then return objList end
   for _, obj in ipairs(getObjects()) do
     local memo = obj.getMemo()
     if memo then
@@ -349,7 +341,11 @@ function handleStatTrackerClick(_, _, isRightClick)
         playerColor = "White"
         playerName = "Overall"
       else
-        playerColor = playmatApi.getPlayerColor(MAT_GUID_TO_COLOR[key])
+        -- get mat color from memo
+        local mat = getObjectFromGUID(key)
+        local decoded = JSON.decode(mat.getMemo())
+        local matColor = decoded.matColor
+        playerColor = playmatApi.getPlayerColor(matColor)
         playerName = Player[playerColor].steam_name or playerColor
 
         local playerSquidCount = personalStats["Auto-fail"]
@@ -499,7 +495,7 @@ function fillContainer(args)
 end
 
 function getDataValue(storage, key)
-  local data = getObjectFromGUID(DATA_HELPER_GUID).getTable(storage)
+  local data = DATA_HELPER.getTable(storage)
   if data ~= nil then
     local value = data[key]
     if value ~= nil then
@@ -996,7 +992,7 @@ end
 ---@param rotation Table Desired rotation of the object (defaults to object's rotation)
 ---@param color String Matcolor this object is spawned for to set memo
 function spawnHelperObject(name, position, rotation, color)
-  local sourceBag = getObjectFromGUID("830bd0")
+  local sourceBag = getObjectFromMemo({matColor = "Mythos", type = "OptionPanelSource"})
 
   -- error handling for missing sourceBag
   if not sourceBag then
