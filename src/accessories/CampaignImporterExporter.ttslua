@@ -43,6 +43,7 @@ local campaignTokenData = {
     CastShadows = true
   }
 }
+local COLORS = { "White", "Orange", "Green", "Red" }
 
 function onLoad()
   self.createButton({
@@ -118,7 +119,7 @@ function placeCampaignFromToken(importData)
   getObjectFromGUID(importData["box"]).call("buttonClick_place")
   Wait.condition(
     function() createCampaignFromToken(importData) end,
-    function() return findCampaignLog() ~= nil end,
+    function() return findUniqueObjectWithTag("CampaignLog") ~= nil end,
     2,
     function() broadcastToAll("Error placing campaign box") end
   )
@@ -127,9 +128,9 @@ end
 -- After content is placed on table, conducts all the other import operations
 function createCampaignFromToken(importData)
   -- destroy existing campaign log and load saved campaign log
-  findCampaignLog().destruct()
+  findUniqueObjectWithTag("CampaignLog").destruct()
   spawnObjectData({ data = importData["log"] })
-
+  
   chaosBagApi.setChaosBagState(importData["bag"])
 
   -- populate trauma values
@@ -145,24 +146,17 @@ function createCampaignFromToken(importData)
   playAreaApi.setInvestigatorCount(importData["clueCount"])
 
   -- set campaign guide page
-  local guide = findCampaignGuide()
+  local guide = findUniqueObjectWithTag("CampaignGuide")
   if guide then
     Wait.condition(
     -- Called after the condition function returns true
-      function()
-        log("Campaign Guide import successful!")
-      end,
+      function() log("Campaign Guide import successful!") end,
       -- Condition function that is called continiously until returs true or timeout is reached
-      function()
-        guide.Book.setPage(importData["guide"])
-        return guide.Book.getPage() == importData["guide"]
-      end,
+      function() return guide.Book.setPage(importData["guide"]) end,
       -- Amount of time in seconds until the Wait times out
       1,
       -- Called if the Wait times out
-      function()
-        log("Campaign Guide import failed!")
-      end
+      function() log("Campaign Guide import failed!") end
     )
   end
 
@@ -183,26 +177,29 @@ function createCampaignToken(_, playerColor, _)
   blessCurseApi.removeAll(playerColor)
   chaosBagApi.releaseAllSealedTokens(playerColor)
 
-  local campaignBoxGUID = ""
   -- find active campaign
+  local campaignBox
   for _, obj in ipairs(getObjectsWithTag("CampaignBox")) do
     if obj.type == "Bag" and #obj.getObjects() == 0 then
-      if campaignBoxGUID ~= "" then
+      if not campaignBox then
+        campaignBox = obj
+      else
         broadcastToAll("Multiple empty campaign box detected; delete all but one.", Color.Red)
         return
       end
-      campaignBoxGUID = obj.getGUID()
     end
   end
-  if campaignBoxGUID == "" then
+  if not campaignBox then
     broadcastToAll("Campaign box with all placed objects not found!", Color.Red)
     return
   end
-  local campaignLog = findCampaignLog()
+
+  local campaignLog = findUniqueObjectWithTag("CampaignLog")
   if campaignLog == nil then
     broadcastToAll("Campaign log not found!", Color.Red)
     return
   end
+
   local traumaValues = {
     0, 0, 0, 0,
     0, 0, 0, 0
@@ -218,13 +215,15 @@ function createCampaignToken(_, playerColor, _)
     printToAll("Trauma values could not be found in campaign log!", "Yellow")
     printToAll("Default values for health and sanity loaded.", "Yellow")
   end
-  local campaignGuide = findCampaignGuide()
+
+  local campaignGuide = findUniqueObjectWithTag("CampaignGuide")
   if campaignGuide == nil then
     broadcastToAll("Campaign guide not found!", Color.Red)
     return
   end
+
   local campaignData = {
-    box = campaignBoxGUID,
+    box = campaignBox.getGUID(),
     log = campaignLog.getData(),
     bag = chaosBagApi.getChaosBagState(),
     trauma = traumaValues,
@@ -235,7 +234,7 @@ function createCampaignToken(_, playerColor, _)
     playmat = playAreaApi.getSurface()
   }
   campaignTokenData.GMNotes = JSON.encode(campaignData)
-  campaignTokenData.Nickname = os.date("%b %d ") .. getObjectFromGUID(campaignBoxGUID).getName() .. " Save"
+  campaignTokenData.Nickname = os.date("%b %d ") .. campaignBox.getName() .. " Save"
   spawnObjectData({ data = campaignTokenData })
   broadcastToAll("Campaign successfully exported! Save coin object to import on a fresh save", Color.Green)
 end
@@ -244,30 +243,14 @@ end
 -- helper functions
 ---------------------------------------------------------
 
-function findCampaignLog()
-  local campaignLog = getObjectsWithTag("CampaignLog")
-  if campaignLog then
-    if #campaignLog == 1 then
-      return campaignLog[1]
-    else
-      broadcastToAll("More than 1 campaign log detected; delete all but one.", Color.Red)
-      return nil
-    end
-  else
-    return nil
-  end
-end
+function findUniqueObjectWithTag(tag)
+  local objects = getObjectsWithTag(tag)
+  if not objects then return end
 
-function findCampaignGuide()
-  local campaignGuide = getObjectsWithTag("CampaignGuide")
-  if campaignGuide then
-    if #campaignGuide == 1 then
-      return campaignGuide[1]
-    else
-      broadcastToAll("More than 1 campaign guide detected; delete all but one.", Color.Red)
-      return nil
-    end
+  if #objects == 1 then
+    return objects[1]
   else
+    broadcastToAll("More than 1 " .. tag .. " detected; delete all but one.", Color.Red)
     return nil
   end
 end
