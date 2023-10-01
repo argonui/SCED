@@ -148,9 +148,7 @@ function onLoad(saveState)
   end
 
   showDrawButton(isDrawButtonVisible)
-
   collisionEnabled = true
-
   math.randomseed(os.time())
 end
 
@@ -166,7 +164,7 @@ function searchArea(origin, size, filter)
     orientation  = self.getRotation(),
     type         = 3,
     size         = size,
-    max_distance = 1
+    max_distance = 0
   })
 
   local objList = {}
@@ -188,6 +186,7 @@ function searchAroundSelf(filter)
   local bounds = self.getBoundsNormalized()
   -- Increase the width to cover the set aside zone
   bounds.size.x = bounds.size.x + SEARCH_AROUND_SELF_X_BUFFER
+  bounds.size.y = 1
   -- Since the cast is centered on the position, shift left or right to keep the non-set aside edge
   -- of the cast at the edge of the playmat
   -- setAsideDirection accounts for the set aside zone being on the left or right, depending on the
@@ -618,17 +617,17 @@ function spawnTokensFor(object)
   tokenManager.spawnForCard(object, extraUses)
 end
 
-function onCollisionEnter(collision_info)
-  local object = collision_info.collision_object
-
-  -- detect if "Dream-Enhancing Serum" is placed
-  if object.getName() == "Dream-Enhancing Serum" then isDES = true end
+function onCollisionEnter(collisionInfo)
+  local object = collisionInfo.collision_object
 
   -- only continue if loading is completed
   if not collisionEnabled then return end
 
   -- only continue for cards
-  if object.type ~= "Card" then return end
+  if not isCard(object) then return end
+
+  -- detect if "Dream-Enhancing Serum" is placed
+  if object.getName() == "Dream-Enhancing Serum" then isDES = true end
 
   maybeUpdateActiveInvestigator(object)
   syncCustomizableMetadata(object)
@@ -643,8 +642,8 @@ function onCollisionEnter(collision_info)
 end
 
 -- detect if "Dream-Enhancing Serum" is removed
-function onCollisionExit(collision_info)
-  if collision_info.collision_object.getName() == "Dream-Enhancing Serum" then isDES = false end
+function onCollisionExit(collisionInfo)
+  if collisionInfo.collision_object.getName() == "Dream-Enhancing Serum" then isDES = false end
 end
 
 -- checks if tokens should be spawned for the provided card
@@ -680,14 +679,12 @@ function shouldSpawnTokens(card)
 end
 
 function onObjectEnterContainer(container, object)
-  Wait.frames(function() resetTokensIfInDeckZone(container, object) end, 1)
-end
+  if not isCard(object) then return end
 
-function resetTokensIfInDeckZone(container, object)
-  local pos = self.positionToLocal(container.getPosition())
-  if inArea(pos, DECK_DISCARD_AREA) then
+  local localCardPos = self.positionToLocal(object.getPosition())
+  if inArea(localCardPos, DECK_DISCARD_AREA) then
     tokenManager.resetTokensSpawned(object)
-    removeTokensFromObject(container)
+    removeTokensFromObject(object)
   end
 end
 
@@ -702,7 +699,7 @@ function removeTokensFromObject(object)
         obj.getLock() == false and
         obj.getDescription() ~= "Action Token" and
         not tokenChecker.isChaosToken(obj) then
-      ownedObjects.TrashCan.putObject(obj)
+      ownedObjects.Trash.putObject(obj)
     end
   end
 end

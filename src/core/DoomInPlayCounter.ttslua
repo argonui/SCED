@@ -3,12 +3,21 @@ local playmatApi = require("playermat/PlaymatApi")
 local ZONE, TRASH, loopID
 local doomURL    = "https://i.imgur.com/EoL7yaZ.png"
 local IGNORE_TAG = "DoomCounter_ignore"
-local COLORS     = { "White", "Orange", "Green", "Red" }
+local TOTAL_PLAY_AREA = {
+  upperLeft = {
+    x = -10,
+    z = -35
+  },
+  lowerRight = {
+    x = -60,
+    z = 35
+  }
+}
 
 -- create button, context menu and start loop
 function onLoad()
   self.createButton({
-    label = tostring(0),
+    label = "0",
     click_function = "none",
     function_owner = self,
     position = { 0, 0.06, 0 },
@@ -27,49 +36,21 @@ end
 
 -- main function
 function countDoom()
-  local objList = {}
-
-  -- get doom objects in play area zone
-  for _, obj in ipairs(ZONE.getObjects()) do
-    if filterDoom(obj) then
-      table.insert(objList, obj)
-    end
-  end
-
-  -- get doom objects on playmats
-  for i = 1, 4 do
-    local playmatList = playmatApi.searchAroundPlaymat(COLORS[i])
-    for _, obj in ipairs(playmatList) do
-      if filterDoom(obj) then
-        table.insert(objList, obj)
-      end
-    end
-  end
-
-  local doom = countDoomFromList(objList)
-  self.editButton({ index = 0, label = tostring(doom) })
-end
-
-function countDoomFromList(objList)
   local count = 0
-  for _, obj in ipairs(objList) do
+
+  -- get doom in play
+  for _, obj in ipairs(getObjects()) do
     count = count + getDoomAmount(obj)
   end
-  return count
-end
 
-function filterDoom(obj)
-  if (obj.is_face_down and obj.getCustomObject().image_bottom == doomURL)
-      or (obj.name == "Custom_Token" and obj.getCustomObject().image == doomURL) then
-    return true
-  else
-    return false
-  end
+  self.editButton({ index = 0, label = tostring(count) })
 end
 
 -- gets quantity (for stacks) of doom
 function getDoomAmount(obj)
-  if not obj.hasTag(IGNORE_TAG) then
+  if (obj.is_face_down and obj.getCustomObject().image_bottom == doomURL)
+      and not obj.hasTag(IGNORE_TAG)
+      and inArea(obj.getPosition(), TOTAL_PLAY_AREA) then
     return math.abs(obj.getQuantity())
   else
     return 0
@@ -81,9 +62,7 @@ function removeDoom(options)
   local count = 0
 
   if options.Playermats then
-    for i = 1, 4 do
-      count = removeDoomFromList(playmatApi.searchAroundPlaymat(COLORS[i]))
-    end
+    count = removeDoomFromList(playmatApi.searchAroundPlaymat("All"))
     broadcastToAll(count .. " doom removed from Playermats.", "White")
   end
 
@@ -104,4 +83,11 @@ function removeDoomFromList(objList)
     end
   end
   return count
+end
+
+function inArea(point, bounds)
+  return (point.x < bounds.upperLeft.x
+      and point.x > bounds.lowerRight.x
+      and point.z > bounds.upperLeft.z
+      and point.z < bounds.lowerRight.z)
 end
