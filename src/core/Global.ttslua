@@ -8,8 +8,6 @@ local tokenArrangerApi = require("accessories/TokenArrangerApi")
 local tokenChecker = require("core/token/TokenChecker")
 local tokenManager = require("core/token/TokenManager")
 
-local guidHandler = getObjectsWithTag("GUIDs")[1]
-
 ---------------------------------------------------------
 -- general setup
 ---------------------------------------------------------
@@ -31,7 +29,7 @@ local NOT_INTERACTABLE = {
   "975c39", -- vertical border right
 }
 
-local DATA_HELPER
+local guidHandler, DATA_HELPER
 local chaosTokens = {}
 local chaosTokensLastMat = nil
 local bagSearchers = {}
@@ -129,7 +127,8 @@ function onLoad(savedData)
     if obj ~= nil then obj.interactable = false end
   end
 
-  --DATA_HELPER = guidHandler.call("getObjectByOwnerAndType", { owner = "Mythos", type = "DataHelper" })
+  guidHandler = getObjectsWithTag("GUIDs")[1]
+  DATA_HELPER = guidHandler.call("getObjectByOwnerAndType", { owner = "Mythos", type = "DataHelper" })
   resetChaosTokenStatTracker()
   getModVersion()
   math.randomseed(os.time())
@@ -907,7 +906,7 @@ function applyOptionPanelChange(id, state)
     for i, color in ipairs(MAT_COLORS) do
       local pos = playmatApi.transformLocalPosition({0.05, 0, -1.182}, color)
       local rot = playmatApi.returnRotation(color)
-      optionPanel[id][i] = spawnOrRemoveHelper(state, "Hand Helper", pos, rot, color)
+      optionPanel[id][i] = spawnOrRemoveHelper(state, "Hand Helper", pos, rot)
     end
 
   -- option: Show search assistant for each player
@@ -915,7 +914,7 @@ function applyOptionPanelChange(id, state)
     for i, color in ipairs(MAT_COLORS) do
       local pos = playmatApi.transformLocalPosition({-0.3, 0, -1.182}, color)
       local rot = playmatApi.returnRotation(color)
-      optionPanel[id][i] = spawnOrRemoveHelper(state, "Search Assistant", pos, rot, color)
+      optionPanel[id][i] = spawnOrRemoveHelper(state, "Search Assistant", pos, rot)
     end
 
   -- option: Show attachment helper
@@ -942,12 +941,12 @@ end
 ---@param position Vector Position of the object (where it will spawn)
 ---@param rotation Vector Rotation of the object for spawning (default: {0, 270, 0})
 ---@return. GUID of the spawnedObj (or nil if object was removed)
-function spawnOrRemoveHelper(state, name, position, rotation, color)
+function spawnOrRemoveHelper(state, name, position, rotation)
   if (type(state) == "table" and #state == 0) then
     return removeHelperObject(name)
   elseif state then
     Player.getPlayers()[1].pingTable(position)
-    return spawnHelperObject(name, position, rotation, color).getGUID()
+    return spawnHelperObject(name, position, rotation).getGUID()
   else
     return removeHelperObject(name)
   end
@@ -957,8 +956,7 @@ end
 ---@param name String Name of the object that should be copied
 ---@param position Table Desired position of the object
 ---@param rotation Table Desired rotation of the object (defaults to object's rotation)
----@param color String Matcolor this object is spawned for to set memo
-function spawnHelperObject(name, position, rotation, color)
+function spawnHelperObject(name, position, rotation)
   local sourceBag = guidHandler.call("getObjectByOwnerAndType", { owner = "Mythos", type = "OptionPanelSource" })
 
   -- error handling for missing sourceBag
@@ -977,12 +975,6 @@ function spawnHelperObject(name, position, rotation, color)
   for _, obj in ipairs(sourceBag.getData().ContainedObjects) do
     if obj["Nickname"] == name then
       spawnTable.data = obj
-      
-      -- this set the memo to identify the object at a later point (type = name without spaces)
-      if color then
-        spawnTable.data["Memo"] = "{\"matColor\":\"" .. color .. "\",\"type\":\"" .. name:gsub("%s+", "") .. "\"}"
-      end
-
       spawnTable.callback_function = function(spawnedObj)
         Wait.time(function() spawnedObj.setLock(true) end, 2)
       end
