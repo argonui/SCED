@@ -1,0 +1,103 @@
+local classOrder = {
+  "Guardian",
+  "Seeker",
+  "Survivor",
+  "Mystic",
+  "Rogue"
+}
+
+local bParam = {}
+bParam.width = 0
+bParam.height = 0
+bParam.function_owner = self
+bParam.click_function = "none"
+bParam.label = "0"
+bParam.position = {x = 0, y = 0.1, z = -0.7}
+bParam.scale = {x = 0.1, y = 0.1, z = 0.1}
+bParam.font_color = "White"
+bParam.font_size = 700
+
+function onLoad()
+  self.createButton({
+    width = 2750,
+    height = 800,
+    function_owner = self,
+    click_function = "updateDisplayButtons",
+    label = "Update!",
+    tooltip = "Count classes from cards on this tile",
+    position = {x = 0, y = 0.1, z = 0.875},
+    scale = {x = 0.1, y = 0.1, z = 0.1},
+    font_size = 500
+  })
+  createDisplayButtons()
+end
+
+function createDisplayButtons()
+  local x_offset = 0.361
+  bParam.position.x = -3 * x_offset
+  for i = 1, 5 do
+    bParam.position.x = bParam.position.x + x_offset
+    self.createButton(bParam)
+  end
+end
+
+function updateDisplayButtons(_, playerColor)
+  local classCount = {
+    Guardian = 0,
+    Seeker = 0,
+    Survivor = 0,
+    Mystic = 0,
+    Rogue = 0,
+    uncounted = 0
+  }
+
+  -- loop through cards on this helper and count classes from metadata
+  for _, notes in ipairs(getNotesFromCardsAndContainers()) do
+    if notes.class then
+      for str in string.gmatch(notes.class, "([^|]+)") do
+        if not tonumber(classCount[str]) then
+          str = "uncounted"
+        end
+        classCount[str] = classCount[str] + 1
+      end
+    end
+  end
+
+  -- edit button labels with index 1-5
+  for i = 1, 5 do
+    self.editButton({index = i, label = classCount[classOrder[i]]})
+  end
+  
+  -- show message about uncounted cards
+  if classCount.uncounted > 0 then
+    printToColor("Search included " .. classCount.uncounted .. " neutral/ununcounted card(s).", playerColor, "Orange")
+  end
+end
+
+function getNotesFromCardsAndContainers()
+  local search = Physics.cast({
+    direction    = { 0, 1, 0 },
+    max_distance = 0,
+    type         = 3,
+    size         = self.getBounds().size:setAt("y", 1),
+    origin       = self.getPosition() + Vector(0, 0.5, 0),
+  })
+
+  local notesList = {}
+  for _, hit in ipairs(search) do
+    local obj = hit.hit_object
+    local notes = {}
+    if obj.type == "Card" then
+      notes = JSON.decode(obj.getGMNotes()) or {}
+      table.insert(notesList, notes)
+    elseif obj.type == "Bag" or obj.type == "Deck" then
+      for _, deepObj in ipairs(obj.getData().ContainedObjects) do
+        if deepObj.Name == "Card" or deepObj.Name == "CardCustom" then
+          notes = JSON.decode(deepObj.GMNotes) or {}
+          table.insert(notesList, notes)
+        end
+      end
+    end
+  end
+  return notesList
+end
