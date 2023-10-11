@@ -165,23 +165,6 @@ function tryObjectEnterContainer(container, object)
   return true
 end
 
--- gets all objects that match the provided matcolor
----@param matColor String Color of the playermat
----@return objList Table Table of type-object pairs
-function getObjectsForMatColor(matColor)
-  local objList = {}
-  for _, obj in ipairs(getObjects()) do
-    local memo = obj.getMemo()
-    if memo and memo:sub(1, 1) == "{" then
-      local decoded = JSON.decode(memo) or {}
-      if decoded.matColor == matColor then
-        objList[decoded.type] = obj
-      end
-    end
-  end
-  return objList
-end
-
 ---------------------------------------------------------
 -- chaos token drawing
 ---------------------------------------------------------
@@ -310,10 +293,8 @@ function handleStatTrackerClick(_, _, isRightClick)
         playerColor = "White"
         playerName = "Overall"
       else
-        -- get mat color from memo
-        local mat = getObjectFromGUID(key)
-        local decoded = JSON.decode(mat.getMemo())
-        local matColor = decoded.matColor
+        -- get mat color
+        local matColor = playmatApi.getMatColorByPosition(getObjectFromGUID(key).getPosition())
         playerColor = playmatApi.getPlayerColor(matColor)
         playerName = Player[playerColor].steam_name or playerColor
 
@@ -889,7 +870,8 @@ function applyOptionPanelChange(id, state)
     optionPanel[id] = state
 
     -- update master clue counter
-    getObjectFromMemo({matColor = "Mythos", type = "MasterClueCounter"}).setVar("useClickableCounters", state)
+    local counter = guidHandler.call("getObjectByOwnerAndType", { owner = "Mythos", type = "MasterClueCounter" })
+    counter.setVar("useClickableCounters", state)
 
   -- option: Play area snap tags
   elseif id == "playAreaSnapTags" then
