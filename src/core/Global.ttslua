@@ -43,7 +43,7 @@ local hideTitleSplashWaitFunctionId = nil
 -- online functionality related variables
 local MOD_VERSION = "3.3.0"
 local SOURCE_REPO = 'https://raw.githubusercontent.com/chr1z93/loadable-objects/main'
-local library, requestObj, modMeta, notificationVisible
+local library, requestObj, modMeta, notificationVisible, latestPreviewUpdate
 local downloadWindowVisible = false
 local optionPanelVisible = false
 local acknowledgedUpgradeVersions = {}
@@ -657,6 +657,7 @@ function onClick_toggleUi(player, title)
   elseif title == "Downloadable Content" then
     if downloadWindowVisible then
       UI.hide('downloadWindow')
+      UI.hide("previewWindow")
     else
       UI.show('downloadWindow')
     end
@@ -669,6 +670,113 @@ function onClick_toggleUi(player, title)
     end
     optionPanelVisible = not optionPanelVisible
   end
+end
+
+-- hides the content preview window when moving the mouse out of the main window
+function onMouseExit_window()
+  UI.hide("previewWindow")
+end
+
+-- updates the preview window when mousing over any item in the table
+function onMouseEnter_item(player, param)
+  -- only update once per request
+  if param == latestPreviewUpdate then return end
+  latestPreviewUpdate = param
+
+  -- hide window in case data is incomplete
+  UI.hide("previewWindow")
+
+  -- parse parameters
+  local contentToShow, index
+  for str in string.gmatch(param, "([^_]+)") do
+    if not contentToShow then
+      -- grab the first part to know the content type
+      contentToShow = str
+    else
+      -- get the index
+      index = tonumber(str)
+      break
+    end
+  end
+
+  if not contentToShow or not index then return end
+
+  -- get metadata from library
+  local item = library[contentToShow][index]
+
+  UI.setValue("previewTitle", item.name or "Unknown Name")
+  UI.setValue("previewAuthor", "by " .. (item.author or "Unknown"))
+  UI.setValue("previewDescription", item.description or "Unknown")
+
+  -- update box art
+  if not item.boxsize or not item.boxart then return end
+
+  local ui = UI.getXmlTable()
+  local previewArtPanel = find_tag_with_id(ui, 'previewArtPanel')
+  
+  -- update mask according to size
+  if item.boxsize == "big" then
+    previewArtPanel.children = {
+      tag = "Mask",
+      attributes = {
+        image = "box-cover-mask-big",
+        width = "870",
+        height = "435",
+        offsetXY = "154 60"
+      }
+    }
+  elseif item.boxsize == "small" then
+    previewArtPanel.children = {
+      tag = "Mask",
+      attributes = {
+        image = "box-cover-mask-small",
+        width = "668",
+        height = "501",
+        offsetXY = "120 10"
+      }
+    }
+  elseif item.boxsize == "wide" then
+    previewArtPanel.children = {
+      tag = "Mask",
+      attributes = {
+        image = "box-cover-mask-wide",
+        width = "780",
+        height = "650",
+        offsetXY = "-195 -70"
+      }
+    }
+  end
+
+  -- insert the image itself
+  previewArtPanel.children.children = {
+    tag = "Image",
+    attributes = { image = item.boxart }
+  }
+
+  UI.setXmlTable(ui)
+
+  -- update the preview window height according to box size
+  local hWindow, hArt, offsetXY
+  if item.boxsize == "big" then
+    hWindow = 510
+    hArt = 300
+    offsetXY = "-510 135"
+  elseif item.boxsize == "small" then
+    hWindow = 510
+    hArt = 300
+    offsetXY = "-510 135"
+  elseif item.boxsize == "wide" then
+    hWindow = 360
+    hArt = 150
+    offsetXY = "-510 210"
+  end
+
+  UI.setAttribute("previewWindow", "height", hWindow)
+  UI.setAttribute("previewWindow", "offsetXY", offsetXY)
+  UI.setAttribute("previewArtPanel", "preferredHeight", hArt)
+
+  -- show the window
+  UI.show("previewWindow")
 end
 
 -- formats the json response from the webrequest into a key-value lua table
@@ -723,15 +831,21 @@ function update_list(contentToShow)
   local titleText = find_tag_with_id(ui, "title")
   titleText.value = "Downloable Content: " .. cleanName[contentToShow]
 
+  -- addition of list items according to library file
   local update_height = find_tag_with_id(ui, 'ui_update_height')
   local update_children = find_tag_with_id(update_height.children, 'ui_update_point')
   update_children.children = {}
 
-  for _, v in ipairs(library[contentToShow]) do
+  for i, v in ipairs(library[contentToShow]) do
     table.insert(update_children.children,
-      { tag = 'Text',
+      {
+        tag = 'Text',
         value = v.name,
-        attributes = { onClick = 'onClick_select(' .. urlencode(JSON.encode(v)) .. ')', alignment = 'MiddleLeft' }
+        attributes = {
+          onClick = 'onClick_select(' .. urlencode(JSON.encode(v)) .. ')',
+          onMouseEnter = "onMouseEnter_item(" .. contentToShow .. "_" .. i .. ")",
+          alignment = 'MiddleLeft'
+        }
       })
   end
 
