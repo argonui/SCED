@@ -224,12 +224,12 @@ function canTouchChaosTokens()
 end
 
 -- called by playermats (by the "Draw chaos token" button)
-function drawChaosToken(params)
+function drawChaosToken(param)
   if not canTouchChaosTokens() then return end
 
-  local mat = params[1]
-  local tokenOffset = params[2]
-  local isRightClick = params[3]
+  local mat = param[1]
+  local tokenOffset = param[2]
+  local isRightClick = param[3]
   chaosbag = findChaosBag()
 
   -- return token(s) on other playmat first
@@ -275,9 +275,9 @@ end
 
 -- DEPRECATED.  Use TokenManager instead.
 -- Spawns a single token.
----@param params Table.  Array with arguments to the method.  1 = position, 2 = type, 3 = rotation
-function spawnToken(params)
-  return tokenManager.spawnToken(params[1], params[2], params[3])
+---@param param Table.  Array with arguments to the method.  1 = position, 2 = type, 3 = rotation
+function spawnToken(param)
+  return tokenManager.spawnToken(param[1], param[2], param[3])
 end
 
 ---------------------------------------------------------
@@ -632,10 +632,18 @@ function onClick_tab(player, contentToShow)
 end
 
 -- click function for the items in the download window
-function onClick_select(player, params)
-  params = JSON.decode(urldecode(params))
-  local url = SOURCE_REPO .. '/' .. params.url
-  requestObj = WebRequest.get(url, function (request) complete_obj_download(request, params) end )
+function onClick_select(player, param)
+  local parsed = parseKey(param) or {}
+  local contentToShow = parsed.contentToShow
+  local index = parsed.index
+  if not contentToShow or not index then return end
+  startContentDownload(library[contentToShow][index])
+end
+
+-- download requested content
+function startContentDownload(param)
+  local url = SOURCE_REPO .. '/' .. param.url
+  requestObj = WebRequest.get(url, function (request) complete_obj_download(request, param) end )
   startLuaCoroutine(Global, 'downloadCoroutine')
 end
 
@@ -687,17 +695,9 @@ function onMouseEnter_item(player, param)
   UI.hide("previewWindow")
 
   -- parse parameters
-  local contentToShow, index
-  for str in string.gmatch(param, "([^_]+)") do
-    if not contentToShow then
-      -- grab the first part to know the content type
-      contentToShow = str
-    else
-      -- get the index
-      index = tonumber(str)
-      break
-    end
-  end
+  local parsed = parseKey(param) or {}
+  local contentToShow = parsed.contentToShow
+  local index = parsed.index
 
   if not contentToShow or not index then return end
 
@@ -772,6 +772,25 @@ function onMouseEnter_item(player, param)
   UI.show("previewWindow")
 end
 
+-- parses the identification key (contentToShow_index) and returns the result
+function parseKey(unparsedStr)
+  local contentToShow, index
+  for str in string.gmatch(unparsedStr, "([^_]+)") do
+    if not contentToShow then
+      -- grab the first part to know the content type
+      contentToShow = str
+    else
+      -- get the index
+      index = tonumber(str)
+      break
+    end
+  end
+  return {
+    contentToShow = contentToShow,
+    index = index
+  }
+end
+
 -- formats the json response from the webrequest into a key-value lua table
 -- strips the prefix from the community content items
 function formatLibrary(json_response)
@@ -821,8 +840,7 @@ function update_list(contentToShow)
     fanmadePlayerCards = "Fan-Made Player Cards",
     fanmadeScenarios = "Fan-Made Scenarios"
   }
-  local titleText = find_tag_with_id(ui, "title")
-  titleText.value = "Downloable Content: " .. cleanName[contentToShow]
+  UI.setValue("previewTitle", cleanName[contentToShow])
 
   -- addition of list items according to library file
   local update_height = find_tag_with_id(ui, 'ui_update_height')
@@ -830,13 +848,14 @@ function update_list(contentToShow)
   update_children.children = {}
 
   for i, v in ipairs(library[contentToShow]) do
+    local key = contentToShow .. "_" .. i
     table.insert(update_children.children,
       {
         tag = 'Text',
         value = v.name,
         attributes = {
-          onClick = 'onClick_select(' .. urlencode(JSON.encode(v)) .. ')',
-          onMouseEnter = "onMouseEnter_item(" .. contentToShow .. "_" .. i .. ")",
+          onClick = 'onClick_select(' .. key .. ')',
+          onMouseEnter = "onMouseEnter_item(" .. key .. ")",
           alignment = 'MiddleLeft'
         }
       })
@@ -848,7 +867,7 @@ end
 
 -- called after the webrequest of downloading an item
 -- deletes the placeholder and spawns the downloaded item
-function complete_obj_download(request, params)
+function complete_obj_download(request, param)
   assert(request.is_done)
   if request.is_error or request.response_code ~= 200 then
     print('error: ' .. request.error)
@@ -856,8 +875,8 @@ function complete_obj_download(request, params)
     if pcall(function()
       local replacedObject
       pcall(function()
-        if params.replace then
-          replacedObject = getObjectFromGUID(params.replace)
+        if param.replace then
+          replacedObject = getObjectFromGUID(param.replace)
         end
       end)
       if replacedObject then
@@ -886,9 +905,9 @@ function complete_obj_download(request, params)
 end
 
 -- the download button on the placeholder objects calls this to directly initiate a download
----@param params Table contains url and guid of replacement object, which happens to match what onClick_select wants
-function placeholder_download(params)
-  onClick_select(nil, JSON.encode(params))
+---@param param Table contains url and guid of replacement object, which happens to match what onClick_select wants
+function placeholder_download(param)
+  startContentDownload(param)
 end
 
 -- downloading of the library file
@@ -920,18 +939,6 @@ function find_tag_with_id(ui, id)
     end
   end
   return nil
-end
-
-function urlencode(str)
-  local str = string.gsub(str, "([^A-Za-z0-9-_.~])",
-    function (c) return string.format("%%%02X", string.byte(c)) end)
-  return str
-end
-
-function urldecode(str)
-  local str = string.gsub(str, "%%(%x%x)",
-    function (h) return string.char(tonumber(h, 16)) end)
-  return str
 end
 
 ---------------------------------------------------------
