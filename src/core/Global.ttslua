@@ -704,56 +704,46 @@ function onMouseEnter_item(player, param)
   -- get metadata from library
   local item = library[contentToShow][index]
 
-  UI.setValue("previewTitle", item.name or "Unknown Name")
-  UI.setValue("previewAuthor", "by " .. (item.author or "Unknown"))
-  UI.setValue("previewDescription", item.description or "Unknown")
+  -- error handling
+  if not item.name
+      or not item.author
+      or not item.description
+      or not item.boxsize
+      or not item.boxart then
+    return
+  end
 
-  -- update box art
-  if not item.boxsize or not item.boxart then return end
+  UI.setValue("previewTitle", item.name)
+  UI.setValue("previewAuthor", "by " .. item.author)
+  UI.setValue("previewDescription", item.description)
 
-  local ui = UI.getXmlTable()
-  local previewArtPanel = find_tag_with_id(ui, 'previewArtPanel')
-  
   -- update mask according to size
+  local maskData = {}
   if item.boxsize == "big" then
-    previewArtPanel.children = {
-      tag = "Mask",
-      attributes = {
+    maskData = {
         image = "box-cover-mask-big",
         width = "870",
         height = "435",
         offsetXY = "154 60"
       }
-    }
   elseif item.boxsize == "small" then
-    previewArtPanel.children = {
-      tag = "Mask",
-      attributes = {
+    maskData = {
         image = "box-cover-mask-small",
         width = "668",
         height = "501",
         offsetXY = "120 10"
       }
-    }
   elseif item.boxsize == "wide" then
-    previewArtPanel.children = {
-      tag = "Mask",
-      attributes = {
+    maskData = {
         image = "box-cover-mask-wide",
         width = "780",
         height = "650",
         offsetXY = "-195 -70"
       }
-    }
   end
 
   -- insert the image itself
-  previewArtPanel.children.children = {
-    tag = "Image",
-    attributes = { image = item.boxart }
-  }
-
-  UI.setXmlTable(ui)
+  UI.setAttribute("previewArtImage", "image", item.boxart)
 
   -- update the preview window height according to box size
   local hWindow, hArt, offsetXY
@@ -771,9 +761,12 @@ function onMouseEnter_item(player, param)
     offsetXY = "-510 210"
   end
 
-  UI.setAttribute("previewWindow", "height", hWindow)
-  UI.setAttribute("previewWindow", "offsetXY", offsetXY)
+  UI.setAttributes("previewArtMask", maskData)
   UI.setAttribute("previewArtPanel", "preferredHeight", hArt)
+  UI.setAttributes("previewWindow", {
+    height = hWindow,
+    offsetXY = offsetXY
+  })
 
   -- show the window
   UI.show("previewWindow")
