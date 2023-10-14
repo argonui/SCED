@@ -1,0 +1,644 @@
+require("playercards/PlayerCardSpawner")
+
+local playerCardPanelApi  = require("playercards/PlayerCardPanelApi")
+local allCardsBagApi      = require("playercards/AllCardsBagApi")
+local deckZoneGUID        = "cba5d4"
+local deckObject          = nil
+local placingDeck         = false
+local placingCard         = false
+local editingDeck         = false
+deckPlaced                = false
+
+local cardLookupTable = {
+  faction =   function(specInstance) return allCardsBagApi.getCardsByClass(specInstance) end,
+  trait   =   function(specInstance) return allCardsBagApi.getCardsByTrait(specInstance) end,
+  special =   function(specInstance) return allCardsBagApi.getCardsBySpecialCriteria(specInstance) end
+}
+
+local deckTokenData = {
+  GUID = "51b1c9",
+  Name = "Custom_Model",
+  Transform = {
+    posX = 47,
+    posY = 2,
+    posZ = 46.46,
+    rotX = 0,
+    rotY = 270,
+    rotZ = 0,
+    scaleX = 1,
+    scaleY = 1,
+    scaleZ = 1
+  },
+  Nickname = "Arkham Coin",
+  Description = "SCED Importer Token",
+  GMNotes = "",
+  Tags = {
+    "DeckBuilderToken"
+  },
+  CustomMesh = {
+    MeshURL = "http://cloud-3.steamusercontent.com/ugc/943949966265929204/A38BB5D72419E6298385556D931877C0A1A55C17/",
+    DiffuseURL = "http://cloud-3.steamusercontent.com/ugc/254843371583186619/365F95EC37B9B27DA32781DB460F0B70DB22F43F/",
+    NormalURL = "",
+    ColliderURL = "http://cloud-3.steamusercontent.com/ugc/943949966265929204/A38BB5D72419E6298385556D931877C0A1A55C17/",
+    Convex = true,
+    MaterialIndex = 2,
+    TypeIndex = 0,
+    CustomShader = {
+    SpecularColor = {
+      r = 0.7222887,
+      g = 0.507659256,
+      b = 0.339915335
+    },
+    SpecularIntensity = 0.4,
+    SpecularSharpness = 7.0,
+    FresnelStrength = 0.0
+    },
+    CastShadows = true
+  }
+}
+
+local investigatorObject = nil
+local investigatorData = nil
+local sortMethod = "default"
+local choiceCount = 0
+local choiceButtonParameters = {
+  function_owner = self,
+  tooltip        = "Left-Click: Select!\nRight-Click: Deselect!",
+  scale          = {0.5, 1, 0.5},
+  color          = Color.Red,
+  width          = 600,
+  height         = 250
+}
+local choiceButtonStatus = {
+  [4] = {
+    spawned         = false,
+    selected        = false,
+    position        = { -0.65, 0.1, -0.1 },
+    label           = ""
+  },
+  [5] = {
+    spawned         = false,
+    selected        = false,
+    position        = { 0, 0.1, -0.1 },
+    label           = ""
+  },
+  [6] = {
+    spawned         = false,
+    selected        = false,
+    position        = { 0.65, 0.1, -0.1 },
+    label           = ""
+  },
+  [7] = {
+    spawned         = false,
+    selected        = false,
+    position        = { -0.325, 0.1, 0.25 },
+    label           = ""
+  },
+  [8] = {
+    spawned         = false,
+    selected        = false,
+    position        = { 0.325, 0.1, 0.25 },
+    label           = ""
+  },
+  
+}
+
+function onLoad()
+  self.createButton({
+    function_owner = self,
+    label          = "Place Lvl 0",
+    click_function = "placeCardsBasic",
+    tooltip        = "Left-Click: Place cards!\nRight-Click: Clear cards!",
+    position       = { -0.5, 0.1, -0.65 },
+    scale          = {0.375, 1, 0.375},
+    color          = { 1, 1, 1 },
+    width          = 1150,
+    height         = 350,
+    font_size      = 200
+  })
+  self.createButton({
+    function_owner = self,
+    label          = "Place Lvl 1-5",
+    click_function = "placeCardsUpgraded",
+    tooltip        = "Left-Click: Place cards!\nRight-Click: Clear cards!",
+    position       = { 0.5, 0.1, -0.65 },
+    scale          = {0.375, 1, 0.375},
+    color          = { 1, 1, 1 },
+    width          = 1150,
+    height         = 350,
+    font_size      = 200
+  })
+  self.createButton({
+    function_owner = self,
+    label          = "Place Deck",
+    click_function = "placeDeckButton",
+    tooltip        = "Display Deck On Table!",
+    position       = { -0.5, 0.1, 2 },
+    scale          = {0.375, 1, 0.375},
+    color          = { 1, 1, 1 },
+    width          = 1150,
+    height         = 350,
+    font_size      = 200
+  })
+  self.createButton({
+    function_owner = self,
+    label          = "Export",
+    click_function = "exportDeck",
+    tooltip        = "Transform Deck Into Coin!",
+    position       = { 0.5, 0.1, 2 },
+    scale          = {0.375, 1, 0.375},
+    color          = { 1, 1, 1 },
+    width          = 1150,
+    height         = 350,
+    font_size      = 200
+  })
+end
+
+function onObjectEnterZone(zone, object)
+  if zone.guid == deckZoneGUID and deckObject and not placingDeck and not placingCard and deckPlaced then
+    log("Entered Zone")
+    placingCard = true
+    local newObject = object.reload()
+    Wait.frames(function() deckObject.putObject(newObject) end, 5)
+    Wait.frames(function() placingCard = false end, 10)
+  end
+end
+
+function onObjectLeaveZone(zone, object)
+  if zone.guid == deckZoneGUID and deckObject and not placingDeck and not placingCard and deckPlaced then
+    log("Left Zone")
+    local targetId = JSON.decode(object.getGMNotes()).id
+    for _, card in ipairs(deckObject.getObjects()) do
+      if JSON.decode(card.gm_notes).id == targetId then
+        local targetCard = deckObject.takeObject({guid = card.guid})
+        Wait.frames(function() destroyObject(targetCard) end, 3)
+        -- destroyObject(object)
+        break
+      end
+    end 
+  end
+end
+
+function onCollisionEnter(info)
+  --Detects if PlayerDeck object (a 'Deck Coin') has been placed on the deck builder
+  local objectData = info.collision_object.getData()
+  if objectData.Name == "Deck" and not editingDeck then
+    deckObject = info.collision_object
+    checkForCustomizableUpgrades()
+    Wait.condition(placeDeck, function() return not editingDeck end)
+    --playerCardPanelApi.disable()
+  elseif info.collision_object.hasTag("Investigator") then
+    investigatorObject = info.collision_object
+    investigatorData = JSON.decode(investigatorObject.getGMNotes()) 
+    if not investigatorData.deck_requirements or not investigatorData.deck_options then
+      broadcastToAll("No Investigator Deckbuilding Metadata Detected")
+      return
+    end
+    broadcastToAll("Investigator Detected: " .. info.collision_object.getName(), Color.Green)
+    if investigatorData.deck_requirements.signatures and deckObject == nil and not placingDeck then
+      local cardsToSpawn = {}
+      for cardId, cardCount in pairs(investigatorData.deck_requirements.signatures) do
+        local card = allCardsBagApi.getCardById(cardId)
+        if card ~= nil then
+          for i = 1, cardCount do
+            table.insert(cardsToSpawn, { data = card.data, metadata = card.metadata})
+          end
+        end
+      end
+      Spawner.spawnCards(
+        cardsToSpawn,
+        { x = 53.22, y = 2, z = 46.46},
+        { x = 0.00, y = 270.00, z = 0.00},
+        true,
+        function() end
+      )
+    end
+    if investigatorData.deck_requirements.choices then
+      createChoiceButtons()
+    end
+  elseif info.collision_object.hasTag("DeckBuilderToken") then
+    importDeck(info.collision_object)
+  end
+end
+
+function onCollisionExit(info)
+  local objectData = info.collision_object.getData()
+  if objectData.Name == "Deck" and not editingDeck and deckPlaced then
+    updateCustomizableUpgrades()
+    removeDeck()
+  elseif investigatorObject == info.collision_object then
+    investigatorData = nil
+    investigatorObject = nil
+    playerCardPanelApi.deleteAll("middle")
+    resetChoiceButtons()
+  end
+end
+
+function onObjectDestroy(object)
+  if object == deckObject and not editingDeck then
+    removeDeck()
+  elseif object == investigatorObject then
+    investigatorData = nil
+    investigatorObject = nil
+    playerCardPanelApi.deleteAll("middle")
+    resetChoiceButtons()
+  end
+end
+
+function createChoiceButtons()
+  local buttonCount = 4
+
+  for _, cardSpec in ipairs(investigatorData.deck_options) do
+    if cardSpec.choiceName then
+      choiceButtonParameters.position   = choiceButtonStatus[buttonCount].position
+      choiceButtonParameters.label      = cardSpec.choiceName
+      choiceButtonParameters.click_function = "toggleChoiceButton" .. buttonCount
+      self.createButton(choiceButtonParameters)
+      choiceButtonStatus[buttonCount].spawned = true
+      choiceButtonStatus[buttonCount].label = choiceButtonParameters.label
+      buttonCount = buttonCount + 1
+    end
+  end
+
+end
+
+function resetChoiceButtons()
+  for i, button in pairs(choiceButtonStatus) do
+    if button.spawned then
+      self.removeButton(i)
+      choiceButtonStatus[i].spawned   = false
+      choiceButtonStatus[i].selected  = false
+      choiceButtonStatus[i].label     = ""
+    end
+  end
+  choiceCount = 0
+end
+
+function toggleChoiceButton4(_, _, alt_click)
+  toggleChoiceButton(4, alt_click)
+end
+
+function toggleChoiceButton5(_, _, alt_click)
+  toggleChoiceButton(5, alt_click)
+end
+
+function toggleChoiceButton6(_, _, alt_click)
+  toggleChoiceButton(6, alt_click)
+end
+
+function toggleChoiceButton7(_, _, alt_click)
+  toggleChoiceButton(7, alt_click)
+end
+
+function toggleChoiceButton8(_, _, alt_click)
+  toggleChoiceButton(8, alt_click)
+end
+
+function toggleChoiceButton(buttonIndex, alt_click)
+  local buttomParam = nil
+  for _, button in ipairs(self.getButtons()) do
+    if button.index == buttonIndex then
+      buttonParam = button
+    end
+  end
+
+  if choiceButtonStatus[buttonIndex].selected and alt_click then
+    buttonParam.color = Color.Red
+    self.editButton(buttonParam)
+    choiceButtonStatus[buttonIndex].selected = false
+    choiceCount = choiceCount - 1
+  elseif not choiceButtonStatus[buttonIndex].selected and not alt_click and choiceCount < investigatorData.deck_requirements.choices then
+    buttonParam.color = Color.Green
+    self.editButton(buttonParam)
+    choiceButtonStatus[buttonIndex].selected = true
+    choiceCount = choiceCount + 1
+  end
+end
+
+function placeDeckButton(_, _, alt_click)
+  if alt_click then
+    playerCardPanelApi.deleteAll("default")
+    return
+  end
+  if not editingDeck then
+    checkForCustomizableUpgrades()
+    Wait.condition(placeDeck, function() return not editingDeck end)
+  end
+end
+
+function placeDeck()
+  placingDeck = true
+  
+
+  local cardList = {
+    skillList = {},
+    eventList = {},
+    assetList = {},
+    otherList = {}
+  }
+  cardList["limitedCardList"] = {
+    skillList = {},
+    eventList = {},
+    assetList = {}
+  }
+
+  local customizableList = {}
+
+  for _, card in ipairs(deckObject.getObjects()) do
+    local cardId = JSON.decode(card.gm_notes).id
+    local cardMetadata = allCardsBagApi.getCardById(cardId).metadata
+    if not cardMetadata.level or cardMetadata.permanent then
+      if string.match(cardMetadata.id, "-c$") then
+        customizableList[cardMetadata.id] = card
+      end
+      table.insert(cardList.otherList, cardId)
+    elseif cardMetadata.type == "Skill" then
+      table.insert(cardList.skillList, cardId)
+    elseif cardMetadata.type == "Event" then
+      table.insert(cardList.eventList, cardId)
+    elseif cardMetadata.type == "Asset" then
+      table.insert(cardList.assetList, cardId)
+    else
+      table.insert(cardList.otherList, cardId)
+    end
+  end
+
+  cardList.skillList = allCardsBagApi.sortCardsTable(cardList.skillList)
+  cardList.eventList = allCardsBagApi.sortCardsTable(cardList.eventList)
+  cardList.assetList = allCardsBagApi.sortCardsTable(cardList.assetList)
+  cardList.otherList = allCardsBagApi.sortCardsTable(cardList.otherList)
+
+  playerCardPanelApi.spawnCardsByType({
+    cardList = cardList,
+    name = "customDeck",
+    startPos = "other",
+    spread = true,
+    spreadCols = 20,
+    targetState = "default"
+  })
+  Wait.frames(function() displayCustomizableUpgrades(customizableList) end, 5)
+  deckPlaced = true
+end
+
+function displayCustomizableUpgrades(customizableList) 
+  for _, card in ipairs(getObjectFromGUID(deckZoneGUID).getObjects()) do
+    local customSheet = customizableList[JSON.decode(card.getGMNotes()).id]
+    if customSheet then
+      card.script_state = customSheet.lua_script_state
+      card.reload()
+    end
+  end
+  Wait.frames(function() placingDeck = false end, 5)
+end
+
+function updateCustomizableUpgrades()
+  local customizableList = { isFormatted = true }
+  for _, card in ipairs(getObjectFromGUID(deckZoneGUID).getObjects()) do
+    local customSheetId = JSON.decode(card.getGMNotes()).id
+    if string.match(customSheetId, "-c$") then
+      customizableList[customSheetId] = card.script_state
+    end
+  end
+  if next(customizableList) then
+    deckObject.setGMNotes(JSON.encode(customizableList))
+  end
+  return customizableList
+end
+
+function checkForCustomizableUpgrades()
+  if deckObject.getGMNotes() ~= "" then
+    editingDeck = true
+    local customizableList = JSON.decode(deckObject.getGMNotes())
+    local deckData = deckObject.getData()
+    deckData.GMNotes = ""
+    local cardList = {}
+    destroyObject(deckObject)
+    for _, card in ipairs(deckData.ContainedObjects) do
+      local customSheetId = JSON.decode(card.GMNotes).id
+      if string.match(customSheetId, "-c$") then
+        card.LuaScriptState = customizableList[customSheetId]
+      end
+      table.insert(cardList, card)
+    end
+    deckData.ContainedObjects = cardList
+    deckObject = spawnObjectData({data = deckData})
+    Wait.frames(function() editingDeck = false end, 5)
+  end
+end
+
+function removeDeck()
+  deckObject = nil
+  playerCardPanelApi.deleteAll("default")
+  --playerCardPanelApi.enable()
+end
+
+function exportDeck(_, _, _)
+  if(deckObject and investigatorData) then
+    local deckList = {
+      slots = { },
+      investigatorId  = "",
+      bondedList = { },
+      customizations = updateCustomizableUpgrades(),
+      loadAltInvestigator = "normal"
+    }
+    -- Handle investigator
+    deckList.investigatorId = investigatorData.id
+    -- TODO: Handle alternate art
+    for _, card in ipairs(deckObject.getObjects()) do
+      -- Handle basic card addition
+      local cardMetadata = JSON.decode(card.gm_notes)
+      local cardId = cardMetadata.id
+      if deckList.slots[cardId] then
+        deckList.slots[cardId] = deckList.slots[cardId] + 1
+      else
+        deckList.slots[cardId] = 1
+      end
+      -- Handle bonded cards
+      if cardMetadata.bonded then
+        for _, bond in ipairs(cardMetadata.bonded) do
+          if deckList.bondedList[bond.id] then
+            deckList.bondedList[bond.id] = deckList.bondedList[bond.id] + bond.count
+          else
+            deckList.bondedList[bond.id] = bond.count
+          end
+        end
+      end
+      -- TODO: Handle customizable cards
+    end
+    deckTokenData.GMNotes = JSON.encode(deckList)
+    deckTokenData.Nickname = deckObject.getName()
+    spawnObjectData({
+      data = deckTokenData
+    })
+    destroyObject(deckObject)
+    destroyObject(investigatorObject)
+  else
+    broadcastToAll("Missing Deck and/or Investigator", Color.Red)
+  end
+end
+
+function importDeck(coinObject)
+  local deckData = JSON.decode(coinObject.getGMNotes())
+  local deckName = coinObject.getName()
+  destroyObject(coinObject)
+  if investigatorObject then
+    destroyObject(investigatorObject)
+  end
+  local cardsToSpawn = {}
+  for cardId, cardCount in pairs(deckData.slots) do
+    local card = allCardsBagApi.getCardById(cardId)
+    if card ~= nil then
+      for i = 1, cardCount do
+        table.insert(cardsToSpawn, { data = card.data, metadata = card.metadata})
+      end
+    end
+  end
+  placingDeck = true
+  Spawner.spawnCards(
+    cardsToSpawn,
+    { x = 53.22, y = 2, z = 46.46},
+    { x = 0.00, y = 270.00, z = 0.00},
+    true,
+    function(obj) obj.setName(deckName) end
+  )
+  Spawner.spawnCards(
+    {allCardsBagApi.getCardById(deckData.investigatorId)},
+    { x = 60.92,  y = 2, z = 46.51},
+    { x = 0.00, y = 270.00, z = 0.00}
+  )
+  Wait.condition(function()
+    deckObject.setGMNotes(JSON.encode(deckData.customizations))
+    checkForCustomizableUpgrades()
+  end,
+  function()
+    if deckObject then
+      return true
+    else
+      return false
+    end
+  end)
+end
+
+function placeCardsBasic(_, _, alt_click)
+  placeCards(false, alt_click)
+end
+
+function placeCardsUpgraded(_,_, alt_click)
+  placeCards(true, alt_click)
+end
+
+function placeCards(isUpgraded, alt_click)
+  if (alt_click) then
+    --Clear all cards
+    playerCardPanelApi.deleteAll("middle")
+  else
+    local choiceSelection = {}
+    --Determine investigator placed on object
+    if not investigatorData then
+      broadcastToAll("No Valid Investigator Card Detected", Color.Red)
+      return
+    elseif investigatorData.deck_requirements.choices then
+      if choiceCount ~= investigatorData.deck_requirements.choices then
+        broadcastToAll("Select Additional Options", Color.Red)
+        return
+      else
+        for i, button in pairs(choiceButtonStatus) do
+          if button.selected then
+            choiceSelection[button.label] = button.label
+          end
+        end
+      end
+    end
+    deckOptions = investigatorData.deck_options
+    local cardSet = {}
+    local exclusionSet = {}
+    local cardList = {
+      skillList = {},
+      eventList = {},
+      assetList = {},
+      otherList = {}
+    }
+    cardList["limitedCardList"] = {
+      skillList = {},
+      eventList = {},
+      assetList = {}
+    }
+
+    --Find all cards eligible to be used by the target investigator
+    for _, cardSpec in ipairs(deckOptions) do
+      --determine what type of spec we are dealing with
+      local specType = (cardSpec.faction and "faction") or (cardSpec.trait and "trait") or (cardSpec.special and "special")
+      if not specType then
+        log("Invalid Deckbuilding Specification:")
+        log(cardSpec)
+      else
+        for _, specInstance in ipairs(cardSpec[specType]) do
+          if (cardSpec.choiceName == choiceSelection[cardSpec.choiceName]) and ((cardSpec.level.min == 0 and not isUpgraded) or (cardSpec.level.max > 0 and isUpgraded)) then
+            for _, cardId in ipairs(cardLookupTable[specType](specInstance)) do
+              local cardMetadata = allCardsBagApi.getCardById(cardId).metadata
+              if isUpgraded == (cardMetadata.level > 0) and cardMetadata.level >= cardSpec.level.min and cardMetadata.level <= cardSpec.level.max then
+                if cardSpec.limit and sortMethod == "limited" then
+                  insertCardSet(cardSet, cardList.limitedCardList, cardMetadata, cardId, cardSpec["not"], exclusionSet, cardSpec.type)
+                else
+                  insertCardSet(cardSet, cardList, cardMetadata, cardId, cardSpec["not"], exclusionSet, cardSpec.type)
+                end
+              end
+            end
+          end
+        end
+      end
+    end
+    --Organizes the card lists, and presents them to the player
+    cardList.skillList = allCardsBagApi.sortCardsTable(cardList.skillList)
+    cardList.eventList = allCardsBagApi.sortCardsTable(cardList.eventList)
+    cardList.assetList = allCardsBagApi.sortCardsTable(cardList.assetList)
+    cardList.otherList = allCardsBagApi.sortCardsTable(cardList.otherList)
+    cardList.limitedCardList.skillList = allCardsBagApi.sortCardsTable(cardList.limitedCardList.skillList)
+    cardList.limitedCardList.eventList = allCardsBagApi.sortCardsTable(cardList.limitedCardList.eventList)
+    cardList.limitedCardList.assetList = allCardsBagApi.sortCardsTable(cardList.limitedCardList.assetList)
+    playerCardPanelApi.spawnCardsByType({
+      cardList = cardList,
+      name = "deckOptions",
+      startPos = "deckBuilder",
+      spread = true,
+      spreadCols = 35,
+      targetState = "middle"
+    })
+  end
+end
+
+
+function insertCardSet(cardSet, cardList, cardMetadata, cardId, isExclusion, exclusionSet, types)
+  local allowedTypes = {}
+  if types then
+    for _, cardType in ipairs(types) do
+      allowedTypes[cardType] = true
+    end
+  else
+    allowedTypes = {
+      Skill = true,
+      Event = true,
+      Asset = true
+    }
+  end
+  if isExclusion then
+    exclusionSet[cardId] = true
+  elseif not cardSet[cardId] and not exclusionSet[cardId] then
+    if cardMetadata.type == "Skill" and allowedTypes.Skill then
+      table.insert(cardList.skillList, cardId)
+      cardSet[cardId] = true
+      return true
+    elseif cardMetadata.type == "Event" and allowedTypes.Event then
+      table.insert(cardList.eventList, cardId)
+      cardSet[cardId] = true
+      return true
+    elseif cardMetadata.type == "Asset" and allowedTypes.Asset then
+      table.insert(cardList.assetList, cardId)
+      cardSet[cardId] = true
+      return true
+    else
+      table.insert(cardList.otherList, cardId)
+    end
+  end
+  return false
+end

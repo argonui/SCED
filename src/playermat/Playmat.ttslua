@@ -1,4 +1,5 @@
 local chaosBagApi = require("chaosbag/ChaosBagApi")
+local deckImporterApi = require("arkhamdb/DeckImporterApi")
 local mythosAreaApi = require("core/MythosAreaApi")
 local navigationOverlayApi = require("core/NavigationOverlayApi")
 local tokenChecker = require("core/token/TokenChecker")
@@ -643,6 +644,30 @@ function spawnTokensFor(object)
   tokenManager.spawnForCard(object, extraUses)
 end
 
+-- Modelled after onDeckResult from arkhamdb/ArkhamDb.ttslua, but with some necessary changes
+function spawnDeckFromToken(coin)
+  local deckData = JSON.decode(coin.getGMNotes())
+    destroyObject(coin)
+    deckData["playerColor"] = playerColor
+    -- Add Investigator Cards
+    deckData["slots"][deckData.investigatorId] = 1
+    deckData["slots"][deckData.investigatorId .. "-m"] = 1
+    -- Add Bonded Cards
+    for bondedId, bondedCount in pairs(deckData.bondedList) do
+      deckData.slots[bondedId] = bondedCount
+    end
+    -- Add Customizable Upgrade Sheets
+    
+    -- Add Summon Servitor minicard
+    if deckData.slots["09080"] ~= nil then
+      deckData.slots["09080-m"] = 1
+    end
+    -- Add On The Mend
+
+
+    deckImporterApi.loadCards(deckData)
+end
+
 function onCollisionEnter(collision_info)
   local object = collision_info.collision_object
 
@@ -651,6 +676,10 @@ function onCollisionEnter(collision_info)
 
   -- only continue if loading is completed
   if not collisionEnabled then return end
+
+  if object.hasTag("DeckBuilderToken") then
+    spawnDeckFromToken(object)
+  end
 
   -- only continue for cards
   if object.type ~= "Card" then return end
