@@ -1,7 +1,9 @@
-local tokenManager = require("core/token/TokenManager")
-local tokenChecker = require("core/token/TokenChecker")
+local chaosBagApi = require("chaosbag/ChaosBagApi")
 local deckImporterApi = require("arkhamdb/DeckImporterApi")
+local mythosAreaApi = require("core/MythosAreaApi")
 local navigationOverlayApi = require("core/NavigationOverlayApi")
+local tokenChecker = require("core/token/TokenChecker")
+local tokenManager = require("core/token/TokenManager")
 
 -- set true to enable debug logging and show Physics.cast()
 local DEBUG = false
@@ -18,15 +20,15 @@ local DISCARD_BUTTON_OFFSETS = {-1.365, -0.91, -0.455, 0, 0.455, 0.91}
 
 local SEARCH_AROUND_SELF_X_BUFFER = 8
 
--- defined areas for the function "inArea()""
+-- defined areas for "inArea()" and "Physics.cast()"
 local MAIN_PLAY_AREA = {
   upperLeft = {
     x = 1.98,
-    z = 0.736,
+    z = 0.736
   },
   lowerRight = {
     x = -0.79,
-    z = -0.39,
+    z = -0.39
   }
 }
 local INVESTIGATOR_AREA = {
@@ -36,7 +38,7 @@ local INVESTIGATOR_AREA = {
   },
   lowerRight = {
     x = -1.258,
-    z = -0.0805,
+    z = -0.0805
   }
 }
 local THREAT_AREA = {
@@ -46,21 +48,41 @@ local THREAT_AREA = {
   },
   lowerRight = {
     x = -1.13,
-    z = -0.92,
+    z = -0.92
+  }
+}
+local DECK_DISCARD_AREA = {
+  upperLeft = {
+    x = -1.62,
+    z = 0.855
+  },
+  lowerRight = {
+    x = -2.02,
+    z = -0.245
+  },
+  center = {
+    x = -1.82,
+    y = 0.1,
+    z = 0.305
+  },
+  size = {
+    x = 0.4,
+    y = 0.1,
+    z = 1.1
   }
 }
 
-local DRAW_DECK_POSITION    = { x = -1.82, y = 1, z = 0 }
-local DISCARD_PILE_POSITION = { x = -1.82, y = 1.5, z = 0.61 }
+-- local position of draw and discard pile
+local DRAW_DECK_POSITION    = { x = -1.82, y = 0, z = 0 }
+local DISCARD_PILE_POSITION = { x = -1.82, y = 0, z = 0.61 }
 
-local TRASHCAN
-local STAT_TRACKER
-local RESOURCE_COUNTER
-
-local chaosBagApi = require("chaosbag/ChaosBagApi")
+-- global position of encounter discard pile
+local ENCOUNTER_DISCARD_POSITION = { x = -3.85, y = 1.5, z = 10.38}
 
 -- global variable so it can be reset by the Clean Up Helper
 activeInvestigatorId = "00000"
+
+local TRASHCAN, STAT_TRACKER, RESOURCE_COUNTER
 local isDrawButtonVisible = false
 
 -- global variable to report "Dream-Enhancing Serum" status
@@ -68,14 +90,13 @@ isDES = false
 
 function onSave()
   return JSON.encode({
-    zoneID = zoneID,
     playerColor = playerColor,
     activeInvestigatorId = activeInvestigatorId,
     isDrawButtonVisible = isDrawButtonVisible
   })
 end
 
-function onLoad(save_state)
+function onLoad(saveState)
   self.interactable = DEBUG
 
   TRASHCAN = getObjectFromGUID(TRASHCAN_GUID)
@@ -84,11 +105,11 @@ function onLoad(save_state)
 
   -- button creation
   for i = 1, 6 do
-    makeDiscardButton(DISCARD_BUTTON_OFFSETS[i], {-3.85, 3, 10.38}, i)
+    makeDiscardButton(DISCARD_BUTTON_OFFSETS[i], i)
   end
 
   self.createButton({
-    click_function = "drawEncountercard",
+    click_function = "drawEncounterCard",
     function_owner = self,
     position = {-1.84, 0, -0.65},
     rotation = {0, 80, 0},
@@ -117,9 +138,8 @@ function onLoad(save_state)
   })
 
   -- save state loading
-  local state = JSON.decode(save_state)
+  local state = JSON.decode(saveState)
   if state ~= nil then
-    zoneID = state.zoneID
     playerColor = state.playerColor
     activeInvestigatorId = state.activeInvestigatorId
     isDrawButtonVisible = state.isDrawButtonVisible
@@ -127,7 +147,6 @@ function onLoad(save_state)
 
   showDrawButton(isDrawButtonVisible)
 
-  if getObjectFromGUID(zoneID) == nil then spawnDeckZone() end
   collisionEnabled = true
 
   math.randomseed(os.time())
@@ -137,31 +156,33 @@ end
 -- utility functions
 ---------------------------------------------------------
 
-function spawnDeckZone()
-  spawnObject({
-    position = self.positionToWorld({-1.4, 0, 0.3 }),
-    scale = {3, 5, 8 },
-    type = 'ScriptingTrigger',
-    callback = function (zone) zoneID = zone.getGUID() end,
-    callback_owner = self,
-    rotation = self.getRotation()
-  })
-end
-
-function searchArea(origin, size)
-  return Physics.cast({
+-- searches an area and optionally filters the result
+function searchArea(origin, size, filter)
+  local searchResult = Physics.cast({
     origin       = origin,
-    direction    = {0, 1, 0},
+    direction    = { 0, 1, 0 },
     orientation  = self.getRotation(),
     type         = 3,
     size         = size,
-    max_distance = 1,
-    debug        = DEBUG
+    max_distance = 1
   })
+
+  local objList = {}
+  for _, v in ipairs(searchResult) do
+    if not filter or (filter and filter(v.hit_object)) then
+      table.insert(objList, v.hit_object)
+    end
+  end
+  return objList
 end
 
+-- filter functions for searchArea()
+function isCard(x) return x.type == 'Card' end
+function isDeck(x) return x.type == 'Deck' end
+function isCardOrDeck(x) return x.type == 'Card' or x.type == 'Deck' end
+
 -- Finds all objects on the playmat and associated set aside zone.
-function searchAroundSelf()
+function searchAroundSelf(filter)
   local bounds = self.getBoundsNormalized()
   -- Increase the width to cover the set aside zone
   bounds.size.x = bounds.size.x + SEARCH_AROUND_SELF_X_BUFFER
@@ -171,22 +192,20 @@ function searchAroundSelf()
   -- table position of the playmat
   local setAsideDirection = bounds.center.z > 0 and 1 or -1
   local localCenter = self.positionToLocal(bounds.center)
-  localCenter.x = localCenter.x
-      + setAsideDirection * SEARCH_AROUND_SELF_X_BUFFER / 2 / self.getScale().x
-
-  return searchArea(self.positionToWorld(localCenter), bounds.size)
+  localCenter.x = localCenter.x + setAsideDirection * SEARCH_AROUND_SELF_X_BUFFER / 2 / self.getScale().x
+  return searchArea(self.positionToWorld(localCenter), bounds.size, filter)
 end
 
-function findCardsAroundSelf()
-  local cards = { }
-  for _, collision in ipairs(searchAroundSelf()) do
-    local obj = collision.hit_object
-    if obj.name == "Card" or obj.name == "CardCustom" then
-      table.insert(cards, obj)
-    end
-  end
-
-  return cards
+-- searches the area around the draw deck and discard pile
+function searchDeckAndDiscardArea(filter)
+  local pos = self.positionToWorld(DECK_DISCARD_AREA.center)
+  local scale = self.getScale()
+  local size = {
+    x = DECK_DISCARD_AREA.size.x * scale.x,
+    y = DECK_DISCARD_AREA.size.y, 
+    z = DECK_DISCARD_AREA.size.z * scale.z
+  }
+  return searchArea(pos, size, filter)
 end
 
 function doNotReady(card)
@@ -197,19 +216,17 @@ end
 -- Discard buttons
 ---------------------------------------------------------
 
--- builds a function that discards things in searchPosition to discardPosition
+-- builds a function that discards things in searchPosition
 -- stuff on the card/deck will be put into the local trashcan
-function makeDiscardHandlerFor(searchPosition, discardPosition)
+function makeDiscardHandlerFor(searchPosition)
   return function ()
-    for _, hitObj in ipairs(findObjectsAtPosition(searchPosition)) do
-      local obj = hitObj.hit_object
-      if obj.tag == "Deck" or obj.tag == "Card" then
+    local origin = self.positionToWorld(searchPosition)
+    for _, obj in ipairs(searchArea(origin, {2, 1, 3.2})) do
+      if isCardOrDeck(obj) then
         if obj.hasTag("PlayerCard") then
-          obj.setPositionSmooth(self.positionToWorld(DISCARD_PILE_POSITION), false, true)
-          obj.setRotation(self.getRotation())
+          placeOrMergeIntoDeck(obj, returnGlobalDiscardPosition(), self.getRotation())
         else
-          obj.setPositionSmooth(discardPosition, false, true)
-          obj.setRotation({0, -90, 0})
+          placeOrMergeIntoDeck(obj, ENCOUNTER_DISCARD_POSITION, {x = 0, y = -90, z = 0})
         end
       -- put chaos tokens back into bag (e.g. Unrelenting)
       elseif tokenChecker.isChaosToken(obj) then
@@ -223,11 +240,52 @@ function makeDiscardHandlerFor(searchPosition, discardPosition)
   end
 end
 
--- build a discard button to discard from searchPosition to discardPosition (number must be unique)
-function makeDiscardButton(xValue, discardPosition, number)
+-- places a card/deck at a position or merges into an existing deck
+-- rotation is optional
+function placeOrMergeIntoDeck(obj, pos, rot)
+  if not pos then return end
+
+  local offset = 0.5
+  local deck, card, newPos
+  
+  -- search the new position for existing card/deck
+  local searchResult = searchArea(pos, { 1, 1, 1 }, isCardOrDeck)
+  if #searchResult == 1 then
+    local match = searchResult[1]
+    if match.type == 'Card' then
+      card = match
+    elseif match.type == 'Deck' then
+      deck = match
+    end
+  end
+
+  -- update vertical component of new position
+  if card or deck then
+    local bounds = searchResult[1].getBounds()
+    newPos = Vector(pos):setAt("y", bounds.center.y + bounds.size.y / 2 + offset)
+  else
+    newPos = Vector(pos) + Vector(0, offset, 0)
+  end
+
+  -- actual movement of the object
+  if rot then
+    obj.setRotationSmooth(rot, false, true)
+  end
+  obj.setPositionSmooth(newPos, false, true)
+  
+  -- this avoids a TTS bug that merges unrelated cards that are not resting
+  if deck then
+    Wait.time(function() deck.putObject(obj) end, 0.3)
+  elseif card then
+    Wait.time(function() obj.setPosition(newPos) end, 0.3)
+  end
+end
+
+-- build a discard button to discard from searchPosition (number must be unique)
+function makeDiscardButton(xValue, number)
   local position = { xValue, 0.1, -0.94}
   local searchPosition = {-position[1], position[2], position[3] + 0.32}
-  local handler = makeDiscardHandlerFor(searchPosition, discardPosition)
+  local handler = makeDiscardHandlerFor(searchPosition)
   local handlerName = 'handler' .. number
   self.setVar(handlerName, handler)
   self.createButton({
@@ -239,18 +297,6 @@ function makeDiscardButton(xValue, discardPosition, number)
     width = 900,
     height = 350,
     font_size = 220
-  })
-end
-
-function findObjectsAtPosition(localPos)
-  return Physics.cast({
-    origin       = self.positionToWorld(localPos),
-    direction    = {0, 1, 0},
-    orientation  = {0, self.getRotation().y + 90, 0},
-    type         = 3,
-    size         = {3.2, 1, 2},
-    max_distance = 0,
-    debug        = DEBUG
   })
 end
 
@@ -276,11 +322,10 @@ function doUpkeep(_, clickedByColor, isRightClick)
   -- unexhaust cards in play zone, flip action tokens and find forcedLearning
   local forcedLearning = false
   local rot = self.getRotation()
-  for _, v in ipairs(searchAroundSelf()) do
-    local obj = v.hit_object
+  for _, obj in ipairs(searchAroundSelf()) do
     if obj.getDescription() == "Action Token" and obj.is_face_down then
       obj.flip()
-    elseif obj.tag == "Card" and not inArea(self.positionToLocal(obj.getPosition()), INVESTIGATOR_AREA) then
+    elseif obj.type == "Card" and not inArea(self.positionToLocal(obj.getPosition()), INVESTIGATOR_AREA) then
       local cardMetadata = JSON.decode(obj.getGMNotes()) or {}
       if not doNotReady(obj) then
         local cardRotation = round(obj.getRotation().y, 0) - rot.y
@@ -315,7 +360,7 @@ function doUpkeep(_, clickedByColor, isRightClick)
   if activeInvestigatorId ~= nil then
     local miniId = string.match(activeInvestigatorId, ".....") .. "-m"
     for _, obj in ipairs(getObjects()) do
-      if obj.tag == "Card" and obj.is_face_down then
+      if obj.type == "Card" and obj.is_face_down then
         local notes = JSON.decode(obj.getGMNotes())
         if notes ~= nil and notes.type == "Minicard" and (notes.id == miniId or notes.id == "09080-m") then
           obj.flip()
@@ -425,19 +470,14 @@ function getDrawDiscardDecks()
   discardPile = nil
   topCard = nil
 
-  local zone = getObjectFromGUID(zoneID)
-  if zone == nil then return end
-
-  for _, object in ipairs(zone.getObjects()) do
-    if object.tag == "Deck" or object.tag == "Card" then
-      if self.positionToLocal(object.getPosition()).z > 0.5 then
-        discardPile = object
-      -- Norman Withers handling
-      elseif string.match(activeInvestigatorId, "%d%d%d%d%d") == "08004" and object.tag == "Card" and not object.is_face_down then
-        topCard = object
-      else
-        drawDeck = object
-      end
+  for _, object in ipairs(searchDeckAndDiscardArea(isCardOrDeck)) do
+    if self.positionToLocal(object.getPosition()).z > 0.5 then
+      discardPile = object
+    -- Norman Withers handling
+    elseif string.match(activeInvestigatorId, "%d%d%d%d%d") == "08004" and not object.is_face_down then
+      topCard = object
+    else
+      drawDeck = object
     end
   end
 end
@@ -480,7 +520,7 @@ function doDiscardOne()
 
     -- get a random non-hidden card (from the "choices" table)
     local num = math.random(1, #choices)
-    hand[choices[num]].setPosition(returnGlobalDiscardPosition())
+    placeOrMergeIntoDeck(hand[choices[num]], returnGlobalDiscardPosition(), self.getRotation())
     broadcastToAll(playerColor .. " randomly discarded card " .. choices[num] .. "/" .. #hand .. ".", "White")
   end
 end
@@ -564,7 +604,7 @@ end
 -- called when a checkbox is added or removed in-game (which should be rare), and is bounded by the
 -- number of customizable cards in play.
 function syncAllCustomizableCards()
-  for _, card in ipairs(findCardsAroundSelf()) do
+  for _, card in ipairs(searchAroundSelf(isCard)) do
     syncCustomizableMetadata(card)
   end
 end
@@ -574,7 +614,7 @@ function syncCustomizableMetadata(card)
   if cardMetadata == nil or cardMetadata.customizations == nil then
     return
   end
-  for _, upgradeSheet in ipairs(findCardsAroundSelf()) do
+  for _, upgradeSheet in ipairs(searchAroundSelf(isCard)) do
     local upgradeSheetMetadata = JSON.decode(upgradeSheet.getGMNotes()) or { }
     if upgradeSheetMetadata.id == (cardMetadata.id .. "-c") then
       for i, customization in ipairs(cardMetadata.customizations) do
@@ -642,12 +682,13 @@ function onCollisionEnter(collision_info)
   end
 
   -- only continue for cards
-  if object.name ~= "Card" and object.name ~= "CardCustom" then return end
+  if object.type ~= "Card" then return end
 
   maybeUpdateActiveInvestigator(object)
   syncCustomizableMetadata(object)
 
-  if isInDeckZone(object) then
+  local localCardPos = self.positionToLocal(object.getPosition())
+  if inArea(localCardPos, DECK_DISCARD_AREA) then
     tokenManager.resetTokensSpawned(object)
     removeTokensFromObject(object)
   elseif shouldSpawnTokens(object) then
@@ -697,33 +738,16 @@ function onObjectEnterContainer(container, object)
 end
 
 function resetTokensIfInDeckZone(container, object)
-  if isInDeckZone(container) then
+  local pos = self.positionToLocal(container.getPosition())
+  if inArea(pos, DECK_DISCARD_AREA) then
     tokenManager.resetTokensSpawned(object)
     removeTokensFromObject(container)
   end
 end
 
--- checks if an object is in this mats deckzone
-function isInDeckZone(checkObject)
-  local deckZone = getObjectFromGUID(zoneID)
-  if deckZone == nil then
-    return false
-  end
-
-  for _, obj in ipairs(deckZone.getObjects()) do
-    if obj == checkObject then
-      return true
-    end
-  end
-
-  return false
-end
-
 -- removes tokens from the provided card/deck
 function removeTokensFromObject(object)
-  for _, v in ipairs(searchArea(object.getPosition(), { 3, 1, 4 })) do
-    local obj = v.hit_object
-
+  for _, obj in ipairs(searchArea(object.getPosition(), { 3, 1, 4 })) do
     if obj.getGUID() ~= "4ee1f2" and -- table
         obj ~= self and
         obj.type ~= "Deck" and
@@ -773,7 +797,6 @@ function maybeUpdateActiveInvestigator(card)
   }
 
   for _, obj in ipairs(search) do
-    local obj = obj.hit_object
     if obj.getDescription() == "Action Token" and obj.getStateId() > 0 then
       if obj.getScale().x < 0.4 then
         smallToken = obj
@@ -811,8 +834,10 @@ function drawChaosTokenButton(_, _, isRightClick)
   chaosBagApi.drawChaosToken(self, DRAWN_CHAOS_TOKEN_OFFSET, isRightClick)
 end
 
-function drawEncountercard(_, _, isRightClick)
-  Global.call("drawEncountercard", {self.positionToWorld(DRAWN_ENCOUNTER_CARD_OFFSET), self.getRotation(), isRightClick})
+function drawEncounterCard(_, _, isRightClick)
+  local pos = self.positionToWorld(DRAWN_ENCOUNTER_CARD_OFFSET)
+  local rotY = self.getRotation().y
+  mythosAreaApi.drawEncounterCard(pos, rotY, isRightClick)
 end
 
 function returnGlobalDiscardPosition()
@@ -948,10 +973,10 @@ function setLimitSnapsByType(matchTypes)
 end
 
 -- Simple method to check if the given point is in a specified area.  Local use only,
----@param point Vector.  Point to check, only x and z values are relevant
----@param bounds Table.  Defined area to see if the point is within.  See MAIN_PLAY_AREA for sample
+---@param point Vector Point to check, only x and z values are relevant
+---@param bounds Table Defined area to see if the point is within.  See MAIN_PLAY_AREA for sample
 --     bounds definition.
----@return Boolean.  True if the point is in the area defined by bounds
+---@return Boolean True if the point is in the area defined by bounds
 function inArea(point, bounds)
   return (point.x < bounds.upperLeft.x
       and point.x > bounds.lowerRight.x
