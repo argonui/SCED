@@ -43,10 +43,21 @@ local hideTitleSplashWaitFunctionId = nil
 -- online functionality related variables
 local MOD_VERSION = "3.3.0"
 local SOURCE_REPO = 'https://raw.githubusercontent.com/chr1z93/loadable-objects/main'
-local library, requestObj, modMeta, notificationVisible, latestPreviewUpdate
-local downloadWindowVisible = false
-local optionPanelVisible = false
+local library, requestObj, modMeta, contentToShow, currentListItem
 local acknowledgedUpgradeVersions = {}
+local xmlVisibility = {
+  updateNotification = false,
+  downloadWindow = false,
+  previewWindow = false,
+  optionPanel = false
+}
+local idTable = {
+  tab1 = "campaigns",
+  tab2 = "scenarios",
+  tab3 = "fanmadeCampaigns",
+  tab4 = "fanmadeScenarios",
+  tab5 = "fanmadePlayerCards"
+}
 
 -- optionPanel data
 optionPanel = {}
@@ -626,45 +637,82 @@ end
 -- Content Importing and XML functions
 ---------------------------------------------------------
 
--- forwards the requested content type to the update function
----@param player LuaPlayer Player that triggered this
----@param contentToShow String Name of the content type to show
+-- forwards the requested content type to the update function and sets highlight to clicked tab
 ---@param id String Id of the clicked tab
-function onClick_tab(player, contentToShow, id)
-  -- sets highlight to clicked tab
-  local idTable = {"tab1", "tab2","tab3","tab4","tab5"}
-  for _, listId in ipairs(idTable) do
+function onClick_tab(_, _, id)
+  local contentToShow
+  for listId, listContent in pairs(idTable) do
     if listId == id then
       UI.setClass(listId, 'downloadTab activeTab')
+      contentToShow = listContent
     else
       UI.setClass(listId, 'downloadTab')
     end
   end
   update_list(contentToShow)
+
+  -- select the first item
+  Wait.time(function() onClick_select(_, _, contentToShow .. "_1") end, 0.1)
 end
 
 -- click function for the items in the download window
-function onClick_select(player, param)
-  local parsed = parseKey(param) or {}
-  local contentToShow = parsed.contentToShow
-  local index = parsed.index
-  if not contentToShow or not index then return end
-  startContentDownload(library[contentToShow][index])
+-- updates backgroundcolor for row panel and fontcolor for list item
+function onClick_select(_, _, id)
+  if currentListItem then
+    UI.setAttribute("panel" .. currentListItem, "color", "clear")
+    UI.setAttribute(contentToShow .. "_" .. currentListItem, "color", "white")
+  end
+  
+  -- update contentToShow & currentListItem
+  parseKey(id)
+  UI.setAttribute("panel" .. currentListItem, "color", "grey")
+  UI.setAttribute(contentToShow .. "_" .. currentListItem, "color", "black")
+
+  updateAndShowPreviewWindow()
+end
+
+-- parses the identification key (contentToShow_currentListItem)
+function parseKey(unparsedStr)
+  contentToShow = nil
+  currentListItem = nil
+  for str in string.gmatch(unparsedStr, "([^_]+)") do
+    if not contentToShow then
+      -- grab the first part to know the content type
+      contentToShow = str
+    else
+      -- get the index
+      currentListItem = tonumber(str)
+      break
+    end
+  end
+end
+
+function onClick_download()
+  startContentDownload(library[contentToShow][currentListItem])
 end
 
 -- download requested content
 function startContentDownload(param)
   local url = SOURCE_REPO .. '/' .. param.url
-  requestObj = WebRequest.get(url, function (request) complete_obj_download(request, param) end )
+  requestObj = WebRequest.get(url, function (request) complete_obj_download(request, param) end)
   startLuaCoroutine(Global, 'downloadCoroutine')
 end
 
 function downloadCoroutine()
+  -- show progress bar
+  UI.setAttribute('download_button', 'active', false)
+  UI.setAttribute('download_progress', 'active', true)
+
+  -- update progress bar
   while requestObj do
     UI.setAttribute('download_progress', 'percentage', requestObj.download_progress * 100)
     coroutine.yield(0)
   end
   UI.setAttribute('download_progress', 'percentage', 100)
+
+  -- hide progress bar
+  UI.setAttribute('download_button', 'active', true)
+  UI.setAttribute('download_progress', 'active', false)
   return 1
 end
 
@@ -675,46 +723,33 @@ function onClick_toggleUi(player, title)
   if title == "Navigation Overlay" then
     navigationOverlayApi.cycleVisibility(player.color)
   elseif title == "Downloadable Content" then
-    if downloadWindowVisible then
+    if xmlVisibility.downloadWindow then
       UI.hide('downloadWindow')
       UI.hide("previewWindow")
     else
+      if xmlVisibility.previewWindow then
+        UI.show("previewWindow")
+      end
       UI.show('downloadWindow')
     end
-    downloadWindowVisible = not downloadWindowVisible
+    xmlVisibility.downloadWindow = not xmlVisibility.downloadWindow
   elseif title == "Options" then
-    if optionPanelVisible then
+    if xmlVisibility.optionPanel then
       UI.hide('optionPanel')
     else
       UI.show('optionPanel')
     end
-    optionPanelVisible = not optionPanelVisible
+    xmlVisibility.optionPanel = not xmlVisibility.optionPanel
   end
 end
 
--- hides the content preview window when moving the mouse out of the main window
-function onMouseExit_window()
+-- updates + shows the preview window
+function updateAndShowPreviewWindow()
+  xmlVisibility.previewWindow = false
   UI.hide("previewWindow")
-end
-
--- updates the preview window when mousing over any item in the table
-function onMouseEnter_item(player, param)
-  -- only update once per request
-  if param == latestPreviewUpdate then return end
-  latestPreviewUpdate = param
-
-  -- hide window in case data is incomplete
-  UI.hide("previewWindow")
-
-  -- parse parameters
-  local parsed = parseKey(param) or {}
-  local contentToShow = parsed.contentToShow
-  local index = parsed.index
-
-  if not contentToShow or not index then return end
 
   -- get metadata from library
-  local item = library[contentToShow][index]
+  local item = library[contentToShow][currentListItem]
 
   -- error handling (only author + description can by empty)
   if not item
@@ -759,17 +794,17 @@ function onMouseEnter_item(player, param)
   -- update the preview window height according to box size
   local hWindow, hArt, offsetXY
   if item.boxsize == "big" then
-    hWindow = 510
+    hWindow = 560
     hArt = 300
-    offsetXY = "-510 135"
+    offsetXY = "-476 120"
   elseif item.boxsize == "small" then
-    hWindow = 510
+    hWindow = 560
     hArt = 300
-    offsetXY = "-510 135"
+    offsetXY = "-476 120"
   elseif item.boxsize == "wide" then
-    hWindow = 360
+    hWindow = 410
     hArt = 150
-    offsetXY = "-510 210"
+    offsetXY = "-476 195"
   end
 
   UI.setAttributes("previewArtMask", maskData)
@@ -780,26 +815,8 @@ function onMouseEnter_item(player, param)
   })
 
   -- show the window
+  xmlVisibility.previewWindow = true
   UI.show("previewWindow")
-end
-
--- parses the identification key (contentToShow_index) and returns the result
-function parseKey(unparsedStr)
-  local contentToShow, index
-  for str in string.gmatch(unparsedStr, "([^_]+)") do
-    if not contentToShow then
-      -- grab the first part to know the content type
-      contentToShow = str
-    else
-      -- get the index
-      index = tonumber(str)
-      break
-    end
-  end
-  return {
-    contentToShow = contentToShow,
-    index = index
-  }
 end
 
 -- formats the json response from the webrequest into a key-value lua table
@@ -852,31 +869,27 @@ function update_list(contentToShow)
   UI.setValue("title", "Downloadable Content: " .. cleanName[contentToShow])
 
   -- addition of list items according to library file
-  local childrenTable = {}
+  local ui = UI.getXmlTable()
+  local update_point = find_tag_with_id(ui, 'ui_update_point')
+  update_point.children = {}
   for i, v in ipairs(library[contentToShow]) do
-    local key = contentToShow .. "_" .. i
-    table.insert(childrenTable,
+    table.insert(update_point.children,
       {
-        tag = 'Text',
-        value = v.name,
-        attributes = {
-          onClick = 'onClick_select(' .. key .. ')',
-          onMouseEnter = "onMouseEnter_item(" .. key .. ")",
-          alignment = 'MiddleLeft'
+        tag = "Panel",
+        attributes = { id = "panel" .. i },
+        children = {
+          tag = 'Text',
+          value = v.name,
+          attributes = {
+            id = contentToShow .. "_" .. i,
+            onClick = 'onClick_select',
+            alignment = 'MiddleLeft'
+          }
         }
       })
   end
 
-  local ui = UI.getXmlTable()
-  local update_point = find_tag_with_id(ui, 'ui_update_point')
-  update_point.children = {
-      tag = 'VerticalLayout',
-      attributes = {
-        padding = "10 10 0 0"
-      },
-      children = childrenTable
-    }
-  update_point.attributes.height = #childrenTable * 24
+  update_point.attributes.height = #update_point.children * 25
   UI.setXmlTable(ui)
 end
 
@@ -920,7 +933,7 @@ function complete_obj_download(request, param)
 end
 
 -- the download button on the placeholder objects calls this to directly initiate a download
----@param param Table contains url and guid of replacement object, which happens to match what onClick_select wants
+---@param param Table contains url and guid of replacement object
 function placeholder_download(param)
   startContentDownload(param)
 end
@@ -1287,12 +1300,12 @@ end
 
 -- triggered by clicking on the Finn Icon
 function onClick_FinnIcon()
-  if notificationVisible then
+  if xmlVisibility.updateNotification then
     UI.hide("updateNotification")
-    notificationVisible = false
+    xmlVisibility.updateNotification = false
   else
     UI.show("updateNotification")
-    notificationVisible = true
+    xmlVisibility.updateNotification = true
   end
 end
 
