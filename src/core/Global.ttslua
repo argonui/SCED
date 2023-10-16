@@ -43,15 +43,16 @@ local hideTitleSplashWaitFunctionId = nil
 -- online functionality related variables
 local MOD_VERSION = "3.3.0"
 local SOURCE_REPO = 'https://raw.githubusercontent.com/chr1z93/loadable-objects/main'
-local library, requestObj, modMeta, contentToShow, currentListItem
+local library, requestObj, modMeta
 local acknowledgedUpgradeVersions = {}
+local contentToShow = "campaigns"
+local currentListItem = 1
 local xmlVisibility = {
-  updateNotification = false,
   downloadWindow = false,
-  previewWindow = false,
-  optionPanel = false
+  optionPanel = false,
+  updateNotification = false
 }
-local idTable = {
+local tabIdTable = {
   tab1 = "campaigns",
   tab2 = "scenarios",
   tab3 = "fanmadeCampaigns",
@@ -158,7 +159,7 @@ function onLoad(savedData)
 
   -- initialization of loadable objects library (delay to let Navigation Overlay build)
   Wait.time(function()
-    WebRequest.get(SOURCE_REPO .. '/library.json', completed_list_update)
+    WebRequest.get(SOURCE_REPO .. '/library.json', libraryDownloadCallback)
   end, 1)
 end
 
@@ -638,48 +639,45 @@ end
 ---------------------------------------------------------
 
 -- forwards the requested content type to the update function and sets highlight to clicked tab
----@param id String Id of the clicked tab
-function onClick_tab(_, _, id)
-  for listId, listContent in pairs(idTable) do
-    if listId == id then
+---@param tabId String Id of the clicked tab
+function onClick_tab(_, _, tabId)
+  for listId, listContent in pairs(tabIdTable) do
+    if listId == tabId then
       UI.setClass(listId, 'downloadTab activeTab')
       contentToShow = listContent
     else
       UI.setClass(listId, 'downloadTab')
     end
   end
+  currentListItem = 1
   updateDownloadItemList()
-
-  -- select the first item
-  Wait.time(function() onClick_select(_, _, contentToShow .. "_1") end, 0.1)
 end
 
 -- click function for the items in the download window
 -- updates backgroundcolor for row panel and fontcolor for list item
-function onClick_select(_, _, id)
-  if currentListItem then
-    UI.setAttribute("panel" .. currentListItem, "color", "clear")
-    UI.setAttribute(contentToShow .. "_" .. currentListItem, "color", "white")
-  end
+function onClick_select(_, _, identificationKey)
+  UI.setAttribute("panel" .. currentListItem, "color", "clear")
+  UI.setAttribute(contentToShow .. "_" .. currentListItem, "color", "white")
   
   -- parses the identification key (contentToShow_currentListItem)
-  contentToShow = nil
-  currentListItem = nil
-  for str in string.gmatch(id, "([^_]+)") do
-    if not contentToShow then
-      -- grab the first part to know the content type
-      contentToShow = str
-    else
-      -- get the index
-      currentListItem = tonumber(str)
-      break
+  if identificationKey then
+    contentToShow = nil
+    currentListItem = nil
+    for str in string.gmatch(identificationKey, "([^_]+)") do
+      if not contentToShow then
+        -- grab the first part to know the content type
+        contentToShow = str
+      else
+        -- get the index
+        currentListItem = tonumber(str)
+        break
+      end
     end
   end
 
   UI.setAttribute("panel" .. currentListItem, "color", "grey")
   UI.setAttribute(contentToShow .. "_" .. currentListItem, "color", "black")
-
-  updateAndShowPreviewWindow()
+  updatePreviewWindow()
 end
 
 -- click function for the download button in the preview window
@@ -691,7 +689,7 @@ end
 ---@param param Table contains url and guid of replacement object
 function placeholder_download(param)
   local url = SOURCE_REPO .. '/' .. param.url
-  requestObj = WebRequest.get(url, function (request) complete_obj_download(request, param) end)
+  requestObj = WebRequest.get(url, function (request) contentDownloadCallback(request, param) end)
   startLuaCoroutine(Global, 'downloadCoroutine')
 end
 
@@ -720,7 +718,6 @@ function downloadCoroutine()
   if xmlVisibility.downloadWindow then
     xmlVisibility.downloadWindow = false
     UI.hide('downloadWindow')
-    UI.hide("previewWindow")
   end
   return 1
 end
@@ -731,48 +728,32 @@ end
 function onClick_toggleUi(player, title)
   if title == "Navigation Overlay" then
     navigationOverlayApi.cycleVisibility(player.color)
-  elseif title == "Downloadable Content" then
-    if xmlVisibility.downloadWindow then
-      UI.hide('downloadWindow')
-      UI.hide("previewWindow")
-    else
-      if xmlVisibility.previewWindow then
-        UI.show("previewWindow")
-      end
-      UI.show('downloadWindow')
-    end
-    xmlVisibility.downloadWindow = not xmlVisibility.downloadWindow
-  elseif title == "Options" then
-    if xmlVisibility.optionPanel then
-      UI.hide('optionPanel')
-    else
-      UI.show('optionPanel')
-    end
-    xmlVisibility.optionPanel = not xmlVisibility.optionPanel
-  end
-end
-
--- updates + shows the preview window
-function updateAndShowPreviewWindow()
-  xmlVisibility.previewWindow = false
-  UI.hide("previewWindow")
-
-  -- get metadata from library
-  local item = library[contentToShow][currentListItem]
-
-  -- error handling (only author + description can by empty)
-  if not item
-      or not item.name or item.name == ""
-      or not item.boxsize or item.boxsize == ""
-      or not item.boxart or item.boxart == "" then
     return
   end
 
-  UI.setValue("previewTitle", item.name)
-  UI.setValue("previewAuthor", "by " .. (item.author) or "Unknown")
-  UI.setValue("previewDescription", item.description or "")
+  if xmlVisibility[title] then
+    UI.hide(title)
+  else
+    UI.show(title)
+  end
+  xmlVisibility[title] = not xmlVisibility[title]
+end
 
-  -- update mask according to size
+-- updates the preview window
+function updatePreviewWindow()
+  local item = library[contentToShow][currentListItem]
+
+  -- set default image if not defined
+  if item.boxsize == nil or item.boxsize == "" or item.boxart == nil or item.boxart == "" then
+    item.boxsize = "big"
+    item.boxart = "http://cloud-3.steamusercontent.com/ugc/762723517667628371/18438B0A0045038A7099648AA3346DFCAA267C66/"
+  end
+
+  UI.setValue("previewTitle", item.name)
+  UI.setValue("previewAuthor", "by " .. (item.author) or "- Author not found -")
+  UI.setValue("previewDescription", item.description or "- Description not found -")
+
+  -- update mask according to size (hardcoded values to align image in mask)
   local maskData = {}
   if item.boxsize == "big" then
     maskData = {
@@ -784,48 +765,22 @@ function updateAndShowPreviewWindow()
   elseif item.boxsize == "small" then
     maskData = {
         image = "box-cover-mask-small",
-        width = "668",
-        height = "501",
-        offsetXY = "120 10"
+        width = "792",
+        height = "594",
+        offsetXY = "135 13"
       }
   elseif item.boxsize == "wide" then
     maskData = {
         image = "box-cover-mask-wide",
-        width = "780",
-        height = "650",
-        offsetXY = "-195 -70"
+        width = "756",
+        height = "630",
+        offsetXY = "-190 -70"
       }
   end
 
   -- insert the image itself
   UI.setAttribute("previewArtImage", "image", item.boxart)
-
-  -- update the preview window height according to box size
-  local hWindow, hArt, offsetXY
-  if item.boxsize == "big" then
-    hWindow = 560
-    hArt = 300
-    offsetXY = "-476 120"
-  elseif item.boxsize == "small" then
-    hWindow = 560
-    hArt = 300
-    offsetXY = "-476 120"
-  elseif item.boxsize == "wide" then
-    hWindow = 410
-    hArt = 150
-    offsetXY = "-476 195"
-  end
-
   UI.setAttributes("previewArtMask", maskData)
-  UI.setAttribute("previewArtPanel", "preferredHeight", hArt)
-  UI.setAttributes("previewWindow", {
-    height = hWindow,
-    offsetXY = offsetXY
-  })
-
-  -- show the window
-  xmlVisibility.previewWindow = true
-  UI.show("previewWindow")
 end
 
 -- formats the json response from the webrequest into a key-value lua table
@@ -866,22 +821,13 @@ end
 function updateDownloadItemList()
   if not library then return end
 
-  -- set title according to type
-  local cleanName = {
-    campaigns = "Campaigns",
-    scenarios = "Scenarios",
-    fanmadeCampaigns = "Fan-Made Campaigns",
-    fanmadePlayerCards = "Fan-Made Player Cards",
-    fanmadeScenarios = "Fan-Made Scenarios"
-  }
-  UI.setValue("title", "Downloadable Content: " .. cleanName[contentToShow])
-
   -- addition of list items according to library file
-  local ui = UI.getXmlTable()
-  local update_point = find_tag_with_id(ui, 'ui_update_point')
-  update_point.children = {}
+  local globalXml = UI.getXmlTable()
+  local contentList = getXmlTableElementById(globalXml, 'contentList')
+
+  contentList.children = {}
   for i, v in ipairs(library[contentToShow]) do
-    table.insert(update_point.children,
+    table.insert(contentList.children,
       {
         tag = "Panel",
         attributes = { id = "panel" .. i },
@@ -897,13 +843,16 @@ function updateDownloadItemList()
       })
   end
 
-  update_point.attributes.height = #update_point.children * 25
-  UI.setXmlTable(ui)
+  contentList.attributes.height = #contentList.children * 27
+  UI.setXmlTable(globalXml)
+
+  -- select the first item
+  Wait.time(onClick_select, 0.2)
 end
 
 -- called after the webrequest of downloading an item
 -- deletes the placeholder and spawns the downloaded item
-function complete_obj_download(request, param)
+function contentDownloadCallback(request, param)
   requestObj = nil
 
   -- error handling
@@ -939,7 +888,7 @@ function complete_obj_download(request, param)
 end
 
 -- downloading of the library file
-function completed_list_update(request)
+function libraryDownloadCallback(request)
   if request.is_error or request.response_code ~= 200 then
     print('error: ' .. request.error)
     return
@@ -948,7 +897,6 @@ function completed_list_update(request)
   local json_response = nil
   if pcall(function () json_response = JSON.decode(request.text) end) then
     formatLibrary(json_response)
-    contentToShow = "campaigns"
     updateDownloadItemList()
   else
     print('error parsing downloaded library')
@@ -958,11 +906,11 @@ end
 -- loops through an XML table and returns the specified object
 ---@param ui Table XmlTable (get this via getXmlTable)
 ---@param id String Id of the object to return
-function find_tag_with_id(ui, id)
+function getXmlTableElementById(ui, id)
   for _, obj in ipairs(ui) do
     if obj.attributes and obj.attributes.id and obj.attributes.id == id then return obj end
     if obj.children then
-      local result = find_tag_with_id(obj.children, id)
+      local result = getXmlTableElementById(obj.children, id)
       if result then return result end
     end
   end
@@ -1298,17 +1246,6 @@ function updateNotificationLoading()
   UI.setAttribute("updateNotification", "height", 20*#highlights + 125)
 end
 
--- triggered by clicking on the Finn Icon
-function onClick_FinnIcon()
-  if xmlVisibility.updateNotification then
-    UI.hide("updateNotification")
-    xmlVisibility.updateNotification = false
-  else
-    UI.show("updateNotification")
-    xmlVisibility.updateNotification = true
-  end
-end
-
 -- close / don't show again buttons on the update notification
 function onClick_notification(_, parameter)
   if parameter == "dontShowAgain" then
@@ -1317,4 +1254,5 @@ function onClick_notification(_, parameter)
   end
   UI.hide("FinnIcon")
   UI.hide("updateNotification")
+  xmlVisibility["updateNotification"] = false
 end
