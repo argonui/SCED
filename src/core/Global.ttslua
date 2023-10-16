@@ -158,7 +158,7 @@ function onLoad(savedData)
 
   -- initialization of loadable objects library (delay to let Navigation Overlay build)
   Wait.time(function()
-    requestObj = WebRequest.get(SOURCE_REPO .. '/library.json', completed_list_update)
+    WebRequest.get(SOURCE_REPO .. '/library.json', completed_list_update)
   end, 1)
 end
 
@@ -640,7 +640,6 @@ end
 -- forwards the requested content type to the update function and sets highlight to clicked tab
 ---@param id String Id of the clicked tab
 function onClick_tab(_, _, id)
-  local contentToShow
   for listId, listContent in pairs(idTable) do
     if listId == id then
       UI.setClass(listId, 'downloadTab activeTab')
@@ -649,7 +648,7 @@ function onClick_tab(_, _, id)
       UI.setClass(listId, 'downloadTab')
     end
   end
-  update_list(contentToShow)
+  updateDownloadItemList()
 
   -- select the first item
   Wait.time(function() onClick_select(_, _, contentToShow .. "_1") end, 0.1)
@@ -663,19 +662,10 @@ function onClick_select(_, _, id)
     UI.setAttribute(contentToShow .. "_" .. currentListItem, "color", "white")
   end
   
-  -- update contentToShow & currentListItem
-  parseKey(id)
-  UI.setAttribute("panel" .. currentListItem, "color", "grey")
-  UI.setAttribute(contentToShow .. "_" .. currentListItem, "color", "black")
-
-  updateAndShowPreviewWindow()
-end
-
--- parses the identification key (contentToShow_currentListItem)
-function parseKey(unparsedStr)
+  -- parses the identification key (contentToShow_currentListItem)
   contentToShow = nil
   currentListItem = nil
-  for str in string.gmatch(unparsedStr, "([^_]+)") do
+  for str in string.gmatch(id, "([^_]+)") do
     if not contentToShow then
       -- grab the first part to know the content type
       contentToShow = str
@@ -685,14 +675,21 @@ function parseKey(unparsedStr)
       break
     end
   end
+
+  UI.setAttribute("panel" .. currentListItem, "color", "grey")
+  UI.setAttribute(contentToShow .. "_" .. currentListItem, "color", "black")
+
+  updateAndShowPreviewWindow()
 end
 
+-- click function for the download button in the preview window
 function onClick_download()
-  startContentDownload(library[contentToShow][currentListItem])
+  placeholder_download(library[contentToShow][currentListItem])
 end
 
--- download requested content
-function startContentDownload(param)
+-- the download button on the placeholder objects calls this to directly initiate a download
+---@param param Table contains url and guid of replacement object
+function placeholder_download(param)
   local url = SOURCE_REPO .. '/' .. param.url
   requestObj = WebRequest.get(url, function (request) complete_obj_download(request, param) end)
   startLuaCoroutine(Global, 'downloadCoroutine')
@@ -710,9 +707,21 @@ function downloadCoroutine()
   end
   UI.setAttribute('download_progress', 'percentage', 100)
 
+  -- wait 30 frames
+  for i = 1, 30 do
+    coroutine.yield(0)
+  end
+
   -- hide progress bar
   UI.setAttribute('download_button', 'active', true)
   UI.setAttribute('download_progress', 'active', false)
+
+  -- hide download window
+  if xmlVisibility.downloadWindow then
+    xmlVisibility.downloadWindow = false
+    UI.hide('downloadWindow')
+    UI.hide("previewWindow")
+  end
   return 1
 end
 
@@ -854,8 +863,7 @@ function formatLibrary(json_response)
 end
 
 -- updates the window content to the requested content
----@param contentToShow String Type of content to show
-function update_list(contentToShow)
+function updateDownloadItemList()
   if not library then return end
 
   -- set title according to type
@@ -896,63 +904,55 @@ end
 -- called after the webrequest of downloading an item
 -- deletes the placeholder and spawns the downloaded item
 function complete_obj_download(request, param)
-  assert(request.is_done)
+  requestObj = nil
+
+  -- error handling
   if request.is_error or request.response_code ~= 200 then
-    print('error: ' .. request.error)
-  else
-    if pcall(function()
-      local replacedObject
-      pcall(function()
-        if param.replace then
-          replacedObject = getObjectFromGUID(param.replace)
-        end
-      end)
-      if replacedObject then
-        local pos = replacedObject.getPosition()
-        local rot = replacedObject.getRotation()
-        local scale = replacedObject.getScale()
-        destroyObject(replacedObject)
-        Wait.frames(function()
-          spawnObjectJSON({
-            json = request.text,
-            position = pos,
-            rotation = rot,
-            scale = scale
-          })
-        end, 1)
-      else
-        spawnObjectJSON({ json = request.text })
-      end
-    end) then
-      print('Object loaded.')
-    else
-      print('Error loading object.')
+    print('Error: ' .. request.error)
+    return
+  end
+
+  -- initiate content spawning
+  local spawnTable = { json = request.text }
+  if param.replace then
+    local replacedObject = getObjectFromGUID(param.replace)
+    if replacedObject then
+      spawnTable.position = replacedObject.getPosition()
+      spawnTable.rotation = replacedObject.getRotation()
+      spawnTable.scale    = replacedObject.getScale()
+      destroyObject(replacedObject)
     end
   end
-  requestObj = nil
-end
 
--- the download button on the placeholder objects calls this to directly initiate a download
----@param param Table contains url and guid of replacement object
-function placeholder_download(param)
-  startContentDownload(param)
+  -- if spawned from menu, ping the position
+  if param.name then
+    spawnTable["callback_function"] = function(obj)
+      Player.getPlayers()[1].pingTable(obj.getPosition())
+    end
+  end
+
+  if pcall(function() spawnObjectJSON(spawnTable) end) then
+    print('Object loaded.')
+  else
+    print('Error loading object.')
+  end
 end
 
 -- downloading of the library file
 function completed_list_update(request)
-  assert(request.is_done)
   if request.is_error or request.response_code ~= 200 then
     print('error: ' .. request.error)
-  else
-    local json_response = nil
-    if pcall(function () json_response = JSON.decode(request.text) end) then
-      formatLibrary(json_response)
-      update_list("campaigns")
-    else
-      print('error parsing downloaded library')
-    end
+    return
   end
-  requestObj = nil
+
+  local json_response = nil
+  if pcall(function () json_response = JSON.decode(request.text) end) then
+    formatLibrary(json_response)
+    contentToShow = "campaigns"
+    updateDownloadItemList()
+  else
+    print('error parsing downloaded library')
+  end
 end
 
 -- loops through an XML table and returns the specified object
