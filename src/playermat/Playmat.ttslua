@@ -245,39 +245,37 @@ function placeOrMergeIntoDeck(obj, pos, rot)
   if not pos then return end
 
   local offset = 0.5
-  local deck, card, newPos
   
   -- search the new position for existing card/deck
   local searchResult = searchArea(pos, { 1, 1, 1 }, isCardOrDeck)
-  if #searchResult == 1 then
-    local match = searchResult[1]
-    if match.type == 'Card' then
-      card = match
-    elseif match.type == 'Deck' then
-      deck = match
-    end
-  end
 
-  -- update vertical component of new position
-  if card or deck then
+  -- get new position
+  local newPos
+  if #searchResult == 1 then
     local bounds = searchResult[1].getBounds()
     newPos = Vector(pos):setAt("y", bounds.center.y + bounds.size.y / 2 + offset)
   else
     newPos = Vector(pos) + Vector(0, offset, 0)
   end
 
-  -- actual movement of the object
+  -- allow moving the objects smoothly out of the hand
+  obj.use_hands = false
+
   if rot then
     obj.setRotationSmooth(rot, false, true)
   end
   obj.setPositionSmooth(newPos, false, true)
-  
-  -- this avoids a TTS bug that merges unrelated cards that are not resting
-  if deck then
-    Wait.time(function() deck.putObject(obj) end, 0.3)
-  elseif card then
-    Wait.time(function() obj.setPosition(newPos) end, 0.3)
-  end
+
+  -- continue if the card stops smooth moving
+  Wait.condition(
+   function()
+    obj.use_hands = true
+    -- this avoids a TTS bug that merges unrelated cards that are not resting
+    if #searchResult == 1 then
+      searchResult[1].putObject(obj)
+    end
+  end,
+  function() return not obj.isSmoothMoving() end, 3)
 end
 
 -- build a discard button to discard from searchPosition (number must be unique)
