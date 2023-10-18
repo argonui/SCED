@@ -238,12 +238,12 @@ function canTouchChaosTokens()
 end
 
 -- called by playermats (by the "Draw chaos token" button)
-function drawChaosToken(param)
+function drawChaosToken(params)
   if not canTouchChaosTokens() then return end
 
-  local mat = param[1]
-  local tokenOffset = param[2]
-  local isRightClick = param[3]
+  local mat = params[1]
+  local tokenOffset = params[2]
+  local isRightClick = params[3]
   chaosbag = findChaosBag()
 
   -- return token(s) on other playmat first
@@ -289,9 +289,9 @@ end
 
 -- DEPRECATED.  Use TokenManager instead.
 -- Spawns a single token.
----@param param Table.  Array with arguments to the method.  1 = position, 2 = type, 3 = rotation
-function spawnToken(param)
-  return tokenManager.spawnToken(param[1], param[2], param[3])
+---@param params Table.  Array with arguments to the method.  1 = position, 2 = type, 3 = rotation
+function spawnToken(params)
+  return tokenManager.spawnToken(params[1], params[2], params[3])
 end
 
 ---------------------------------------------------------
@@ -687,15 +687,14 @@ end
 
 -- the download button on the placeholder objects calls this to directly initiate a download
 ---@param param Table contains url and guid of replacement object
-function placeholder_download(param)
-  local url = SOURCE_REPO .. '/' .. param.url
-  requestObj = WebRequest.get(url, function (request) contentDownloadCallback(request, param) end)
+function placeholder_download(params)
+  local url = SOURCE_REPO .. '/' .. params.url
+  requestObj = WebRequest.get(url, function (request) contentDownloadCallback(request, params) end)
   startLuaCoroutine(Global, 'downloadCoroutine')
 end
 
 function downloadCoroutine()
   -- show progress bar
-  UI.setAttribute('download_button', 'active', false)
   UI.setAttribute('download_progress', 'active', true)
 
   -- update progress bar
@@ -711,7 +710,6 @@ function downloadCoroutine()
   end
 
   -- hide progress bar
-  UI.setAttribute('download_button', 'active', true)
   UI.setAttribute('download_progress', 'active', false)
 
   -- hide download window
@@ -732,7 +730,8 @@ function onClick_toggleUi(player, title)
   end
 
   if xmlVisibility[title] then
-    UI.hide(title)
+    -- small delay to allow button click sounds to play
+    Wait.time(function() UI.hide(title) end, 0.1)
   else
     UI.show(title)
   end
@@ -742,6 +741,7 @@ end
 -- updates the preview window
 function updatePreviewWindow()
   local item = library[contentToShow][currentListItem]
+  local tempImage = "http://cloud-3.steamusercontent.com/ugc/2115061845788345842/2CD6ABC551555CCF58F9D0DDB7620197BA398B06/"
 
   -- set default image if not defined
   if item.boxsize == nil or item.boxsize == "" or item.boxart == nil or item.boxart == "" then
@@ -750,7 +750,7 @@ function updatePreviewWindow()
   end
 
   UI.setValue("previewTitle", item.name)
-  UI.setValue("previewAuthor", "by " .. (item.author) or "- Author not found -")
+  UI.setValue("previewAuthor", "by " .. (item.author or "- Author not found -"))
   UI.setValue("previewDescription", item.description or "- Description not found -")
 
   -- update mask according to size (hardcoded values to align image in mask)
@@ -778,6 +778,9 @@ function updatePreviewWindow()
       }
   end
 
+  -- loading empty image as placeholder until real image is loaded
+  UI.setAttribute("previewArtImage", "image", tempImage)
+  
   -- insert the image itself
   UI.setAttribute("previewArtImage", "image", item.boxart)
   UI.setAttributes("previewArtMask", maskData)
@@ -852,7 +855,7 @@ end
 
 -- called after the webrequest of downloading an item
 -- deletes the placeholder and spawns the downloaded item
-function contentDownloadCallback(request, param)
+function contentDownloadCallback(request, params)
   requestObj = nil
 
   -- error handling
@@ -863,8 +866,8 @@ function contentDownloadCallback(request, param)
 
   -- initiate content spawning
   local spawnTable = { json = request.text }
-  if param.replace then
-    local replacedObject = getObjectFromGUID(param.replace)
+  if params.replace then
+    local replacedObject = getObjectFromGUID(params.replace)
     if replacedObject then
       spawnTable.position = replacedObject.getPosition()
       spawnTable.rotation = replacedObject.getRotation()
@@ -874,7 +877,7 @@ function contentDownloadCallback(request, param)
   end
 
   -- if spawned from menu, ping the position
-  if param.name then
+  if params.name then
     spawnTable["callback_function"] = function(obj)
       Player.getPlayers()[1].pingTable(obj.getPosition())
     end
