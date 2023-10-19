@@ -43,8 +43,22 @@ local hideTitleSplashWaitFunctionId = nil
 -- online functionality related variables
 local MOD_VERSION = "3.3.0"
 local SOURCE_REPO = 'https://raw.githubusercontent.com/chr1z93/loadable-objects/main'
-local library, requestObj, modMeta, notificationVisible
+local library, requestObj, modMeta
 local acknowledgedUpgradeVersions = {}
+local contentToShow = "campaigns"
+local currentListItem = 1
+local xmlVisibility = {
+  downloadWindow = false,
+  optionPanel = false,
+  updateNotification = false
+}
+local tabIdTable = {
+  tab1 = "campaigns",
+  tab2 = "scenarios",
+  tab3 = "fanmadeCampaigns",
+  tab4 = "fanmadeScenarios",
+  tab5 = "fanmadePlayerCards"
+}
 
 -- optionPanel data
 optionPanel = {}
@@ -140,6 +154,11 @@ function onLoad(savedData)
   resetChaosTokenStatTracker()
   getModVersion()
   math.randomseed(os.time())
+
+  -- initialization of loadable objects library (delay to let Navigation Overlay build)
+  Wait.time(function()
+    WebRequest.get(SOURCE_REPO .. '/library.json', libraryDownloadCallback)
+  end, 1)
 end
 
 -- Event hook for any object search.  When chaos tokens are manipulated while the chaos bag
@@ -618,175 +637,286 @@ end
 -- Content Importing and XML functions
 ---------------------------------------------------------
 
-function onClick_refreshList()
-  local request = WebRequest.get(SOURCE_REPO .. '/library.json', completed_list_update)
-  requestObj = request
-  startLuaCoroutine(Global, 'downloadCoroutine')
+-- forwards the requested content type to the update function and sets highlight to clicked tab
+---@param tabId String Id of the clicked tab
+function onClick_tab(_, _, tabId)
+  for listId, listContent in pairs(tabIdTable) do
+    if listId == tabId then
+      UI.setClass(listId, 'downloadTab activeTab')
+      contentToShow = listContent
+    else
+      UI.setClass(listId, 'downloadTab')
+    end
+  end
+  currentListItem = 1
+  updateDownloadItemList()
 end
 
-function onClick_select(player, params)
-  params = JSON.decode(urldecode(params))
+-- click function for the items in the download window
+-- updates backgroundcolor for row panel and fontcolor for list item
+function onClick_select(_, _, identificationKey)
+  UI.setAttribute("panel" .. currentListItem, "color", "clear")
+  UI.setAttribute(contentToShow .. "_" .. currentListItem, "color", "white")
+  
+  -- parses the identification key (contentToShow_currentListItem)
+  if identificationKey then
+    contentToShow = nil
+    currentListItem = nil
+    for str in string.gmatch(identificationKey, "([^_]+)") do
+      if not contentToShow then
+        -- grab the first part to know the content type
+        contentToShow = str
+      else
+        -- get the index
+        currentListItem = tonumber(str)
+        break
+      end
+    end
+  end
+
+  UI.setAttribute("panel" .. currentListItem, "color", "grey")
+  UI.setAttribute(contentToShow .. "_" .. currentListItem, "color", "black")
+  updatePreviewWindow()
+end
+
+-- click function for the download button in the preview window
+function onClick_download()
+  placeholder_download(library[contentToShow][currentListItem])
+end
+
+-- the download button on the placeholder objects calls this to directly initiate a download
+---@param param Table contains url and guid of replacement object
+function placeholder_download(params)
   local url = SOURCE_REPO .. '/' .. params.url
-  local request = WebRequest.get(url, function(request) complete_obj_download(request, params) end)
-  requestObj = request
+  requestObj = WebRequest.get(url, function (request) contentDownloadCallback(request, params) end)
   startLuaCoroutine(Global, 'downloadCoroutine')
 end
 
-function onClick_load()
-  UI.show('progress_display')
-  UI.hide('load_button')
+function downloadCoroutine()
+  -- show progress bar
+  UI.setAttribute('download_progress', 'active', true)
+
+  -- update progress bar
+  while requestObj do
+    UI.setAttribute('download_progress', 'percentage', requestObj.download_progress * 100)
+    coroutine.yield(0)
+  end
+  UI.setAttribute('download_progress', 'percentage', 100)
+
+  -- wait 30 frames
+  for i = 1, 30 do
+    coroutine.yield(0)
+  end
+
+  -- hide progress bar
+  UI.setAttribute('download_progress', 'active', false)
+
+  -- hide download window
+  if xmlVisibility.downloadWindow then
+    xmlVisibility.downloadWindow = false
+    UI.hide('downloadWindow')
+  end
+  return 1
 end
 
+-- toggles the visibility of the respective UI
+---@param player LuaPlayer Player that triggered this
+---@param title String Name of the UI to toggle
 function onClick_toggleUi(player, title)
   if title == "Navigation Overlay" then
     navigationOverlayApi.cycleVisibility(player.color)
     return
   end
 
-  UI.hide('optionPanel')
-  UI.hide('load_ui')
-
-  -- when same button is clicked or close window button is pressed, don't open UI
-  if UI.getValue('title') ~= title and title ~= 'Hidden' then
-    UI.setValue('title', title)
-
-    if title == "Options" then
-      UI.show('optionPanel')
-    else
-      update_window_content(title)
-      UI.show('load_ui')
-    end
+  if xmlVisibility[title] then
+    -- small delay to allow button click sounds to play
+    Wait.time(function() UI.hide(title) end, 0.1)
   else
-    UI.setValue('title', "Hidden")
+    UI.show(title)
+  end
+  xmlVisibility[title] = not xmlVisibility[title]
+end
+
+-- updates the preview window
+function updatePreviewWindow()
+  local item = library[contentToShow][currentListItem]
+  local tempImage = "http://cloud-3.steamusercontent.com/ugc/2115061845788345842/2CD6ABC551555CCF58F9D0DDB7620197BA398B06/"
+
+  -- set default image if not defined
+  if item.boxsize == nil or item.boxsize == "" or item.boxart == nil or item.boxart == "" then
+    item.boxsize = "big"
+    item.boxart = "http://cloud-3.steamusercontent.com/ugc/762723517667628371/18438B0A0045038A7099648AA3346DFCAA267C66/"
+  end
+
+  UI.setValue("previewTitle", item.name)
+  UI.setValue("previewAuthor", "by " .. (item.author or "- Author not found -"))
+  UI.setValue("previewDescription", item.description or "- Description not found -")
+
+  -- update mask according to size (hardcoded values to align image in mask)
+  local maskData = {}
+  if item.boxsize == "big" then
+    maskData = {
+        image = "box-cover-mask-big",
+        width = "870",
+        height = "435",
+        offsetXY = "154 60"
+      }
+  elseif item.boxsize == "small" then
+    maskData = {
+        image = "box-cover-mask-small",
+        width = "792",
+        height = "594",
+        offsetXY = "135 13"
+      }
+  elseif item.boxsize == "wide" then
+    maskData = {
+        image = "box-cover-mask-wide",
+        width = "756",
+        height = "630",
+        offsetXY = "-190 -70"
+      }
+  end
+
+  -- loading empty image as placeholder until real image is loaded
+  UI.setAttribute("previewArtImage", "image", tempImage)
+  
+  -- insert the image itself
+  UI.setAttribute("previewArtImage", "image", item.boxart)
+  UI.setAttributes("previewArtMask", maskData)
+end
+
+-- formats the json response from the webrequest into a key-value lua table
+-- strips the prefix from the community content items
+function formatLibrary(json_response)
+  library = {}
+  library["campaigns"] = json_response.campaigns
+  library["scenarios"] = json_response.scenarios
+  library["extras"] = json_response.extras
+  library["fanmadeCampaigns"] = {}
+  library["fanmadeScenarios"] = {}
+  library["fanmadePlayerCards"] = {}
+
+  for _, item in ipairs(json_response.community) do
+    local identifier = nil
+    for str in string.gmatch(item.name, "([^:]+)") do
+      if not identifier then
+        -- grab the first part to know the content type
+        identifier = str
+      else
+        -- update the name without the content type
+        item.name = str
+        break
+      end
+    end
+
+    if identifier == "Fan Investigators" then
+      table.insert(library["fanmadePlayerCards"], item)
+    elseif identifier == "Fan Campaign" then
+      table.insert(library["fanmadeCampaigns"], item)
+    elseif identifier == "Fan Scenario" then
+      table.insert(library["fanmadeScenarios"], item)
+    end
   end
 end
 
-function downloadCoroutine()
-  while requestObj do
-    UI.setAttribute('download_progress', 'percentage', requestObj.download_progress * 100)
-    coroutine.yield(0)
-  end
-  return 1
-end
+-- updates the window content to the requested content
+function updateDownloadItemList()
+  if not library then return end
 
-function update_list(objects)
-  local ui = UI.getXmlTable()
-  local update_height = find_tag_with_id(ui, 'ui_update_height')
-  local update_children = find_tag_with_id(update_height.children, 'ui_update_point')
+  -- addition of list items according to library file
+  local globalXml = UI.getXmlTable()
+  local contentList = getXmlTableElementById(globalXml, 'contentList')
 
-  update_children.children = {}
-
-  for _, v in ipairs(objects) do
-    local s = JSON.encode(v);
-    table.insert(update_children.children,
-      { 
-        tag = 'Text',
-        value = v.name,
-        attributes = { onClick = 'onClick_select(' .. urlencode(JSON.encode(v)) .. ')', alignment = 'MiddleLeft' }
+  contentList.children = {}
+  for i, v in ipairs(library[contentToShow]) do
+    table.insert(contentList.children,
+      {
+        tag = "Panel",
+        attributes = { id = "panel" .. i },
+        children = {
+          tag = 'Text',
+          value = v.name,
+          attributes = {
+            id = contentToShow .. "_" .. i,
+            onClick = 'onClick_select',
+            alignment = 'MiddleLeft'
+          }
+        }
       })
   end
 
-  update_height.attributes.height = #(update_children.children) * 24
-  UI.setXmlTable(ui)
+  contentList.attributes.height = #contentList.children * 27
+  UI.setXmlTable(globalXml)
+
+  -- select the first item
+  Wait.time(onClick_select, 0.2)
 end
 
-function update_window_content(new_title)
-  if not library then return end
+-- called after the webrequest of downloading an item
+-- deletes the placeholder and spawns the downloaded item
+function contentDownloadCallback(request, params)
+  requestObj = nil
 
-  if new_title == 'Campaigns' then
-    update_list(library.campaigns)
-  elseif new_title == 'Standalone Scenarios' then
-    update_list(library.scenarios)
-  elseif new_title == 'Investigators' then
-    update_list(library.investigators)
-  elseif new_title == 'Community Content' then
-    update_list(library.community)
-  elseif new_title == 'Extras' then
-    update_list(library.extras)
-  else
-    update_list({})
-  end
-end
-
-function complete_obj_download(request, params)
-  assert(request.is_done)
+  -- error handling
   if request.is_error or request.response_code ~= 200 then
-    print('error: ' .. request.error)
-  else
-    if pcall(function()
-          local replaced_object
-          pcall(function()
-            if params.replace then
-              replaced_object = getObjectFromGUID(params.replace)
-            end
-          end)
-          local json = request.text
-          if replaced_object then
-            local pos = replaced_object.getPosition()
-            local rot = replaced_object.getRotation()
-            destroyObject(replaced_object)
-            Wait.frames(function()
-              spawnObjectJSON({ json = json, position = pos, rotation = rot })
-            end, 1)
-          else
-            spawnObjectJSON({ json = json })
-          end
-        end) then
-      print('Object loaded.')
-    else
-      print('Error loading object.')
+    print('Error: ' .. request.error)
+    return
+  end
+
+  -- initiate content spawning
+  local spawnTable = { json = request.text }
+  if params.replace then
+    local replacedObject = getObjectFromGUID(params.replace)
+    if replacedObject then
+      spawnTable.position = replacedObject.getPosition()
+      spawnTable.rotation = replacedObject.getRotation()
+      spawnTable.scale    = replacedObject.getScale()
+      destroyObject(replacedObject)
     end
   end
 
-  requestObj = nil
-  UI.setAttribute('download_progress', 'percentage', 100)
-end
-
--- the download button on the placeholder objects calls this to directly initiate a download
--- params is a table with url and guid of replacement object, which happens to match what onClick_select wants
-function placeholder_download(params)
-  onClick_select(nil, JSON.encode(params))
-end
-
-function completed_list_update(request)
-  assert(request.is_done)
-  if request.is_error or request.response_code ~= 200 then
-    print('error: ' .. request.error)
-  else
-    local json_response = nil
-    if pcall(function() json_response = JSON.decode(request.text) end) then
-      library = json_response
-      update_window_content(UI.getValue('title'))
-    else
-      print('error parsing downloaded library')
+  -- if spawned from menu, ping the position
+  if params.name then
+    spawnTable["callback_function"] = function(obj)
+      Player.getPlayers()[1].pingTable(obj.getPosition())
     end
   end
 
-  requestObj = nil
-  UI.setAttribute('download_progress', 'percentage', 100)
+  if pcall(function() spawnObjectJSON(spawnTable) end) then
+    print('Object loaded.')
+  else
+    print('Error loading object.')
+  end
 end
 
-function find_tag_with_id(ui, id)
+-- downloading of the library file
+function libraryDownloadCallback(request)
+  if request.is_error or request.response_code ~= 200 then
+    print('error: ' .. request.error)
+    return
+  end
+
+  local json_response = nil
+  if pcall(function () json_response = JSON.decode(request.text) end) then
+    formatLibrary(json_response)
+    updateDownloadItemList()
+  else
+    print('error parsing downloaded library')
+  end
+end
+
+-- loops through an XML table and returns the specified object
+---@param ui Table XmlTable (get this via getXmlTable)
+---@param id String Id of the object to return
+function getXmlTableElementById(ui, id)
   for _, obj in ipairs(ui) do
     if obj.attributes and obj.attributes.id and obj.attributes.id == id then return obj end
     if obj.children then
-      local result = find_tag_with_id(obj.children, id)
+      local result = getXmlTableElementById(obj.children, id)
       if result then return result end
     end
   end
   return nil
-end
-
-function urlencode(str)
-  local str = string.gsub(str, "([^A-Za-z0-9-_.~])",
-    function(c) return string.format("%%%02X", string.byte(c)) end)
-  return str
-end
-
-function urldecode(str)
-  local str = string.gsub(str, "%%(%x%x)",
-    function(h) return string.char(tonumber(h, 16)) end)
-  return str
 end
 
 ---------------------------------------------------------
@@ -1115,19 +1245,8 @@ function updateNotificationLoading()
   -- update the XML UI
   UI.setValue("notificationHeader", "New version available: " .. modMeta["latestVersion"])
   UI.setValue("releaseHighlightText", highlightText)
-  UI.setAttribute("highlightRow", "preferredHeight", 20 * #highlights)
-  UI.setAttribute("updateNotification", "height", 20 * #highlights + 125)
-end
-
--- triggered by clicking on the Finn Icon
-function onClick_FinnIcon()
-  if notificationVisible then
-    UI.hide("updateNotification")
-    notificationVisible = false
-  else
-    UI.show("updateNotification")
-    notificationVisible = true
-  end
+  UI.setAttribute("highlightRow", "preferredHeight", 20*#highlights)
+  UI.setAttribute("updateNotification", "height", 20*#highlights + 125)
 end
 
 -- close / don't show again buttons on the update notification
@@ -1138,4 +1257,5 @@ function onClick_notification(_, parameter)
   end
   UI.hide("FinnIcon")
   UI.hide("updateNotification")
+  xmlVisibility["updateNotification"] = false
 end
