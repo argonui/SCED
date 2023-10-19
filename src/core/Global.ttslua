@@ -719,43 +719,70 @@ end
 
 -- spawns a bag that contains every object from the library
 function onClick_downloadAll()
-  startLuaCoroutine(Global, "multiDownload")
-end
-
-function multiDownload()
-  local data = {
-    Name = "Bag",
-    Nickname = "All Downloadable Content",
-    Transform = {
-      posX = -39.5,
-      posY = 2,
-      posZ = -87,
-      rotX = 0,
-      rotY = 270,
-      rotZ = 0,
-      scaleX = 1,
-      scaleY = 1,
-      scaleZ = 1
-    },
-    ContainedObjects = {}
-  }
-
-  -- loop through the library to add content
-  --for contentType, objectList in pairs(library) do
-    --for _, params in ipairs(objectList) do
-    local params = library[contentToShow][currentListItem]
-      WebRequest.get(SOURCE_REPO .. '/' .. params.url, function (request)
-        table.insert(data.ContainedObjects, request.text)
-        spawnObjectData({data = data}) -- need spawnObjectJson
-      end)
-    --end
-  --end
+  broadcastToAll("Download initiated - this will take a few minutes!")
 
   -- hide download window
   if xmlVisibility.downloadWindow then
     xmlVisibility.downloadWindow = false
     UI.hide('downloadWindow')
   end
+
+  startLuaCoroutine(Global, "coroutineDownloadAll")
+end
+
+function coroutineDownloadAll()
+  local JSON = [[
+    {
+      "Name": "Bag",
+      "Transform": {
+        "posX": -39.5,
+        "posY": 2,
+        "posZ": -87,
+        "rotX": 0,
+        "rotY": 270,
+        "rotZ": 0,
+        "scaleX": 1.0,
+        "scaleY": 1.0,
+        "scaleZ": 1.0
+      },
+      "Nickname": "All Downloadable Content",
+      "Bag": {
+        "Order": 0
+      },
+      "ContainedObjects": [
+  ]]
+         
+  local contained = ""
+  local downloadedItems = 0
+  local skippedItems = 0
+
+  -- loop through the library to add content
+  for contentType, objectList in pairs(library) do
+    broadcastToAll("Downloading " .. contentType .. "...")
+    for _, params in ipairs(objectList) do
+      local request = WebRequest.get(SOURCE_REPO .. '/' .. params.url)
+      local start = os.time()
+      while true do
+        if request.is_done then
+          contained = contained .. request.text .. ","
+          downloadedItems = downloadedItems + 1
+          break
+        -- time-out if item can't be loaded in 5s
+        elseif request.is_error or (os.time() - start) > 5 then
+          skippedItems = skippedItems + 1
+          break
+        end
+        coroutine.yield(0)
+      end
+    end
+  end
+
+  JSON = JSON .. contained .. "]}"
+  spawnObjectJSON({json = JSON})
+
+  broadcastToAll(downloadedItems .. " objects downloaded.", "Green")
+  broadcastToAll(skippedItems .. " objects had a time-out / error.", "Orange")
+  return 1
 end
 
 -- spawns a placeholder box for the selected object
