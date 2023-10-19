@@ -7,13 +7,12 @@ local validCountItemList = {
   ["Clue"] = 1,
   [""] = 1
 }
-local trashGUID = "70b9f6"
 exposedValue = 0
 
 function onLoad()
   self.createButton({
     label = "",
-    click_function = "removeAllClues",
+    click_function = "countItems",
     function_owner = self,
     position = { 0, 0.1, 0 },
     height = 0,
@@ -27,16 +26,15 @@ end
 -- Activated once per second, counts items in bowls
 function countItems()
   local totalValue = 0
-  local countableItems = findValidItemsInSphere()
-  for _, entry in ipairs(countableItems) do
-    local descValue = tonumber(entry.hit_object.getDescription())
-    local stackMult = math.abs(entry.hit_object.getQuantity())
+  for _, item in ipairs(findValidItemsInSphere()) do
+    local descValue = tonumber(item.getDescription())
+    local stackMult = math.abs(item.getQuantity())
     -- Use value in description if available
     if descValue ~= nil then
       totalValue = totalValue + descValue * stackMult
     else
       -- Otherwise use the value in validCountItemList
-      totalValue = totalValue + validCountItemList[entry.hit_object.getName()] * stackMult
+      totalValue = totalValue + validCountItemList[item.getName()] * stackMult
     end
   end
   exposedValue = totalValue
@@ -49,38 +47,22 @@ function findValidItemsInSphere()
     direction = { 0, 1, 0 },
     type = 2,
     max_distance = 0,
-    size = { 2, 2, 2 },
-    --debug=true
+    size = { 2, 2, 2 }
   })
 
-  retval = {}
+  local validItemList = {}
   for _, entry in ipairs(items) do
-    --Ignore the bowl
     if entry.hit_object ~= self then
-      --Ignore if not in validCountItemList
-      local tableEntry = validCountItemList[entry.hit_object.getName()]
-      if tableEntry ~= nil then
-        table.insert(retval, entry)
+      if validCountItemList[entry.hit_object.getName()] ~= nil then
+        table.insert(validItemList, entry.hit_object)
       end
     end
   end
-  return retval
+  return validItemList
 end
 
-function removeAllClues()
-  startLuaCoroutine(self, "clueRemovalCoroutine")
-end
-
-function clueRemovalCoroutine()
-  for _, entry in ipairs(findValidItemsInSphere()) do
-    -- Do not put the table in the garbage
-    if entry.hit_object.getGUID() ~= "4ee1f2" then
-      -- delay for animation purposes
-      for k = 1, 10 do
-        coroutine.yield(0)
-      end
-      getObjectFromGUID(trashGUID).putObject(entry.hit_object)
-    end
+function removeAllClues(trash)
+  for _, obj in ipairs(findValidItemsInSphere()) do
+    trash.putObject(obj)
   end
-  return 1
 end

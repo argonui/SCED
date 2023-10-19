@@ -1,4 +1,5 @@
 local blessCurseManagerApi = require("chaosbag/BlessCurseManagerApi")
+local guidReferenceApi = require("core/GUIDReferenceApi")
 local mythosAreaApi = require("core/MythosAreaApi")
 local navigationOverlayApi = require("core/NavigationOverlayApi")
 local playAreaApi = require("core/PlayAreaApi")
@@ -12,11 +13,8 @@ local tokenManager = require("core/token/TokenManager")
 -- general setup
 ---------------------------------------------------------
 
-ENCOUNTER_DECK_POS = {-3.93, 1, 5.76}
-ENCOUNTER_DECK_DISCARD_POSITION = {-3.85, 1, 10.38}
-
--- GUID of data helper
-DATA_HELPER_GUID = "708279"
+ENCOUNTER_DECK_POS = { -3.93, 1, 5.76 }
+ENCOUNTER_DECK_DISCARD_POSITION = { -3.85, 1, 10.38 }
 
 -- GUIDs that will not be interactable (e.g. parts of the table)
 local NOT_INTERACTABLE = {
@@ -37,7 +35,7 @@ chaosTokens = {}
 local chaosTokensLastMat = nil
 
 local bagSearchers = {}
-local MAT_COLORS = {"White", "Orange", "Green", "Red"}
+local MAT_COLORS = { "White", "Orange", "Green", "Red" }
 local hideTitleSplashWaitFunctionId = nil
 
 -- online functionality related variables
@@ -115,14 +113,6 @@ ID_URL_MAP = {
 -- data for chaos token stat tracker
 ---------------------------------------------------------
 
-local MAT_GUID_TO_COLOR = {
-  ["Overall"] = "Overall",
-  ["8b081b"]  = "White",
-  ["bd0ff4"]  = "Orange",
-  ["383d8b"]  = "Green",
-  ["0840d5"]  = "Red"
-}
-
 local tokenDrawingStats = {
   ["Overall"] = {},
   ["8b081b"]  = {},
@@ -136,7 +126,12 @@ local tokenDrawingStats = {
 ---------------------------------------------------------
 
 -- saving state of optionPanel to restore later
-function onSave() return JSON.encode({ optionPanel = optionPanel, acknowledgedUpgradeVersions = acknowledgedUpgradeVersions }) end
+function onSave()
+  return JSON.encode({
+    optionPanel = optionPanel,
+    acknowledgedUpgradeVersions = acknowledgedUpgradeVersions
+  })
+end
 
 function onLoad(savedData)
   if savedData then
@@ -308,8 +303,8 @@ function handleStatTrackerClick(_, _, isRightClick)
   if isRightClick then
     resetChaosTokenStatTracker()
   else
-    local squidKing = "Nobody"
-    local maxSquid  = 0
+    local squidKing     = "Nobody"
+    local maxSquid      = 0
     local foundAnyStats = false
 
     for key, personalStats in pairs(tokenDrawingStats) do
@@ -319,7 +314,9 @@ function handleStatTrackerClick(_, _, isRightClick)
         playerColor = "White"
         playerName = "Overall"
       else
-        playerColor = playmatApi.getPlayerColor(MAT_GUID_TO_COLOR[key])
+        -- get mat color
+        local matColor = playmatApi.getMatColorByPosition(getObjectFromGUID(key).getPosition())
+        playerColor = playmatApi.getPlayerColor(matColor)
         playerName = Player[playerColor].steam_name or playerColor
 
         local playerSquidCount = personalStats["Auto-fail"]
@@ -339,8 +336,8 @@ function handleStatTrackerClick(_, _, isRightClick)
       if totalCount > 0 then
         foundAnyStats = true
         printToAll("------------------------------")
-        printToAll(playerName ..  " Stats", playerColor)
-        
+        printToAll(playerName .. " Stats", playerColor)
+
         for tokenName, value in pairs(personalStats) do
           if value ~= 0 then
             printToAll(tokenName .. ': ' .. tostring(value))
@@ -353,7 +350,7 @@ function handleStatTrackerClick(_, _, isRightClick)
     -- detect if any player drew tokens
     if foundAnyStats then
       printToAll("------------------------------")
-      printToAll(squidKing .. " is an auto-fail magnet.", {255, 0, 0})
+      printToAll(squidKing .. " is an auto-fail magnet.", { 255, 0, 0 })
     else
       printToAll("No tokens have been drawn yet.", "Yellow")
     end
@@ -382,11 +379,11 @@ function createSetupButtons(args)
   if data ~= nil then
     local buttonParameters          = {}
     buttonParameters.function_owner = args.object
-    buttonParameters.position       = {0, 0.1, -0.15}
-    buttonParameters.scale          = {0.47, 1, 0.47}
+    buttonParameters.position       = { 0, 0.1, -0.15 }
+    buttonParameters.scale          = { 0.47, 1, 0.47 }
     buttonParameters.height         = 200
     buttonParameters.width          = 1150
-    buttonParameters.color          = {0.87, 0.8, 0.7}
+    buttonParameters.color          = { 0.87, 0.8, 0.7 }
 
     if data.easy ~= nil then
       buttonParameters.label = "Easy"
@@ -469,7 +466,8 @@ function fillContainer(args)
 end
 
 function getDataValue(storage, key)
-  local data = getObjectFromGUID(DATA_HELPER_GUID).getTable(storage)
+  local DATA_HELPER = guidReferenceApi.getObjectByOwnerAndType("Mythos", "DataHelper")
+  local data = DATA_HELPER.getTable(storage)
   if data ~= nil then
     local value = data[key]
     if value ~= nil then
@@ -514,7 +512,6 @@ function getChaosBagState()
   end
 
   return tokens
-
 end
 
 -- respawns the chaos bag with a new state of tokens
@@ -543,7 +540,7 @@ function setChaosBagState(tokenList)
   -- overwrite chaos bag content and respawn it
   chaosbagData.ContainedObjects = containedObjects
   chaosbag.destruct()
-  spawnObjectData({data = chaosbagData})
+  spawnObjectData({ data = chaosbagData })
 
   -- remove tokens that are still in play
   for _, token in pairs(chaosTokens) do
@@ -572,7 +569,7 @@ function spawnChaosToken(id)
       type = 'Custom_Tile',
       position = { 0.49, 3, 0 },
       scale = { 0.81, 1.0, 0.81 },
-      rotation = {0, 270, 0},
+      rotation = { 0, 270, 0 },
       callback_function = function(obj)
         obj.setName(ID_URL_MAP[id].name)
         chaosbag.putObject(obj)
@@ -622,7 +619,7 @@ function emptyChaosBag()
 
   local chaosbag = findChaosBag()
   for _, object in ipairs(chaosbag.getObjects()) do
-    chaosbag.takeObject({callback_function = function(item) item.destruct() end})
+    chaosbag.takeObject({ callback_function = function(item) item.destruct() end })
   end
 end
 
@@ -1006,7 +1003,8 @@ function applyOptionPanelChange(id, state)
     optionPanel[id] = state
 
     -- update master clue counter
-    getObjectFromGUID("4a3aa4").setVar("useClickableCounters", state)
+    local counter = guidReferenceApi.getObjectByOwnerAndType("Mythos", "MasterClueCounter")
+    counter.setVar("useClickableCounters", state)
 
   -- option: Play area snap tags
   elseif id == "playAreaSnapTags" then
@@ -1075,8 +1073,9 @@ end
 -- copies the specified tool (by name) from the option panel source bag
 ---@param name String Name of the object that should be copied
 ---@param position Table Desired position of the object
+---@param rotation Table Desired rotation of the object (defaults to object's rotation)
 function spawnHelperObject(name, position, rotation)
-  local sourceBag = getObjectFromGUID("830bd0")
+  local sourceBag = guidReferenceApi.getObjectByOwnerAndType("Mythos","OptionPanelSource")
 
   -- error handling for missing sourceBag
   if not sourceBag then
@@ -1084,7 +1083,7 @@ function spawnHelperObject(name, position, rotation)
     return
   end
 
-  local spawnTable = {position = position}
+  local spawnTable = { position = position }
 
   -- only overrride rotation if there is one provided (object's rotation used instead)
   if rotation then
@@ -1177,7 +1176,6 @@ end
 -- splash scenario title on setup
 function titleSplash(scenarioName)
   if optionPanel['showTitleSplash'] then
-
     -- if there's any ongoing title being displayed, hide it and cancel the waiting function
     if hideTitleSplashWaitFunctionId then
       Wait.stop(hideTitleSplashWaitFunctionId)
@@ -1219,7 +1217,7 @@ function compareVersion(request)
 
   -- stop here if on latest version
   if MOD_VERSION == modMeta["latestVersion"] then return end
-  
+
   -- stop here if "don't show again" was clicked for this version before
   if acknowledgedUpgradeVersions[modMeta["latestVersion"]] then return end
 
@@ -1241,9 +1239,9 @@ function updateNotificationLoading()
       highlightText = highlightText .. "\n• " .. entry
     end
   end
-  
+
   -- update the XML UI
-  UI.setValue("notificationHeader", "New version available: ".. modMeta["latestVersion"])
+  UI.setValue("notificationHeader", "New version available: " .. modMeta["latestVersion"])
   UI.setValue("releaseHighlightText", highlightText)
   UI.setAttribute("highlightRow", "preferredHeight", 20*#highlights)
   UI.setAttribute("updateNotification", "height", 20*#highlights + 125)

@@ -3,60 +3,60 @@
 ---------------------------------------------------------
 
 -- Location connection directional options
-local BIDIRECTIONAL = 0
-local ONE_WAY = 1
-local INCOMING_ONE_WAY = 2
+local BIDIRECTIONAL                 = 0
+local ONE_WAY                       = 1
+local INCOMING_ONE_WAY              = 2
 
 -- Connector draw parameters
-local CONNECTION_THICKNESS = 0.015
+local CONNECTION_THICKNESS          = 0.015
 local DRAGGING_CONNECTION_THICKNESS = 0.15
-local DRAGGING_CONNECTION_COLOR = { 0.8, 0.8, 0.8, 1 }
-local CONNECTION_COLOR = { 0.4, 0.4, 0.4, 1 }
-local DIRECTIONAL_ARROW_DISTANCE = 3.5
-local ARROW_ARM_LENGTH = 0.9
-local ARROW_ANGLE = 25
+local DRAGGING_CONNECTION_COLOR     = { 0.8, 0.8, 0.8, 1 }
+local CONNECTION_COLOR              = { 0.4, 0.4, 0.4, 1 }
+local DIRECTIONAL_ARROW_DISTANCE    = 3.5
+local ARROW_ARM_LENGTH              = 0.9
+local ARROW_ANGLE                   = 25
 
 -- Height to draw the connector lines, places them just above the table and always below cards
-local CONNECTION_LINE_Y = 1.529
+local CONNECTION_LINE_Y             = 1.529
 
 -- we use this to turn off collision handling until onLoad() is complete
-local collisionEnabled = false
+local collisionEnabled              = false
 
 -- used for recreating the link to a custom data helper after image change
-customDataHelper = nil
+customDataHelper                    = nil
 
-local DEFAULT_URL = "http://cloud-3.steamusercontent.com/ugc/998015670465071049/FFAE162920D67CF38045EFBD3B85AD0F916147B2/"
+local DEFAULT_URL                   =
+"http://cloud-3.steamusercontent.com/ugc/998015670465071049/FFAE162920D67CF38045EFBD3B85AD0F916147B2/"
 
-local SHIFT_OFFSETS = {
+local SHIFT_OFFSETS                 = {
   left  = { x = 0.00, y = 0, z = 7.67 },
   right = { x = 0.00, y = 0, z = -7.67 },
   up    = { x = 6.54, y = 0, z = 0.00 },
   down  = { x = -6.54, y = 0, z = 0.00 }
 }
-local SHIFT_EXCLUSION = {
+local SHIFT_EXCLUSION               = {
   ["b7b45b"] = true,
   ["f182ee"] = true,
   ["721ba2"] = true
 }
-local LOC_LINK_EXCLUDE_SCENARIOS = {
+local LOC_LINK_EXCLUDE_SCENARIOS    = {
   ["The Witching Hour"] = true,
   ["The Heart of Madness"] = true
 }
 
-local tokenManager = require("core/token/TokenManager")
-local INVESTIGATOR_COUNTER_GUID = "f182ee"
-local PLAY_AREA_ZONE_GUID = "a2f932"
+local guidReferenceApi = require("core/GUIDReferenceApi")
+local tokenManager                  = require("core/token/TokenManager")
 
-local clueData = {}
-local spawnedLocationGUIDs = {}
-local locations = {}
-local locationConnections = {}
-local draggingGuids = {}
+local clueData                      = {}
+local spawnedLocationGUIDs          = {}
+local locations                     = {}
+local locationConnections           = {}
+local draggingGuids                 = {}
 local locationData
 local currentScenario
 
-local missingData = {}
-local countedVP   = {}
+local missingData                   = {}
+local countedVP                     = {}
 
 ---------------------------------------------------------
 -- general code
@@ -71,8 +71,8 @@ end
 
 function onLoad(saveState)
   -- records locations we have spawned clues for
-  local save = JSON.decode(saveState) or { }
-  locations = save.trackedLocations or { }
+  local save = JSON.decode(saveState) or {}
+  locations = save.trackedLocations or {}
   currentScenario = save.currentScenario
 
   self.interactable = false
@@ -93,13 +93,13 @@ function updateSurface(newURL)
   local customInfo = self.getCustomObject()
 
   if newURL ~= "" and newURL ~= nil and newURL ~= DEFAULT_URL then
-      customInfo.image = newURL
-      broadcastToAll("New Playmat Image Applied", { 0.2, 0.9, 0.2 })
+    customInfo.image = newURL
+    broadcastToAll("New Playmat Image Applied", { 0.2, 0.9, 0.2 })
   else
-      customInfo.image = DEFAULT_URL
-      broadcastToAll("Default Playmat Image Applied", { 0.2, 0.9, 0.2 })
+    customInfo.image = DEFAULT_URL
+    broadcastToAll("Default Playmat Image Applied", { 0.2, 0.9, 0.2 })
   end
-  
+
   self.setCustomObject(customInfo)
 
   local guid = nil
@@ -108,7 +108,7 @@ function updateSurface(newURL)
   self.reload()
 
   if guid ~= nil then
-      Wait.time(function() updateLocations({ guid }) end, 1)
+    Wait.time(function() updateLocations({ guid }) end, 1)
   end
 end
 
@@ -129,12 +129,14 @@ function onCollisionEnter(collisionInfo)
   if shouldSpawnTokens(card) then
     tokenManager.spawnForCard(card)
   end
+  
   -- If this card was being dragged, clear the dragging connections.  A multi-drag/drop may send
   -- the dropped card immediately into a deck, so this has to be done here
   if draggingGuids[card.getGUID()] ~= nil then
     card.setVectorLines(nil)
     draggingGuids[card.getGUID()] = nil
   end
+  
   maybeTrackLocation(card)
 end
 
@@ -167,20 +169,20 @@ function onObjectPickUp(player, object)
   -- should be tracking
   if showLocationLinks() and isInPlayArea(object) and object.getGMNotes() ~= nil and object.getGMNotes() ~= "" then
     local pickedUpGuid = object.getGUID()
-    local metadata = JSON.decode(object.getGMNotes()) or { }
+    local metadata = JSON.decode(object.getGMNotes()) or {}
     if metadata.type == "Location" then
       -- onCollisionExit sometimes comes 1 frame after onObjectPickUp (rather than before it or in
       -- the same frame).  This causes a mismatch in the data between dragging the on-table, and
       -- that one frame draws connectors on the card which then show up as shadows for snap points.
       -- Waiting ensures we always do thing in the expected Exit->PickUp order
       Wait.frames(function()
-          if object.is_face_down then
-            draggingGuids[pickedUpGuid] = metadata.locationBack
-          else
-            draggingGuids[pickedUpGuid] = metadata.locationFront
-          end
-          rebuildConnectionList()
-        end, 2)
+        if object.is_face_down then
+          draggingGuids[pickedUpGuid] = metadata.locationBack
+        else
+          draggingGuids[pickedUpGuid] = metadata.locationFront
+        end
+        rebuildConnectionList()
+      end, 2)
     end
   end
 end
@@ -273,11 +275,11 @@ end
 -- drawBaseConnections()
 function rebuildConnectionList()
   if not showLocationLinks() then
-    locationConnections = { }
+    locationConnections = {}
     return
   end
 
-  local iconCardList = { }
+  local iconCardList = {}
 
   -- Build a list of cards with each icon as their location ID
   for cardId, metadata in pairs(draggingGuids) do
@@ -288,7 +290,7 @@ function rebuildConnectionList()
   end
 
   -- Pair up all the icons
-  locationConnections = { }
+  locationConnections = {}
   for cardId, metadata in pairs(draggingGuids) do
     buildConnection(cardId, iconCardList, metadata)
   end
@@ -307,7 +309,7 @@ function buildLocListByIcon(cardId, iconCardList, locData)
   if locData ~= nil and locData.icons ~= nil then
     for icon in string.gmatch(locData.icons, "%a+") do
       if iconCardList[icon] == nil then
-        iconCardList[icon] = { }
+        iconCardList[icon] = {}
       end
       table.insert(iconCardList[icon], cardId)
     end
@@ -321,19 +323,19 @@ end
 ---@param locData Table A table containing the metadata for the card (for the correct side)
 function buildConnection(cardId, iconCardList, locData)
   if locData ~= nil and locData.connections ~= nil then
-    locationConnections[cardId] = { }
+    locationConnections[cardId] = {}
     for icon in string.gmatch(locData.connections, "%a+") do
       if iconCardList[icon] ~= nil then
         for _, connectedGuid in ipairs(iconCardList[icon]) do
           -- If the reciprocal exists, convert it to BiDi, otherwise add as a one-way
           if locationConnections[connectedGuid] ~= nil
               and (locationConnections[connectedGuid][cardId] == ONE_WAY
-                  or locationConnections[connectedGuid][cardId] == BIDIRECTIONAL) then
+                or locationConnections[connectedGuid][cardId] == BIDIRECTIONAL) then
             locationConnections[connectedGuid][cardId] = BIDIRECTIONAL
             locationConnections[cardId][connectedGuid] = nil
           else
             if locationConnections[connectedGuid] == nil then
-              locationConnections[connectedGuid] = { }
+              locationConnections[connectedGuid] = {}
             end
             locationConnections[cardId][connectedGuid] = ONE_WAY
             locationConnections[connectedGuid][cardId] = INCOMING_ONE_WAY
@@ -348,10 +350,10 @@ end
 -- Constructed vectors will be set to the playmat
 function drawBaseConnections()
   if not showLocationLinks() then
-    locationConnections = { }
+    locationConnections = {}
     return
   end
-  local cardConnectionLines = { }
+  local cardConnectionLines = {}
 
   for originGuid, targetGuids in pairs(locationConnections) do
     -- Objects should reliably exist at this point, but since this can be called during onUpdate the
@@ -380,8 +382,8 @@ function drawDraggingConnections()
   if not showLocationLinks() then
     return
   end
-  local cardConnectionLines = { }
-  local ownedVectors = { }
+  local cardConnectionLines = {}
+  local ownedVectors = {}
 
   for originGuid, _ in pairs(draggingGuids) do
     targetGuids = locationConnections[originGuid]
@@ -389,7 +391,7 @@ function drawDraggingConnections()
     -- object checks are conservative just to make sure.
     local origin = getObjectFromGUID(originGuid)
     if draggingGuids[originGuid] and origin ~= nil and targetGuids ~= nil then
-      ownedVectors[originGuid] = { }
+      ownedVectors[originGuid] = {}
       for targetGuid, direction in pairs(targetGuids) do
         local target = getObjectFromGUID(targetGuid)
         if target != nil then
@@ -427,9 +429,9 @@ function addBidirectionalVector(card1, card2, vectorOwner, lines)
   local pos2 = vectorOwner.positionToLocal(cardPos2)
 
   table.insert(lines, {
-      points = { pos1, pos2 },
-      color = vectorOwner == self and CONNECTION_COLOR or DRAGGING_CONNECTION_COLOR,
-      thickness = vectorOwner == self and CONNECTION_THICKNESS or DRAGGING_CONNECTION_THICKNESS,
+    points = { pos1, pos2 },
+    color = vectorOwner == self and CONNECTION_COLOR or DRAGGING_CONNECTION_COLOR,
+    thickness = vectorOwner == self and CONNECTION_THICKNESS or DRAGGING_CONNECTION_THICKNESS,
   })
 end
 
@@ -451,11 +453,13 @@ function addOneWayVector(origin, target, vectorOwner, lines)
   -- Calculate card distance to be closer for horizontal positions than vertical, since cards are
   -- taller than they are wide
   local heading = Vector(originPos):sub(targetPos):heading("y")
-  local distanceFromCard = DIRECTIONAL_ARROW_DISTANCE * 0.7 + DIRECTIONAL_ARROW_DISTANCE * 0.3 * math.abs(math.sin(math.rad(heading)))
+  local distanceFromCard = DIRECTIONAL_ARROW_DISTANCE * 0.7 +
+  DIRECTIONAL_ARROW_DISTANCE * 0.3 * math.abs(math.sin(math.rad(heading)))
 
   -- Calculate the three possible arrow positions.  These are offset by half the arrow length to
   -- make them visually balanced by keeping the arrows centered, not tracking the point
-  local midpoint = Vector(originPos):add(targetPos):scale(Vector(0.5, 0.5, 0.5)):moveTowards(targetPos, ARROW_ARM_LENGTH / 2)
+  local midpoint = Vector(originPos):add(targetPos):scale(Vector(0.5, 0.5, 0.5)):moveTowards(targetPos,
+    ARROW_ARM_LENGTH / 2)
   local closeToOrigin = Vector(originPos):moveTowards(targetPos, distanceFromCard + ARROW_ARM_LENGTH / 2)
   local closeToTarget = Vector(targetPos):moveTowards(originPos, distanceFromCard - ARROW_ARM_LENGTH / 2)
 
@@ -474,14 +478,16 @@ end
 ---    positioning and scaling, as well as highlighting connections during a drag operation
 ---@param lines Table List of vector line elements.  Mutable, will be updated to add this arrow
 function addArrowLines(arrowheadPos, originPos, vectorOwner, lines)
-  local arrowArm1 = Vector(arrowheadPos):moveTowards(originPos, ARROW_ARM_LENGTH):sub(arrowheadPos):rotateOver("y", -1 * ARROW_ANGLE):add(arrowheadPos)
-  local arrowArm2 = Vector(arrowheadPos):moveTowards(originPos, ARROW_ARM_LENGTH):sub(arrowheadPos):rotateOver("y", ARROW_ANGLE):add(arrowheadPos)
+  local arrowArm1 = Vector(arrowheadPos):moveTowards(originPos, ARROW_ARM_LENGTH):sub(arrowheadPos):rotateOver("y",
+    -1 * ARROW_ANGLE):add(arrowheadPos)
+  local arrowArm2 = Vector(arrowheadPos):moveTowards(originPos, ARROW_ARM_LENGTH):sub(arrowheadPos):rotateOver("y",
+    ARROW_ANGLE):add(arrowheadPos)
 
   local head = vectorOwner.positionToLocal(arrowheadPos)
   local arm1 = vectorOwner.positionToLocal(arrowArm1)
   local arm2 = vectorOwner.positionToLocal(arrowArm2)
   table.insert(lines, {
-    points = { arm1, head, arm2},
+    points = { arm1, head, arm2 },
     color = vectorOwner == self and CONNECTION_COLOR or DRAGGING_CONNECTION_COLOR,
     thickness = vectorOwner == self and CONNECTION_THICKNESS or DRAGGING_CONNECTION_THICKNESS,
   })
@@ -508,7 +514,7 @@ function shiftContentsRight(playerColor)
 end
 
 function shiftContents(playerColor, direction)
-  local zone = getObjectFromGUID(PLAY_AREA_ZONE_GUID)
+  local zone = guidReferenceApi.getObjectByOwnerAndType("Mythos", "PlayAreaZone")
   if not zone then
     broadcastToColor("Scripting zone couldn't be found.", playerColor, "Red")
     return
@@ -530,8 +536,8 @@ function isInPlayArea(object)
   local bounds = self.getBounds()
   local position = object.getPosition()
   -- Corners are arbitrary since it's all global - c1 goes down both axes, c2 goes up
-  local c1 = { x = bounds.center.x - bounds.size.x / 2, z = bounds.center.z - bounds.size.z / 2}
-  local c2 = { x = bounds.center.x + bounds.size.x / 2, z = bounds.center.z + bounds.size.z / 2}
+  local c1 = { x = bounds.center.x - bounds.size.x / 2, z = bounds.center.z - bounds.size.z / 2 }
+  local c2 = { x = bounds.center.x + bounds.size.x / 2, z = bounds.center.z + bounds.size.z / 2 }
 
   return position.x > c1.x and position.x < c2.x and position.z > c1.z and position.z < c2.z
 end
@@ -582,7 +588,7 @@ function countVP()
       local cardVP = tonumber(metadata.victory) or 0
       if cardVP ~= 0 and not cardHasClues(cardId) then
         totalVP = totalVP + cardVP
-        if cardVP >0 then
+        if cardVP > 0 then
           table.insert(countedVP, getObjectFromGUID(cardId))
         end
       end
@@ -651,8 +657,8 @@ end
 
 -- rebuilds local snap points (could be useful in the future again)
 function buildSnaps()
-  local upperleft = { x = 1.53, z = -1.09}
-  local lowerright = {x = -1.53, z = 1.55}
+  local upperleft = { x = 1.53, z = -1.09 }
+  local lowerright = { x = -1.53, z = 1.55 }
   local snaps = {}
 
   -- creates 81 snap points, for uneven rows + columns it makes a rotation snap point
@@ -666,7 +672,7 @@ function buildSnaps()
 
       -- enable rotation snaps for uneven rows / columns
       if (i % 2 ~= 0) and (j % 2 ~= 0) then
-        snap.rotation = {0, 0, 0}
+        snap.rotation = { 0, 0, 0 }
         snap.rotation_snap = true
       end
 
@@ -678,6 +684,6 @@ end
 
 -- utility function
 function round(num, numDecimalPlaces)
-  local mult = 10^(numDecimalPlaces or 0)
+  local mult = 10 ^ (numDecimalPlaces or 0)
   return math.floor(num * mult + 0.5) / mult
 end
