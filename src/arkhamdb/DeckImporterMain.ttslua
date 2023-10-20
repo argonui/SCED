@@ -88,6 +88,7 @@ function loadCards(slots, investigatorId, bondedList, customizations, playerColo
     handleAncestralKnowledge(cardsToSpawn)
     handleUnderworldMarket(cardsToSpawn, playerColor)
     handleHunchDeck(investigatorId, cardsToSpawn, playerColor)
+    handleSpiritDeck(investigatorId, cardsToSpawn, playerColor)
     handleCustomizableUpgrades(cardsToSpawn, customizations)
     handlePeteSignatureAssets(investigatorId, cardsToSpawn)
 
@@ -318,6 +319,48 @@ function handleHunchDeck(investigatorId, cardList, playerColor)
           " Insight events to the hunch deck, reduce it to 11.", playerColor)
     else
       printToAll("Built Joe's hunch deck", playerColor)
+    end
+  end
+end
+
+-- If the investigator is Parallel Jim Culver, extract all Ally assets to SetAside5 to build the Spirit
+--     Deck.
+---@param investigatorId String ID for the deck's investigator card. Passed separately because the
+---    investigator may not be included in the cardList
+---@param cardList Table Deck list being created
+---@param playerColor String Color this deck is being loaded for
+function handleSpiritDeck(investigatorId, cardList, playerColor)
+  if investigatorId == "02004-p" or investigatorId == "02004-pb" then -- Parallel Jim Culver
+    local spiritList = {}
+    for i, card in ipairs(cardList) do
+      if card.metadata.id == "90053" or (
+          card.metadata.type == "Asset"
+          and card.metadata.traits ~= nil
+          and string.match(card.metadata.traits, "Ally")
+          and card.metadata.level ~= nil
+          and card.metadata.level < 3) then
+        table.insert(spiritList, i)
+      end
+    end
+    -- Process allies to move them to the spirit deck. This is done in reverse
+    -- order because the sorting needs to be reversed (deck sorts for face down)
+    -- Performance here may be an issue, as table.remove() is an O(n) operation
+    -- which makes the full shift O(n^2). But keep it simple unless it becomes
+    -- a problem
+    for i = #spiritList, 1, -1 do
+      local moving = cardList[spiritList[i]]
+      moving.zone = "SetAside5"
+      table.remove(cardList, spiritList[i])
+      table.insert(cardList, moving)
+    end
+    if #spiritList < 10 then
+      printToAll("Jim's spirit deck must have 9 Ally assets but the deck only has " .. (#spiritList - 1) ..
+          " Ally assets.", playerColor)
+    elseif #spiritList > 11 then
+      printToAll("Moved all " .. (#spiritList - 1) ..
+          " Ally assets to the spirit deck, reduce it to 10 (including Vengeful Shade).", playerColor)
+    else
+      printToAll("Built Jim's spirit deck", playerColor)
     end
   end
 end

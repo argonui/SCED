@@ -1,24 +1,13 @@
-local spawnedCardGuids = { }
+local spawnedCardGuids = {}
 
-local HAND_ZONES = { }
-HAND_ZONES["a70eee"] = true -- White
-HAND_ZONES["0285cc"] = true -- Green
-HAND_ZONES["5fe087"] = true -- Orange
-HAND_ZONES["be2f17"] = true -- Red
+function onSave() return JSON.encode({ cards = spawnedCardGuids }) end
 
 function onLoad(saveState)
   if saveState ~= nil then
-    local saveTable = JSON.decode(saveState) or { }
-    spawnedCardGuids = saveTable.cards or { }
+    local saveTable = JSON.decode(saveState) or {}
+    spawnedCardGuids = saveTable.cards or {}
   end
-
   createResetMenuItems()
-end
-
-function onSave()
-  return JSON.encode({
-    cards = spawnedCardGuids
-  })
 end
 
 function createResetMenuItems()
@@ -39,14 +28,20 @@ function resetTokensSpawned(cardGuid)
   spawnedCardGuids[cardGuid] = nil
 end
 
-function resetAllAssetAndEvents()
-  local resetList = { }
+function resetAll() spawnedCardGuids = {} end
+
+function resetAllLocations() resetSpecificTypes("Location") end
+
+function resetAllAssetAndEvents() resetSpecificTypes("Asset", "Event") end
+
+function resetSpecificTypes(type1, type2)
+  local resetList = {}
   for cardGuid, _ in pairs(spawnedCardGuids) do
     local card = getObjectFromGUID(cardGuid)
     if card ~= nil then
-      local cardMetadata = JSON.decode(card.getGMNotes()) or { }
+      local cardMetadata = JSON.decode(card.getGMNotes()) or {}
       -- Check this by type rather than the PlayerCard tag so we don't reset weaknesses
-      if cardMetadata.type == "Asset" or cardMetadata.type == "Event" then
+      if cardMetadata.type == type1 or cardMetadata.type == type2 then
         resetList[cardGuid] = true
       end
     end
@@ -54,32 +49,11 @@ function resetAllAssetAndEvents()
   for cardGuid, _ in pairs(resetList) do
     spawnedCardGuids[cardGuid] = nil
   end
-end
-
-function resetAllLocations()
-  local resetList = { }
-  for cardGuid, _ in pairs(spawnedCardGuids) do
-    local card = getObjectFromGUID(cardGuid)
-    if card ~= nil then
-      local cardMetadata = JSON.decode(card.getGMNotes()) or { }
-      -- Check this by type rather than the PlayerCard tag so we don't reset weaknesses
-      if cardMetadata.type == "Location" then
-        resetList[cardGuid] = true
-      end
-    end
-  end
-  for cardGuid, _ in pairs(resetList) do
-    spawnedCardGuids[cardGuid] = nil
-  end
-end
-
-function resetAll()
-  spawnedCardGuids = { }
 end
 
 -- Listener to reset card token spawns when they enter a hand.
 function onObjectEnterZone(zone, enterObject)
-  if HAND_ZONES[zone.getGUID()] then
+  if zone.type == "Hand" and enterObject.type == "Card" then
     resetTokensSpawned(enterObject.getGUID())
   end
 end
