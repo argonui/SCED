@@ -717,6 +717,128 @@ function downloadCoroutine()
   return 1
 end
 
+-- spawns a bag that contains every object from the library
+function onClick_downloadAll()
+  broadcastToAll("Download initiated - this will take a few minutes!")
+
+  -- hide download window
+  if xmlVisibility.downloadWindow then
+    xmlVisibility.downloadWindow = false
+    UI.hide('downloadWindow')
+  end
+
+  startLuaCoroutine(Global, "coroutineDownloadAll")
+end
+
+function coroutineDownloadAll()
+  local JSON = [[
+    {
+      "Name": "Bag",
+      "Transform": {
+        "posX": -39.5,
+        "posY": 2,
+        "posZ": -87,
+        "rotX": 0,
+        "rotY": 270,
+        "rotZ": 0,
+        "scaleX": 1.0,
+        "scaleY": 1.0,
+        "scaleZ": 1.0
+      },
+      "Nickname": "All Downloadable Content",
+      "Bag": {
+        "Order": 0
+      },
+      "ContainedObjects": [
+  ]]
+         
+  local contained = ""
+  local downloadedItems = 0
+  local skippedItems = 0
+
+  -- loop through the library to add content
+  for contentType, objectList in pairs(library) do
+    broadcastToAll("Downloading " .. contentType .. "...")
+    for _, params in ipairs(objectList) do
+      local request = WebRequest.get(SOURCE_REPO .. '/' .. params.url)
+      local start = os.time()
+      while true do
+        if request.is_done then
+          contained = contained .. request.text .. ","
+          downloadedItems = downloadedItems + 1
+          break
+        -- time-out if item can't be loaded in 5s
+        elseif request.is_error or (os.time() - start) > 5 then
+          skippedItems = skippedItems + 1
+          break
+        end
+        coroutine.yield(0)
+      end
+    end
+  end
+
+  JSON = JSON .. contained .. "]}"
+  spawnObjectJSON({json = JSON})
+
+  broadcastToAll(downloadedItems .. " objects downloaded.", "Green")
+  broadcastToAll(skippedItems .. " objects had a time-out / error.", "Orange")
+  return 1
+end
+
+-- spawns a placeholder box for the selected object
+function onClick_spawnPlaceholder()
+  -- get object references
+  local item = library[contentToShow][currentListItem]
+  local dummy = guidReferenceApi.getObjectByOwnerAndType("Mythos", "PlaceholderBoxDummy")
+  
+  -- error handling
+  if not item.boxsize or item.boxsize == "" or not item.boxart or item.boxart == "" then
+    print("Error loading object.")
+    return
+  end
+
+  -- get data for placeholder
+  local spawnPos = {-39.5, 2, -87}
+
+  local meshTable = {
+    big = "https://raw.githubusercontent.com/RobMayer/TTSLibrary/master/advboxes/core_h_MSH.obj",
+    small = "https://raw.githubusercontent.com/RobMayer/TTSLibrary/master/advboxes/tuckbox_h_MSH.obj",
+    wide = "http://pastebin.com/raw.php?i=uWAmuNZ2"
+  }
+
+  local scaleTable = {
+    big = {1.00, 0.14, 1.00},
+    small = {2.21, 0.46, 2.42},
+    wide = {2.00, 0.11, 1.69}
+  }
+
+  local placeholder = spawnObject({
+    type = "Custom_Model",
+    position = spawnPos,
+    rotation = {0, 270, 0},
+    scale = scaleTable[item.boxsize],
+  })
+  
+  placeholder.setCustomObject({
+    mesh = meshTable[item.boxsize],
+    diffuse = item.boxart,
+    material = 3
+  })
+
+  placeholder.setColorTint({1, 1, 1, 71/255})
+  placeholder.setName(item.name)
+  placeholder.setDescription("by " .. (item.author or "Unknown"))
+  placeholder.setGMNotes(item.url)
+  placeholder.setLuaScript(dummy.getLuaScript())
+  Player.getPlayers()[1].pingTable(spawnPos)
+
+  -- hide download window
+  if xmlVisibility.downloadWindow then
+    xmlVisibility.downloadWindow = false
+    UI.hide('downloadWindow')
+  end
+end
+
 -- toggles the visibility of the respective UI
 ---@param player LuaPlayer Player that triggered this
 ---@param title String Name of the UI to toggle
@@ -754,25 +876,25 @@ function updatePreviewWindow()
   local maskData = {}
   if item.boxsize == "big" then
     maskData = {
-        image = "box-cover-mask-big",
-        width = "870",
-        height = "435",
-        offsetXY = "154 60"
-      }
+      image = "box-cover-mask-big",
+      width = "870",
+      height = "435",
+      offsetXY = "154 60"
+    }
   elseif item.boxsize == "small" then
     maskData = {
-        image = "box-cover-mask-small",
-        width = "792",
-        height = "594",
-        offsetXY = "135 13"
-      }
+      image = "box-cover-mask-small",
+      width = "792",
+      height = "594",
+      offsetXY = "135 13"
+    }
   elseif item.boxsize == "wide" then
     maskData = {
-        image = "box-cover-mask-wide",
-        width = "756",
-        height = "630",
-        offsetXY = "-190 -70"
-      }
+      image = "box-cover-mask-wide",
+      width = "756",
+      height = "630",
+      offsetXY = "-190 -70"
+    }
   end
 
   -- loading empty image as placeholder until real image is loaded
