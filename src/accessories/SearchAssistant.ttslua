@@ -1,7 +1,7 @@
 local playmatApi                = require("playermat/PlaymatApi")
 
 -- forward declaration of variables that are used across functions
-local matColor, handColor, setAsidePosition, setAsideRotation, drawDeckPosition
+local matColor, handColor, setAsidePosition, setAsideRotation, drawDeckPosition, topCardDetected
 
 local quickParameters          = {}
 quickParameters.function_owner = self
@@ -101,6 +101,7 @@ end
 function startSearch(messageColor, number)
   matColor = playmatApi.getMatColorByPosition(self.getPosition())
   handColor = playmatApi.getPlayerColor(matColor)
+  topCardDetected = false
 
   -- get draw deck
   local drawDeck = playmatApi.getDrawDeck(matColor)
@@ -134,6 +135,7 @@ function startSearch(messageColor, number)
     local object = v.hit_object
     if object.tag == "Card" and not object.is_face_down then
       object.flip()
+      topCardDetected = true
       Wait.time(function() drawDeck = playmatApi.getDrawDeck(matColor) end, 1)
       break
     end
@@ -177,6 +179,14 @@ function endSearch(_, _, isRightClick)
   end
 
   normalView()
+
+  -- Norman Withers handling
+  if topCardDetected then
+    local deck = playmatApi.getDrawDeck(matColor)
+    if deck then
+      deck.takeObject({ position = deck.getPosition() + Vector(0, 1, 0), flip = true })
+    end
+  end
 end
 
 -- utility function
