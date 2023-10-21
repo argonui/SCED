@@ -104,13 +104,15 @@ function startSearch(messageColor, number)
   topCardDetected = false
 
   -- get draw deck
-  local drawDeck = playmatApi.getDrawDeck(matColor)
-  if drawDeck == nil then
+  local deckAreaObjects = playmatApi.getDeckAreaObjects(matColor)
+  if deckAreaObjects.draw == nil then
     printToColor(matColor .. " draw deck could not be found!", messageColor, "Red")
     return
   end
 
-  drawDeckPosition = drawDeck.getPosition()
+  -- get bounds to know the height of the deck
+  local bounds = deckAreaObjects.draw.getBounds()
+  drawDeckPosition = bounds.center + Vector(0, bounds.size.y / 2 + 0.2, 0)
   printToColor("Place target(s) of search on set aside hand.", messageColor, "Green")
 
   -- get playmat orientation
@@ -125,24 +127,26 @@ function startSearch(messageColor, number)
   setAsidePosition = handData.position + offset * handData.right
   setAsideRotation = { handData.rotation.x, handData.rotation.y + 180, 180 }
 
+  -- set y-value
+  setAsidePosition.y = 1.5
+
   for i = #handCards, 1, -1 do
-    handCards[i].setPosition(setAsidePosition - Vector(0, i * 0.3, 0))
+    handCards[i].setPosition(setAsidePosition + Vector(0, (#handCards - i) * 0.1, 0))
     handCards[i].setRotation(setAsideRotation)
   end
 
   -- handling for Norman Withers
-  for _, v in ipairs(searchArea(drawDeckPosition)) do
-    local object = v.hit_object
-    if object.tag == "Card" and not object.is_face_down then
-      object.flip()
-      topCardDetected = true
-      Wait.time(function() drawDeck = playmatApi.getDrawDeck(matColor) end, 1)
-      break
-    end
+  if deckAreaObjects.topCard then
+    deckAreaObjects.topCard.flip()
+    topCardDetected = true
   end
 
-  Wait.time(function() drawDeck.deal(number, handColor) end, 1)
   searchView()
+
+  Wait.time(function()
+    deckAreaObjects = playmatApi.getDeckAreaObjects(matColor)
+    deckAreaObjects.draw.deal(number, handColor)
+  end, 1)
 end
 
 -- place handCards back into deck and optionally shuffle
@@ -150,28 +154,19 @@ function endSearch(_, _, isRightClick)
   local handCards = Player[handColor].getHandObjects()
 
   for i = #handCards, 1, -1 do
-    handCards[i].setPosition(drawDeckPosition + Vector(0, 6 - i * 0.3, 0))
+    handCards[i].setPosition(drawDeckPosition + Vector(0, (#handCards - i) * 0.1, 0))
     handCards[i].setRotation(setAsideRotation)
   end
 
-  if not isRightClick then
-    Wait.time(function()
-      local deck = playmatApi.getDrawDeck(matColor)
-      if deck ~= nil then
-        deck.shuffle()
-      end
-    end, 2)
-  end
-
   -- draw set aside cards (from the ground!)
-  for _, v in ipairs(searchArea(setAsidePosition - Vector(0, 5, 0))) do
+  for _, v in ipairs(searchArea(setAsidePosition)) do
     local obj = v.hit_object
-    if obj.tag == "Deck" then
+    if obj.type == "Deck" then
       Wait.time(function()
         obj.deal(#obj.getObjects(), handColor)
       end, 1)
       break
-    elseif obj.tag == "Card" then
+    elseif obj.type == "Card" then
       obj.setPosition(Player[handColor].getHandTransform().position)
       obj.flip()
       break
@@ -180,12 +175,19 @@ function endSearch(_, _, isRightClick)
 
   normalView()
 
+  -- delay is to wait for cards to enter deck
+  if not isRightClick then
+    Wait.time(function()
+      local deckAreaObjects = playmatApi.getDeckAreaObjects(matColor)
+      if deckAreaObjects.draw then
+        deckAreaObjects.draw.shuffle()
+      end
+    end, #handCards * 0.1)
+  end
+
   -- Norman Withers handling
   if topCardDetected then
-    local deck = playmatApi.getDrawDeck(matColor)
-    if deck then
-      deck.takeObject({ position = deck.getPosition() + Vector(0, 1, 0), flip = true })
-    end
+    Wait.time(function() playmatApi.flipTopCardFromDeck(matColor) end, #handCards * 0.1)
   end
 end
 
