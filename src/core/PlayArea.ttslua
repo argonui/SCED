@@ -44,19 +44,15 @@ local LOC_LINK_EXCLUDE_SCENARIOS    = {
   ["The Heart of Madness"] = true
 }
 
-local guidReferenceApi = require("core/GUIDReferenceApi")
+local guidReferenceApi              = require("core/GUIDReferenceApi")
 local tokenManager                  = require("core/token/TokenManager")
-
 local clueData                      = {}
 local spawnedLocationGUIDs          = {}
 local locations                     = {}
 local locationConnections           = {}
 local draggingGuids                 = {}
-local locationData
-local currentScenario
-
 local missingData                   = {}
-local countedVP                     = {}
+local locationData, currentScenario
 
 ---------------------------------------------------------
 -- general code
@@ -579,18 +575,23 @@ function setLimitSnapsByType(matchTypes)
 end
 
 -- count victory points on locations in play area
+---@param highlightOff Boolean True if highlighting should be enabled
 ---@return. Returns the total amount of VP found in the play area
-function countVP()
-  countedVP = {}
+function countVP(highlightOff)
   local totalVP = 0
 
   for cardId, metadata in pairs(locations) do
-    if metadata ~= nil then
+    local card = getObjectFromGUID(cardId)
+    if metadata ~= nil and card ~= nil then
+      if highlightOff == true then
+        card.highlightOff("Green")
+      end
+
       local cardVP = tonumber(metadata.victory) or 0
-      if cardVP ~= 0 and not cardHasClues(cardId) then
+      if cardVP ~= 0 and not cardHasClues(card) then
         totalVP = totalVP + cardVP
-        if cardVP > 0 then
-          table.insert(countedVP, getObjectFromGUID(cardId))
+        if highlightOff == false then
+          card.highlightOn("Green")
         end
       end
     end
@@ -600,9 +601,8 @@ function countVP()
 end
 
 -- checks if a card has clues on it, returns true if clues are on it
----@param cardId String GUID of the card to check for clues
-function cardHasClues(cardId)
-  local card = getObjectFromGUID(cardId)
+---@param card TTSObject Card to check for clues
+function cardHasClues(card)
   for _, v in ipairs(searchOnObj(card)) do
     local obj = v.hit_object
     if obj.memo == "clueDoom" and obj.is_face_down == false then
@@ -636,23 +636,6 @@ function highlightMissingData(state)
       end
     else
       missingData[i] = nil
-    end
-  end
-end
-
--- highlights all locations in the play area with VP
----@param state Boolean True if highlighting should be enabled
-function highlightCountedVP(state)
-  countVP()
-  for i, obj in pairs(countedVP) do
-    if obj ~= nil then
-      if state then
-        obj.highlightOff("Green")
-      else
-        obj.highlightOn("Green")
-      end
-    else
-      countedVP[i] = nil
     end
   end
 end
