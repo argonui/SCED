@@ -7,6 +7,7 @@ local victoryDisplayApi = require("core/VictoryDisplayApi")
 function onLoad()
   addHotkey("Add Doom to Agenda", addDoomToAgenda)
   addHotkey("Bless/Curse Status", showBlessCurseStatus)
+  addHotkey("Discard Object", discardObject)
   addHotkey("Move card to Victory Display", moveCardToVictoryDisplay)
   addHotkey("Take clue from location", takeClueFromLocation)
   addHotkey("Upkeep", triggerUpkeep)
@@ -46,6 +47,18 @@ function addDoomToAgenda()
   doomCounter.call("addVal", 1)
 end
 
+-- trigger the discard function at the pointer position (either to discard pile or trash)
+function discardObject(playerColor, hoveredObject)
+  local discardPos = Player[playerColor].getPointerPosition()
+
+  if hoveredObject and (hoveredObject.type == "Card" or hoveredObject.type == "Deck") then
+    discardPos = hoveredObject.getPosition()
+  end
+
+  local matColor = playmatApi.getMatColorByPosition(discardPos)
+  playmatApi.discardObjectsAtPosition(matColor, discardPos)
+end
+
 -- moves the hovered card to the victory display
 function moveCardToVictoryDisplay(_, hoveredObject)
   victoryDisplayApi.placeCard(hoveredObject)
@@ -58,7 +71,7 @@ function takeClueFromLocation(playerColor, hoveredObject)
   if hoveredObject == nil then
     broadcastToColor("Hover a clue or card with clues and try again.", playerColor, "Yellow")
     return
-  elseif hoveredObject.tag == "Card" then
+  elseif hoveredObject.type == "Card" then
     cardName = hoveredObject.getName()
 
     for _, v in ipairs(searchOnObj(hoveredObject)) do
@@ -91,7 +104,7 @@ function takeClueFromLocation(playerColor, hoveredObject)
     
     for _, v in ipairs(search) do
       local obj = v.hit_object
-      if obj.tag == "Card" then
+      if obj.type == "Card" then
         cardName = obj.getName()
         break
       end

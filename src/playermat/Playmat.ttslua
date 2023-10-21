@@ -226,26 +226,23 @@ end
 -- Discard buttons
 ---------------------------------------------------------
 
--- builds a function that discards things in searchPosition
--- stuff on the card/deck will be put into the local trashcan
-function makeDiscardHandlerFor(searchPosition)
-  return function ()
-    local origin = self.positionToWorld(searchPosition)
-    for _, obj in ipairs(searchArea(origin, {2, 1, 3.2})) do
-      if isCardOrDeck(obj) then
-        if obj.hasTag("PlayerCard") then
-          placeOrMergeIntoDeck(obj, returnGlobalDiscardPosition(), self.getRotation())
-        else
-          placeOrMergeIntoDeck(obj, ENCOUNTER_DISCARD_POSITION, {x = 0, y = -90, z = 0})
-        end
-      -- put chaos tokens back into bag (e.g. Unrelenting)
-      elseif tokenChecker.isChaosToken(obj) then
-        local chaosBag = chaosBagApi.findChaosBag()
-        chaosBag.putObject(obj)
-      -- don't touch the table or this playmat itself
-      elseif obj.guid ~= "4ee1f2" and obj ~= self then
-        ownedObjects.Trash.putObject(obj)
+-- performs a search in the provided position and discard objects
+---@param searchPosition Table Global position for the search
+function discardObjectsAtPosition(searchPosition)
+  for _, obj in ipairs(searchArea(searchPosition, {2, 1, 3.2})) do
+    if isCardOrDeck(obj) then
+      if obj.hasTag("PlayerCard") then
+        placeOrMergeIntoDeck(obj, returnGlobalDiscardPosition(), self.getRotation())
+      else
+        placeOrMergeIntoDeck(obj, ENCOUNTER_DISCARD_POSITION, {x = 0, y = -90, z = 0})
       end
+    -- put chaos tokens back into bag (e.g. Unrelenting)
+    elseif tokenChecker.isChaosToken(obj) then
+      local chaosBag = chaosBagApi.findChaosBag()
+      chaosBag.putObject(obj)
+    -- don't touch locked objects (like the table etc.)
+    elseif not obj.getLock() then
+      ownedObjects.Trash.putObject(obj)
     end
   end
 end
@@ -294,9 +291,8 @@ end
 function makeDiscardButton(xValue, number)
   local position = { xValue, 0.1, -0.94}
   local searchPosition = {-position[1], position[2], position[3] + 0.32}
-  local handler = makeDiscardHandlerFor(searchPosition)
   local handlerName = 'handler' .. number
-  self.setVar(handlerName, handler)
+  self.setVar(handlerName, function() return discardObjectsAtPosition(self.positionToWorld(searchPosition)) end)
   self.createButton({
     label = "Discard",
     click_function = handlerName,
