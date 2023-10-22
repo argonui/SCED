@@ -89,6 +89,9 @@ local matColor = self.getMemo()
 -- variable to track the status of the "Show Draw Button" option
 local isDrawButtonVisible = false
 
+-- limit search calls if multiple cards enter the hand
+local pendingHandSearch = false
+
 -- global variable to report "Dream-Enhancing Serum" status
 isDES = false
 
@@ -181,6 +184,10 @@ end
 function isCard(x) return x.type == 'Card' end
 function isDeck(x) return x.type == 'Deck' end
 function isCardOrDeck(x) return x.type == 'Card' or x.type == 'Deck' end
+
+function isUnlockedTokenOrTileWithMemo(x)
+  return (x.type == "Token" or x.type == "Tile") and x.getMemo() and x.getLock() == false
+end
 
 -- finds all objects on the playmat and associated set aside zone.
 function searchAroundSelf(filter)
@@ -809,6 +816,21 @@ function resetSkillTracker()
     else
       printToAll("Skill tracker for " .. matColor .. " playmat could not be found.", "Yellow")
     end
+end
+
+-- removal of tokens when a card enters the hand by searching the area below the handzone for tokens/tiles
+function onObjectEnterZone(zone)
+  if pendingHandSearch == false and zone == ownedObjects.HandZone then
+    pendingHandSearch = true
+    Wait.time(function()
+      local searchPos = zone.getPosition():setAt("y", 1.5)
+      local searchSize = zone.getScale():setAt("y", 1)
+      for _, obj in ipairs(searchArea(searchPos, searchSize, isUnlockedTokenOrTileWithMemo)) do
+        ownedObjects.Trash.putObject(obj)
+      end
+      pendingHandSearch = false
+    end, 1)
+  end
 end
 
 ---------------------------------------------------------
