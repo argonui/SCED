@@ -47,16 +47,53 @@ function addDoomToAgenda()
   doomCounter.call("addVal", 1)
 end
 
--- trigger the discard function at the pointer position (either to discard pile or trash)
+-- discard the hovered object to the respective trashcan and discard tokens on it if it was a card
 function discardObject(playerColor, hoveredObject)
-  local discardPos = Player[playerColor].getPointerPosition()
-
-  if hoveredObject and (hoveredObject.type == "Card" or hoveredObject.type == "Deck") then
-    discardPos = hoveredObject.getPosition()
+  if hoveredObject == nil then
+    broadcastToColor("Hover a token/tile or a card/deck and try again.", playerColor, "Yellow")
+    return
   end
 
-  local matColor = playmatApi.getMatColorByPosition(discardPos)
-  playmatApi.discardObjectsAtPosition(matColor, discardPos)
+  -- check if in playareazone
+  local playAreaZone = guidReferenceApi.getObjectByOwnerAndType("Mythos", "PlayAreaZone")
+  local isInPlayAreaZone = false
+  for _, zone in ipairs(hoveredObject.getZones()) do
+    if zone == playAreaZone then
+      isInPlayAreaZone = true
+      break
+    end
+  end
+
+  if hoveredObject.type == "Card" or hoveredObject.type == "Deck" then
+    if hoveredObject.hasTag("Location") then
+      broadcastToAll("Watch out: A location was discarded.", "Yellow")
+    end
+
+    -- discard tokens / tiles on it
+    local discardTheseObjects = { hoveredObject }
+    for _, v in ipairs(searchOnObj(hoveredObject)) do
+      if v.hit_object.type == "Tile" then
+        table.insert(discardTheseObjects, v.hit_object)
+      end
+    end
+
+    local matColor
+    if isInPlayAreaZone then
+      matColor = playmatApi.getMatColor(playerColor)
+    else
+      matColor = playmatApi.getMatColorByPosition(hoveredObject.getPosition())
+    end
+    playmatApi.discardListOfObjects(matColor, discardTheseObjects)
+  elseif hoveredObject.type == "Tile" and not hoveredObject.locked then
+    local owner
+    if isInPlayAreaZone then
+      owner = "Mythos"
+    else
+      owner = playmatApi.getMatColorByPosition(hoveredObject.getPosition())
+    end
+    local trash = guidReferenceApi.getObjectByOwnerAndType(owner, "Trash")
+    trash.putObject(hoveredObject)
+  end
 end
 
 -- moves the hovered card to the victory display
