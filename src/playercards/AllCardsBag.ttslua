@@ -14,7 +14,6 @@ local usesIndex = { }
 local specialCriteriaIndex = { }
 
 local specialCriteriaManualOverride = {
-  usesCharges = {  },
   healsHorror = {
     "01019",
     "01067",
@@ -404,31 +403,18 @@ function buildSupplementalIndexes()
             if not usesIndex[bondCardMetadata.uses[1].count] then
               usesIndex[bondCardMetadata.uses[1].count] = { }
             end
-            table.insert(usesIndex[bondCardMetadata.uses[1].count], bondCardMetadata.id)
+            table.insert(usesIndex[bondCardMetadata.uses[1].count], cardMetadata.id)
             if not usesIndex[string.lower(bondCardMetadata.uses[1].type)] then
               usesIndex[string.lower(bondCardMetadata.uses[1].type)] = { }
             end
-            table.insert(usesIndex[string.lower(bondCardMetadata.uses[1].type)], bondCardMetadata.id)
-          end
-        end
-      end
-      
-      --Handle special criteria for deckbuilding
-      
-
-      if cardMetadata.uses and (cardMetadata.uses[1].type == "Charge") then
-        table.insert(specialCriteriaIndex["usesCharges"], cardMetadata.id)
-      elseif bonded then
-        for _, bondData in ipairs(bonded) do
-          local bondCardMetadata = cardIdIndex[bondData.id].metadata
-          if bondCardMetadata.uses and (bondCardMetadata.uses[1].type == "Charge") then
-            table.insert(specialCriteriaIndex["usesCharges"], cardMetadata.id)
+            table.insert(usesIndex[string.lower(bondCardMetadata.uses[1].type)], cardMetadata.id)
           end
         end
       end
         
     end
   end
+  
   for _, indexTable in pairs(classIndex) do
     table.sort(indexTable, cardComparator)
   end
@@ -598,8 +584,10 @@ function getCardsByUses(params)
   end
   if type(params.index) == "number" then
     return getFilteredIndexList(usesIndex[tonumber(params.index)], params.includeOthers)
+  elseif usesIndex[string.lower(params.index)] then
+    return getFilteredIndexList(usesIndex[string.lower(params.index)], params.includeOthers)
   else
-    return getFilteredIndexList(usesIndex[params.index], params.includeOthers)
+    return getFilteredIndexList(usesIndex[string.lower(string.sub(params.index, 1, -2))], params.includeOthers)
   end
 end
 
@@ -621,7 +609,6 @@ end
 
 function getOppositeCards(params)
   local filter = params.filter or "id"
-  log(filter)
   if (not indexingDone) then
     broadcastToAll("Still loading player cards, please try again in a few seconds", {0.9, 0.2, 0.2})
     return { }

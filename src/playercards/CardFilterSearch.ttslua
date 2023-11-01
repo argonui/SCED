@@ -45,7 +45,8 @@ local filterOptions = {
   p = "level",
   --z = "slot",
   v = "permanent",
-  u = "uses"
+  u = "uses",
+  q = "special"
 }
 
 function onLoad()
@@ -160,43 +161,6 @@ function filterSearch(filterString, startingCards)
       return
   end
 
-  -- Create a list to store tokens
-  local tokens = {
-  }
-
-  -- Iterate over the input_query and tokenize
-  local current = ""
-  local prev = ""
-  local inside_string = false
-  for char in filterString:gmatch('.') do
-      if char == '"' then
-        inside_string = not inside_string
-        char = ''
-      end
-      if char == ' ' and not inside_string then
-          -- Space separates tokens, add the current token to the list
-          if current ~= "" then
-              prev = addToken(tokens, current, prev)
-              current = ""
-          end
-      elseif char == '(' or char == ')' then
-          -- These characters are treated as individual tokens
-          if current ~= "" then
-              prev = addToken(tokens, current, prev)
-              current = ""
-          end
-            prev = addToken(tokens, char, prev)
-      else
-          -- Append characters to the current token
-          current = current .. char
-      end
-  end
-
-  -- Add the last token if not empty
-  if current ~= "" then
-      addToken(tokens, current, prev)
-  end
-
   local targetLoc
   local targetSta
 
@@ -209,7 +173,7 @@ function filterSearch(filterString, startingCards)
   end
 
   playerCardPanelApi.spawnCardList({
-    cardList = createFilterCardList(tokens, startingCards),
+    cardList = createFilterCardList({tokenList = tokenizeString(filterString), startingCardSet = startingCards}),
     name = "filterSearch",
     startPos = targetLoc,
     spread = true,
@@ -218,43 +182,50 @@ function filterSearch(filterString, startingCards)
   })
 end
 
+function tokenizeString(filterString)
+  -- Create a list to store tokens
+  local tokens = {
+  }
 
-function addToken(tokenList, token, prevType)
-  -- local newToken = {
-  --   booleanOperator = nil,
-  --   filterExpression = nil
-  -- }
-  -- local tokenType = ""
+  -- Iterate over the input_query and tokenize
+  local current = ""
+  local inside_string = false
+  for char in filterString:gmatch('.') do
+      if char == '"' then
+        inside_string = not inside_string
+        char = ''
+      end
+      if char == ' ' and not inside_string then
+          -- Space separates tokens, add the current token to the list
+          if current ~= "" then
+              table.insert(tokens, current)
+              current = ""
+          end
+      elseif char == '(' or char == ')' then
+          -- These characters are treated as individual tokens
+          if current ~= "" then
+              table.insert(tokens, current)
+              current = ""
+          end
+          table.insert(tokens, char)
+      else
+          -- Append characters to the current token
+          current = current .. char
+      end
+  end
+  
+  -- Add the last token if not empty
+  if current ~= "" then
+    table.insert(tokens, current)
+  end
 
-  -- if filterOptions[token] then
-  --   tokenType = "filter"
-  -- elseif token == '(' or token == ')' or token == ':' or token == '!' or token == '>' or token == '<' then
-  --   tokenType = "arithOp"
-  -- elseif token == '&' or token == '|' then
-  --   tokenType = "boolOp"
-  -- else
-  --   tokenType = "value"
-  -- end
-  -- log("Current Type: " .. tokenType)
-  -- log("Previous Type: " .. prevType)
-  -- log(prevType == "filter")
-  -- log(tokenType ~= "arithOp")
-  -- if prevType == "filter" and tokenType ~= "arithOp" then
-  --   printToAll("Filter option must be followed by arithmetic operator. Please consult context menu guide.", Color.Red)
-  --   return
-  -- elseif prevType == "arithOp" and tokenType ~= "value" then
-  --   printToAll("Arithmetic operator must be followed by a valid value. Please consult context menu guide.", Color.Red)
-  --   return
-  -- end
-
-  table.insert(tokenList, token)
-
-  return nil
+  return tokens
 end
 
 
-function createFilterCardList(tokenList, startingCardSet)
-  local filterCardList = startingCardSet or {}
+function createFilterCardList(params)
+  local tokenList = params.tokenList
+  local filterCardList = params.startingCardSet or {}
   local includeOthers = false
   if next(filterCardList) then
     includeOthers = true
@@ -303,6 +274,8 @@ function createFilterCardList(tokenList, startingCardSet)
 
       if not filterOptions[filter] then
         broadcastToAll("Invalid filter type", Color.Red)
+        log("Invalid filter: " .. filter)
+        log(tokenList)
         return {}
       end
 
@@ -349,6 +322,9 @@ function createFilterCardList(tokenList, startingCardSet)
           else
             matchingCards = allCardsBagApi.getCardsByUses(value, includeOthers)
           end
+        -- Special Cases
+        elseif filter == "q" then
+          matchingCards = allCardsBagApi.getCardsBySpecialCriteria(value, includeOthers)
         -- Permanent
         elseif filter == "v" then
           matchingCards = allCardsBagApi.getPermanents(includeOthers)
@@ -459,6 +435,11 @@ function createFilterCardList(tokenList, startingCardSet)
       end
     end
     previousToken = token
+    if filterCardList["03020"] then
+      -- log("Token #: " .. _)
+      -- log(tokenList)
+      -- return {}
+    end
   end
 
   if parenthesesLevel > 0 then

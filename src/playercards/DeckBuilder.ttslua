@@ -2,6 +2,7 @@ require("playercards/PlayerCardSpawner")
 
 local playerCardPanelApi  = require("playercards/PlayerCardPanelApi")
 local allCardsBagApi      = require("playercards/AllCardsBagApi")
+local cardFilterSearchApi = require("playercards/CardFilterSearchApi")
 local deckZoneGUID        = "cba5d4"
 local deckObject          = nil
 local placingDeck         = false
@@ -12,6 +13,7 @@ deckPlaced                = false
 local cardLookupTable = {
   faction =   function(specInstance) return allCardsBagApi.getCardsByClass(specInstance) end,
   trait   =   function(specInstance) return allCardsBagApi.getCardsByTrait(specInstance) end,
+  uses    =   function(specInstance) return allCardsBagApi.getCardsByUses(specInstance) end,
   special =   function(specInstance) return allCardsBagApi.getCardsBySpecialCriteria(specInstance) end
 }
 
@@ -197,14 +199,17 @@ function onCollisionEnter(info)
     broadcastToAll("Investigator Detected: " .. info.collision_object.getName(), Color.Green)
     if investigatorData.deck_requirements.signatures and deckObject == nil and not placingDeck then
       local cardsToSpawn = {}
-      for cardId, cardCount in pairs(investigatorData.deck_requirements.signatures) do
-        local card = allCardsBagApi.getCardById(cardId)
-        if card ~= nil then
-          for i = 1, cardCount do
-            table.insert(cardsToSpawn, { data = card.data, metadata = card.metadata})
+      for _, sigList in ipairs(investigatorData.deck_requirements.signatures) do
+        for cardId, cardCount in pairs(sigList) do
+          local card = allCardsBagApi.getCardById(cardId)
+          if card ~= nil then
+            for i = 1, cardCount do
+              table.insert(cardsToSpawn, { data = card.data, metadata = card.metadata})
+            end
           end
         end
       end
+      
       Spawner.spawnCards(
         cardsToSpawn,
         { x = 53.22, y = 2, z = 46.46},
@@ -520,125 +525,162 @@ function importDeck(coinObject)
 end
 
 function placeCardsBasic(_, _, alt_click)
-  placeCards(false, alt_click)
-end
-
-function placeCardsUpgraded(_,_, alt_click)
-  placeCards(true, alt_click)
-end
-
-function placeCards(isUpgraded, alt_click)
   if (alt_click) then
     --Clear all cards
     playerCardPanelApi.deleteAll("middle")
   else
-    local choiceSelection = {}
-    --Determine investigator placed on object
-    if not investigatorData then
-      broadcastToAll("No Valid Investigator Card Detected", Color.Red)
-      return
-    elseif investigatorData.deck_requirements.choices then
-      if choiceCount ~= investigatorData.deck_requirements.choices then
-        broadcastToAll("Select Additional Options", Color.Red)
-        return
-      else
-        for i, button in pairs(choiceButtonStatus) do
-          if button.selected then
-            choiceSelection[button.label] = button.label
-          end
-        end
-      end
-    end
-    deckOptions = investigatorData.deck_options
-    local cardSet = {}
-    local exclusionSet = {}
-    local cardList = {
-      skillList = {},
-      eventList = {},
-      assetList = {},
-      otherList = {}
-    }
-    cardList["limitedCardList"] = {
-      skillList = {},
-      eventList = {},
-      assetList = {}
-    }
-
-    --Find all cards eligible to be used by the target investigator
-    for _, cardSpec in ipairs(deckOptions) do
-      --determine what type of spec we are dealing with
-      local specType = (cardSpec.faction and "faction") or (cardSpec.trait and "trait") or (cardSpec.special and "special")
-      if not specType then
-        log("Invalid Deckbuilding Specification:")
-        log(cardSpec)
-      else
-        for _, specInstance in ipairs(cardSpec[specType]) do
-          if (cardSpec.choiceName == choiceSelection[cardSpec.choiceName]) and ((cardSpec.level.min == 0 and not isUpgraded) or (cardSpec.level.max > 0 and isUpgraded)) then
-            for _, cardId in ipairs(cardLookupTable[specType](specInstance)) do
-              local cardMetadata = allCardsBagApi.getCardById(cardId).metadata
-              if isUpgraded == (cardMetadata.level > 0) and cardMetadata.level >= cardSpec.level.min and cardMetadata.level <= cardSpec.level.max then
-                if cardSpec.limit and sortMethod == "limited" then
-                  insertCardSet(cardSet, cardList.limitedCardList, cardMetadata, cardId, cardSpec["not"], exclusionSet, cardSpec.type)
-                else
-                  insertCardSet(cardSet, cardList, cardMetadata, cardId, cardSpec["not"], exclusionSet, cardSpec.type)
-                end
-              end
-            end
-          end
-        end
-      end
-    end
-    --Organizes the card lists, and presents them to the player
-    cardList.skillList = allCardsBagApi.sortCardsTable(cardList.skillList)
-    cardList.eventList = allCardsBagApi.sortCardsTable(cardList.eventList)
-    cardList.assetList = allCardsBagApi.sortCardsTable(cardList.assetList)
-    cardList.otherList = allCardsBagApi.sortCardsTable(cardList.otherList)
-    cardList.limitedCardList.skillList = allCardsBagApi.sortCardsTable(cardList.limitedCardList.skillList)
-    cardList.limitedCardList.eventList = allCardsBagApi.sortCardsTable(cardList.limitedCardList.eventList)
-    cardList.limitedCardList.assetList = allCardsBagApi.sortCardsTable(cardList.limitedCardList.assetList)
-    playerCardPanelApi.spawnCardsByType({
-      cardList = cardList,
-      name = "deckOptions",
-      startPos = "deckBuilder",
-      spread = true,
-      spreadCols = 35,
-      targetState = "middle"
-    })
+    placeCards("p:0 & ")
   end
 end
 
-
-function insertCardSet(cardSet, cardList, cardMetadata, cardId, isExclusion, exclusionSet, types)
-  local allowedTypes = {}
-  if types then
-    for _, cardType in ipairs(types) do
-      allowedTypes[cardType] = true
-    end
+function placeCardsUpgraded(_,_, alt_click)
+  if (alt_click) then
+    --Clear all cards
+    playerCardPanelApi.deleteAll("middle")
   else
-    allowedTypes = {
-      Skill = true,
-      Event = true,
-      Asset = true
-    }
+    placeCards("p>0 & ")
   end
-  if isExclusion then
-    exclusionSet[cardId] = true
-  elseif not cardSet[cardId] and not exclusionSet[cardId] then
-    if cardMetadata.type == "Skill" and allowedTypes.Skill then
+end
+
+function placeCards(startingString)
+  local choiceSelection = {}
+  --Determine investigator placed on object
+  if not investigatorData then
+    broadcastToAll("No Valid Investigator Card Detected", Color.Red)
+    return
+  elseif investigatorData.deck_requirements.choices then
+    if choiceCount ~= investigatorData.deck_requirements.choices then
+      broadcastToAll("Select Additional Options", Color.Red)
+      return
+    else
+      for i, button in pairs(choiceButtonStatus) do
+        if button.selected then
+          choiceSelection[button.label] = button.label
+        end
+      end
+    end
+  end
+
+  local investigatorStrings = createFilterString(investigatorData.deck_options, choiceSelection)
+  local filterString = startingString .. investigatorStrings.baseString
+  local exclusionCardList = { }
+  if investigatorStrings.exclusionString ~= "( )" then
+    for _, card in ipairs(allCardsBagApi.getOppositeCards(cardFilterSearchApi.createFilterCardList(cardFilterSearchApi.tokenizeString(investigatorStrings.exclusionString)))) do
+      exclusionCardList[card] = 1
+    end
+    filterString = "& " .. filterString
+  end
+  local filterCardList = cardFilterSearchApi.createFilterCardList(cardFilterSearchApi.tokenizeString(filterString), exclusionCardList)
+
+  local cardList = {
+    skillList = {},
+    eventList = {},
+    assetList = {},
+    otherList = {}
+  }
+
+  for _, cardId in ipairs(filterCardList) do
+    local cardMetadata = allCardsBagApi.getCardById(cardId).metadata
+    if cardMetadata.type == "Skill" then
       table.insert(cardList.skillList, cardId)
-      cardSet[cardId] = true
-      return true
-    elseif cardMetadata.type == "Event" and allowedTypes.Event then
+    elseif cardMetadata.type == "Event" then
       table.insert(cardList.eventList, cardId)
-      cardSet[cardId] = true
-      return true
-    elseif cardMetadata.type == "Asset" and allowedTypes.Asset then
+    elseif cardMetadata.type == "Asset" then
       table.insert(cardList.assetList, cardId)
-      cardSet[cardId] = true
-      return true
     else
       table.insert(cardList.otherList, cardId)
     end
   end
-  return false
+
+  --Organizes the card lists, and presents them to the player
+  cardList.skillList = allCardsBagApi.sortCardsTable(cardList.skillList)
+  cardList.eventList = allCardsBagApi.sortCardsTable(cardList.eventList)
+  cardList.assetList = allCardsBagApi.sortCardsTable(cardList.assetList)
+  cardList.otherList = allCardsBagApi.sortCardsTable(cardList.otherList)
+  playerCardPanelApi.spawnCardsByType({
+    cardList = cardList,
+    name = "deckOptions",
+    startPos = "deckBuilder",
+    spread = true,
+    spreadCols = 35,
+    targetState = "middle"
+  })
+
+end
+
+function createFilterString(deckOptions, choiceSelection)
+  local filterString = "("
+  local notString = "("
+  local specList = { }
+  for i, cardSpec in ipairs(deckOptions) do
+    if cardSpec.choiceName == choiceSelection[cardSpec.choiceName] then
+      local filterSubString = " ("
+
+      if cardSpec.faction then
+        filterSubString = filterSubString .. processCardSpec(cardSpec.faction, "f", filterSubString == " (")
+      end
+
+      if cardSpec.trait then
+        filterSubString = filterSubString .. processCardSpec(cardSpec.trait, "k", filterSubString == " (")
+      end
+
+      if cardSpec.uses then
+        filterSubString = filterSubString .. processCardSpec(cardSpec.uses, "u", filterSubString == " (")
+      end
+
+      if cardSpec.special then
+        filterSubString = filterSubString .. processCardSpec(cardSpec.special, "q", filterSubString == " (")
+      end
+
+      if cardSpec.permanent then
+        filterSubString = filterSubString .. processCardSpec(cardSpec.special, "v", filterSubString == " (")
+      end
+
+      if cardSpec.type then
+        filterSubString = filterSubString .. processCardSpec(cardSpec.type, "t", filterSubString == " (")
+      end
+
+      if cardSpec.level then
+        filterSubString = filterSubString .. " & (" .. "p>" .. cardSpec.level.min - 1 .. " & p<" .. cardSpec.level.max + 1 .. " )"
+      end
+
+      filterSubString = filterSubString .. " )"
+      
+      if cardSpec["not"] then
+        notString = notString .. filterSubString .. " |"
+      else
+        filterString = filterString .. filterSubString .. " |"
+      end
+    end
+  end
+  filterString = filterString .. " )"
+  notString = notString .. " )"
+  return {
+    baseString = filterString,
+    exclusionString = notString
+  }
+end
+
+function processCardSpec(specList, filterType, isFirst)
+  local filterSubString = ""
+  if not isFirst then
+    if filterType == "t" then
+      filterSubString = " &"
+    else
+      filterSubString = " |"
+    end
+  end
+  if #specList > 1 then
+    filterSubString = filterSubString .. " ("
+  end
+  for _, instance in ipairs(specList) do
+    if _ ~= 1 then
+      filterSubString = filterSubString .. " |"
+    end
+    filterSubString = filterSubString .. " " .. filterType .. ":" .. instance
+  end
+  if #specList > 1 then
+    filterSubString = filterSubString .. " )"
+  end
+  return filterSubString
 end
