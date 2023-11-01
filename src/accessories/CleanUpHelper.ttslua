@@ -3,79 +3,24 @@
 - puts everything on playmats and hands into respective trashcans
 - use the IGNORE_TAG to exclude objects from tidying (default: "CleanUpHelper_Ignore")]]
 
-local blessCurseManagerApi      = require("chaosbag/BlessCurseManagerApi")
-local chaosBagApi               = require("chaosbag/ChaosBagApi")
-local playAreaApi               = require("core/PlayAreaApi")
-local playmatApi                = require("playermat/PlaymatApi")
-local soundCubeApi              = require("core/SoundCubeApi")
-local tokenSpawnTrackerApi      = require("core/token/TokenSpawnTrackerApi")
-
--- these objects will be ignored
-local IGNORE_GUIDS              = {
-  -- big playmat, change image panel and investigator counter
-  "b7b45b", "f182ee", "721ba2",
-  -- bless/curse manager
-  "afa06b", "bd0253", "5933fb",
-  -- stuff on agenda/act playmat
-  "85c4c6", "4a3aa4", "fea079", "b015d8", "11e0cf", "9f334f", "70b9f6", "0a5a29",
-  -- doom/location token bag
-  "47ffc3", "170f10",
-  -- table
-  "4ee1f2"
-}
+local blessCurseManagerApi = require("chaosbag/BlessCurseManagerApi")
+local chaosBagApi          = require("chaosbag/ChaosBagApi")
+local guidReferenceApi     = require("core/GUIDReferenceApi")
+local playAreaApi          = require("core/PlayAreaApi")
+local playmatApi           = require("playermat/PlaymatApi")
+local soundCubeApi         = require("core/SoundCubeApi")
+local tokenSpawnTrackerApi = require("core/token/TokenSpawnTrackerApi")
 
 -- objects with this tag will be ignored
 local IGNORE_TAG                = "CleanUpHelper_ignore"
 
 -- colors and order for following tables
-local COLORS                    = { "White", "Orange", "Green", "Red", "Agenda" }
-
--- counter GUIDS (4x damage and 4x horror)
-local DAMAGE_HORROR_GUIDS       = {
-  "eb08d6", "e64eec", "1f5a0a", "591a45",
-  "468e88", "0257d9", "7b5729", "beb964",
-}
-
+local COLORS                    = { "White", "Orange", "Green", "Red", "Mythos" }
 local campaignLog
 local RESET_VALUES              = {}
-
--- GUIDS of objects (in order of ownership relating to 'COLORS')
-local PLAYERMAT_GUIDS           = { "8b081b", "bd0ff4", "383d8b", "0840d5" }
-local RESOURCE_GUIDS            = { "4406f0", "816d84", "cd15ac", "a4b60d" }
-local TRACKER_GUIDS             = { "e598c2", "b4a5f7", "af7ed7", "e74881" }
-local CLUE_GUIDS                = { "d86b7c", "1769ed", "032300", "37be78" }
-local CLUE_CLICKER_GUIDS        = { "db85d6", "3f22e5", "891403", "4111de" }
-local TRASHCAN_GUIDS            = { "147e80", "f7b6c8", "5f896a", "4b8594", "70b9f6" }
-
--- values for physics.cast (4 entries for player zones, 5th entry for agenda/act deck, 6th for campaign log)
-local PHYSICS_POSITION          = {
-  { -54.5, 2, 21 },
-  { -54.5, 2, -21 },
-  { -27.0, 2, 26 },
-  { -27.0, 2, -26 },
-  { -02.0, 2, 10 },
-  { -00.0, 2, -27 }
-}
-
-local PHYSICS_ROTATION          = {
-  270,
-  270,
-  0,
-  180,
-  270,
-  0
-}
-
-local PHYSICS_SCALE             = {
-  { 36.6, 1, 14.5 },
-  { 36.6, 1, 14.5 },
-  { 34.0, 1, 14.5 },
-  { 34.0, 1, 14.5 },
-  { 55.0, 1, 13.5 },
-  { 05.0, 1, 05.0 }
-}
-
+local loadingFailedBefore       = false
 local optionsVisible            = false
+
 local options                   = {}
 options["importTrauma"]         = true
 options["tidyPlayermats"]       = true
@@ -84,7 +29,6 @@ options["removeDrawnLines"]     = false
 local buttonParameters          = {}
 buttonParameters.function_owner = self
 
-local loadingFailedBefore       = false
 
 ---------------------------------------------------------
 -- option loading and GUI setup
@@ -131,14 +75,6 @@ function onLoad(savedData)
   buttonParameters.position.z     = 1.1
   buttonParameters.width          = 1550
   self.createButton(buttonParameters)
-
-  -- create single table for ignoring
-  for _, v in ipairs(CLUE_GUIDS) do table.insert(IGNORE_GUIDS, v) end
-  for _, v in ipairs(CLUE_CLICKER_GUIDS) do table.insert(IGNORE_GUIDS, v) end
-  for _, v in ipairs(RESOURCE_GUIDS) do table.insert(IGNORE_GUIDS, v) end
-  for _, v in ipairs(TRASHCAN_GUIDS) do table.insert(IGNORE_GUIDS, v) end
-  for _, v in ipairs(PLAYERMAT_GUIDS) do table.insert(IGNORE_GUIDS, v) end
-  for _, v in ipairs(DAMAGE_HORROR_GUIDS) do table.insert(IGNORE_GUIDS, v) end
 end
 
 ---------------------------------------------------------
@@ -178,13 +114,8 @@ function cleanUp(_, color)
   getTrauma()
 
   -- delay to account for potential state change
-  Wait.time(function()
-    updateCounters(RESOURCE_GUIDS, 5, "Resource")
-    updateCounters(CLUE_CLICKER_GUIDS, 0, "Clue clicker")
-    updateCounters(DAMAGE_HORROR_GUIDS, RESET_VALUES, "Damage / Horror")
-  end, 0.2)
+  Wait.time(updateCounters, 0.2)
 
-  resetSkillTrackers()
   resetDoomCounter()
   blessCurseManagerApi.removeAll(color)
   removeLines()
@@ -201,39 +132,20 @@ end
 -- modular functions, called by other functions
 ---------------------------------------------------------
 
-function updateCounters(tableOfGUIDs, newValues, info)
-  -- instead of a table, this will be used if just a single value is provided
-  local singleValue = tonumber(newValues)
+function updateCounters()
+  playmatApi.updateCounter("All", "ResourceCounter" , 5)
+  playmatApi.updateCounter("All", "ClickableClueCounter" , 0)
+  playmatApi.resetSkillTracker("All")
 
-  for i, guid in ipairs(tableOfGUIDs) do
-    local TOKEN = getObjectFromGUID(guid)
-    local newValue = singleValue or newValues[i]
-
-    if TOKEN ~= nil then
-      TOKEN.call("updateVal", newValue)
-    else
-      printToAll(info .. ": No. " .. i .. " could not be found.", "Yellow")
-    end
-  end
-end
-
--- set investigator skill trackers to "1, 1, 1, 1"
-function resetSkillTrackers()
-  for i, guid in ipairs(TRACKER_GUIDS) do
-    local obj = getObjectFromGUID(guid)
-
-    if obj ~= nil then
-      obj.call("updateStats", { 1, 1, 1, 1 })
-    else
-      printToAll("Skill tracker for " .. COLORS[i] .. " playmat could not be found.", "Yellow")
-    end
+  for i = 1, 4 do
+    playmatApi.updateCounter(COLORS[i], "DamageCounter", RESET_VALUES.Damage[i])
+    playmatApi.updateCounter(COLORS[i], "HorrorCounter", RESET_VALUES.Horror[i])
   end
 end
 
 -- reset doom on agenda
 function resetDoomCounter()
-  local doomCounter = getObjectFromGUID("85c4c6")
-
+  local doomCounter = guidReferenceApi.getObjectByOwnerAndType("Mythos", "DoomCounter")
   if doomCounter ~= nil then
     doomCounter.call("updateVal")
   else
@@ -241,19 +153,19 @@ function resetDoomCounter()
   end
 end
 
--- gets the GUID of a custom data helper (if present) and adds it to the ignore list
+-- adds the ignore tag to the custom data helper
 function ignoreCustomDataHelper()
   local customDataHelper = playAreaApi.getCustomDataHelper()
   if customDataHelper then
-    table.insert(IGNORE_GUIDS, customDataHelper.getGUID())
+    customDataHelper.addTag(IGNORE_TAG)
   end
 end
 
 -- read values for trauma from campaign log if enabled
 function getTrauma()
   RESET_VALUES = {
-    0, 0, 0, 0,
-    0, 0, 0, 0
+    Damage = { 0, 0, 0, 0 },
+    Horror = { 0, 0, 0, 0 }
   }
 
   -- stop here if trauma import is disabled
@@ -263,13 +175,12 @@ function getTrauma()
   end
 
   -- get campaign log
-  campaignLog = findObjects(6)[1]
+  campaignLog = getObjectsWithTag("CampaignLog")[1]
   if campaignLog == nil then
     printToAll("Campaign log not found in standard position!", "Yellow")
     printToAll("Default values for health and sanity loaded.", "Yellow")
     return
   end
-  campaignLog = campaignLog.hit_object
   loadTrauma()
 end
 
@@ -280,7 +191,14 @@ function loadTrauma()
 
   if trauma ~= nil then
     printToAll("Trauma values found in campaign log!", "Green")
-    RESET_VALUES = campaignLog.call("returnTrauma")
+    trauma = campaignLog.call("returnTrauma")
+    for i = 1, 8 do
+      if i < 5 then
+        RESET_VALUES.Damage[i] = trauma[i]
+      else
+        RESET_VALUES.Horror[i-4] = trauma[i]
+      end
+    end
     loadingFailedBefore = false
   elseif loadingFailedBefore then
     printToAll("Trauma values could not be found in campaign log!", "Yellow")
@@ -303,7 +221,7 @@ end
 -- remove drawn lines
 function removeLines()
   if options["removeDrawnLines"] then
-    printToAll("Removing vector lines...", "White")
+    printToAll("Removing global vector lines...", "White")
     Global.setVectorLines({})
   end
 end
@@ -312,40 +230,42 @@ end
 function discardHands()
   if not options["tidyPlayermats"] then return end
   for i = 1, 4 do
-    local trashcan = getObjectFromGUID(TRASHCAN_GUIDS[i])
-    if trashcan == nil then return end
+    local trash = guidReferenceApi.getObjectByOwnerAndType(COLORS[i], "Trash")
+    if trash == nil then return end
     local hand = Player[playmatApi.getPlayerColor(COLORS[i])].getHandObjects()
     for j = #hand, 1, -1 do
-      trashcan.putObject(hand[j])
+      trash.putObject(hand[j])
     end
   end
 end
 
 -- clean up for play area
 function tidyPlayareaCoroutine()
-  local trashcan = getObjectFromGUID(TRASHCAN_GUIDS[5])
-  local PLAYMATZONE = getObjectFromGUID("a2f932")
+  local trash = guidReferenceApi.getObjectByOwnerAndType("Mythos", "Trash")
+  local playAreaZone = guidReferenceApi.getObjectByOwnerAndType("Mythos", "PlayAreaZone")
 
-  if PLAYMATZONE == nil then
+  if playAreaZone == nil then
     printToAll("Scripting zone for main play area could not be found!", "Red")
-  elseif trashcan == nil then
+  elseif trash == nil then
     printToAll("Trashcan for main play area could not be found!", "Red")
   else
-    for _, obj in ipairs(PLAYMATZONE.getObjects()) do
+    for _, obj in ipairs(playAreaZone.getObjects()) do
       -- ignore these elements
-      if not tableContains(IGNORE_GUIDS, obj.getGUID()) and obj.hasTag(IGNORE_TAG) == false then
+      if obj.hasTag(IGNORE_TAG) == false
+          and obj.locked == false 
+          and obj.interactable == true then
         coroutine.yield(0)
-        trashcan.putObject(obj)
+        trash.putObject(obj)
       end
     end
   end
 
-  printToAll("Tidying playermats and agenda mat...", "White")
+  printToAll("Tidying playermats and mythos area...", "White")
   startLuaCoroutine(self, "tidyPlayerMatCoroutine")
   return 1
 end
 
--- clean up for the four playermats and the agenda/act playmat
+-- clean up for the four playermats and the mythos area
 function tidyPlayerMatCoroutine()
   for i = 1, 5 do
     -- only continue for playermat (1-4) if option enabled
@@ -353,32 +273,39 @@ function tidyPlayerMatCoroutine()
       -- delay for animation purpose
       for k = 1, 30 do coroutine.yield(0) end
 
-      -- get respective trashcan
-      local trashcan = getObjectFromGUID(TRASHCAN_GUIDS[i])
-      if trashcan == nil then
+      -- get respective trash
+      local trash = guidReferenceApi.getObjectByOwnerAndType(COLORS[i], "Trash")
+      if trash == nil then
         printToAll("Trashcan for " .. COLORS[i] .. " playmat could not be found!", "Red")
         return 1
       end
 
-      for _, entry in ipairs(findObjects(i)) do
-        local obj = entry.hit_object
-        local desc_low = string.lower(obj.getDescription())
+      local objList
+      if i < 5 then
+        objList = playmatApi.searchAroundPlaymat(COLORS[i])
+      else
+        objList = searchMythosArea()
+      end
 
+      for _, obj in ipairs(objList) do
         -- ignore these elements
-        if not tableContains(IGNORE_GUIDS, obj.getGUID()) and obj.hasTag(IGNORE_TAG) == false and
-            desc_low ~= "chaos bag" and desc_low ~= "action token" then
+        if obj.hasTag(IGNORE_TAG) == false
+            and obj.getDescription() ~= "Action Token"
+            and obj.hasTag("chaosBag") == false
+            and obj.locked == false 
+            and obj.interactable == true then
           coroutine.yield(0)
-          trashcan.putObject(obj)
+          trash.putObject(obj)
 
-          -- flip action tokens back to ready
-        elseif desc_low == "action token" and obj.is_face_down then
+        -- flip action tokens back to ready
+        elseif obj.getDescription() == "Action Token" and obj.is_face_down then
           obj.flip()
         end
       end
 
       -- reset "activeInvestigatorId"
       if i < 5 then
-        local playermat = getObjectFromGUID(PLAYERMAT_GUIDS[i])
+        local playermat = guidReferenceApi.getObjectByOwnerAndType(COLORS[i], "Playermat")
         if playermat then
           playermat.setVar("activeInvestigatorId", "00000")
         end
@@ -386,7 +313,7 @@ function tidyPlayerMatCoroutine()
     end
   end
 
-  local datahelper = getObjectFromGUID("708279")
+  local datahelper = guidReferenceApi.getObjectByOwnerAndType("Mythos", "DataHelper")
   if datahelper then
     datahelper.setTable("SPAWNED_PLAYER_CARD_GUIDS", {})
   end
@@ -399,25 +326,21 @@ end
 -- helper functions
 ---------------------------------------------------------
 
--- find objects depending on index (1 to 4 for playermats, 5 for agenda/act playmat, 6 for campaign log)
-function findObjects(num)
-  return Physics.cast({
+-- find objects in the mythos area
+function searchMythosArea()
+  local searchResult = Physics.cast({
     direction    = { 0, 1, 0 },
     max_distance = 1,
     type         = 3,
-    size         = PHYSICS_SCALE[num],
-    origin       = PHYSICS_POSITION[num],
-    orientation  = { 0, PHYSICS_ROTATION[num], 0 },
+    size         = { 55, 1, 13.5 },
+    origin       = { -2, 2, 10 },
+    orientation  = { 0, 270, 0 },
     debug        = false
   })
-end
 
--- search a table for a value, return true if found (else returns false)
-function tableContains(table, value)
-  for _, v in ipairs(table) do
-    if v == value then
-      return true
-    end
+  local objList = {}
+  for _, v in ipairs(searchResult) do
+    table.insert(objList, v.hit_object)
   end
-  return false
+  return objList
 end
