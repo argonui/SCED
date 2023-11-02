@@ -48,6 +48,7 @@ local currentListItem = 1
 local xmlVisibility = {
   downloadWindow = false,
   optionPanel = false,
+  playareaGallery = false,
   updateNotification = false
 }
 local tabIdTable = {
@@ -184,6 +185,19 @@ end
 function tryObjectEnterContainer(container, object)
   playAreaApi.tryObjectEnterContainer(container, object)
   return true
+end
+
+-- TTS event for objects that enter zones
+-- used to detect the "token discard zones" beneath the hand zones
+function onObjectEnterZone(zone, enteringObj)
+  if zone.getName() ~= "TokenDiscardZone" then return end
+  if tokenChecker.isChaosToken(enteringObj) then return end
+  
+  if enteringObj.type == "Tile" and enteringObj.getMemo() and enteringObj.getLock() == false then
+    local matcolor = playmatApi.getMatColorByPosition(enteringObj.getPosition())
+    local trash = guidReferenceApi.getObjectByOwnerAndType(matcolor, "Trash")
+    trash.putObject(enteringObj)
+  end
 end
 
 ---------------------------------------------------------
@@ -846,6 +860,12 @@ function onClick_toggleUi(player, title)
   if title == "Navigation Overlay" then
     navigationOverlayApi.cycleVisibility(player.color)
     return
+  -- hide the playareaGallery if visible
+  elseif title == "downloadWindow" and xmlVisibility.playareaGallery then
+    onClick_toggleUi(_, "playareaGallery")
+  -- hide the downloadWindow if visible
+  elseif title == "playareaGallery" and xmlVisibility.downloadWindow then
+    onClick_toggleUi(_, "downloadWindow")
   end
 
   if xmlVisibility[title] then
@@ -855,6 +875,11 @@ function onClick_toggleUi(player, title)
     UI.show(title)
   end
   xmlVisibility[title] = not xmlVisibility[title]
+end
+
+-- forwards the call to the onClick function
+function togglePlayareaGallery()
+  onClick_toggleUi(_, "playareaGallery")
 end
 
 -- updates the preview window
@@ -1165,10 +1190,6 @@ function applyOptionPanelChange(id, state)
   elseif id == "showCYOA" then
     optionPanel[id] = spawnOrRemoveHelper(state, "CYOA Campaign Guides", {39, 1.3, -20})
 
-  -- option: Show custom playmat images
-  elseif id == "showCustomPlaymatImages" then
-    optionPanel[id] = spawnOrRemoveHelper(state, "Custom Playmat Images", {67.5, 1.6, 37})
-
   -- option: Show displacement tool
   elseif id == "showDisplacementTool" then
     optionPanel[id] = spawnOrRemoveHelper(state, "Displacement Tool", {-57, 1.6, 46})
@@ -1232,7 +1253,6 @@ function removeHelperObject(name)
     ["Hand Helper"]           = "showHandHelper",
     ["Search Assistant"]      = "showSearchAssistant",
     ["Displacement Tool"]     = "showDisplacementTool",
-    ["Custom Playmat Images"] = "showCustomPlaymatImages",
     ["Attachment Helper"]     = "showAttachmentHelper",
     ["CYOA Campaign Guides"]  = "showCYOA"
   }
@@ -1279,7 +1299,6 @@ function onClick_defaultSettings()
     playAreaSnapTags = true,
     showAttachmentHelper = false,
     showCleanUpHelper = false,
-    showCustomPlaymatImages = false,
     showCYOA = false,
     showDisplacementTool = false,
     showDrawButton = false,
