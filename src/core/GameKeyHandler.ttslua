@@ -49,51 +49,56 @@ end
 
 -- discard the hovered object to the respective trashcan and discard tokens on it if it was a card
 function discardObject(playerColor, hoveredObject)
-  if hoveredObject == nil then
+  -- only continue if an unlocked card, deck or tile was hovered
+  if hoveredObject == nil
+      or hoveredObject.type ~= "Card"
+      and hoveredObject.type ~= "Deck"
+      and hoveredObject.type ~= "Tile"
+      and not hoveredObject.locked then
     broadcastToColor("Hover a token/tile or a card/deck and try again.", playerColor, "Yellow")
     return
   end
 
-  -- check if in playareazone
-  local playAreaZone = guidReferenceApi.getObjectByOwnerAndType("Mythos", "PlayAreaZone")
-  local isInPlayAreaZone = false
-  for _, zone in ipairs(hoveredObject.getZones()) do
-    if zone == playAreaZone then
-      isInPlayAreaZone = true
-      break
-    end
+  -- warning for locations since these are usually not meant to be discarded
+  if hoveredObject.hasTag("Location") then
+    broadcastToAll("Watch out: A location was discarded.", "Yellow")
   end
 
-  if hoveredObject.type == "Card" or hoveredObject.type == "Deck" then
-    if hoveredObject.hasTag("Location") then
-      broadcastToAll("Watch out: A location was discarded.", "Yellow")
-    end
+  -- initialize list of objects to discard
+  local discardTheseObjects = { hoveredObject }
 
-    -- discard tokens / tiles on it
-    local discardTheseObjects = { hoveredObject }
+  -- discard tokens / tiles on cards / decks
+  if hoveredObject.type ~= "Tile" then
     for _, v in ipairs(searchOnObj(hoveredObject)) do
       if v.hit_object.type == "Tile" then
         table.insert(discardTheseObjects, v.hit_object)
       end
     end
-
-    local matColor
-    if isInPlayAreaZone then
-      matColor = playmatApi.getMatColor(playerColor)
-    else
-      matColor = playmatApi.getMatColorByPosition(hoveredObject.getPosition())
-    end
-    playmatApi.discardListOfObjects(matColor, discardTheseObjects)
-  elseif hoveredObject.type == "Tile" and not hoveredObject.locked then
-    local owner
-    if isInPlayAreaZone then
-      owner = "Mythos"
-    else
-      owner = playmatApi.getMatColorByPosition(hoveredObject.getPosition())
-    end
-    local trash = guidReferenceApi.getObjectByOwnerAndType(owner, "Trash")
-    trash.putObject(hoveredObject)
   end
+
+  local pos = hoveredObject.getPosition()
+  local closestMatColor = playmatApi.getMatColorByPosition(pos)
+
+  -- check if actually on the closest playmat
+  local closestMat = guidReferenceApi.getObjectByOwnerAndType(closestMatColor, "Playermat")
+  local bounds = closestMat.getBounds()
+
+  -- define the area "near" the playmat
+  local bufferAroundPlaymat = 2
+  local areaNearPlaymat = {}
+  areaNearPlaymat.minX = bounds.center.x - bounds.size.x / 2 - bufferAroundPlaymat
+  areaNearPlaymat.maxX = bounds.center.x + bounds.size.x / 2 + bufferAroundPlaymat
+  areaNearPlaymat.minZ = bounds.center.z - bounds.size.z / 2 - bufferAroundPlaymat
+  areaNearPlaymat.maxZ = bounds.center.z + bounds.size.z / 2 + bufferAroundPlaymat
+
+  -- discard to closest mat if near it, use triggering playmat if not
+  local discardForMatColor
+  if inArea(pos, areaNearPlaymat) then
+    discardForMatColor = closestMatColor
+  else
+    discardForMatColor = playmatApi.getMatColor(playerColor)
+  end
+  playmatApi.discardListOfObjects(discardForMatColor, discardTheseObjects)
 end
 
 -- moves the hovered card to the victory display
@@ -201,4 +206,14 @@ function searchOnObj(obj)
     size         = obj.getBounds().size,
     origin       = obj.getPosition()
   })
+end
+
+-- Simple method to check if the given point is in a specified area
+---@param point Vector Point to check, only x and z values are relevant
+---@param bounds Table Defined area to see if the point is within
+function inArea(point, bounds)
+  return (point.x > bounds.minX
+      and point.x < bounds.maxX
+      and point.z > bounds.minZ
+      and point.z < bounds.maxZ)
 end
