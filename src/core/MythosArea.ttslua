@@ -127,20 +127,34 @@ end
 -- encounter card drawing
 ---------------------------------------------------------
 
+-- gets the encounter deck (for internal functions and Api calls)
+function getEncounterDeck()
+  local search = searchArea(ENCOUNTER_DECK_POS, { 3, 1, 4 }, isCardOrDeck)
+
+  for _, v in ipairs(search) do
+    local obj = v.hit_object
+    if obj.type == 'Deck' then
+      return obj
+    end
+  end
+  
+  -- if no deck was found, return the first hit (a card)
+  if #search > 0 then
+    return search[1].hit_object
+  end
+end
+
 -- 'params' contains the position, rotation and a boolean to force a faceup draw
 function drawEncounterCard(params)
   local card
-  local items = searchArea(ENCOUNTER_DECK_POS, { 3, 1, 4 }, isCardOrDeck)
-  if #items > 0 then
-    for _, j in ipairs(items) do
-      local v = j.hit_object
-      if v.tag == 'Deck' then
-        card = v.takeObject({ index = 0 })
-        break
-      end
+  local deck = getEncounterDeck()
+
+  if deck then
+    if deck.type == "Deck" then
+      card = deck.takeObject()
+    else
+      card = deck
     end
-    -- we didn't find the deck so just pull the first thing we did find
-    if card == nil then card = items[1].hit_object end
     actualEncounterCardDraw(card, params)
   else
     -- nothing here, time to reshuffle
