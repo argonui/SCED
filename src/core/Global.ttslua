@@ -1020,6 +1020,14 @@ function contentDownloadCallback(request, params)
     end
   end
 
+  -- if position is undefined, get empty position
+  if not spawnTable.position then
+    spawnTable.rotation = { 0, 270, 0}
+
+    local pos = getValidSpawnPosition()
+    if pos then spawnTable.position = pos end
+  end
+
   -- if spawned from menu, ping the position
   if params.name then
     spawnTable["callback_function"] = function(obj)
@@ -1032,6 +1040,41 @@ function contentDownloadCallback(request, params)
   else
     print('Error loading object.')
   end
+end
+
+-- gets the first empty position to spawn a custom content object safely
+function getValidSpawnPosition()
+  local potentialSpawnPositionX = { 65, 50, 35 }
+  local potentialSpawnPositionY = 1.5
+  local potentialSpawnPositionZ = { 35, 21, 7, -7, -21, -35 }
+
+  for i, posX in ipairs(potentialSpawnPositionX) do
+    for j, posZ in ipairs(potentialSpawnPositionZ) do
+      local pos = {
+        x = posX,
+        y = potentialSpawnPositionY,
+        z = posZ,
+      }
+      if checkPositionForContentSpawn(pos) then
+        return pos
+      end
+    end
+  end
+  return nil
+end
+
+-- checks whether something is in the specified position
+-- returns true if empty
+function checkPositionForContentSpawn(checkPos)
+  local search = Physics.cast({
+    direction    = { 0, 1, 0 },
+    max_distance = 0.1,
+    type         = 3,
+    size         = { 0.1, 0.1, 0.1 },
+    origin       = checkPos
+  })
+  -- first hit is the table surface, additional hits means something is there
+  return #search == 1
 end
 
 -- downloading of the library file
