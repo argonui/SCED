@@ -692,8 +692,10 @@ function onClick_select(_, _, identificationKey)
 end
 
 -- click function for the download button in the preview window
-function onClick_download()
-  placeholder_download(library[contentToShow][currentListItem])
+function onClick_download(player)
+  local params = library[contentToShow][currentListItem]
+  params.player = player
+  placeholder_download(params)
 end
 
 -- the download button on the placeholder objects calls this to directly initiate a download
@@ -1032,10 +1034,24 @@ function contentDownloadCallback(request, params)
     end
   end
 
-  -- if spawned from menu, ping the position
+  -- if spawned from menu, move the camera and/or ping the table
   if params.name then
     spawnTable["callback_function"] = function(obj)
-      Player.getPlayers()[1].pingTable(obj.getPosition())
+      Wait.time(function()
+        -- move camera
+        if params.player then
+          params.player.lookAt({
+            position = obj.getPosition(),
+            pitch    = 65,
+            yaw      = 90,
+            distance = 65
+          })
+        end
+        
+        -- ping object
+        local pingPlayer = params.player or Player.getPlayers()[1]
+        pingPlayer.pingTable(obj.getPosition())
+      end, 0.1)
     end
   end
 
