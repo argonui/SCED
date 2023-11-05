@@ -9,6 +9,7 @@ function onLoad()
   addHotkey("Bless/Curse Status", showBlessCurseStatus)
   addHotkey("Discard Object", discardObject)
   addHotkey("Move card to Victory Display", moveCardToVictoryDisplay)
+  addHotkey("Remove a use", removeOneUse)
   addHotkey("Take clue from location", takeClueFromLocation)
   addHotkey("Upkeep", triggerUpkeep)
   addHotkey("Upkeep (Multi-handed)", triggerUpkeepMultihanded)
@@ -51,10 +52,8 @@ end
 function discardObject(playerColor, hoveredObject)
   -- only continue if an unlocked card, deck or tile was hovered
   if hoveredObject == nil
-      or hoveredObject.type ~= "Card"
-      and hoveredObject.type ~= "Deck"
-      and hoveredObject.type ~= "Tile"
-      and not hoveredObject.locked then
+      or (hoveredObject.type ~= "Card" and hoveredObject.type ~= "Deck" and hoveredObject.type ~= "Tile")
+      or hoveredObject.locked then
     broadcastToColor("Hover a token/tile or a card/deck and try again.", playerColor, "Yellow")
     return
   end
@@ -76,6 +75,12 @@ function discardObject(playerColor, hoveredObject)
     end
   end
 
+  local discardForMatColor = getColorToDiscardFor(hoveredObject, playerColor)
+  playmatApi.discardListOfObjects(discardForMatColor, discardTheseObjects)
+end
+
+-- helper function to get the player to trigger the discard function for
+function getColorToDiscardFor(hoveredObject, playerColor)
   local pos = hoveredObject.getPosition()
   local closestMatColor = playmatApi.getMatColorByPosition(pos)
 
@@ -94,16 +99,75 @@ function discardObject(playerColor, hoveredObject)
   -- discard to closest mat if near it, use triggering playmat if not
   local discardForMatColor
   if inArea(pos, areaNearPlaymat) then
-    discardForMatColor = closestMatColor
+    return closestMatColor
   else
-    discardForMatColor = playmatApi.getMatColor(playerColor)
+    return playmatApi.getMatColor(playerColor)
   end
-  playmatApi.discardListOfObjects(discardForMatColor, discardTheseObjects)
 end
 
 -- moves the hovered card to the victory display
 function moveCardToVictoryDisplay(_, hoveredObject)
   victoryDisplayApi.placeCard(hoveredObject)
+end
+
+-- removes a use from a card (or a token if hovered)
+function removeOneUse(playerColor, hoveredObject)
+  -- only continue if an unlocked card or tile was hovered
+  if hoveredObject == nil
+      or (hoveredObject.type ~= "Card" and hoveredObject.type ~= "Tile")
+      or hoveredObject.locked then
+    broadcastToColor("Hover a token/tile or a card and try again.", playerColor, "Yellow")
+    return
+  end
+
+  local targetObject = nil
+
+  -- discard hovered token / tile
+  if hoveredObject.type == "Tile" then
+    targetObject = hoveredObject
+  elseif hoveredObject.type == "Card" then
+    -- grab the first use type from the metadata (or nil)
+    local notes = JSON.decode(hoveredObject.getGMNotes()) or {}
+    local usesData = notes.uses or {}
+    local useInfo = usesData[1] or {}
+    local searchForType = useInfo.type
+    if searchForType then searchForType = searchForType:lower() end
+
+    for _, v in ipairs(searchOnObj(hoveredObject)) do
+      local obj = v.hit_object
+      if obj.type == "Tile" and not obj.locked then
+        -- check for matching object, otherwise use the first hit
+        if obj.memo == searchForType then
+          targetObject = obj
+          break
+        elseif not targetObject then
+          targetObject = obj
+        end
+      end
+    end
+  end
+
+  -- error handling
+  if not targetObject then
+    broadcastToColor("No tokens found!", playerColor, "Yellow")
+    return
+  end
+
+  -- feedback message
+  local tokenName = targetObject.getName()
+  if tokenName == "" then
+    if targetObject.memo ~= "" then
+      tokenName = titleCase(targetObject.memo)
+    else
+      tokenName = "Unknown"
+    end
+  end
+
+  local playerName = Player[playerColor].steam_name
+  broadcastToAll(playerName .. " removed a token: " .. tokenName, playerColor)
+
+  local discardForMatColor = getColorToDiscardFor(hoveredObject, playerColor)
+  playmatApi.discardListOfObjects(discardForMatColor, { targetObject })
 end
 
 -- takes a clue from a location, player needs to hover the clue directly or the location
@@ -216,4 +280,11 @@ function inArea(point, bounds)
       and point.x < bounds.maxX
       and point.z > bounds.minZ
       and point.z < bounds.maxZ)
+end
+
+-- capitalizes the first letter
+function titleCase(str)
+  local first = str:sub(1, 1)
+  local rest = str:sub(2)
+  return first:upper() .. rest:lower()
 end
