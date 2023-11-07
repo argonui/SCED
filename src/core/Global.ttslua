@@ -692,8 +692,10 @@ function onClick_select(_, _, identificationKey)
 end
 
 -- click function for the download button in the preview window
-function onClick_download()
-  placeholder_download(library[contentToShow][currentListItem])
+function onClick_download(player)
+  local params = library[contentToShow][currentListItem]
+  params.player = player
+  placeholder_download(params)
 end
 
 -- the download button on the placeholder objects calls this to directly initiate a download
@@ -1020,10 +1022,37 @@ function contentDownloadCallback(request, params)
     end
   end
 
-  -- if spawned from menu, ping the position
+  -- if position is undefined, get empty position
+  if not spawnTable.position then
+    spawnTable.rotation = { 0, 270, 0}
+
+    local pos = getValidSpawnPosition()
+    if pos then
+      spawnTable.position = pos
+    else
+      broadcastToAll("Please make space in the area below the tentacle stand in the upper middle of the table and try again.", "Red")
+      return
+    end
+  end
+
+  -- if spawned from menu, move the camera and/or ping the table
   if params.name then
     spawnTable["callback_function"] = function(obj)
-      Player.getPlayers()[1].pingTable(obj.getPosition())
+      Wait.time(function()
+        -- move camera
+        if params.player then
+          params.player.lookAt({
+            position = obj.getPosition(),
+            pitch    = 65,
+            yaw      = 90,
+            distance = 65
+          })
+        end
+        
+        -- ping object
+        local pingPlayer = params.player or Player.getPlayers()[1]
+        pingPlayer.pingTable(obj.getPosition())
+      end, 0.1)
     end
   end
 
@@ -1032,6 +1061,41 @@ function contentDownloadCallback(request, params)
   else
     print('Error loading object.')
   end
+end
+
+-- gets the first empty position to spawn a custom content object safely
+function getValidSpawnPosition()
+  local potentialSpawnPositionX = { 65, 50, 35 }
+  local potentialSpawnPositionY = 1.5
+  local potentialSpawnPositionZ = { 35, 21, 7, -7, -21, -35 }
+
+  for i, posX in ipairs(potentialSpawnPositionX) do
+    for j, posZ in ipairs(potentialSpawnPositionZ) do
+      local pos = {
+        x = posX,
+        y = potentialSpawnPositionY,
+        z = posZ,
+      }
+      if checkPositionForContentSpawn(pos) then
+        return pos
+      end
+    end
+  end
+  return nil
+end
+
+-- checks whether something is in the specified position
+-- returns true if empty
+function checkPositionForContentSpawn(checkPos)
+  local search = Physics.cast({
+    direction    = { 0, 1, 0 },
+    max_distance = 0.1,
+    type         = 3,
+    size         = { 0.1, 0.1, 0.1 },
+    origin       = checkPos
+  })
+  -- first hit is the table surface, additional hits means something is there
+  return #search == 1
 end
 
 -- downloading of the library file
