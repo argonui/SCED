@@ -62,19 +62,19 @@ local DECK_DISCARD_AREA = {
   },
   center = {
     x = -1.82,
-    y = 0.1,
+    y = 0.5,
     z = 0.305
   },
   size = {
     x = 0.4,
-    y = 1,
+    y = 3,
     z = 1.1
   }
 }
 
 -- local position of draw and discard pile
-local DRAW_DECK_POSITION    = { x = -1.82, y = 0, z = 0 }
-local DISCARD_PILE_POSITION = { x = -1.82, y = 0, z = 0.61 }
+local DRAW_DECK_POSITION    = { x = -1.82, y = 0.1, z = 0 }
+local DISCARD_PILE_POSITION = { x = -1.82, y = 0.1, z = 0.61 }
 
 -- global position of encounter discard pile
 local ENCOUNTER_DISCARD_POSITION = { x = -3.85, y = 1.5, z = 10.38}
@@ -419,81 +419,108 @@ end
 
 -- draw X cards (shuffle discards if necessary)
 function drawCardsWithReshuffle(numCards)
-  getDrawDiscardDecks()
+  local deckAreaObjects = getDeckAreaObjects()
 
   -- Norman Withers handling
-  if string.match(activeInvestigatorId, "%d%d%d%d%d") == "08004" then
-    local harbinger = false
-    if topCard ~= nil and topCard.getName() == "The Harbinger" then
+  local harbinger = false
+  if deckAreaObjects.topCard and deckAreaObjects.topCard.getName() == "The Harbinger" then
+    harbinger = true
+  elseif deckAreaObjects.draw and not deckAreaObjects.draw.is_face_down then
+    local cards = deckAreaObjects.draw.getObjects()
+    if cards[#cards].name == "The Harbinger" then
       harbinger = true
-    elseif drawDeck ~= nil and not drawDeck.is_face_down then
-      local cards = drawDeck.getObjects()
-      if cards[#cards].name == "The Harbinger" then
-        harbinger = true
-      end
     end
+  end
 
-    if harbinger then
-      printToColor("The Harbinger is on top of your deck, not drawing cards", messageColor)
+  if harbinger then
+    printToColor("The Harbinger is on top of your deck, not drawing cards", messageColor)
+    return
+  end
+
+  local topCardDetected = false
+  if deckAreaObjects.topCard ~= nil then
+    deckAreaObjects.topCard.deal(1, playerColor)
+    topCardDetected = true
+    numCards = numCards - 1
+    if numCards == 0 then
+      flipTopCardFromDeck()
       return
-    end
-
-    if topCard ~= nil then
-      topCard.deal(numCards, playerColor)
-      numCards = numCards - 1
-      if numCards == 0 then return end
     end
   end
 
   local deckSize = 1
-  if drawDeck == nil then
+  if deckAreaObjects.draw == nil then
     deckSize = 0
-  elseif drawDeck.tag == "Deck" then
-    deckSize = #drawDeck.getObjects()
+  elseif deckAreaObjects.draw.type == "Deck" then
+    deckSize = #deckAreaObjects.draw.getObjects()
   end
 
   if deckSize >= numCards then
     drawCards(numCards)
-    return
+    if topCardDetected then flipTopCardFromDeck() end
+  else
+    drawCards(deckSize)
+    if deckAreaObjects.discard ~= nil then
+      shuffleDiscardIntoDeck()
+      Wait.time(function()
+        drawCards(numCards - deckSize)
+        if topCardDetected then flipTopCardFromDeck() end
+      end, 1)
+    end
+    printToColor("Take 1 horror (drawing card from empty deck)", messageColor)
   end
-
-  drawCards(deckSize)
-  if discardPile ~= nil then
-    shuffleDiscardIntoDeck()
-    Wait.time(|| drawCards(numCards - deckSize), 1)
-  end
-  printToColor("Take 1 horror (drawing card from empty deck)", messageColor)
 end
 
--- get the draw deck and discard pile objects
-function getDrawDiscardDecks()
-  drawDeck = nil
-  discardPile = nil
-  topCard = nil
-
+-- get the draw deck and discard pile objects and returns the references
+function getDeckAreaObjects()
+  local deckAreaObjects = {}
   for _, object in ipairs(searchDeckAndDiscardArea(isCardOrDeck)) do
     if self.positionToLocal(object.getPosition()).z > 0.5 then
-      discardPile = object
+      deckAreaObjects.discard = object
     -- Norman Withers handling
-    elseif string.match(activeInvestigatorId, "%d%d%d%d%d") == "08004" and not object.is_face_down then
-      topCard = object
+    elseif object.type == "Card" and not object.is_face_down then
+      deckAreaObjects.topCard = object
     else
-      drawDeck = object
+      deckAreaObjects.draw = object
     end
   end
+  return deckAreaObjects
 end
 
 function drawCards(numCards)
-  if drawDeck == nil then return end
-  drawDeck.deal(numCards, playerColor)
+  local deckAreaObjects = getDeckAreaObjects()
+  if deckAreaObjects.draw then
+    deckAreaObjects.draw.deal(numCards, playerColor)
+  end
 end
 
 function shuffleDiscardIntoDeck()
-  if not discardPile.is_face_down then discardPile.flip() end
-  discardPile.shuffle()
-  discardPile.setPositionSmooth(self.positionToWorld(DRAW_DECK_POSITION), false, false)
-  drawDeck = discardPile
-  discardPile = nil
+  local deckAreaObjects = getDeckAreaObjects()
+  if not deckAreaObjects.discard.is_face_down then
+    deckAreaObjects.discard.flip()
+  end
+  deckAreaObjects.discard.shuffle()
+  deckAreaObjects.discard.setPositionSmooth(self.positionToWorld(DRAW_DECK_POSITION), false, false)
+end
+
+-- utility function for Norman Withers to flip the top card to the revealed side
+function flipTopCardFromDeck()
+  log("called")
+  Wait.time(function()
+    local deckAreaObjects = getDeckAreaObjects()
+    if deckAreaObjects.topCard then
+      return
+    elseif deckAreaObjects.draw then
+      if deckAreaObjects.draw.type == "Card" then
+        deckAreaObjects.draw.flip()
+      else
+        -- get bounds to know the height of the deck
+        local bounds = deckAreaObjects.draw.getBounds()
+        local pos = bounds.center + Vector(0, bounds.size.y / 2 + 0.2, 0)
+        deckAreaObjects.draw.takeObject({ position = pos, flip = true })
+      end
+    end
+  end, 0.1)
 end
 
 -- discard a random non-hidden card from hand
