@@ -226,26 +226,23 @@ end
 -- Discard buttons
 ---------------------------------------------------------
 
--- builds a function that discards things in searchPosition
--- stuff on the card/deck will be put into the local trashcan
-function makeDiscardHandlerFor(searchPosition)
-  return function ()
-    local origin = self.positionToWorld(searchPosition)
-    for _, obj in ipairs(searchArea(origin, {2, 1, 3.2})) do
-      if isCardOrDeck(obj) then
-        if obj.hasTag("PlayerCard") then
-          placeOrMergeIntoDeck(obj, returnGlobalDiscardPosition(), self.getRotation())
-        else
-          placeOrMergeIntoDeck(obj, ENCOUNTER_DISCARD_POSITION, {x = 0, y = -90, z = 0})
-        end
-      -- put chaos tokens back into bag (e.g. Unrelenting)
-      elseif tokenChecker.isChaosToken(obj) then
-        local chaosBag = chaosBagApi.findChaosBag()
-        chaosBag.putObject(obj)
-      -- don't touch the table or this playmat itself
-      elseif obj.guid ~= "4ee1f2" and obj ~= self then
-        ownedObjects.Trash.putObject(obj)
+-- handles discarding for a list of objects
+---@param objList Table List of objects to discard
+function discardListOfObjects(objList)
+  for _, obj in ipairs(objList) do
+    if isCardOrDeck(obj) then
+      if obj.hasTag("PlayerCard") then
+        placeOrMergeIntoDeck(obj, returnGlobalDiscardPosition(), self.getRotation())
+      else
+        placeOrMergeIntoDeck(obj, ENCOUNTER_DISCARD_POSITION, {x = 0, y = -90, z = 0})
       end
+    -- put chaos tokens back into bag (e.g. Unrelenting)
+    elseif tokenChecker.isChaosToken(obj) then
+      local chaosBag = chaosBagApi.findChaosBag()
+      chaosBag.putObject(obj)
+    -- don't touch locked objects (like the table etc.)
+    elseif not obj.getLock() then
+      ownedObjects.Trash.putObject(obj)
     end
   end
 end
@@ -282,7 +279,7 @@ function placeOrMergeIntoDeck(obj, pos, rot)
    function()
     obj.use_hands = true
     -- this avoids a TTS bug that merges unrelated cards that are not resting
-    if #searchResult == 1 then
+    if #searchResult == 1 and searchResult[1] ~= obj then
       -- call this with avoiding errors (physics is sometimes too fast so the object doesn't exist for the put)
       pcall(function() searchResult[1].putObject(obj) end)
     end
@@ -294,9 +291,13 @@ end
 function makeDiscardButton(xValue, number)
   local position = { xValue, 0.1, -0.94}
   local searchPosition = {-position[1], position[2], position[3] + 0.32}
-  local handler = makeDiscardHandlerFor(searchPosition)
   local handlerName = 'handler' .. number
-  self.setVar(handlerName, handler)
+  self.setVar(handlerName, function()
+    local cardSizeSearch = {2, 1, 3.2}
+    local globalSearchPosition = self.positionToWorld(searchPosition)
+    local searchResult = searchArea(globalSearchPosition, cardSizeSearch)
+    return discardListOfObjects(searchResult)
+  end)
   self.createButton({
     label = "Discard",
     click_function = handlerName,
@@ -504,7 +505,6 @@ end
 
 -- utility function for Norman Withers to flip the top card to the revealed side
 function flipTopCardFromDeck()
-  log("called")
   Wait.time(function()
     local deckAreaObjects = getDeckAreaObjects()
     if deckAreaObjects.topCard then
@@ -892,7 +892,7 @@ function clickableClues(showCounter)
   local clueCount = 0
   
   -- move clue counters
-  local modY = showcounter and -0.525 or 0.525
+  local modY = showCounter and 0.525 or -0.525
   ownedObjects.ClickableClueCounter.setPosition(clickerPos + Vector(0, modY, 0))
 
   if showCounter then
