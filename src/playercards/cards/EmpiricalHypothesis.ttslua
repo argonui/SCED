@@ -1,0 +1,114 @@
+local playmatApi                = require("playermat/PlaymatApi")
+local upgradeSheetLibrary       = require("playercards/customizable/UpgradeSheetLibrary")
+
+-- common button parameters
+local buttonParameters                = {}
+buttonParameters.function_owner = self
+buttonParameters.height         = 160
+buttonParameters.width          = 1000
+buttonParameters.font_size      = 84
+buttonParameters.font_color     = { 1.0, 1.0, 1.0 }
+buttonParameters.color          = Color.Black
+buttonParameters.position       = {}
+buttonParameters.position.x     = 0
+buttonParameters.position.y     = 0.6
+buttonParameters.position.z     = -1.05
+initialButtonPosition           = buttonParameters.position.z
+
+-- vertical offset between buttons
+local verticalOffset                  = 0.325
+
+-- list of customizable labels
+local customizableList = {
+  'Run out of cards in hand',
+  'Take damage/horror',
+  'Discard treachery/enemy',
+  'Enter 3 or more shroud'
+}
+
+-- index of the currently selected button (0-indexed from the top)
+local activeButtonIndex
+
+function onSave()
+  return JSON.encode(activeButtonIndex)
+end
+
+function onLoad(savedData)
+  self.addContextMenuItem("Enable Helper", createButtons)
+  self.addContextMenuItem("Clear Helper", deleteButtons)
+
+  activeButtonIndex = JSON.decode(savedData)
+  if activeButtonIndex and activeButtonIndex ~= "" then
+    local tempButtonIndex = activeButtonIndex
+    createButtons()
+    if tempButtonIndex >= 0 then
+      selectButton(tempButtonIndex)
+    end
+  end
+end
+
+-- marks a button as active
+---@param index Number Index of the button to mark (starts at 0 from the top)
+function selectButton(index)
+  local lastindex = #hypothesisList - 1
+  for i = 0, lastindex do
+    local color = Color.Black
+    if i == index then
+      color = Color.Red
+      activeButtonIndex = i
+    end
+    self.editButton({ index = i, color = color })
+  end
+end
+
+function deleteButtons()
+  self.clearButtons()
+  self.clearContextMenu()
+  self.addContextMenuItem("Enable Helper", createButtons)
+  buttonParameters.position.z = initialButtonPosition            -- reset the z position
+end
+
+-- Create buttons based on the button parameters
+function createButtons()
+  self.clearContextMenu()
+  self.addContextMenuItem("Clear Helper", deleteButtons)
+
+  -- reset the list in case of addition of checkboxes or Refine
+  hypothesisList     = {
+    'Succeed by 3 or more',
+    'Fail by 2 or more'
+  }
+
+  -- set activeButtonIndex to restore state onLoad ("-1" -> nothing selected)
+  activeButtonIndex = -1
+
+  -- get the upgradesheet and check for more conditions
+  local upgradeSheet = findUpgradeSheet()
+  if upgradeSheet then
+    for i = 1, 4 do
+      if upgradeSheet.call("isUpgradeActive", i) then
+        table.insert(hypothesisList, customizableList[i])
+      end
+    end
+  end
+
+  for i, label in ipairs(hypothesisList) do
+    buttonParameters.click_function = "selectButton" .. i
+    self.setVar(buttonParameters.click_function, function() selectButton(i - 1) end)
+    buttonParameters.label = label
+    self.createButton(buttonParameters)
+    buttonParameters.position.z = buttonParameters.position.z + verticalOffset
+  end
+end
+
+function findUpgradeSheet()
+  matColor = playmatApi.getMatColorByPosition(self.getPosition())
+  local result = playmatApi.searchAroundPlaymat(matColor, filter)
+  for j, card in ipairs(result) do
+    local metadata = JSON.decode(card.getGMNotes()) or {}
+
+    if metadata.id == "09041-c" then
+      return card
+    end
+  end
+end
