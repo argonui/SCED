@@ -1,14 +1,15 @@
 require("core/PlayAreaImageData") -- this fills the variable "PLAYAREA_IMAGE_DATA"
 local playAreaApi = require("core/PlayAreaApi")
-local typeIndex, selectionIndex
+local typeIndex, selectionIndex, plainNameCache
 
-function onSave() return JSON.encode({typeIndex = typeIndex, selectionIndex = selectionIndex}) end
+function onSave() return JSON.encode({ typeIndex = typeIndex, selectionIndex = selectionIndex }) end
 
 function onLoad(savedData)
   self.createButton({
     function_owner = self,
     click_function = "onClick_toggleGallery",
     tooltip        = "Show Image Gallery",
+    position       = {0, 0.06, 0},
     height         = 1500,
     width          = 1500,
     color          = { 1, 1, 1, 0 }
@@ -17,17 +18,18 @@ function onLoad(savedData)
   local loadedData = JSON.decode(savedData) or {}
   typeIndex        = loadedData.typeIndex or 1
   selectionIndex   = loadedData.selectionIndex or 1
-  Wait.time(updatePlayareaGallery, 0.5)
+  Wait.time(updatePlayAreaGallery, 0.5)
+  math.randomseed(os.time())
 end
 
 -- click function for main button
 function onClick_toggleGallery()
-  Global.call("togglePlayareaGallery")
+  Global.call("togglePlayAreaGallery")
 end
 
 function onClick_defaultImage()
   playAreaApi.updateSurface()
-  Global.call("togglePlayareaGallery")
+  Global.call("togglePlayAreaGallery")
 end
 
 function getDataSubTableByIndex(dataTable, index)
@@ -39,7 +41,7 @@ function getDataSubTableByIndex(dataTable, index)
   return {}
 end
 
-function updatePlayareaGallery()
+function updatePlayAreaGallery()
   -- get subtables
   local dataForType = getDataSubTableByIndex(PLAYAREA_IMAGE_DATA, typeIndex)
   local dataForSelection = getDataSubTableByIndex(dataForType, selectionIndex)
@@ -97,12 +99,12 @@ end
 function onClick_imageTab(_, _, tabId)
   typeIndex = tonumber(tabId:sub(9))
   selectionIndex = 1
-  updatePlayareaGallery()
+  updatePlayAreaGallery()
 end
 
 function onClick_listItem(_, _, listId)
   selectionIndex = tonumber(listId:sub(10))
-  updatePlayareaGallery()
+  updatePlayAreaGallery()
 end
 
 function onClick_image(_, _, id)
@@ -111,7 +113,7 @@ function onClick_image(_, _, id)
   local dataForSelection = getDataSubTableByIndex(dataForType, selectionIndex)
   local newURL = dataForSelection[imageIndex].URL
   playAreaApi.updateSurface(newURL)
-  Global.call("togglePlayareaGallery")
+  Global.call("togglePlayAreaGallery")
 end
 
 function highlightTabAndItem()
@@ -145,4 +147,55 @@ end
 function round(num, numDecimalPlaces)
   local mult = 10 ^ (numDecimalPlaces or 0)
   return math.floor(num * mult + 0.5) / mult
+end
+
+function maybeUpdatePlayAreaImage(scenarioName)
+  -- initialize cache if nil
+  if not plainNameCache then
+    plainNameCache = {}
+    for i, dataForType in pairs(PLAYAREA_IMAGE_DATA) do
+      for j, dataForCycle in pairs(dataForType) do
+        for k, data in ipairs(dataForCycle) do
+          local plainName = getPlainName(data.Name)
+          log(plainName)
+          if not plainNameCache[plainName] then
+            plainNameCache[plainName] = {}
+          end
+          table.insert(plainNameCache[plainName], data.URL)
+        end
+      end
+    end
+  end
+
+  -- look for matching playarea image or use generic ones instead
+  local listOfEligibleImages = {}
+  if plainNameCache[scenarioName] then
+    listOfEligibleImages = plainNameCache[scenarioName]
+  else
+    listOfEligibleImages = plainNameCache["Generic"]
+  end
+
+  -- get a random entry from the eligible list
+  local newImageIndex = math.random(#listOfEligibleImages)
+  playAreaApi.updateSurface(listOfEligibleImages[newImageIndex])
+end
+
+-- attempts to extract the plain scenario name from the playarea image name
+function getPlainName(str)
+  -- remove prefix type 1
+  str = str:gsub("%w+%-%w%s%-%s", "") -- matches "II-B - Thousand Shapes of Horror 1"
+  
+  -- remove prefix type 2
+  str = str:gsub("%w+%-%w%s", "") -- matches "59-Z Congress of Keys 1"
+
+  -- remove prefix type 3
+  str = str:gsub("%w+%s%-%s", "") -- matches "III - The Secret Name 4"
+
+  -- remove prefix type 4
+  str = str:gsub("%?+%s%-%s", "") -- matches "??? - Fatal Mirage"
+
+  -- remove suffix (numbering)
+  str = str:gsub("%s%d+", "")
+
+  return str
 end
