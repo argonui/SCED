@@ -7,7 +7,9 @@ local victoryDisplayApi = require("core/VictoryDisplayApi")
 function onLoad()
   addHotkey("Add Doom to Agenda", addDoomToAgenda)
   addHotkey("Bless/Curse Status", showBlessCurseStatus)
+  addHotkey("Discard Object", discardObject)
   addHotkey("Move card to Victory Display", moveCardToVictoryDisplay)
+  addHotkey("Remove a use", removeOneUse)
   addHotkey("Take clue from location", takeClueFromLocation)
   addHotkey("Upkeep", triggerUpkeep)
   addHotkey("Upkeep (Multi-handed)", triggerUpkeepMultihanded)
@@ -46,9 +48,140 @@ function addDoomToAgenda()
   doomCounter.call("addVal", 1)
 end
 
+-- discard the hovered object to the respective trashcan and discard tokens on it if it was a card
+function discardObject(playerColor, hoveredObject)
+  -- only continue if an unlocked card, deck or tile was hovered
+  if hoveredObject == nil
+      or (hoveredObject.type ~= "Card" and hoveredObject.type ~= "Deck" and hoveredObject.type ~= "Tile")
+      or hoveredObject.locked then
+    broadcastToColor("Hover a token/tile or a card/deck and try again.", playerColor, "Yellow")
+    return
+  end
+
+  -- warning for locations since these are usually not meant to be discarded
+  if hoveredObject.hasTag("Location") then
+    broadcastToAll("Watch out: A location was discarded.", "Yellow")
+  end
+
+  -- initialize list of objects to discard
+  local discardTheseObjects = { hoveredObject }
+
+  -- discard tokens / tiles on cards / decks
+  if hoveredObject.type ~= "Tile" then
+    for _, v in ipairs(searchOnObj(hoveredObject)) do
+      if v.hit_object.type == "Tile" then
+        table.insert(discardTheseObjects, v.hit_object)
+      end
+    end
+  end
+
+  local discardForMatColor = getColorToDiscardFor(hoveredObject, playerColor)
+  playmatApi.discardListOfObjects(discardForMatColor, discardTheseObjects)
+end
+
+-- helper function to get the player to trigger the discard function for
+function getColorToDiscardFor(hoveredObject, playerColor)
+  local pos = hoveredObject.getPosition()
+  local closestMatColor = playmatApi.getMatColorByPosition(pos)
+
+  -- check if actually on the closest playmat
+  local closestMat = guidReferenceApi.getObjectByOwnerAndType(closestMatColor, "Playermat")
+  local bounds = closestMat.getBounds()
+
+  -- define the area "near" the playmat
+  local bufferAroundPlaymat = 2
+  local areaNearPlaymat = {}
+  areaNearPlaymat.minX = bounds.center.x - bounds.size.x / 2 - bufferAroundPlaymat
+  areaNearPlaymat.maxX = bounds.center.x + bounds.size.x / 2 + bufferAroundPlaymat
+  areaNearPlaymat.minZ = bounds.center.z - bounds.size.z / 2 - bufferAroundPlaymat
+  areaNearPlaymat.maxZ = bounds.center.z + bounds.size.z / 2 + bufferAroundPlaymat
+
+  -- discard to closest mat if near it, use triggering playmat if not
+  local discardForMatColor
+  if inArea(pos, areaNearPlaymat) then
+    return closestMatColor
+  else
+    return playmatApi.getMatColor(playerColor)
+  end
+end
+
 -- moves the hovered card to the victory display
 function moveCardToVictoryDisplay(_, hoveredObject)
   victoryDisplayApi.placeCard(hoveredObject)
+end
+
+-- removes a use from a card (or a token if hovered)
+function removeOneUse(playerColor, hoveredObject)
+  -- only continue if an unlocked card or tile was hovered
+  if hoveredObject == nil
+      or (hoveredObject.type ~= "Card" and hoveredObject.type ~= "Tile")
+      or hoveredObject.locked then
+    broadcastToColor("Hover a token/tile or a card and try again.", playerColor, "Yellow")
+    return
+  end
+
+  local targetObject = nil
+
+  -- discard hovered token / tile
+  if hoveredObject.type == "Tile" then
+    targetObject = hoveredObject
+  elseif hoveredObject.type == "Card" then
+    -- grab the first use type from the metadata (or nil)
+    local notes = JSON.decode(hoveredObject.getGMNotes()) or {}
+    local usesData = notes.uses or {}
+    local useInfo = usesData[1] or {}
+    local searchForType = useInfo.type
+    if searchForType then searchForType = searchForType:lower() end
+
+    for _, v in ipairs(searchOnObj(hoveredObject)) do
+      local obj = v.hit_object
+      if obj.type == "Tile" and not obj.locked and obj.memo ~= "resourceCounter" then
+        -- check for matching object, otherwise use the first hit
+        if obj.memo == searchForType then
+          targetObject = obj
+          break
+        elseif not targetObject then
+          targetObject = obj
+        end
+      end
+    end
+  end
+
+  -- error handling
+  if not targetObject then
+    broadcastToColor("No tokens found!", playerColor, "Yellow")
+    return
+  end
+
+  -- handling for stacked tokens
+  if targetObject.getQuantity() > 1 then
+    targetObject = targetObject.takeObject()
+  end
+
+  -- feedback message
+  local tokenName = targetObject.getName()
+  if tokenName == "" then
+    if targetObject.memo ~= "" then
+      -- name handling for clue / doom
+      if targetObject.memo == "clueDoom" then
+        if targetObject.is_face_down then
+          tokenName = "Doom"
+        else
+          tokenName = "Clue"
+        end
+      else
+        tokenName = titleCase(targetObject.memo)
+      end
+    else
+      tokenName = "Unknown"
+    end
+  end
+
+  local playerName = Player[playerColor].steam_name
+  broadcastToAll(playerName .. " removed a token: " .. tokenName, playerColor)
+
+  local discardForMatColor = getColorToDiscardFor(hoveredObject, playerColor)
+  playmatApi.discardListOfObjects(discardForMatColor, { targetObject })
 end
 
 -- takes a clue from a location, player needs to hover the clue directly or the location
@@ -58,7 +191,7 @@ function takeClueFromLocation(playerColor, hoveredObject)
   if hoveredObject == nil then
     broadcastToColor("Hover a clue or card with clues and try again.", playerColor, "Yellow")
     return
-  elseif hoveredObject.tag == "Card" then
+  elseif hoveredObject.type == "Card" then
     cardName = hoveredObject.getName()
 
     for _, v in ipairs(searchOnObj(hoveredObject)) do
@@ -91,7 +224,7 @@ function takeClueFromLocation(playerColor, hoveredObject)
     
     for _, v in ipairs(search) do
       local obj = v.hit_object
-      if obj.tag == "Card" then
+      if obj.type == "Card" then
         cardName = obj.getName()
         break
       end
@@ -151,4 +284,21 @@ function searchOnObj(obj)
     size         = obj.getBounds().size,
     origin       = obj.getPosition()
   })
+end
+
+-- Simple method to check if the given point is in a specified area
+---@param point Vector Point to check, only x and z values are relevant
+---@param bounds Table Defined area to see if the point is within
+function inArea(point, bounds)
+  return (point.x > bounds.minX
+      and point.x < bounds.maxX
+      and point.z > bounds.minZ
+      and point.z < bounds.maxZ)
+end
+
+-- capitalizes the first letter
+function titleCase(str)
+  local first = str:sub(1, 1)
+  local rest = str:sub(2)
+  return first:upper() .. rest:lower()
 end

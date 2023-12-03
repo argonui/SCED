@@ -39,7 +39,7 @@ local MAT_COLORS = { "White", "Orange", "Green", "Red" }
 local hideTitleSplashWaitFunctionId = nil
 
 -- online functionality related variables
-local MOD_VERSION = "3.3.0"
+local MOD_VERSION = "3.4.0"
 local SOURCE_REPO = 'https://raw.githubusercontent.com/chr1z93/loadable-objects/main'
 local library, requestObj, modMeta
 local acknowledgedUpgradeVersions = {}
@@ -48,6 +48,7 @@ local currentListItem = 1
 local xmlVisibility = {
   downloadWindow = false,
   optionPanel = false,
+  playareaGallery = false,
   updateNotification = false
 }
 local tabIdTable = {
@@ -184,6 +185,19 @@ end
 function tryObjectEnterContainer(container, object)
   playAreaApi.tryObjectEnterContainer(container, object)
   return true
+end
+
+-- TTS event for objects that enter zones
+-- used to detect the "token discard zones" beneath the hand zones
+function onObjectEnterZone(zone, enteringObj)
+  if zone.getName() ~= "TokenDiscardZone" then return end
+  if tokenChecker.isChaosToken(enteringObj) then return end
+  
+  if enteringObj.type == "Tile" and enteringObj.getMemo() and enteringObj.getLock() == false then
+    local matcolor = playmatApi.getMatColorByPosition(enteringObj.getPosition())
+    local trash = guidReferenceApi.getObjectByOwnerAndType(matcolor, "Trash")
+    trash.putObject(enteringObj)
+  end
 end
 
 ---------------------------------------------------------
@@ -678,8 +692,10 @@ function onClick_select(_, _, identificationKey)
 end
 
 -- click function for the download button in the preview window
-function onClick_download()
-  placeholder_download(library[contentToShow][currentListItem])
+function onClick_download(player)
+  local params = library[contentToShow][currentListItem]
+  params.player = player
+  placeholder_download(params)
 end
 
 -- the download button on the placeholder objects calls this to directly initiate a download
@@ -735,9 +751,9 @@ function coroutineDownloadAll()
     {
       "Name": "Bag",
       "Transform": {
-        "posX": -39.5,
+        "posX": {{POSX}},
         "posY": 2,
-        "posZ": -87,
+        "posZ": -95,
         "rotX": 0,
         "rotY": 270,
         "rotZ": 0,
@@ -745,20 +761,21 @@ function coroutineDownloadAll()
         "scaleY": 1.0,
         "scaleZ": 1.0
       },
-      "Nickname": "All Downloadable Content",
+      "Nickname": "{{NICKNAME}}",
       "Bag": {
         "Order": 0
       },
       "ContainedObjects": [
   ]]
-         
-  local contained = ""
+
+  local posx = -45.0
   local downloadedItems = 0
   local skippedItems = 0
 
   -- loop through the library to add content
   for contentType, objectList in pairs(library) do
     broadcastToAll("Downloading " .. contentType .. "...")
+    local contained = ""
     for _, params in ipairs(objectList) do
       local request = WebRequest.get(SOURCE_REPO .. '/' .. params.url)
       local start = os.time()
@@ -775,10 +792,13 @@ function coroutineDownloadAll()
         coroutine.yield(0)
       end
     end
+    local JSONCopy = JSON
+    JSONCopy = JSONCopy .. contained .. "]}"
+    JSONCopy = JSONCopy:gsub("{{POSX}}", posx)
+    JSONCopy = JSONCopy:gsub("{{NICKNAME}}", contentType)
+    spawnObjectJSON({json = JSONCopy})
+    posx = posx + 3
   end
-
-  JSON = JSON .. contained .. "]}"
-  spawnObjectJSON({json = JSON})
 
   broadcastToAll(downloadedItems .. " objects downloaded.", "Green")
   broadcastToAll(skippedItems .. " objects had a time-out / error.", "Orange")
@@ -846,6 +866,12 @@ function onClick_toggleUi(player, title)
   if title == "Navigation Overlay" then
     navigationOverlayApi.cycleVisibility(player.color)
     return
+  -- hide the playareaGallery if visible
+  elseif title == "downloadWindow" and xmlVisibility.playareaGallery then
+    onClick_toggleUi(_, "playareaGallery")
+  -- hide the downloadWindow if visible
+  elseif title == "playareaGallery" and xmlVisibility.downloadWindow then
+    onClick_toggleUi(_, "downloadWindow")
   end
 
   if xmlVisibility[title] then
@@ -855,6 +881,11 @@ function onClick_toggleUi(player, title)
     UI.show(title)
   end
   xmlVisibility[title] = not xmlVisibility[title]
+end
+
+-- forwards the call to the onClick function
+function togglePlayareaGallery()
+  onClick_toggleUi(_, "playareaGallery")
 end
 
 -- updates the preview window
@@ -995,10 +1026,37 @@ function contentDownloadCallback(request, params)
     end
   end
 
-  -- if spawned from menu, ping the position
+  -- if position is undefined, get empty position
+  if not spawnTable.position then
+    spawnTable.rotation = { 0, 270, 0}
+
+    local pos = getValidSpawnPosition()
+    if pos then
+      spawnTable.position = pos
+    else
+      broadcastToAll("Please make space in the area below the tentacle stand in the upper middle of the table and try again.", "Red")
+      return
+    end
+  end
+
+  -- if spawned from menu, move the camera and/or ping the table
   if params.name then
     spawnTable["callback_function"] = function(obj)
-      Player.getPlayers()[1].pingTable(obj.getPosition())
+      Wait.time(function()
+        -- move camera
+        if params.player then
+          params.player.lookAt({
+            position = obj.getPosition(),
+            pitch    = 65,
+            yaw      = 90,
+            distance = 65
+          })
+        end
+        
+        -- ping object
+        local pingPlayer = params.player or Player.getPlayers()[1]
+        pingPlayer.pingTable(obj.getPosition())
+      end, 0.1)
     end
   end
 
@@ -1007,6 +1065,41 @@ function contentDownloadCallback(request, params)
   else
     print('Error loading object.')
   end
+end
+
+-- gets the first empty position to spawn a custom content object safely
+function getValidSpawnPosition()
+  local potentialSpawnPositionX = { 65, 50, 35 }
+  local potentialSpawnPositionY = 1.5
+  local potentialSpawnPositionZ = { 35, 21, 7, -7, -21, -35 }
+
+  for i, posX in ipairs(potentialSpawnPositionX) do
+    for j, posZ in ipairs(potentialSpawnPositionZ) do
+      local pos = {
+        x = posX,
+        y = potentialSpawnPositionY,
+        z = posZ,
+      }
+      if checkPositionForContentSpawn(pos) then
+        return pos
+      end
+    end
+  end
+  return nil
+end
+
+-- checks whether something is in the specified position
+-- returns true if empty
+function checkPositionForContentSpawn(checkPos)
+  local search = Physics.cast({
+    direction    = { 0, 1, 0 },
+    max_distance = 0.1,
+    type         = 3,
+    size         = { 0.1, 0.1, 0.1 },
+    origin       = checkPos
+  })
+  -- first hit is the table surface, additional hits means something is there
+  return #search == 1
 end
 
 -- downloading of the library file
@@ -1165,10 +1258,6 @@ function applyOptionPanelChange(id, state)
   elseif id == "showCYOA" then
     optionPanel[id] = spawnOrRemoveHelper(state, "CYOA Campaign Guides", {39, 1.3, -20})
 
-  -- option: Show custom playmat images
-  elseif id == "showCustomPlaymatImages" then
-    optionPanel[id] = spawnOrRemoveHelper(state, "Custom Playmat Images", {67.5, 1.6, 37})
-
   -- option: Show displacement tool
   elseif id == "showDisplacementTool" then
     optionPanel[id] = spawnOrRemoveHelper(state, "Displacement Tool", {-57, 1.6, 46})
@@ -1232,7 +1321,6 @@ function removeHelperObject(name)
     ["Hand Helper"]           = "showHandHelper",
     ["Search Assistant"]      = "showSearchAssistant",
     ["Displacement Tool"]     = "showDisplacementTool",
-    ["Custom Playmat Images"] = "showCustomPlaymatImages",
     ["Attachment Helper"]     = "showAttachmentHelper",
     ["CYOA Campaign Guides"]  = "showCYOA"
   }
@@ -1279,7 +1367,6 @@ function onClick_defaultSettings()
     playAreaSnapTags = true,
     showAttachmentHelper = false,
     showCleanUpHelper = false,
-    showCustomPlaymatImages = false,
     showCYOA = false,
     showDisplacementTool = false,
     showDrawButton = false,
@@ -1337,8 +1424,8 @@ function compareVersion(request)
   -- global variable to make it accessible for other functions
   modMeta = JSON.decode(request.text)
 
-  -- stop here if on latest version
-  if MOD_VERSION == modMeta["latestVersion"] then return end
+  -- stop here if on latest or newer version
+  if convertVersionToNumber(MOD_VERSION) >= convertVersionToNumber(modMeta["latestVersion"]) then return end
 
   -- stop here if "don't show again" was clicked for this version before
   if acknowledgedUpgradeVersions[modMeta["latestVersion"]] then return end
@@ -1347,6 +1434,13 @@ function compareVersion(request)
 
   -- delay to avoid lagging during onLoad()
   Wait.time(function() UI.show("FinnIcon") end, 1)
+end
+
+-- converts a version number to a string
+---@param version String Version number, separated by dots (e.g. 3.3.1)
+function convertVersionToNumber(version)
+  local major, minor, patch = string.match(version, "(%d+)%.(%d+)%.(%d+)")
+  return major * 100 + minor * 10 + patch
 end
 
 -- updates the XML update notification based on the mod metadata
