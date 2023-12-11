@@ -1,0 +1,67 @@
+do
+  local SearchLib = {}
+  local filterFunctions = {
+    isActionToken = function(x) return x.getDescription() == "Action Token" end,
+    isCard = function(x) return x.type == "Card" end,
+    isDeck = function(x) return x.type == "Deck" end,
+    isCardOrDeck = function(x) return x.type == "Card" or x.type == "Deck" end,
+    isClue = function(x) return x.memo == "clueDoom" and x.is_face_down == false end,
+    isTileOrToken = function(x) return x.type == "Tile" end
+  }
+
+  -- performs the actual search and returns a filtered list of object references
+  ---@param pos Table Global position
+  ---@param rot Table Global rotation
+  ---@param size Table Size
+  ---@param filter String Name of the filter function
+  ---@param direction Table Direction (positive is up)
+  ---@param maxDistance Number Distance for the cast
+  local function returnSearchResult(pos, rot, size, filter, direction, maxDistance)
+    if filter then filter = filterFunctions[filter] end
+    local searchResult = Physics.cast({
+      origin       = pos,
+      direction    = direction or { 0, 1, 0 },
+      orientation  = rot or { 0, 0, 0 },
+      type         = 3,
+      size         = size,
+      max_distance = maxDistance or 0,
+      debug = true
+    })
+
+    -- filtering the result
+    local objList = {}
+    for _, v in ipairs(searchResult) do
+      if not filter or filter(v.hit_object) then
+        table.insert(objList, v.hit_object)
+      end
+    end
+    return objList
+  end
+
+  -- searches the specified area
+  SearchLib.inArea = function(pos, rot, size, filter)
+    return returnSearchResult(pos, rot, size, filter)
+  end
+
+  -- searches the area on an object
+  SearchLib.onObject = function(obj, filter)
+    pos = obj.getPosition()
+    size = obj.getBounds().size
+    return returnSearchResult(pos, _, size, filter)
+  end
+
+  -- searches the specified position (a single point)
+  SearchLib.atPosition = function(pos, filter)
+    size = { 0.1, 2, 0.1 }
+    return returnSearchResult(pos, _, size, filter)
+  end
+
+  -- searches below the specified position (downwards until y = 0)
+  SearchLib.belowPosition = function(pos, filter)
+    direction = { 0, -1, 0 }
+    maxDistance = pos.y
+    return returnSearchResult(pos, _, size, filter, direction, maxDistance)
+  end
+
+  return SearchLib
+end

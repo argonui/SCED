@@ -1,12 +1,10 @@
+local searchLib = require("util/SearchLib")
 local chaosBagApi = require("chaosbag/ChaosBagApi")
 local guidReferenceApi = require("core/GUIDReferenceApi")
 local mythosAreaApi = require("core/MythosAreaApi")
 local navigationOverlayApi = require("core/NavigationOverlayApi")
 local tokenChecker = require("core/token/TokenChecker")
 local tokenManager = require("core/token/TokenManager")
-
--- set true to enable debug logging and show Physics.cast()
-local DEBUG = false
 
 -- we use this to turn off collision handling until onLoad() is complete
 local collisionEnabled = false
@@ -20,7 +18,7 @@ local DISCARD_BUTTON_OFFSETS = {-1.365, -0.91, -0.455, 0, 0.455, 0.91}
 
 local SEARCH_AROUND_SELF_X_BUFFER = 8
 
--- defined areas for "inArea()" and "Physics.cast()"
+-- defined areas for object searching
 local MAIN_PLAY_AREA = {
   upperLeft = {
     x = 1.98,
@@ -101,7 +99,7 @@ function onSave()
 end
 
 function onLoad(saveState)
-  self.interactable = DEBUG
+  self.interactable = false
 
   -- get object references to owned objects
   ownedObjects = guidReferenceApi.getObjectsByOwner(matColor)
@@ -159,28 +157,8 @@ end
 
 -- searches an area and optionally filters the result
 function searchArea(origin, size, filter)
-  local searchResult = Physics.cast({
-    origin       = origin,
-    direction    = { 0, 1, 0 },
-    orientation  = self.getRotation(),
-    type         = 3,
-    size         = size,
-    max_distance = 0
-  })
-
-  local objList = {}
-  for _, v in ipairs(searchResult) do
-    if not filter or (filter and filter(v.hit_object)) then
-      table.insert(objList, v.hit_object)
-    end
-  end
-  return objList
+  return searchLib.inArea(origin, self.getRotation(), size, filter)
 end
-
--- filter functions for searchArea()
-function isCard(x) return x.type == 'Card' end
-function isDeck(x) return x.type == 'Deck' end
-function isCardOrDeck(x) return x.type == 'Card' or x.type == 'Deck' end
 
 -- finds all objects on the playmat and associated set aside zone.
 function searchAroundSelf(filter)
@@ -230,7 +208,7 @@ end
 ---@param objList Table List of objects to discard
 function discardListOfObjects(objList)
   for _, obj in ipairs(objList) do
-    if isCardOrDeck(obj) then
+    if obj.type == "Card" or obj.type == "Deck" then
       if obj.hasTag("PlayerCard") then
         placeOrMergeIntoDeck(obj, returnGlobalDiscardPosition(), self.getRotation())
       else
@@ -255,7 +233,7 @@ function placeOrMergeIntoDeck(obj, pos, rot)
   local offset = 0.5
   
   -- search the new position for existing card/deck
-  local searchResult = searchArea(pos, { 1, 1, 1 }, isCardOrDeck)
+  local searchResult = searchArea(pos, { 1, 1, 1 }, "isCardOrDeck")
 
   -- get new position
   local newPos
@@ -480,7 +458,7 @@ end
 -- get the draw deck and discard pile objects and returns the references
 function getDeckAreaObjects()
   local deckAreaObjects = {}
-  for _, object in ipairs(searchDeckAndDiscardArea(isCardOrDeck)) do
+  for _, object in ipairs(searchDeckAndDiscardArea("isCardOrDeck")) do
     if self.positionToLocal(object.getPosition()).z > 0.5 then
       deckAreaObjects.discard = object
     -- Norman Withers handling
@@ -613,7 +591,7 @@ end
 -- called when a checkbox is added or removed in-game (which should be rare), and is bounded by the
 -- number of customizable cards in play.
 function syncAllCustomizableCards()
-  for _, card in ipairs(searchAroundSelf(isCard)) do
+  for _, card in ipairs(searchAroundSelf("isCard")) do
     syncCustomizableMetadata(card)
   end
 end
@@ -623,7 +601,7 @@ function syncCustomizableMetadata(card)
   if cardMetadata == nil or cardMetadata.customizations == nil then
     return
   end
-  for _, upgradeSheet in ipairs(searchAroundSelf(isCard)) do
+  for _, upgradeSheet in ipairs(searchAroundSelf("isCard")) do
     local upgradeSheetMetadata = JSON.decode(upgradeSheet.getGMNotes()) or { }
     if upgradeSheetMetadata.id == (cardMetadata.id .. "-c") then
       for i, customization in ipairs(cardMetadata.customizations) do
@@ -660,7 +638,7 @@ function onCollisionEnter(collisionInfo)
   if not collisionEnabled then return end
 
   -- only continue for cards
-  if not isCard(object) then return end
+  if object.type ~= "Card" then return end
 
   -- detect if "Dream-Enhancing Serum" is placed
   if object.getName() == "Dream-Enhancing Serum" then isDES = true end
@@ -715,7 +693,7 @@ function shouldSpawnTokens(card)
 end
 
 function onObjectEnterContainer(container, object)
-  if not isCard(object) then return end
+  if object.type ~= "Card" then return end
 
   local localCardPos = self.positionToLocal(object.getPosition())
   if inArea(localCardPos, DECK_DISCARD_AREA) then
@@ -726,7 +704,7 @@ end
 
 -- removes tokens from the provided card/deck
 function removeTokensFromObject(object)
-  for _, obj in ipairs(searchArea(object.getPosition(), { 3, 1, 4 })) do
+  for _, obj in ipairs(searchLib.onObject(object)) do
     if obj.getGUID() ~= "4ee1f2" and -- table
         obj ~= self and
         obj.type ~= "Deck" and
