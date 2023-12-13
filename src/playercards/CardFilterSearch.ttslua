@@ -34,19 +34,27 @@ buttonParameters.font_size      = 75
 local filterOptions = {
   y = "cycle",
   f = "class",
-  k = "traits",
+  k = "trait",
   o = "cost",
-  w = "willpowerIcons",
-  c = "combatIcons",
-  i = "intellectIcons",
-  a = "agilityIcons",
-  d = "wildIcons",
+  w = "icon",
+  c = "icon",
+  i = "icon",
+  a = "icon",
+  d = "icon",
   t = "type",
   p = "level",
   --z = "slot",
   v = "permanent",
   u = "uses",
-  q = "special"
+  q = "specialCriteria"
+}
+
+local iconOptions = {
+  w = "willpower",
+  c = "combat",
+  i = "intellect",
+  a = "agility",
+  d = "wild"
 }
 
 function onLoad()
@@ -270,6 +278,9 @@ function createFilterCardList(params)
       local filter    =   string.sub(token, 1, 1)
       local operator  =   string.sub(token, 2, 2)
       local value     =   string.sub(token, 3)
+      if value == "" then
+        value = nil
+      end
       local matchingCards = {}
 
       if not filterOptions[filter] then
@@ -280,57 +291,10 @@ function createFilterCardList(params)
       end
 
       if operator == ":" or operator == "!" then
-        -- Cycle
-        if filter == "y" then
-          matchingCards = allCardsBagApi.getCardsByCycle(value, includeOthers)
-        -- Class
-        elseif filter == "f" then
-          matchingCards = allCardsBagApi.getCardsByClass(value, includeOthers)
-        -- Trait
-        elseif filter == "k" then
-          matchingCards = allCardsBagApi.getCardsByTrait(value, includeOthers)
-        -- Cost
-        elseif filter == "o" then
-          matchingCards = allCardsBagApi.getCardsByCost(value, includeOthers)
-        -- Type
-        elseif filter == "t" then
-          matchingCards = allCardsBagApi.getCardsByType(value, includeOthers)
-        -- Level
-        elseif filter == "p" then
-          matchingCards = allCardsBagApi.getCardsByLevel(value, includeOthers)
-        -- Willpower Icons
-        elseif filter == "w" then
-          matchingCards = allCardsBagApi.getCardsByIcon("willpower", value, includeOthers)
-        -- Intellect Icons
-        elseif filter == "i" then
-          matchingCards = allCardsBagApi.getCardsByIcon("intellect", value, includeOthers)
-        -- Agility Icons
-        elseif filter == "a" then
-          matchingCards = allCardsBagApi.getCardsByIcon("agility", value, includeOthers)
-        -- Combat Icons
-        elseif filter == "c" then
-          matchingCards = allCardsBagApi.getCardsByIcon("combat", value, includeOthers)
-        -- Wild Icons
-        elseif filter == "d" then
-          matchingCards = allCardsBagApi.getCardsByIcon("wild", value, includeOthers)
-        -- Slot
-        --elseif filter == "z" then
-        -- Uses
-        elseif filter == "u" then
-          if tonumber(value) then
-            matchingCards = allCardsBagApi.getCardsByUses(tonumber(value), includeOthers)
-          else
-            matchingCards = allCardsBagApi.getCardsByUses(value, includeOthers)
-          end
-        -- Special Cases
-        elseif filter == "q" then
-          matchingCards = allCardsBagApi.getCardsBySpecialCriteria(value, includeOthers)
-        -- Permanent
-        elseif filter == "v" then
-          matchingCards = allCardsBagApi.getPermanents(includeOthers)
+        if iconOptions[filter] then
+          matchingCards = allCardsBagApi.getCardsByData(filterOptions[filter], iconOptions[filter], includeOthers, value)
         else
-          broadcastToAll("Invalid combination of filter type and operator", Color.Red)
-          return {}
+          matchingCards = allCardsBagApi.getCardsByData(filterOptions[filter], value, includeOthers)
         end
       elseif operator == "<" or operator == ">" then
         value = tonumber(value)
@@ -341,69 +305,18 @@ function createFilterCardList(params)
         if operator == ">" then
           value = value + 1
         end
-        -- Class
-        if filter == "f" then
-          for _, cardId in ipairs(allCardsBagApi.getAllCards(includeOthers)) do
-            local card = allCardsBagApi.getCardById(cardId)
-            if card.metadata.class then
-              if select(2, string.gsub(card.metadata.class, "|", "")) < value - 1 then
-                table.insert(matchingCards, cardId)
-              end
-            end     
-          end
-        -- Cost
-        elseif filter == "o" then
+
+        -- General case for numeric-compatible operators
+        if iconOptions[filter] then
           for i = value - 1, 0, -1 do
-            for _, cardId in ipairs(allCardsBagApi.getCardsByCost(i, includeOthers)) do
+            for _, cardId in ipairs(allCardsBagApi.getCardsByData(filterOptions[filter], iconOptions[filter], includeOthers, i)) do
               table.insert(matchingCards, cardId)
             end
+            log(matchingCards)
           end
-        -- Willpower Icons
-        elseif filter == "w" then
+        elseif filter == "o" or filter == "u" or filter == "p" or filter == "f" then
           for i = value - 1, 0, -1 do
-            for _, cardId in ipairs(allCardsBagApi.getCardsByIcon("willpower", i, includeOthers)) do
-              table.insert(matchingCards, cardId)
-            end
-          end
-        -- Intellect Icons
-        elseif filter == "i" then
-          for i = value - 1, 0, -1 do
-            for _, cardId in ipairs(allCardsBagApi.getCardsByIcon("intellect", i, includeOthers)) do
-              table.insert(matchingCards, cardId)
-            end
-          end
-        -- Agility Icons
-        elseif filter == "a" then
-          for i = value - 1, 0, -1 do
-            for _, cardId in ipairs(allCardsBagApi.getCardsByIcon("agility", i, includeOthers)) do
-              table.insert(matchingCards, cardId)
-            end
-          end
-        -- Combat Icons
-        elseif filter == "c" then
-          for i = value - 1, 0, -1 do
-            for _, cardId in ipairs(allCardsBagApi.getCardsByIcon("combat", i, includeOthers)) do
-              table.insert(matchingCards, cardId)
-            end
-          end
-        -- Wild Icons
-        elseif filter == "d" then
-          for i = value - 1, 0, -1 do
-            for _, cardId in ipairs(allCardsBagApi.getCardsByIcon("wild", i, includeOthers)) do
-              table.insert(matchingCards, cardId)
-            end
-          end
-        -- Level
-        elseif filter == "p" then
-          for i = value - 1, 0, -1 do
-            for _, cardId in ipairs(allCardsBagApi.getCardsByLevel(i, includeOthers)) do
-              table.insert(matchingCards, cardId)
-            end
-          end
-        -- Uses
-        elseif filter == "u" then
-          for i = value - 1, 0, -1 do
-            for _, cardId in ipairs(allCardsBagApi.getCardsByUses(i, includeOthers)) do
+            for _, cardId in ipairs(allCardsBagApi.getCardsByData(filterOptions[filter], i, includeOthers)) do
               table.insert(matchingCards, cardId)
             end
           end
@@ -418,7 +331,7 @@ function createFilterCardList(params)
 
       if matchingCards then 
         if operator == "!" or operator == ">" then
-          matchingCards = allCardsBagApi.getOppositeCards(matchingCards, filterOptions[filter], includeOthers)
+          matchingCards = allCardsBagApi.getOppositeCards(matchingCards, filter, includeOthers)
         end
         
         if previousToken == "&" then

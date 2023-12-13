@@ -1,17 +1,17 @@
 local cardIdIndex = { }
 local otherIndex
-local classIndex = { }
-local levelIndex = { }
+classIndex = { }
+levelIndex = { }
 local basicWeaknessList = { }
 local uniqueWeaknessList = { }
-local cycleIndex = { }
-local traitIndex = { }
-local iconIndex = { }
-local typeIndex = { }
-local costIndex = { }
-local permanentIndex = { }
-local usesIndex = { }
-local specialCriteriaIndex = { }
+cycleIndex = { }
+traitIndex = { }
+iconIndex = { }
+typeIndex = { }
+costIndex = { }
+permanentIndex = { }
+usesIndex = { }
+specialCriteriaIndex = { }
 
 local specialCriteriaManualOverride = {
   healsHorror = {
@@ -112,6 +112,24 @@ local specialCriteriaManualOverride = {
   }
 }
 
+local filterData = {
+  y = "cycle",
+  f = "class",
+  k = "traits",
+  o = "cost",
+  w = "willpowerIcons",
+  c = "combatIcons",
+  i = "intellectIcons",
+  a = "agilityIcons",
+  d = "wildIcons",
+  t = "type",
+  p = "level",
+  --z = "slot",
+  v = "permanent",
+  u = "uses",
+  q = "specialCriteria"
+}
+
 local indexingDone = false
 local allowRemoval = false
 
@@ -145,6 +163,9 @@ function clearIndexes()
   classIndex["mystic"] = { }
   classIndex["survivor"] = { }
   classIndex["neutral"] = { }
+  classIndex[1] = { }
+  classIndex[2] = { }
+  classIndex[3] = { }
   levelIndex = { }
   levelIndex[0] = { }
   levelIndex[1] = { }
@@ -263,24 +284,12 @@ function buildSupplementalIndexes()
       end
 
       if cardMetadata.class then
-        if (string.match(cardMetadata.class, "Guardian")) then
-          table.insert(classIndex["guardian"], cardMetadata.id)
+        local classString = cardMetadata.class .. "|"
+        for class in classString:gmatch("[^|]+") do
+          table.insert(classIndex[string.lower(class)], cardMetadata.id)
         end
-        if (string.match(cardMetadata.class, "Seeker")) then
-          table.insert(classIndex["seeker"], cardMetadata.id)
-        end
-        if (string.match(cardMetadata.class, "Mystic")) then
-          table.insert(classIndex["mystic"], cardMetadata.id)
-        end
-        if (string.match(cardMetadata.class, "Rogue")) then
-          table.insert(classIndex["rogue"], cardMetadata.id)
-        end
-        if (string.match(cardMetadata.class, "Survivor")) then
-          table.insert(classIndex["survivor"], cardMetadata.id)
-        end
-        if (string.match(cardMetadata.class, "Neutral")) then
-          table.insert(classIndex["neutral"], cardMetadata.id)
-        end
+        local classCount = select(2, string.gsub(classString, "|", ""))
+        table.insert(classIndex[classCount], cardMetadata.id)
       end    
 
       local cycleName = cardMetadata.cycle
@@ -496,121 +505,78 @@ function getCardById(params)
   return cardIdIndex[params.id]
 end
 
-function getFilteredIndexList(cardList, includeOthers)
-  if cardList then
-    if includeOthers then
-      return cardList
+-- Used to index into the supplemental card indices 
+---@param indexName exact string of the index variable to be referenced, minus the 'Index' part
+---@param includeOthers boolean of whether or not to include non-player cards
+---@param value key used to index into the dictionary
+---@param value2 optional second key used to index into the sub-dictionary
+---@return List of cards located at the precise index given the provided parameters
+function getCardsByData(params)
+  -- Make sure indices are finished building
+  if (not indexingDone) then
+    broadcastToAll("Still loading player cards, please try again in a few seconds", {0.9, 0.2, 0.2})
+    return { }
+  end
+  -- Clean up string input
+  local value = nil
+  if params.value then
+    if tonumber(params.value) then
+      value = tonumber(params.value)
     else
-      local returnList = {}
-      for _, cardId in ipairs(cardList) do
-        if not otherIndex[cardId] then
-          table.insert(returnList, cardId)
-        end
-      end
-      return returnList
+      value = string.lower(params.value)
     end
-  else
-    return {}
   end
-end
 
--- Returns a list of cards from the bag matching a class and level (0 or upgraded)
--- Params table:
---     class: String class to retrieve ("Guardian", "Seeker", etc)
---     isUpgraded: true for upgraded cards (Level 1-5), false for Level 0
--- Return: If the indexes are still being constructed, returns an empty table.
---     Otherwise, a list of tables, each with the following fields
---       cardData: TTS object data, suitable for spawning the card
---       cardMetadata: Table of parsed metadata
-function getCardsByClass(params)
-  if (not indexingDone) then
-    broadcastToAll("Still loading player cards, please try again in a few seconds", {0.9, 0.2, 0.2})
+  local value2 = nil
+  if params.value2 then
+    if tonumber(params.value2) then
+      value2 = tonumber(params.value2)
+    else
+      value2 = string.lower(params.value2)
+    end
+  end
+
+  -- Use global environment variable manipulation to get the corresponding index
+  local cardList = _G[params.indexName .. "Index"]
+  if not cardList then
+    log("Error!  Invalid index requested!")
     return { }
   end
-  return getFilteredIndexList(classIndex[string.lower(params.class)], params.includeOthers)
-end
-
-function getCardsByCycle(params)
-  if (not indexingDone) then
-    broadcastToAll("Still loading player cards, please try again in a few seconds", {0.9, 0.2, 0.2})
-    return { }
+  if value then
+    cardList = cardList[value]
   end
-  return getFilteredIndexList(cycleIndex[string.lower(params.cycleName)], params.includeOthers)
-end
-
-function getCardsByTrait(params)
-  if (not indexingDone) then
-    broadcastToAll("Still loading player cards, please try again in a few seconds", {0.9, 0.2, 0.2})
-    return { }
-  end
-  return getFilteredIndexList(traitIndex[string.lower(params.trait)], params.includeOthers)
-end
-
-function getCardsByIcon(params)
-  if (not indexingDone) then
-    broadcastToAll("Still loading player cards, please try again in a few seconds", {0.9, 0.2, 0.2})
-    return { }
+  if value2 then
+    cardList = cardList[value2]
   end
 
-  return getFilteredIndexList(iconIndex[string.lower(params.icon)][tonumber(params.count)], params.includeOthers)
-end
+  -- If invalid search parameters were entered, return an empty list
+  if not cardList then
+    -- Check to see if a term was accidentally pluralized i.e. 'charges'
+    if _G[params.indexName .. "Index"][string.sub(value, 1, -2)] then
+      cardList = _G[params.indexName .. "Index"][string.sub(value, 1, -2)]
+    else
+      log("Invalid search parameters")
+      return {}
+    end
+  end
 
-function getCardsByType(params)
-  if (not indexingDone) then
-    broadcastToAll("Still loading player cards, please try again in a few seconds", {0.9, 0.2, 0.2})
-    return { }
+  -- If including non-player cards, return here
+  if includeOthers then
+    return cardList
   end
-  return getFilteredIndexList(typeIndex[string.lower(params.cardType)], params.includeOthers)
-end
 
-function getCardsByCost(params)
-  if (not indexingDone) then
-    broadcastToAll("Still loading player cards, please try again in a few seconds", {0.9, 0.2, 0.2})
-    return { }
+  -- If not including non-player cards, filter them out and then return
+  local returnList = {}
+  for _, cardId in ipairs(cardList) do
+    if not otherIndex[cardId] then
+      table.insert(returnList, cardId)
+    end
   end
-  return getFilteredIndexList(costIndex[tonumber(params.cost)], params.includeOthers)
-end
-
-function getCardsByLevel(params)
-  if (not indexingDone) then
-    broadcastToAll("Still loading player cards, please try again in a few seconds", {0.9, 0.2, 0.2})
-    return { }
-  end
-  return getFilteredIndexList(levelIndex[tonumber(params.level)], params.includeOthers)
-end
-
-function getCardsByUses(params)
-  if (not indexingDone) then
-    broadcastToAll("Still loading player cards, please try again in a few seconds", {0.9, 0.2, 0.2})
-    return { }
-  end
-  if type(params.index) == "number" then
-    return getFilteredIndexList(usesIndex[tonumber(params.index)], params.includeOthers)
-  elseif usesIndex[string.lower(params.index)] then
-    return getFilteredIndexList(usesIndex[string.lower(params.index)], params.includeOthers)
-  else
-    return getFilteredIndexList(usesIndex[string.lower(string.sub(params.index, 1, -2))], params.includeOthers)
-  end
-end
-
-function getPermanents(includeOthers)
-  if (not indexingDone) then
-    broadcastToAll("Still loading player cards, please try again in a few seconds", {0.9, 0.2, 0.2})
-    return { }
-  end
-  return getFilteredIndexList(permanentIndex, includeOthers)
-end
-
-function getCardsBySpecialCriteria(params)
-  if (not indexingDone) then
-    broadcastToAll("Still loading player cards, please try again in a few seconds", {0.9, 0.2, 0.2})
-    return { }
-  end
-  return getFilteredIndexList(specialCriteriaIndex[params.criteria], params.includeOthers)
+  return returnList
 end
 
 function getOppositeCards(params)
-  local filter = params.filter or "id"
+  local filter = filterData[params.filter] or "id"
   if (not indexingDone) then
     broadcastToAll("Still loading player cards, please try again in a few seconds", {0.9, 0.2, 0.2})
     return { }
@@ -620,21 +586,12 @@ function getOppositeCards(params)
     baseCards[card] = true
   end
   local oppositeCards = {}
-  for _, cardId in ipairs(getAllCards(params.includeOthers)) do
+  for _, cardId in ipairs(getCardsByData({includeOthers = params.includeOthers, indexName = "allCards"})) do
     if not baseCards[cardId] and cardIdIndex[cardId].metadata[filter] then
       table.insert(oppositeCards, cardId)
     end
   end
   return oppositeCards
-end
-
-
-function getAllCards(includeOthers)
-  if (not indexingDone) then
-    broadcastToAll("Still loading player cards, please try again in a few seconds", {0.9, 0.2, 0.2})
-    return { }
-  end
-  return getFilteredIndexList(allCardsIndex, includeOthers)
 end
 
 -- Searches the bag for cards which match the given name and returns a list.  Note that this is
