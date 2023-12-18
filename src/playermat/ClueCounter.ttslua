@@ -1,12 +1,4 @@
--- Table of items which can be counted in this Bowl
--- Each entry has 2 things to enter
---  a name (what is in the name field of that object)
---  a value (how much it is worth)
---  a number in the items description will override the number entry in this table
-local validCountItemList = {
-  ["Clue"] = 1,
-  [""] = 1
-}
+local searchLib = require("util/SearchLib")
 exposedValue = 0
 
 function onLoad()
@@ -20,49 +12,25 @@ function onLoad()
     font_color = { 0, 0, 0 },
     font_size = 2000
   })
-  loopID = Wait.time(countItems, 1, -1)
+  loopID = Wait.time(countItems, 1.5, -1)
 end
 
 -- Activated once per second, counts items in bowls
 function countItems()
   local totalValue = 0
-  for _, item in ipairs(findValidItemsInSphere()) do
-    local descValue = tonumber(item.getDescription())
-    local stackMult = math.abs(item.getQuantity())
-    -- Use value in description if available
-    if descValue ~= nil then
-      totalValue = totalValue + descValue * stackMult
-    else
-      -- Otherwise use the value in validCountItemList
-      totalValue = totalValue + validCountItemList[item.getName()] * stackMult
-    end
+  for _, item in ipairs(getClues()) do
+    totalValue = totalValue + math.abs(item.getQuantity())
   end
   exposedValue = totalValue
   self.editButton({ index = 0, label = totalValue })
 end
 
-function findValidItemsInSphere()
-  local items = Physics.cast({
-    origin = self.getPosition(),
-    direction = { 0, 1, 0 },
-    type = 2,
-    max_distance = 0,
-    size = { 2, 2, 2 }
-  })
-
-  local validItemList = {}
-  for _, entry in ipairs(items) do
-    if entry.hit_object ~= self then
-      if validCountItemList[entry.hit_object.getName()] ~= nil then
-        table.insert(validItemList, entry.hit_object)
-      end
-    end
-  end
-  return validItemList
-end
-
 function removeAllClues(trash)
-  for _, obj in ipairs(findValidItemsInSphere()) do
+  for _, obj in ipairs(getClues()) do
     trash.putObject(obj)
   end
+end
+
+function getClues()
+  return searchLib.inArea(self.getPosition(), self.getRotation(), { 2, 1, 2 }, "isClue")
 end
