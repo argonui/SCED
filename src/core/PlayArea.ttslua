@@ -18,9 +18,6 @@ local ARROW_ANGLE                   = 25
 -- Height to draw the connector lines, places them just above the table and always below cards
 local CONNECTION_LINE_Y             = 1.529
 
--- we use this to turn off collision handling until onLoad() is complete
-local collisionEnabled              = false
-
 -- used for recreating the link to a custom data helper after image change
 customDataHelper                    = nil
 
@@ -51,7 +48,7 @@ local locations                     = {}
 local locationConnections           = {}
 local draggingGuids                 = {}
 local missingData                   = {}
-local locationData, currentScenario
+local locationData, currentScenario, connectionsEnabled
 
 ---------------------------------------------------------
 -- general code
@@ -59,19 +56,19 @@ local locationData, currentScenario
 
 function onSave()
   return JSON.encode({
-    trackedLocations = locations,
-    currentScenario = currentScenario,
-    connectionColor = connectionColor
+    trackedLocations   = locations,
+    currentScenario    = currentScenario,
+    connectionColor    = connectionColor,
+    connectionsEnabled = connectionsEnabled
   })
 end
 
 function onLoad(savedData)
-  local loadedData = JSON.decode(savedData) or {}
-  locations        = loadedData.trackedLocations or {}
-  currentScenario  = loadedData.currentScenario
-  connectionColor  = loadedData.connectionColor or { 0.4, 0.4, 0.4, 1 }
-
-  Wait.time(function() collisionEnabled = true end, 1)
+  local loadedData   = JSON.decode(savedData) or {}
+  locations          = loadedData.trackedLocations or {}
+  currentScenario    = loadedData.currentScenario
+  connectionColor    = loadedData.connectionColor or { 0.4, 0.4, 0.4, 1 }
+  connectionsEnabled = loadedData.connectionsEnabled or true
 end
 
 -- Called by Custom Data Helpers to push their location data into the Data Helper.  This adds the
@@ -114,7 +111,7 @@ function onCollisionEnter(collisionInfo)
   local objType = obj.name
 
   -- only continue for cards
-  if not collisionEnabled or (objType ~= "Card" and objType ~= "CardCustom") then
+  if objType ~= "Card" and objType ~= "CardCustom" then
     if objType == "Deck" then
       table.insert(missingData, obj)
     end
@@ -353,6 +350,7 @@ end
 function drawBaseConnections()
   if not showLocationLinks() then
     locationConnections = {}
+    self.setVectorLines({})
     return
   end
   local cardConnectionLines = {}
@@ -557,7 +555,7 @@ function onScenarioChanged(scenarioName)
 end
 
 function showLocationLinks()
-  return not LOC_LINK_EXCLUDE_SCENARIOS[currentScenario]
+  return not LOC_LINK_EXCLUDE_SCENARIOS[currentScenario] and connectionsEnabled
 end
 
 -- Sets this playmat's snap points to limit snapping to locations or not.
@@ -578,6 +576,20 @@ function setLimitSnapsByType(matchTypes)
     end
   end
   self.setSnapPoints(snaps)
+end
+
+-- called by the option panel to enabled / disable location connections
+function setConnectionDrawState(state)
+  connectionsEnabled = state
+  rebuildConnectionList()
+  drawBaseConnections()
+end
+
+-- called by the option panel to edit the location connection color
+function setConnectionColor(color)
+  connectionColor = color
+  rebuildConnectionList()
+  drawBaseConnections()
 end
 
 -- count victory points on locations in play area
