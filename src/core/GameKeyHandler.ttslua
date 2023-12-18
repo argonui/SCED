@@ -2,6 +2,7 @@ local blessCurseManagerApi = require("chaosbag/BlessCurseManagerApi")
 local guidReferenceApi = require("core/GUIDReferenceApi")
 local optionPanelApi = require("core/OptionPanelApi")
 local playmatApi = require("playermat/PlaymatApi")
+local searchLib = require("util/SearchLib")
 local victoryDisplayApi = require("core/VictoryDisplayApi")
 
 function onLoad()
@@ -69,10 +70,8 @@ function discardObject(playerColor, hoveredObject)
 
   -- discard tokens / tiles on cards / decks
   if hoveredObject.type ~= "Tile" then
-    for _, v in ipairs(searchOnObj(hoveredObject)) do
-      if v.hit_object.type == "Tile" then
-        table.insert(discardTheseObjects, v.hit_object)
-      end
+    for _, obj in ipairs(searchLib.onObject(hoveredObject), "isTileOrToken") do
+      table.insert(discardTheseObjects, obj)
     end
   end
 
@@ -151,9 +150,8 @@ function removeOneUse(playerColor, hoveredObject)
     local searchForType = useInfo.type
     if searchForType then searchForType = searchForType:lower() end
 
-    for _, v in ipairs(searchOnObj(hoveredObject)) do
-      local obj = v.hit_object
-      if obj.type == "Tile" and not obj.locked and obj.memo ~= "resourceCounter" then
+    for _, obj in ipairs(searchLib.onObject(hoveredObject), "isTileOrToken") do
+      if not obj.locked and obj.memo ~= "resourceCounter" then
         -- check for matching object, otherwise use the first hit
         if obj.memo == searchForType then
           targetObject = obj
@@ -211,18 +209,13 @@ function takeClueFromLocation(playerColor, hoveredObject)
     return
   elseif hoveredObject.type == "Card" then
     cardName = hoveredObject.getName()
+    local searchResult = searchLib.onObject(hoveredObject, "isClue")
 
-    for _, v in ipairs(searchOnObj(hoveredObject)) do
-      local obj = v.hit_object
-      if obj.memo == "clueDoom" and obj.is_face_down == false then
-        clue = obj
-        break
-      end
-    end
-
-    if clue == nil then
+    if #searchResult == 0 then
       broadcastToColor("This card does not have any clues on it.", playerColor, "Yellow")
       return
+    else
+      clue = searchResult[1]
     end
   elseif hoveredObject.memo == "clueDoom" then
     if hoveredObject.is_face_down then
@@ -230,22 +223,10 @@ function takeClueFromLocation(playerColor, hoveredObject)
       return
     end
 
-    clue = hoveredObject
-
-    local search = Physics.cast({
-      direction    = { 0, -1, 0 },
-      max_distance = 0.1,
-      type         = 3,
-      size         = { 0.1, 0.1, 0.1 },
-      origin       = clue.getPosition()
-    })
+    local searchResult = searchLib.belowPosition(hoveredObject.getPosition(), "isCard")
     
-    for _, v in ipairs(search) do
-      local obj = v.hit_object
-      if obj.type == "Card" then
-        cardName = obj.getName()
-        break
-      end
+    if #searchResult ~= 0 then
+      cardName = searchResult[1].getName()
     end
   else
     broadcastToColor("Hover a clue or card with clues and try again.", playerColor, "Yellow")
@@ -290,18 +271,6 @@ end
 -- adds Wendy's menu to the hovered card
 function addWendysMenu(playerColor, hoveredObject)
   blessCurseManagerApi.addWendysMenu(playerColor, hoveredObject)
-end
-
--- searches on an object (by using its bounds)
----@param obj Object Object to search on
-function searchOnObj(obj)
-  return Physics.cast({
-    direction    = { 0, 1, 0 },
-    max_distance = 0.5,
-    type         = 3,
-    size         = obj.getBounds().size,
-    origin       = obj.getPosition()
-  })
 end
 
 -- Simple method to check if the given point is in a specified area
