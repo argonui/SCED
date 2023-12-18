@@ -1,12 +1,12 @@
-local chaosBagApi = require("chaosbag/ChaosBagApi")
+local searchLib        = require("util/SearchLib")
+local chaosBagApi      = require("chaosbag/ChaosBagApi")
 local guidReferenceApi = require("core/GUIDReferenceApi")
-local playAreaApi = require("core/PlayAreaApi")
-local tokenChecker = require("core/token/TokenChecker")
+local playAreaApi      = require("core/PlayAreaApi")
+local tokenChecker     = require("core/token/TokenChecker")
 
-local pendingCall = false
-local messageSent = {}
-local missingData = {}
-local countedVP   = {}
+local pendingCall      = false
+local missingData      = {}
+local countedVP        = {}
 
 local highlightMissing = false
 local highlightCounted = false
@@ -35,34 +35,23 @@ function onLoad()
   self.createButton(buttonParameters)
 
   -- index 3: highlighting button (missing data)
-  self.createButton({
-    label          = "!",
-    click_function = "highlightMissingData",
-    tooltip        = "Enable highlighting of cards without metadata (VP on these is not counted).",
-    function_owner = self,
-    scale          = { 0.15, 0.15, 0.15 },
-    color          = { 1, 0, 0 },
-    width          = 700,
-    height         = 800,
-    font_size      = 700,
-    font_color     = { 1, 1, 1 },
-    position       = { x = 1.82, y = 0.06, z = -1.32 }
-  })
+  buttonParameters.label          = "!"
+  buttonParameters.click_function = "highlightMissingData"
+  buttonParameters.tooltip        = "Enable highlighting of cards without metadata (VP on these is not counted)."
+  buttonParameters.color          = { 1, 0, 0 }
+  buttonParameters.width          = 700
+  buttonParameters.height         = 800
+  buttonParameters.font_size      = 700
+  buttonParameters.position       = { x = 1.82, y = 0.06, z = -1.32 }
+  self.createButton(buttonParameters)
 
   -- index 4: highlighting button (counted VP)
-  self.createButton({
-    label          = "?",
-    click_function = "highlightCountedVP",
-    tooltip        = "Enable highlighting of cards with VP.",
-    function_owner = self,
-    scale          = { 0.15, 0.15, 0.15 },
-    color          = { 0, 1, 0 },
-    width          = 700,
-    height         = 800,
-    font_size      = 700,
-    font_color     = { 1, 1, 1 },
-    position       = { x = 1.5, y = 0.06, z = -1.32 }
-  })
+  buttonParameters.label          = "?"
+  buttonParameters.click_function = "highlightCountedVP"
+  buttonParameters.tooltip        = "Enable highlighting of cards with VP."
+  buttonParameters.color          = { 0, 1, 0 }
+  buttonParameters.position.x     = 1.5
+  self.createButton(buttonParameters)
 
   -- update the display label once
   Wait.time(updateCount, 1)
@@ -147,19 +136,17 @@ function updateCount()
   victoryPoints.playArea = playAreaApi.countVP()
 
   -- count cards in victory display
-  for _, v in ipairs(searchOnObj(self)) do
-    local obj = v.hit_object
-
+  for _, obj in ipairs(searchLib.onObject(self), "isCardOrDeck") do
     -- check metadata for VP
-    if obj.tag == "Card" then
+    if obj.type == "Card" then
       local VP = getCardVP(obj, JSON.decode(obj.getGMNotes()))
       victoryPoints.display = victoryPoints.display + VP
       if VP > 0 then
         table.insert(countedVP, obj)
       end
 
-    -- handling for stacked cards
-    elseif obj.tag == "Deck" then
+      -- handling for stacked cards
+    elseif obj.type == "Deck" then
       local VP = 0
       for _, deepObj in ipairs(obj.getObjects()) do
         local deepVP = getCardVP(obj, JSON.decode(deepObj.gm_notes))
@@ -212,8 +199,7 @@ end
 function highlightMissingData()
   self.editButton({
     index = 3,
-    tooltip = (highlightMissing and "Enable" or "Disable") .. " highlighting of cards without metadata (VP on these is not counted)."
-  })
+    tooltip = (highlightMissing and "Enable" or "Disable") .. " highlighting of cards without metadata (VP on these is not counted)." })
   for _, obj in pairs(missingData) do
     if obj ~= nil then
       if highlightMissing then
@@ -249,7 +235,7 @@ end
 -- places the provided card in the first empty spot
 function placeCard(card)
   local trash = guidReferenceApi.getObjectByOwnerAndType("Mythos", "Trash")
-  
+
   -- check snap point states
   local snaps = self.getSnapPoints()
   table.sort(snaps, function(a, b) return a.position.x > b.position.x end)
@@ -260,21 +246,15 @@ function placeCard(card)
   local positions = {}
   for i, snap in ipairs(snaps) do
     positions[i] = self.positionToWorld(snap.position)
-    local hits = checkSnapPointState(positions[i])
-
-    -- first hit is self, additional hits must be cards / decks
-    if #hits > 1 then
-      fullSlots[i] = true
-    end
+    local searchResult = searchLib.atPosition(positions[i], "isCardOrDeck")
+    fullSlots[i] = #searchResult > 0
   end
 
   -- remove tokens from the card
-  for _, v in ipairs(searchOnObj(card)) do
-    local obj = v.hit_object
-
+  for _, obj in ipairs(searchLib.onObject(card)) do
     -- don't touch decks / cards
-    if obj.tag == "Deck" or obj.tag == "Card" then
-    -- put chaos tokens back into bag
+    if obj.type == "Deck" or obj.type == "Card" then
+      -- put chaos tokens back into bag
     elseif tokenChecker.isChaosToken(obj) then
       local chaosBag = chaosBagApi.findChaosBag()
       chaosBag.putObject(obj)
@@ -282,7 +262,7 @@ function placeCard(card)
       trash.putObject(obj)
     end
   end
-  
+
   -- place the card
   local name = card.getName() or "Unnamed card"
   for i = 1, 10 do
@@ -297,29 +277,4 @@ function placeCard(card)
 
   broadcastToAll("Victory Display is full! " .. name .. " placed into slot 1.", "Orange")
   card.setPositionSmooth(positions[1], false, true)
-end
-
----------------------------------------------------------
--- utility functions
----------------------------------------------------------
-
--- searches on an object
-function searchOnObj(obj)
-  return Physics.cast({
-    direction    = { 0, 1, 0 },
-    max_distance = 0.5,
-    type         = 3,
-    size         = obj.getBounds().size,
-    origin       = obj.getPosition()
-  })
-end
-
-function checkSnapPointState(pos)
-  return Physics.cast({
-    direction    = { 0, 1, 0 },
-    max_distance = 0.1,
-    type         = 3,
-    size         = { 0.1, 0.1, 0.1 },
-    origin       = pos
-  })
 end

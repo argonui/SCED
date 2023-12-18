@@ -1,3 +1,4 @@
+local searchLib = require("util/SearchLib")
 local fontColor
 local BACKGROUNDS = {
   {
@@ -112,25 +113,11 @@ end
 -- attempt to load image from below card when dropped
 function onDrop(playerColor)
   local pos = self.getPosition():setAt("y", 2)
-  local search = Physics.cast({
-    direction    = { 0, -1, 0 },
-    max_distance = 2,
-    type         = 3,
-    size         = { 0.1, 0.1, 0.1 },
-    origin       = pos
-  })
+  local searchResult = searchLib.belowPosition(pos, "isCard")
+  if #searchResult == 0 then return end
+  local syncName = searchResult[1].getName()
 
-  local syncName
-  for _, v in ipairs(search) do
-    if v.hit_object.tag == "Card" then
-      syncName = v.hit_object.getName()
-      break
-    end
-  end
-
-  if not syncName then return end
-
-  -- remove level information fron syncName
+  -- remove level information from syncName
   syncName = syncName:gsub("%s%(%d%)", "")
 
   -- loop through background table
@@ -170,9 +157,9 @@ end
 -- only allow cards to enter, split decks and reject other objects
 function onObjectEnterContainer(container, object)
   if container ~= self then return end
-  if object.tag == "Deck" then
+  if object.type == "Deck" then
     takeDeckOut(object.getGUID(), self.getPosition() + Vector(0, 0.1, 0))
-  elseif object.tag ~= "Card" then
+  elseif object.type ~= "Card" then
     broadcastToAll("The 'Attachment Helper' is meant to be used for cards.", "White")
   else
     findCard(object.getGUID(), object.getName(), object.getGMNotes())
