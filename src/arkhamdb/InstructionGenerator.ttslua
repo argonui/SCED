@@ -1,4 +1,4 @@
-local 
+local searchLib = require("util/SearchLib")
 
 function onLoad()
   local buttonParameters          = {}
@@ -13,7 +13,7 @@ function onLoad()
 
   local inputParameters          = {}
   inputParameters.label          = "Click button above"
-  inputParameters.input_function = "input_func"
+  inputParameters.input_function = "none"
   inputParameters.function_owner = self
   inputParameters.position       = { 0, 0.05, 1.95 }
   inputParameters.width          = 1200
@@ -22,6 +22,56 @@ function onLoad()
   self.createInput(inputParameters)
 end
 
-function generate()
+function generate(_, playerColor)
+  local idList = {}
+  for _, obj in ipairs(searchLib.onObject(self, "isCardOrDeck")) do
+    if obj.type == "Card" then
+      local cardMetadata = JSON.decode(obj.getGMNotes())
+      
+      if cardMetadata then
+        local id = getIdFromData(cardMetadata)
+        if id then
+          table.insert(idList, id)
+        end
+      end
+    elseif obj.type == "Deck" then
+      for _, deepObj in ipairs(obj.getData().ContainedObjects) do
+        local cardMetadata = JSON.decode(deepObj.GMNotes)
+        if cardMetadata then
+          local id = getIdFromData(cardMetadata)
+          if id then
+            table.insert(idList, id)
+          end
+        end
+      end
+    end
+  end
 
+  if #idList == 0 then
+    broadcastToColor("Didn't find any valid cards.", playerColor, "Red")
+    return
+  else
+    broadcastToColor("Created deck instruction for " .. #idList .. " card(s). Copy it from the input field.", playerColor, "Green")
+  end
+
+  -- construct the string
+  local description = "++SCED import instructions++\n- add: "
+  for _, id in ipairs(idList) do
+    description = description .. id .. ", "
+  end
+  
+  -- remove last delimiter (last two characters)
+  description = description:sub(1, -3)
+  self.editInput({index = 0, value = description})
 end
+
+-- use the ZoopGuid as fallback if no id present
+function getIdFromData(metadata)
+  if metadata.id then
+    return metadata.id
+  elseif metadata.TtsZoopGuid then
+    return metadata.TtsZoopGuid
+  end
+end
+
+function none() end
