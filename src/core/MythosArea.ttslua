@@ -1,6 +1,6 @@
-local searchLib = require("util/SearchLib")
 local guidReferenceApi = require("core/GUIDReferenceApi")
 local playAreaApi = require("core/PlayAreaApi")
+local searchLib = require("util/SearchLib")
 local tokenArrangerApi = require("accessories/TokenArrangerApi")
 local tokenChecker = require("core/token/TokenChecker")
 local tokenSpawnTrackerApi = require("core/token/TokenSpawnTrackerApi")
@@ -18,15 +18,8 @@ local ENCOUNTER_DISCARD_AREA = {
 local ENCOUNTER_DECK_POS = { x = -3.93, y = 1, z = 5.76 }
 local ENCOUNTER_DISCARD_POSITION = { x = -3.85, y = 1, z = 10.38 }
 local isReshuffling = false
-
--- scenario metadata
 local currentScenario, useFrontData, tokenData
-
--- object references
 local TRASH, DATA_HELPER
-
--- we use this to turn off collision handling until onLoad() is complete
-local collisionEnabled = false
 
 function onLoad(saveState)
   if saveState ~= nil then
@@ -37,7 +30,6 @@ function onLoad(saveState)
   end
   TRASH = guidReferenceApi.getObjectByOwnerAndType("Mythos", "Trash")
   DATA_HELPER = guidReferenceApi.getObjectByOwnerAndType("Mythos", "DataHelper")
-  collisionEnabled = true
 end
 
 function onSave()
@@ -48,9 +40,12 @@ function onSave()
   })
 end
 
+---------------------------------------------------------
+-- collison and container event handling
+---------------------------------------------------------
+
 -- TTS event handler.  Handles scenario name event triggering and encounter card token resets.
 function onCollisionEnter(collisionInfo)
-  if not collisionEnabled then return end
   local object = collisionInfo.collision_object
 
   if object.getName() == "Scenario" then
@@ -83,7 +78,6 @@ end
 
 -- TTS event handler. Handles scenario name event triggering
 function onCollisionExit(collisionInfo)
-  if not collisionEnabled then return end
   local object = collisionInfo.collision_object
 
   -- reset token metadata if scenario reference card is removed
@@ -144,7 +138,7 @@ function getEncounterDeck()
       return obj
     end
   end
-  
+
   -- if no deck was found, return the first hit (a card)
   if #searchResult > 0 then
     return searchResult[1]
@@ -153,14 +147,14 @@ end
 
 -- 'params' contains the position, rotation and a boolean to force a faceup draw
 function drawEncounterCard(params)
-  local card
-  local deck = getEncounterDeck()
+  local encounterDeck = getEncounterDeck()
 
-  if deck then
-    if deck.type == "Deck" then
-      card = deck.takeObject()
+  if encounterDeck then
+    local card
+    if encounterDeck.type == "Deck" then
+      card = encounterDeck.takeObject()
     else
-      card = deck
+      card = encounterDeck
     end
     actualEncounterCardDraw(card, params)
   else
@@ -206,11 +200,10 @@ end
 -- helper functions
 ---------------------------------------------------------
 
--- Simple method to check if the given point is in a specified area.  Local use only,
----@param point Vector.  Point to check, only x and z values are relevant
----@param bounds Table.  Defined area to see if the point is within.  See MAIN_PLAY_AREA for sample
---     bounds definition.
----@return Boolean.  True if the point is in the area defined by bounds
+-- Simple method to check if the given point is in a specified area
+---@param point Vector Point to check, only x and z values are relevant
+---@param bounds Table Defined area to see if the point is within
+---@return Boolean: True if the point is in the area defined by bounds
 function inArea(point, bounds)
   return (point.x < bounds.upperLeft.x
     and point.x > bounds.lowerRight.x
