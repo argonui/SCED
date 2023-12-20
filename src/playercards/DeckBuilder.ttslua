@@ -3,6 +3,7 @@ require("playercards/PlayerCardSpawner")
 local playerCardPanelApi  = require("playercards/PlayerCardPanelApi")
 local allCardsBagApi      = require("playercards/AllCardsBagApi")
 local cardFilterSearchApi = require("playercards/CardFilterSearchApi")
+local deckImporterApi     = require("arkhamdb/DeckImporterApi")
 local deckZoneGUID        = "cba5d4"
 local deckObject          = nil
 local placingDeck         = false
@@ -438,13 +439,20 @@ function exportDeck(_, _, _)
     local deckList = {
       slots = { },
       investigatorId  = "",
-      bondedList = { },
       customizations = updateCustomizableUpgrades(),
       loadAltInvestigator = "normal"
     }
     -- Handle investigator
     deckList.investigatorId = investigatorData.id
-    -- TODO: Handle alternate art
+    -- Handle alternate art
+    if investigatorObject.getStateId() > 1 then
+      if investigatorObject.getStateId() == #(investigatorObject.getStates()) then
+        deckList.loadAltInvestigator = "promo"
+      else
+        deckList.loadAltInvestigator = "revised"
+      end
+    end
+
     for _, card in ipairs(deckObject.getObjects()) do
       -- Handle basic card addition
       local cardMetadata = JSON.decode(card.gm_notes)
@@ -454,17 +462,6 @@ function exportDeck(_, _, _)
       else
         deckList.slots[cardId] = 1
       end
-      -- Handle bonded cards
-      if cardMetadata.bonded then
-        for _, bond in ipairs(cardMetadata.bonded) do
-          if deckList.bondedList[bond.id] then
-            deckList.bondedList[bond.id] = deckList.bondedList[bond.id] + bond.count
-          else
-            deckList.bondedList[bond.id] = bond.count
-          end
-        end
-      end
-      -- TODO: Handle customizable cards
     end
     deckTokenData.GMNotes = JSON.encode(deckList)
     deckTokenData.Nickname = deckObject.getName()
@@ -509,7 +506,11 @@ function importDeck(coinObject)
   Spawner.spawnCards(
     {allCardsBagApi.getCardById(deckData.investigatorId)},
     tempPos,
-    { x = 0.00, y = 270.00, z = 0.00}
+    { x = 0.00, y = 270.00, z = 0.00},
+    false,
+    function(obj)
+      deckImporterApi.loadAltArt({card = obj, loadAltInvestigator = deckData.loadAltInvestigator})
+    end
   )
   Wait.condition(function()
     deckObject.setGMNotes(JSON.encode(deckData.customizations))

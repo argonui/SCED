@@ -56,25 +56,13 @@ end
 -- Modelled after onDeckResult from arkhamdb/ArkhamDb.ttslua, but with some necessary changes
 function spawnDeckFromToken(params)
   local deckData = JSON.decode(params.coin.getGMNotes())
-    destroyObject(params.coin)
-    deckData["playerColor"] = params.playerColor
-    -- Add Investigator Cards
-    deckData["slots"][deckData.investigatorId] = 1
-    deckData["slots"][string.sub(deckData.investigatorId, 1, 5) .. "-m"] = 1
-    -- Add Bonded Cards
-    for bondedId, bondedCount in pairs(deckData.bondedList) do
-      deckData.slots[bondedId] = bondedCount
-    end
-    -- Add Customizable Upgrade Sheets
-    
-    -- Add Summon Servitor minicard
-    if deckData.slots["09080"] ~= nil then
-      deckData.slots["09080-m"] = 1
-    end
-    -- Add On The Mend
+  destroyObject(params.coin)
+  deckData["playerColor"] = params.playerColor
+  -- Add Investigator Cards
+  deckData["slots"][deckData.investigatorId] = 1
+  deckData["slots"][string.sub(deckData.investigatorId, 1, 5) .. "-m"] = 1
 
-
-    loadCardsHelper(deckData)
+  arkhamDb.adjustDeck(deckData, loadCards)
 end
 
 -- Process the slot list, which defines the card Ids and counts of cards to load. Spawn those cards
@@ -141,7 +129,7 @@ function loadCards(slots, investigatorId, bondedList, customizations, playerColo
       elseif zone == "Deck" then
         callback = function(deck) deckSpawned(deck, playerColor) end
       elseif zone == "Investigator" or zone == "Minicard" then
-        callback = function(card) loadAltArt(card, loadAltInvestigator) end
+        callback = function(card) loadAltArt({card = card, loadAltInvestigator = loadAltInvestigator}) end
       end
       Spawner.spawnCards(
           zoneCards,
@@ -494,7 +482,9 @@ end
 -- Callback function for investigator cards and minicards to set the correct state for alt art
 ---@param card Object Card which needs to be set the state for
 ---@param loadAltInvestigator String Contains the name of alternative art for the investigator ("normal", "revised" or "promo")
-function loadAltArt(card, loadAltInvestigator)
+function loadAltArt(params)
+  local card = params.card
+  local loadAltInvestigator = params.loadAltInvestigator
   -- states are set up this way:
   -- 1 - normal, 2 - revised/promo, 3 - promo (if 2 is revised)
   -- This means we can always load the 2nd state for revised and just get the last state for promo
