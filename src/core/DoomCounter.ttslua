@@ -1,5 +1,6 @@
 local guidReferenceApi = require("core/GUIDReferenceApi")
 local playAreaApi = require("core/PlayAreaApi")
+local searchLib = require("util/SearchLib")
 
 local optionsVisible = false
 local options = {
@@ -49,10 +50,8 @@ end
 
 -- adds the provided number to the current count
 function addVal(number)
-  number = tonumber(number) or 0
   val = val + number
-  self.editButton({ index = 0, label = tostring(val) })
-  broadcastDoom(val)
+  updateVal(val)
 end
 
 -- sets the current count to the provided number
@@ -62,21 +61,16 @@ function updateVal(number)
   broadcastDoom(val)
 end
 
---called by updateVal and addVal to broadcast total doom in play, including doom threshold
+-- called by updateVal and addVal to broadcast total doom in play, including doom threshold
 function broadcastDoom(val)
-  
-  if val ~= 0 then
-    local doomInPlayCounter = guidReferenceApi.getObjectByOwnerAndType("Mythos", "DoomInPlayCounter")
-    otherDoom = doomInPlayCounter.call("countDoom")
-    totalDoomThreshold = getDoomThreshold()
+  local doomInPlayCounter = guidReferenceApi.getObjectByOwnerAndType("Mythos", "DoomInPlayCounter")
+  local doomInPlay = doomInPlayCounter.call("countDoomInPlay") + val
+  local doomThreshold = getDoomThreshold()
 
-    if totalDoomThreshold ~= nil then
-      broadcastToAll(val .. " doom on the agenda (" .. otherDoom + val .. "/" .. totalDoomThreshold .. " in play)", "White")
-    else
-      broadcastToAll(val .. " doom on the agenda (" .. otherDoom + val .. " in play)", "White")
-    end
+  if doomThreshold then
+    broadcastToAll(val .. " doom on the agenda (" .. doomInPlay .. "/" .. doomThreshold .. " in play)", "White")
   else
-    broadcastToAll("Doom on agenda set to " .. val, "White")
+    broadcastToAll(val .. " doom on the agenda (" .. doomInPlay .. " in play)", "White")
   end
 end
 
@@ -91,54 +85,32 @@ function startReset()
   end
 end
 
--- get Doom Threshold from top card of Agenda deck
+-- get doom threshold from top card of Agenda deck
 function getDoomThreshold()
- 
-  local origin = { -2.72, 1.6, 0.37 } -- this needs to be edited to the actual coordinates of the agenda deck
-  local size = { 0.1, 0.1, 0.1 } -- very slim area, basically a single raycast
-  local searchResult = searchArea(origin, size, isCardOrDeck)
-  
-  local metadata = {} 
-  if #searchResult == 0 then
-  -- handle no agenda found
-    return nil
-  elseif #searchResult == 1 then
-    if searchResult[1].type == "Card" then
-    -- handle single agenda card
-      local cardData = searchResult[1].getData()
-      metadata = JSON.decode(cardData.GMNotes)
-      if metadata == nil then
-        return nil
-      else
-        if(metadata.doomThresholdPerInvestigator) then
+  local agendaPos = { -2.72, 1.6, 0.37 }
+  local searchResult = searchLib.atPosition(agendaPos, "isCardOrDeck")
 
-          return metadata.doomThresholdPerInvestigator*playAreaApi.getInvestigatorCount() + metadata.doomThreshold
-        else
-            return metadata.doomThreshold
-        end
-      end
-
+  if #searchResult == 1 then
+    local obj = searchResult[1]
+    if obj.type == "Card" then
+      return getDoomThresholdFromGMNotes(obj.getGMNotes())
     else
-    -- handle agenda deck
-      
-      local cardData = searchResult[1].getData().ContainedObjects
-      local topCardData = cardData[#cardData]
-      metadata = JSON.decode(topCardData.GMNotes)
-      if metadata == nil then
-        return nil
-      else
-        if(metadata.doomThresholdPerInvestigator) then
-          return metadata.doomThresholdPerInvestigator*playAreaApi.getInvestigatorCount() + metadata.doomThreshold
-        else
-          return metadata.doomThreshold
-        end
-      end
-      
+      -- handle agenda deck
+      local containedObjects = obj.getData().ContainedObjects
+      local topCardData = containedObjects[#containedObjects]
+      return getDoomThresholdFromGMNotes(topCardData.GMNotes)
     end
-    
+  end
+  return nil
+end
+
+-- decodes the gm notes and return the doom treshhold
+function getDoomThresholdFromGMNotes(notes)
+  local metadata = JSON.decode(notes) or {}
+  if metadata.doomThresholdPerInvestigator then
+    return metadata.doomThresholdPerInvestigator * playAreaApi.getInvestigatorCount() + metadata.doomThreshold
   else
-    -- handle multiple cards / decks found
-    return nil
+    return metadata.doomThreshold
   end
 end
 
@@ -157,28 +129,3 @@ function toggleOptions()
     self.UI.hide("Options")
   end
 end
-
--- searches an area and optionally filters the result
-function searchArea(origin, size, filter)
-  local searchResult = Physics.cast({
-    origin       = origin,
-    direction    = { 0, 1, 0 },
-    orientation  = self.getRotation(),
-    type         = 3,
-    size         = size,
-    max_distance = 0
-  })
-
-  local objList = {}
-  for _, v in ipairs(searchResult) do
-    if not filter or (filter and filter(v.hit_object)) then
-      table.insert(objList, v.hit_object)
-    end
-  end
-  return objList
-end
-
--- filter functions for searchArea()
-function isCard(x) return x.type == 'Card' end
-function isDeck(x) return x.type == 'Deck' end
-function isCardOrDeck(x) return x.type == 'Card' or x.type == 'Deck' end

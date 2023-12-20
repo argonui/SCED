@@ -240,17 +240,23 @@ function buildIndex()
     if (cardMetadata ~= nil) then
       addCardToIndex(cardData, cardMetadata)
     end
-    if (i % 20 == 0) then
-      coroutine.yield(0)
-    end
   end
   local hotfixBags = getObjectsWithTag("AllCardsHotfix")
   for _, hotfixBag in ipairs(hotfixBags) do
     if (#hotfixBag.getObjects() > 0) then
       for i, cardData in ipairs(hotfixBag.getData().ContainedObjects) do
-        local cardMetadata = JSON.decode(cardData.GMNotes)
-        if (cardMetadata ~= nil) then
-          addCardToIndex(cardData, cardMetadata)
+        if cardData.ContainedObjects then
+          for j, deepCardData in ipairs(cardData.ContainedObjects) do
+            local deepCardMetadata = JSON.decode(deepCardData.GMNotes)
+            if deepCardMetadata ~= nil then
+              addCardToIndex(deepCardData, deepCardMetadata)
+            end
+          end
+        else
+          local cardMetadata = JSON.decode(cardData.GMNotes)
+          if cardMetadata ~= nil then
+            addCardToIndex(cardData, cardMetadata)
+          end
         end
       end
     end
@@ -261,9 +267,13 @@ function buildIndex()
 end
 
 -- Adds a card to any indexes it should be a part of, based on its metadata.
--- Param cardData: TTS object data for the card
--- Param cardMetadata: SCED metadata for the card
+---@param cardData: TTS object data for the card
+---@param cardMetadata: SCED metadata for the card
 function addCardToIndex(cardData, cardMetadata)
+  -- use the ZoopGuid as fallback if no id present
+  if cardMetadata.id == nil and cardMetadata.TtsZoopGuid then
+    cardMetadata.id = cardMetadata.TtsZoopGuid
+  end
   cardIdIndex[cardMetadata.id] = { data = cardData, metadata = cardMetadata }
   if (cardMetadata.alternate_ids ~= nil) then
     for _, alternateId in ipairs(cardMetadata.alternate_ids) do

@@ -158,6 +158,7 @@ do
     local slots = deckData.slots
     internal.maybeDrawRandomWeakness(slots, playerColor)
     
+    internal.maybeModifyDeckFromDescription(slots, deck.description_md)
     internal.maybeAddSummonedServitor(slots)
     internal.maybeAddOnTheMend(slots, playerColor)
     internal.maybeAddRealityAcidReference(slots)
@@ -292,6 +293,49 @@ do
   internal.maybeAddRealityAcidReference = function(slots)
     if slots["89004"] ~= nil then
       slots["89005"] = 1
+    end
+  end
+
+  -- Processes the deck description from ArkhamDB and modifies the slot list accordingly
+  ---@param slots Table The slot list for cards in this deck. Table key is the cardId, value is the number
+  ---@param description String The deck desription from ArkhamDB
+  internal.maybeModifyDeckFromDescription = function(slots, description)
+    -- check for import instructions
+    local pos = string.find(description, "++SCED import instructions++")
+    if not pos then return end
+
+    -- remove everything before instructions (including newline)
+    local tempStr = string.sub(description, pos + 30)
+    
+    -- parse each line in instructions
+    for line in tempStr:gmatch("([^\n]+)") do
+      -- remove dashes at the start
+      line = line:gsub("%- ", "")
+
+      -- remove spaces
+      line = line:gsub("%s", "")
+
+      -- get instructor
+      local instructor = ""
+      for word in line:gmatch("%a+:") do
+        instructor = word
+        break
+      end
+
+      if instructor == "" or (instructor ~= "add:" and instructor ~= "remove:") then return end
+
+      -- remove instructor from line
+      line = line:gsub(instructor, "")
+
+      -- evaluate instructions
+      local cardIds = {}
+      for str in line:gmatch("([^,]+)") do
+        if instructor == "add:" then
+          slots[str] = (slots[str] or 0) + 1
+        elseif instructor == "remove:" then
+          slots[str] = math.max(slots[str] - 1, 0)
+        end
+      end
     end
   end
 

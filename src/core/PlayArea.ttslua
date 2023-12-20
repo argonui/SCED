@@ -1,6 +1,6 @@
----------------------------------------------------------
--- general setup
----------------------------------------------------------
+local guidReferenceApi              = require("core/GUIDReferenceApi")
+local searchLib                     = require("util/SearchLib")
+local tokenManager                  = require("core/token/TokenManager")
 
 -- Location connection directional options
 local BIDIRECTIONAL                 = 0
@@ -11,7 +11,6 @@ local INCOMING_ONE_WAY              = 2
 local CONNECTION_THICKNESS          = 0.015
 local DRAGGING_CONNECTION_THICKNESS = 0.15
 local DRAGGING_CONNECTION_COLOR     = { 0.8, 0.8, 0.8, 1 }
-local CONNECTION_COLOR              = { 0.4, 0.4, 0.4, 1 }
 local DIRECTIONAL_ARROW_DISTANCE    = 3.5
 local ARROW_ARM_LENGTH              = 0.9
 local ARROW_ANGLE                   = 25
@@ -19,14 +18,10 @@ local ARROW_ANGLE                   = 25
 -- Height to draw the connector lines, places them just above the table and always below cards
 local CONNECTION_LINE_Y             = 1.529
 
--- we use this to turn off collision handling until onLoad() is complete
-local collisionEnabled              = false
-
 -- used for recreating the link to a custom data helper after image change
 customDataHelper                    = nil
 
-local DEFAULT_URL                   =
-"http://cloud-3.steamusercontent.com/ugc/998015670465071049/FFAE162920D67CF38045EFBD3B85AD0F916147B2/"
+local DEFAULT_URL                   = "http://cloud-3.steamusercontent.com/ugc/998015670465071049/FFAE162920D67CF38045EFBD3B85AD0F916147B2/"
 
 local SHIFT_OFFSETS                 = {
   left  = { x = 0.00, y = 0, z = 7.67 },
@@ -44,15 +39,13 @@ local LOC_LINK_EXCLUDE_SCENARIOS    = {
   ["The Heart of Madness"] = true
 }
 
-local guidReferenceApi              = require("core/GUIDReferenceApi")
-local tokenManager                  = require("core/token/TokenManager")
 local clueData                      = {}
 local spawnedLocationGUIDs          = {}
 local locations                     = {}
 local locationConnections           = {}
 local draggingGuids                 = {}
 local missingData                   = {}
-local locationData, currentScenario
+local locationData, currentScenario, connectionsEnabled
 
 ---------------------------------------------------------
 -- general code
@@ -60,19 +53,19 @@ local locationData, currentScenario
 
 function onSave()
   return JSON.encode({
-    trackedLocations = locations,
-    currentScenario = currentScenario,
+    trackedLocations   = locations,
+    currentScenario    = currentScenario,
+    connectionColor    = connectionColor,
+    connectionsEnabled = connectionsEnabled
   })
 end
 
-function onLoad(saveState)
-  -- records locations we have spawned clues for
-  local save = JSON.decode(saveState) or {}
-  locations = save.trackedLocations or {}
-  currentScenario = save.currentScenario
-
-  self.interactable = false
-  Wait.time(function() collisionEnabled = true end, 1)
+function onLoad(savedData)
+  local loadedData   = JSON.decode(savedData) or {}
+  locations          = loadedData.trackedLocations or {}
+  currentScenario    = loadedData.currentScenario
+  connectionColor    = loadedData.connectionColor or { 0.4, 0.4, 0.4, 1 }
+  connectionsEnabled = loadedData.connectionsEnabled or true
 end
 
 -- Called by Custom Data Helpers to push their location data into the Data Helper.  This adds the
@@ -85,6 +78,7 @@ function updateLocations(args)
   end
 end
 
+-- sets the image of the playarea
 function updateSurface(newURL)
   local customInfo = self.getCustomObject()
 
@@ -108,12 +102,13 @@ function updateSurface(newURL)
   end
 end
 
+-- TTS event, called for each object that is placed on the playarea
 function onCollisionEnter(collisionInfo)
   local obj = collisionInfo.collision_object
   local objType = obj.name
 
   -- only continue for cards
-  if not collisionEnabled or (objType ~= "Card" and objType ~= "CardCustom") then
+  if objType ~= "Card" and objType ~= "CardCustom" then
     if objType == "Deck" then
       table.insert(missingData, obj)
     end
@@ -207,7 +202,7 @@ function onUpdate()
     -- Even if the last location left the play area, need one last draw to clear the lines
     needsConnectionDraw = true
   end
-  if (needsConnectionRebuild) then
+  if needsConnectionRebuild then
     rebuildConnectionList()
   end
   if needsConnectionDraw then
@@ -352,6 +347,7 @@ end
 function drawBaseConnections()
   if not showLocationLinks() then
     locationConnections = {}
+    self.setVectorLines({})
     return
   end
   local cardConnectionLines = {}
@@ -431,7 +427,7 @@ function addBidirectionalVector(card1, card2, vectorOwner, lines)
 
   table.insert(lines, {
     points = { pos1, pos2 },
-    color = vectorOwner == self and CONNECTION_COLOR or DRAGGING_CONNECTION_COLOR,
+    color = vectorOwner == self and connectionColor or DRAGGING_CONNECTION_COLOR,
     thickness = vectorOwner == self and CONNECTION_THICKNESS or DRAGGING_CONNECTION_THICKNESS,
   })
 end
@@ -489,7 +485,7 @@ function addArrowLines(arrowheadPos, originPos, vectorOwner, lines)
   local arm2 = vectorOwner.positionToLocal(arrowArm2)
   table.insert(lines, {
     points = { arm1, head, arm2 },
-    color = vectorOwner == self and CONNECTION_COLOR or DRAGGING_CONNECTION_COLOR,
+    color = vectorOwner == self and connectionColor or DRAGGING_CONNECTION_COLOR,
     thickness = vectorOwner == self and CONNECTION_THICKNESS or DRAGGING_CONNECTION_THICKNESS,
   })
 end
@@ -556,7 +552,7 @@ function onScenarioChanged(scenarioName)
 end
 
 function showLocationLinks()
-  return not LOC_LINK_EXCLUDE_SCENARIOS[currentScenario]
+  return not LOC_LINK_EXCLUDE_SCENARIOS[currentScenario] and connectionsEnabled
 end
 
 -- Sets this playmat's snap points to limit snapping to locations or not.
@@ -577,6 +573,20 @@ function setLimitSnapsByType(matchTypes)
     end
   end
   self.setSnapPoints(snaps)
+end
+
+-- called by the option panel to enabled / disable location connections
+function setConnectionDrawState(state)
+  connectionsEnabled = state
+  rebuildConnectionList()
+  drawBaseConnections()
+end
+
+-- called by the option panel to edit the location connection color
+function setConnectionColor(color)
+  connectionColor = color
+  rebuildConnectionList()
+  drawBaseConnections()
 end
 
 -- count victory points on locations in play area
@@ -608,25 +618,8 @@ end
 -- checks if a card has clues on it, returns true if clues are on it
 ---@param card TTSObject Card to check for clues
 function cardHasClues(card)
-  for _, v in ipairs(searchOnObj(card)) do
-    local obj = v.hit_object
-    if obj.memo == "clueDoom" and obj.is_face_down == false then
-      return true
-    end
-  end
-  return false
-end
-
--- searches on an object (by using its bounds)
----@param obj Object Object to search on
-function searchOnObj(obj)
-  return Physics.cast({
-    direction    = { 0, 1, 0 },
-    max_distance = 0.5,
-    type         = 3,
-    size         = obj.getBounds().size,
-    origin       = obj.getPosition()
-  })
+  local searchResult = searchLib.onObject(card, "isClue")
+  return #searchResult > 0
 end
 
 -- highlights all locations in the play area without metadata

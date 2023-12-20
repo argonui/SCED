@@ -1,5 +1,6 @@
 local guidReferenceApi = require("core/GUIDReferenceApi")
 local playAreaApi = require("core/PlayAreaApi")
+local searchLib = require("util/SearchLib")
 local tokenArrangerApi = require("accessories/TokenArrangerApi")
 local tokenChecker = require("core/token/TokenChecker")
 local tokenSpawnTrackerApi = require("core/token/TokenSpawnTrackerApi")
@@ -17,15 +18,8 @@ local ENCOUNTER_DISCARD_AREA = {
 local ENCOUNTER_DECK_POS = { x = -3.93, y = 1, z = 5.76 }
 local ENCOUNTER_DISCARD_POSITION = { x = -3.85, y = 1, z = 10.38 }
 local isReshuffling = false
-
--- scenario metadata
 local currentScenario, useFrontData, tokenData
-
--- object references
 local TRASH, DATA_HELPER
-
--- we use this to turn off collision handling until onLoad() is complete
-local collisionEnabled = false
 
 function onLoad(saveState)
   if saveState ~= nil then
@@ -36,7 +30,6 @@ function onLoad(saveState)
   end
   TRASH = guidReferenceApi.getObjectByOwnerAndType("Mythos", "Trash")
   DATA_HELPER = guidReferenceApi.getObjectByOwnerAndType("Mythos", "DataHelper")
-  collisionEnabled = true
 end
 
 function onSave()
@@ -47,9 +40,12 @@ function onSave()
   })
 end
 
+---------------------------------------------------------
+-- collison and container event handling
+---------------------------------------------------------
+
 -- TTS event handler.  Handles scenario name event triggering and encounter card token resets.
 function onCollisionEnter(collisionInfo)
-  if not collisionEnabled then return end
   local object = collisionInfo.collision_object
 
   if object.getName() == "Scenario" then
@@ -82,7 +78,6 @@ end
 
 -- TTS event handler. Handles scenario name event triggering
 function onCollisionExit(collisionInfo)
-  if not collisionEnabled then return end
   local object = collisionInfo.collision_object
 
   -- reset token metadata if scenario reference card is removed
@@ -104,8 +99,15 @@ end
 
 -- fires if the scenario title changes
 function fireScenarioChangedEvent()
+  -- maybe show the title splash screen
   Wait.frames(function() Global.call('titleSplash', currentScenario) end, 20)
+
+  -- set the scenario for the playarea (connections might be disabled)
   playAreaApi.onScenarioChanged(currentScenario)
+
+  -- maybe update the playarea image
+  local playAreaImageSelector = guidReferenceApi.getObjectByOwnerAndType("Mythos", "PlayAreaImageSelector")
+  playAreaImageSelector.call("maybeUpdatePlayAreaImage", currentScenario)
 end
 
 -- fires if the scenario title or the difficulty changes
@@ -129,31 +131,30 @@ end
 
 -- gets the encounter deck (for internal functions and Api calls)
 function getEncounterDeck()
-  local search = searchArea(ENCOUNTER_DECK_POS, { 3, 1, 4 }, isCardOrDeck)
+  local searchResult = searchLib.atPosition(ENCOUNTER_DECK_POS, "isCardOrDeck")
 
-  for _, v in ipairs(search) do
-    local obj = v.hit_object
+  for _, obj in ipairs(searchResult) do
     if obj.type == 'Deck' then
       return obj
     end
   end
-  
+
   -- if no deck was found, return the first hit (a card)
-  if #search > 0 then
-    return search[1].hit_object
+  if #searchResult > 0 then
+    return searchResult[1]
   end
 end
 
 -- 'params' contains the position, rotation and a boolean to force a faceup draw
 function drawEncounterCard(params)
-  local card
-  local deck = getEncounterDeck()
+  local encounterDeck = getEncounterDeck()
 
-  if deck then
-    if deck.type == "Deck" then
-      card = deck.takeObject()
+  if encounterDeck then
+    local card
+    if encounterDeck.type == "Deck" then
+      card = encounterDeck.takeObject()
     else
-      card = deck
+      card = encounterDeck
     end
     actualEncounterCardDraw(card, params)
   else
@@ -180,9 +181,9 @@ function reshuffleEncounterDeck(params)
   isReshuffling = true
 
   -- shuffle and flip deck, draw card after completion
-  local discarded = searchArea(ENCOUNTER_DISCARD_POSITION, { 3, 1, 4 }, isDeck)
-  if #discarded > 0 then
-    local deck = discarded[1].hit_object
+  local searchResult = searchLib.atPosition(ENCOUNTER_DISCARD_POSITION, "isCardOrDeck")
+  if #searchResult > 0 then
+    local deck = searchResult[1]
     if not deck.is_face_down then deck.flip() end
     deck.shuffle()
     deck.setPositionSmooth(Vector(ENCOUNTER_DECK_POS) + Vector(0, 2, 0), false, true)
@@ -199,11 +200,10 @@ end
 -- helper functions
 ---------------------------------------------------------
 
--- Simple method to check if the given point is in a specified area.  Local use only,
----@param point Vector.  Point to check, only x and z values are relevant
----@param bounds Table.  Defined area to see if the point is within.  See MAIN_PLAY_AREA for sample
---     bounds definition.
----@return Boolean.  True if the point is in the area defined by bounds
+-- Simple method to check if the given point is in a specified area
+---@param point Vector Point to check, only x and z values are relevant
+---@param bounds Table Defined area to see if the point is within
+---@return Boolean: True if the point is in the area defined by bounds
 function inArea(point, bounds)
   return (point.x < bounds.upperLeft.x
     and point.x > bounds.lowerRight.x
@@ -213,8 +213,7 @@ end
 
 -- removes tokens from the provided card/deck
 function removeTokensFromObject(object)
-  for _, v in ipairs(searchArea(object.getPosition(), { 3, 1, 4 })) do
-    local obj = v.hit_object
+  for _, obj in ipairs(searchLib.onObject(object)) do
     if obj.getGUID() ~= "4ee1f2" and -- table
         obj ~= self and
         obj.type ~= "Deck" and
@@ -226,32 +225,3 @@ function removeTokensFromObject(object)
     end
   end
 end
-
--- searches an area and optionally filters the result
-function searchArea(origin, size, filter)
-  local objList = Physics.cast({
-    origin       = origin,
-    direction    = { 0, 1, 0 },
-    orientation  = self.getRotation(),
-    type         = 3,
-    size         = size,
-    max_distance = 1
-  })
-
-  if filter then
-    local filteredList = {}
-    for _, obj in ipairs(objList) do
-      if filter(obj.hit_object) then
-        table.insert(filteredList, obj)
-      end
-    end
-    return filteredList
-  else
-    return objList
-  end
-end
-
--- filter functions for searchArea
-function isDeck(x) return x.tag == 'Deck' end
-
-function isCardOrDeck(x) return x.tag == 'Card' or x.tag == 'Deck' end
