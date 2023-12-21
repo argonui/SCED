@@ -7,6 +7,8 @@ local playAreaApi = require("core/PlayAreaApi")
 local playmatApi = require("playermat/PlaymatApi")
 local zones = require("playermat/Zones")
 
+local startsInPlayCount = 0
+
 function onLoad(script_state)
   initializeUi(JSON.decode(script_state))
   math.randomseed(os.time())
@@ -31,7 +33,7 @@ function getDefaultCardZone(cardMetadata, bondedList)
   elseif cardMetadata.type == "UpgradeSheet" then
     return "SetAside4"
   elseif cardMetadata.startsInPlay then
-    return "BlankTop"
+    return startsInPlayTracker()
   elseif cardMetadata.permanent then
     return "SetAside1"
   elseif bondedList[cardMetadata.id] then
@@ -39,6 +41,16 @@ function getDefaultCardZone(cardMetadata, bondedList)
     -- SetAside3 is used for Ancestral Knowledge / Underworld Market
   else
     return "Deck"
+  end
+end
+
+function startsInPlayTracker()
+  startsInPlayCount = startsInPlayCount + 1
+  if startsInPlayCount > 6 then
+    broadcastToAll("Card that should start in play was placed with permanents because no blank slots remained")
+    return "SetAside1"
+  else
+    return "Blank" .. startsInPlayCount
   end
 end
 
@@ -450,13 +462,13 @@ function handlePeteSignatureAssets(investigatorId, cardList)
   if investigatorId == "02005" or investigatorId == "02005-pb" then -- regular Pete's front
     for i, card in ipairs(cardList) do
       if card.metadata.id == "02014" then -- Duke
-        card.zone = "BlankTop"
+        card.zone = startsInPlayTracker()
       end
     end
   elseif investigatorId == "02005-p" or investigatorId == "02005-pf" then -- parallel Pete's front
     for i, card in ipairs(cardList) do
       if card.metadata.id == "90047" then -- Pete's Guitar
-        card.zone = "BlankTop"
+        card.zone = startsInPlayTracker()
       end
     end
   end
