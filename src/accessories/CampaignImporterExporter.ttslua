@@ -48,22 +48,11 @@ local COLORS = { "White", "Orange", "Green", "Red" }
 
 function onLoad()
   self.createButton({
-    click_function = "findCampaignFromToken",
-    function_owner = self,
-    label = "Import",
-    tooltip = "Load in a campaign save from a token!\n\n(Token can be anywhere on the table, but ensure there is only 1!)",
-    position = { x = -1, y = 0.2, z = 0 },
-    font_size = 400,
-    width = 1400,
-    height = 600,
-    scale = { 0.5, 1, 0.5 },
-  })
-  self.createButton({
     click_function = "createCampaignToken",
     function_owner = self,
     label = "Export",
-    tooltip = "Create a campaign save token!\n\n(Ensure all chaos tokens have been unsealed!)",
-    position = { x = 1, y = 0.2, z = 0 },
+    tooltip = "Create a campaign save token!",
+    position = { x = -1, y = 0.21, z = 0 },
     font_size = 400,
     width = 1400,
     height = 600,
@@ -75,44 +64,43 @@ end
 -- main import functions (split up to allow for Wait conditions)
 ---------------------------------------------------------
 
--- Identifies import token, determines campaign box and downloads it (if needed)
-function findCampaignFromToken(_, _, _)
-  local coin = nil
-  local coinObjects = getObjectsWithTag("ImporterToken")
-  if #coinObjects == 0 then
-    broadcastToAll("Could not find importer token", Color.Red)
-  elseif #coinObjects > 1 then
-    broadcastToAll("More than 1 importer token found. Please delete all but 1 importer token", Color.Yellow)
-  else
-    coin = coinObjects[1]
-
-    local importData = JSON.decode(coin.getGMNotes())
-    campaignBoxGUID = importData["box"]
-
-    local campaignBox = getObjectFromGUID(campaignBoxGUID)
-    if campaignBox.type == "Generic" then
-      campaignBox.call("buttonClick_download")
-    end
-    Wait.condition(
-      function()
-        if #campaignBox.getObjects() > 0 then
-          placeCampaignFromToken(importData)
-        else
-          createCampaignFromToken(importData)
-        end
-      end,
-      function()
-        local obj = getObjectFromGUID(campaignBoxGUID)
-        if obj == nil then
-          return false
-        else
-          return obj.type == "Bag" and obj.getLuaScript() ~= ""
-        end
-      end,
-      2,
-      function() broadcastToAll("Error loading campaign box") end
-    )
+function onCollisionEnter(info)
+  local objectData = info.collision_object.getData()
+  if info.collision_object.hasTag("ImporterToken") then
+    importFromToken(info.collision_object)
   end
+end
+
+-- Identifies import token, determines campaign box and downloads it (if needed)
+function importFromToken(coin)
+  broadcastToAll("Campaign Import Initiated")
+  local importData = JSON.decode(coin.getGMNotes())
+  coin.destruct()
+
+  local campaignBoxGUID = importData["box"]
+  local campaignBox = getObjectFromGUID(campaignBoxGUID)
+  if campaignBox.type == "Generic" then
+    campaignBox.call("buttonClick_download")
+  end
+  Wait.condition(
+    function()
+      if #campaignBox.getObjects() > 0 then
+        placeCampaignFromToken(importData)
+      else
+        createCampaignFromToken(importData)
+      end
+    end,
+    function()
+      local obj = getObjectFromGUID(campaignBoxGUID)
+      if obj == nil then
+        return false
+      else
+        return obj.type == "Bag" and obj.getLuaScript() ~= ""
+      end
+    end,
+    2,
+    function() broadcastToAll("Error loading campaign box") end
+  )
 end
 
 -- After box has been downloaded, places content on table
@@ -131,6 +119,11 @@ function createCampaignFromToken(importData)
   -- destroy existing campaign log and load saved campaign log
   findUniqueObjectWithTag("CampaignLog").destruct()
   spawnObjectData({ data = importData["log"] })
+
+  if importData["additionalIndex"] then
+    findUniqueObjectWithTag("AllCardsHotfix").destruct()
+    spawnObjectJSON({json = importData["additionalIndex"]})
+  end
   
   chaosBagApi.setChaosBagState(importData["bag"])
 
@@ -155,7 +148,7 @@ function createCampaignFromToken(importData)
       -- Condition function that is called continiously until returs true or timeout is reached
       function() return guide.Book.setPage(importData["guide"]) end,
       -- Amount of time in seconds until the Wait times out
-      1,
+      2,
       -- Called if the Wait times out
       function() log("Campaign Guide import failed!") end
     )
@@ -165,19 +158,18 @@ function createCampaignFromToken(importData)
 
   -- destroy Tour Starter token
   local tourStarter = guidReferenceApi.getObjectByOwnerAndType("Mythos", "TourStarter")
-  tourStarter.destruct()
+  if tourStarter then
+    tourStarter.destruct()
+  end
 
   -- restore PlayArea image
-  playAreaApi.updateSurface(importData["playmat"])
+  playAreaApi.updateSurface(importData["playarea"])
 
   broadcastToAll("Campaign successfully imported!", Color.Green)
 end
 
 -- Creates a campaign token with save data encoded into GM Notes based on the current state of the table
 function createCampaignToken(_, playerColor, _)
-  -- clean up chaos tokens
-  blessCurseApi.removeAll(playerColor)
-  chaosBagApi.releaseAllSealedTokens(playerColor)
 
   -- find active campaign
   local campaignBox
@@ -202,20 +194,19 @@ function createCampaignToken(_, playerColor, _)
     return
   end
 
-  local traumaValues = {
-    0, 0, 0, 0,
-    0, 0, 0, 0
-  }
-  local counterData = campaignLog.getVar("ref_buttonData")
-  if counterData ~= nil then
+  local additionalIndex = findUniqueObjectWithTag("AllCardsHotfix")
+
+  local traumaValues = { }
+  local trauma = campaignLog.getVar("returnTrauma")
+
+  if trauma ~= nil then
     printToAll("Trauma values found in campaign log!", "Green")
-    for i = 1, 10, 3 do
-      traumaValues[1 + (i - 1) / 3] = counterData.counter[i].value
-      traumaValues[5 + (i - 1) / 3] = counterData.counter[i + 1].value
+    trauma = campaignLog.call("returnTrauma")
+    for _, val in ipairs(trauma) do
+      table.insert(traumaValues, val)
     end
   else
-    printToAll("Trauma values could not be found in campaign log!", "Yellow")
-    printToAll("Default values for health and sanity loaded.", "Yellow")
+    printToAll("Trauma values could not be found in campaign log!", "Yellow") 
   end
 
   local campaignGuide = findUniqueObjectWithTag("CampaignGuide")
@@ -224,6 +215,10 @@ function createCampaignToken(_, playerColor, _)
     return
   end
 
+  -- clean up chaos tokens
+  blessCurseApi.removeAll(playerColor)
+  chaosBagApi.releaseAllSealedTokens(playerColor)
+
   local campaignData = {
     box = campaignBox.getGUID(),
     log = campaignLog.getData(),
@@ -231,9 +226,10 @@ function createCampaignToken(_, playerColor, _)
     trauma = traumaValues,
     decks = deckImporterApi.getUiState(),
     clueCount = playAreaApi.getInvestigatorCount(),
-    guide = campaignGuide.Book.getPage(),
+    playarea = playAreaApi.getSurface(),
     options = optionPanelApi.getOptions(),
-    playmat = playAreaApi.getSurface()
+    guide = campaignGuide.Book.getPage(),
+    additionalIndex = additionalIndex.getJSON()
   }
   campaignTokenData.GMNotes = JSON.encode(campaignData)
   campaignTokenData.Nickname = os.date("%b %d ") .. campaignBox.getName() .. " Save"
@@ -261,5 +257,18 @@ function setTrauma(trauma)
   for i = 1, 4 do
     playmatApi.updateCounter(COLORS[i], "DamageCounter", trauma[i])
     playmatApi.updateCounter(COLORS[i], "HorrorCounter", trauma[i + 4])
+  end
+end
+
+-- gets data from campaign log if possible
+function loadTrauma(campaignLog)
+  local trauma = campaignLog.getVar("returnTrauma")
+
+  if trauma ~= nil then
+    printToAll("Trauma values found in campaign log!", "Green")
+    trauma = campaignLog.call("returnTrauma")
+    return trauma
+  else
+    return nil
   end
 end
