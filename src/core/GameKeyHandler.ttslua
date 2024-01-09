@@ -219,40 +219,42 @@ function switchSeat(playerColor, direction)
     return
   end
 
-  -- get legal colors
-  local seatList = Player.getAvailableColors()
-
-  -- sort colors on hand position (Green, White, Orange, Red)
+  -- sort function for matcolors based on hand position (Green, White, Orange, Red)
   local function sortByHandPosition(color1, color2)
     local pos1 = Player[color1].getHandTransform().position
     local pos2 = Player[color2].getHandTransform().position
     return pos1.z > pos2.z
   end
-  table.sort(seatList, sortByHandPosition)
+
+  -- get used playermats
+  local usedColors = playmatApi.getUsedMatColors()
+  table.sort(usedColors, sortByHandPosition)
 
   -- get current seat index
   local index
-  for i, color in ipairs(seatList) do
+  for i, color in ipairs(usedColors) do
     if color == playerColor then
       index = i
       break
     end
   end
   if not index then
-    broadcastToColor("Couldn't find position of seated color.", playerColor, "Orange")
+    broadcastToColor("Couldn't detect investigator.", playerColor, "Orange")
     return
   end
 
   -- get next color
   index = index + ((direction == "clockwise") and -1 or 1)
   if index == 0 then
-    index = #seatList
-  elseif index > #seatList then
+    index = #usedColors
+  elseif index > #usedColors then
     index = 1
   end
 
   -- swap color
-  Player[playerColor].changeColor(seatList[index])
+  local newMatColor = usedColors[index]
+  local newHandColor = playmatApi.getMatColorByPosition(Player[newMatColor].getHandTransform().position)
+  Player[playerColor].changeColor(newHandColor)
 end
 
 -- takes a clue from a location, player needs to hover the clue directly or the location
