@@ -200,6 +200,40 @@ function onObjectEnterZone(zone, enteringObj)
   end
 end
 
+-- handle card drawing via number typing for multihanded gameplay
+-- (and additionally allow Norman Withers to draw multiple cards via number)
+function onObjectNumberTyped(hoveredObject, playerColor, number)
+  -- only continue for decks or cards
+  if hoveredObject.type ~= "Deck" and hoveredObject.type ~= "Card" then return end
+  
+  -- get playmat colors with an investigator card
+  local localInvestigatorPosition = { x = -1.17, y = 1, z = -0.01 }
+  local matColors = { "White", "Orange", "Green", "Red" }
+  local legalColors = {}
+  
+  for _, color in ipairs(matColors) do
+    local mat = guidReferenceApi.getObjectByOwnerAndType(color, "Playermat")
+    if mat ~= nil then
+      local searchPos = mat.positionToWorld(localInvestigatorPosition)
+      local searchResult = searchLib.atPosition(searchPos, "isCardOrDeck")
+
+      if #searchResult > 0 then
+        table.insert(legalColors, color)
+      end
+    end
+  end
+  if #legalColors == 0 then return end
+
+  -- check whether the hovered object is part of a players draw objects
+  for _, color in ipairs(legalColors) do
+    local deckAreaObjects = playmatApi.getDeckAreaObjects(color)
+    if deckAreaObjects.topCard == hoveredObject or deckAreaObjects.draw == hoveredObject then
+      playmatApi.drawCardsWithReshuffle(color, number)
+      return true
+    end
+  end
+end
+
 ---------------------------------------------------------
 -- chaos token drawing
 ---------------------------------------------------------
