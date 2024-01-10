@@ -1,0 +1,47 @@
+do
+  local DeckLib = {}
+  local searchLib = require("util/SearchLib")
+
+  -- places a card/deck at a position or merges into an existing deck
+  ---@param obj TTSObject Object to move
+  ---@param pos Table New position for the object
+  ---@param rot Table New rotation for the object (optional)
+  DeckLib.placeOrMergeIntoDeck = function(obj, pos, rot)
+    if obj == nil or pos == nil then return end
+
+    -- search the new position for existing card/deck
+    local searchResult = searchLib.atPosition(pos, "isCardOrDeck")
+
+    -- get new position
+    local newPos
+    local offset = 0.5
+    if #searchResult == 1 then
+      local bounds = searchResult[1].getBounds()
+      newPos = Vector(pos):setAt("y", bounds.center.y + bounds.size.y / 2 + offset)
+    else
+      newPos = Vector(pos) + Vector(0, offset, 0)
+    end
+
+    -- allow moving the objects smoothly out of the hand
+    obj.use_hands = false
+
+    if rot then
+      obj.setRotationSmooth(rot, false, true)
+    end
+    obj.setPositionSmooth(newPos, false, true)
+
+    -- continue if the card stops smooth moving
+    Wait.condition(
+    function()
+      obj.use_hands = true
+      -- this avoids a TTS bug that merges unrelated cards that are not resting
+      if #searchResult == 1 and searchResult[1] ~= obj then
+        -- call this with avoiding errors (physics is sometimes too fast so the object doesn't exist for the put)
+        pcall(function() searchResult[1].putObject(obj) end)
+      end
+    end,
+    function() return not obj.isSmoothMoving() end, 3)
+  end
+
+  return DeckLib
+end
