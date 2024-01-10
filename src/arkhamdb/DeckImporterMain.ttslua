@@ -65,6 +65,18 @@ function buildDeck(playerColor, deckId)
       loadCards)
 end
 
+-- Modelled after onDeckResult from arkhamdb/ArkhamDb.ttslua, but with some necessary changes
+function spawnDeckFromToken(params)
+  local deckData = JSON.decode(params.coin.getGMNotes())
+  destroyObject(params.coin)
+  deckData["playerColor"] = params.playerColor
+  -- Add Investigator Cards
+  deckData["slots"][deckData.investigatorId] = 1
+  deckData["slots"][string.sub(deckData.investigatorId, 1, 5) .. "-m"] = 1
+
+  arkhamDb.adjustDeck(deckData, loadCards)
+end
+
 -- Process the slot list, which defines the card Ids and counts of cards to load. Spawn those cards
 -- at the appropriate zones and report an error to the user if any could not be loaded.
 -- This is a callback function which handles the results of ArkhamDb.getDecklist()
@@ -132,7 +144,7 @@ function loadCards(slots, investigatorId, bondedList, customizations, playerColo
       elseif zone == "Deck" then
         callback = function(deck) deckSpawned(deck, playerColor) end
       elseif zone == "Investigator" or zone == "Minicard" then
-        callback = function(card) loadAltArt(card, loadAltInvestigator) end
+        callback = function(card) loadAltArt({card = card, loadAltInvestigator = loadAltInvestigator}) end
       end
       Spawner.spawnCards(
           zoneCards,
@@ -159,6 +171,10 @@ function loadCards(slots, investigatorId, bondedList, customizations, playerColo
   end
 
   startLuaCoroutine(self, "coinside")
+end
+
+function loadCardsHelper(params)
+  loadCards(params.slots, params.investigatorId, params.bondedList, params.customizations, params.playerColor, params.loadAltInvestigator)
 end
 
 -- Callback handler for the main deck spawning.  Looks for cards which should start in hand, and
@@ -393,6 +409,10 @@ end
 function handleCustomizableUpgrades(cardList, customizations)
   for _, card in ipairs(cardList) do
     if card.metadata.type == "UpgradeSheet" then
+      if customizations["isFormatted"] then
+        card.data["LuaScriptState"] = customizations[card.metadata.id]
+      end
+
       local baseId = string.sub(card.metadata.id, 1, 5)
       local upgrades = customizations["cus_" .. baseId]
 
@@ -480,7 +500,9 @@ end
 -- Callback function for investigator cards and minicards to set the correct state for alt art
 ---@param card Object Card which needs to be set the state for
 ---@param loadAltInvestigator String Contains the name of alternative art for the investigator ("normal", "revised" or "promo")
-function loadAltArt(card, loadAltInvestigator)
+function loadAltArt(params)
+  local card = params.card
+  local loadAltInvestigator = params.loadAltInvestigator
   -- states are set up this way:
   -- 1 - normal, 2 - revised/promo, 3 - promo (if 2 is revised)
   -- This means we can always load the 2nd state for revised and just get the last state for promo

@@ -56,12 +56,6 @@ do
       loadNewest,
       loadInvestigators,
       callback)
-    -- Get a simple card to see if the bag indexes are complete. If not, abort
-    -- the deck load. The called method will handle player notification.
-    local checkCard = allCardsBagApi.getCardById("01001")
-    if (checkCard ~= nil and checkCard.data == nil) then
-      return
-    end
 
     local deckUri = { configuration.api_uri,
       isPrivate and configuration.private_deck or configuration.public_deck, deckId }
@@ -134,32 +128,48 @@ do
     end
 
     internal.maybePrint(table.concat({ "Found decklist: ", deck.name }), playerColor)
-
-    -- Initialize deck slot table and perform common transformations.  The order of these should not
-    -- be changed, as later steps may act on cards added in each.  For example, a random weakness or
-    -- investigator may have bonded cards or taboo entries, and should be present
     local slots = deck.slots
-    internal.maybeDrawRandomWeakness(slots, playerColor)
     local loadAltInvestigator = "normal"
     if loadInvestigators then
       loadAltInvestigator = internal.addInvestigatorCards(deck, slots)
     end
-    
-    internal.maybeModifyDeckFromDescription(slots, deck.description_md)
-    internal.maybeAddSummonedServitor(slots)
-    internal.maybeAddOnTheMend(slots, playerColor)
-    internal.maybeAddRealityAcidReference(slots)
-    local bondList = internal.extractBondedCards(slots)
-    internal.checkTaboos(deck.taboo_id, slots, playerColor)
-    internal.maybeAddUpgradeSheets(slots)
 
-    -- get upgrades for customizable cards
+    internal.maybeModifyDeckFromDescription(slots, deck.description_md)
+
     local customizations = {}
     if deck.meta then
       customizations = JSON.decode(deck.meta)
     end
 
-    callback(slots, deck.investigator_code, bondList, customizations, playerColor, loadAltInvestigator)
+    local deckData = {
+      slots = slots,
+      taboo_id = deck.taboo_id,
+      investigatorId = deck.investigatorId,
+      customizations = customizations,
+      playerColor = playerColor,
+      loadAltInvestigator = loadAltInvestigator
+    }
+
+    ArkhamDb.adjustDeck(deckData, callback)
+  end
+
+  ArkhamDb.adjustDeck = function(deckData, callback)
+    -- Initialize deck slot table and perform common transformations.  The order of these should not
+    -- be changed, as later steps may act on cards added in each.  For example, a random weakness or
+    -- investigator may have bonded cards or taboo entries, and should be present
+    local slots = deckData.slots
+    internal.maybeDrawRandomWeakness(slots, playerColor)
+    internal.maybeAddSummonedServitor(slots)
+    internal.maybeAddOnTheMend(slots, playerColor)
+    internal.maybeAddRealityAcidReference(slots)
+    local bondList = internal.extractBondedCards(slots)
+    internal.checkTaboos(deckData.taboo_id, slots, playerColor)
+    internal.maybeAddUpgradeSheets(slots)
+
+    -- get upgrades for customizable cards
+    
+
+    callback(slots, deckData.investigatorId, bondList, deckData.customizations, deckData.playerColor, deckData.loadAltInvestigator)
   end
 
   -- Checks to see if the slot list includes the random weakness ID. If it does,
