@@ -1,0 +1,380 @@
+require("playercards/PlayerCardSpawner")
+
+local allCardsBagApi = require("playercards/AllCardsBagApi")
+local playerCardPanelApi  = require("playercards/PlayerCardPanelApi")
+
+
+local inputParameters          = {}
+inputParameters.label          = "Click to enter search parameters"
+inputParameters.input_function = "input_func"
+inputParameters.function_owner = self
+inputParameters.alignment      = 3
+inputParameters.position       = { 0, 0.1, -0.9 }
+inputParameters.width          = 1900
+inputParameters.height         = 130
+inputParameters.font_size      = 50
+
+local BUTTON_LABELS               = {}
+BUTTON_LABELS["filter"]           = {}
+BUTTON_LABELS["filter"][true]     = "Mode: SPAWN NEW"
+BUTTON_LABELS["filter"][false]    = "Mode: FILTER PLACED"
+BUTTON_LABELS["location"]         = {}
+BUTTON_LABELS["location"][true]   = "Mode: TARGET BELOW"
+BUTTON_LABELS["location"][false]  = "Mode: TARGET RIGHT"
+
+local filterSetting = true
+local targetLocation = true
+
+local buttonParameters          = {}
+buttonParameters.function_owner = self
+buttonParameters.height         = 100
+buttonParameters.width          = 900
+buttonParameters.font_size      = 75
+
+local filterOptions = {
+  y = "cycle",
+  f = "class",
+  k = "traits",
+  o = "cost",
+  w = "willpowerIcons",
+  c = "combatIcons",
+  i = "intellectIcons",
+  a = "agilityIcons",
+  d = "wildIcons",
+  t = "type",
+  p = "level",
+  z = "slot",
+  v = "permanent",
+  u = "uses",
+  q = "specialCriteria"
+}
+
+local numericOperators = {
+  f = "class",
+  o = "cost",
+  w = "willpowerIcons",
+  c = "combatIcons",
+  i = "intellectIcons",
+  a = "agilityIcons",
+  d = "wildIcons",
+  p = "level",
+  z = "slot",
+  u = "uses",
+}
+
+function onLoad()
+
+    -- index 0: button for executing filter
+    buttonParameters.click_function = "newFilterSearch"
+    buttonParameters.label          = "Spawn matching cards!"
+    buttonParameters.position       = { 0, 0.1, 0 }
+    self.createButton(buttonParameters)
+    -- index 1: button for filter mode
+    buttonParameters.click_function = "filterMode"
+    buttonParameters.label          = BUTTON_LABELS["filter"][filterSetting]
+    buttonParameters.position       = { -1, 0.1, -0.5 }
+    self.createButton(buttonParameters)
+    -- index 2: button for location mode
+    buttonParameters.click_function = "locationMode"
+    buttonParameters.label          = BUTTON_LABELS["location"][targetLocation]
+    buttonParameters.position       = { 1, 0.1, -0.5 }
+    self.createButton(buttonParameters)
+
+    self.createInput(inputParameters)
+
+    -- self.addContextMenuItem("More Information", function()
+    --     printToAll("------------------------------", "White")
+    --     printToAll("Search-A-Card v" .. information["version"] .. " by Chr1Z", "Orange")
+    --     printToAll("last updated: " .. information["last_updated"], "White")
+    -- end)
+end
+
+
+-- if "Enter press" (\n) is found, start search and recreate input
+function input_func(_, _, input, stillEditing)
+  if not stillEditing then
+      inputParameters.value = input
+  elseif string.find(input, "%\n") ~= nil then
+      inputParameters.value = input.gsub(input, "%\n", "")
+      if filterSetting then
+        newFilterSearch()
+      else
+        existingFilterSearch()
+      end
+      self.removeInput(0)
+      self.createInput(inputParameters)
+  end
+end
+
+function filterMode(_, _, _)
+  filterSetting = not filterSetting
+  self.editButton({ index = 1, label = BUTTON_LABELS["filter"][filterSetting] })
+  if filterSetting then
+    self.editButton({ index = 0, click_function = "newFilterSearch" })
+  else
+    self.editButton({ index = 0, click_function = "existingFilterSearch" })
+  end
+end
+
+function locationMode(_, _, _)
+  targetLocation = not targetLocation
+  self.editButton({ index = 2, label = BUTTON_LABELS["location"][targetLocation] })
+end
+
+function newFilterSearch(_, _, alt_click)
+  if alt_click then
+    if targetLocation then
+      playerCardPanelApi.deleteAll("default")
+    else
+      playerCardPanelApi.deleteAll("middle")
+    end
+    return
+  end
+  if inputParameters.value == nil or string.len(inputParameters.value) == 0 then
+    printToAll("Please enter a search string.", "Yellow")
+    return
+  end
+  filterSearch(inputParameters.value)
+end
+
+function existingFilterSearch(_, _, alt_click)
+  if alt_click then
+    if targetLocation then
+      playerCardPanelApi.deleteAll("default")
+    else
+      playerCardPanelApi.deleteAll("middle")
+    end
+    return
+  end
+  if inputParameters.value == nil or string.len(inputParameters.value) == 0 then
+    printToAll("Please enter a search string.", "Yellow")
+    return
+  end
+  local placedCards = {}
+  local cardGUIDs = {}
+  if targetLocation then
+    cardGUIDs = playerCardPanelApi.getPlacedCards("default")
+  else
+    cardGUIDs = playerCardPanelApi.getPlacedCards("middle")
+  end
+  for _, guid in ipairs(cardGUIDs) do
+    local cardId = JSON.decode(getObjectFromGUID(guid).getGMNotes()).id
+    if not placedCards[cardId] then
+      placedCards[cardId] = 0
+    end
+    placedCards[cardId] = placedCards[cardId] + 1
+  end
+  filterSearch("& ( " .. inputParameters.value.. " )", placedCards)
+end
+
+function filterSearch(filterString, startingCards)
+
+  if not allCardsBagApi.isBagPresent() then
+      printToAll("Player card bag couldn't be found.", "Red")
+      return
+  end
+
+  local targetLoc
+  local targetSta
+
+  if targetLocation then
+    targetLoc = "other"
+    targetSta = "default"
+  else
+    targetLoc = "deckBuilder"
+    targetSta = "middle"
+  end
+
+  playerCardPanelApi.spawnCardList({
+    cardList = createFilterCardList({tokenList = tokenizeString(filterString), startingCardSet = startingCards}),
+    name = "filterSearch",
+    startPos = targetLoc,
+    spread = true,
+    spreadCols = 20,
+    targetState = targetSta
+  })
+end
+
+function tokenizeString(filterString)
+  -- Create a list to store tokens
+  local tokens = {
+  }
+
+  -- Iterate over the input_query and tokenize
+  local current = ""
+  local inside_string = false
+  for char in filterString:gmatch('.') do
+      if char == '"' then
+        inside_string = not inside_string
+        char = ''
+      end
+      if char == ' ' and not inside_string then
+          -- Space separates tokens, add the current token to the list
+          if current ~= "" then
+              table.insert(tokens, current)
+              current = ""
+          end
+      elseif char == '(' or char == ')' then
+          -- These characters are treated as individual tokens
+          if current ~= "" then
+              table.insert(tokens, current)
+              current = ""
+          end
+          table.insert(tokens, char)
+      else
+          -- Append characters to the current token
+          current = current .. char
+      end
+  end
+  
+  -- Add the last token if not empty
+  if current ~= "" then
+    table.insert(tokens, current)
+  end
+
+  return tokens
+end
+
+
+function createFilterCardList(params)
+  local tokenList = params.tokenList
+  local filterCardList = params.startingCardSet or {}
+  local includeOthers = false
+  if next(filterCardList) then
+    includeOthers = true
+  end
+  local parenthesesLevel = 0
+  local parenthesesData = {}
+  local previousToken = ""
+
+
+  for _, token in ipairs(tokenList) do
+    if token == "(" then
+      parenthesesLevel = parenthesesLevel + 1
+      parenthesesData[parenthesesLevel] = {
+        operator = previousToken,
+        cardSet = filterCardList
+      }
+      filterCardList = {}
+    elseif token == ")" then
+      if parenthesesLevel < 1 then
+        broadcastToAll("Closing parentheses without opening", Color.Red)
+        return {}
+      end
+      local parenthesesOperator = parenthesesData[parenthesesLevel].operator
+      local parenthesesCardSet = parenthesesData[parenthesesLevel].cardSet
+      if parenthesesOperator == "&" then
+        local replacementList = {}
+        for cardId, _ in pairs(filterCardList) do
+          if parenthesesCardSet[cardId] then
+            replacementList[cardId] = parenthesesCardSet[cardId]
+          end
+        end
+        parenthesesCardSet = replacementList
+      elseif parenthesesOperator == "" or parenthesesOperator == "|" or parenthesesOperator == "(" or parenthesesOperator == ")" then
+        for cardId, _ in pairs(filterCardList) do
+          parenthesesCardSet[cardId] = true
+        end
+      end
+      filterCardList = parenthesesCardSet
+      parenthesesData[parenthesesLevel] = {}
+      parenthesesLevel = parenthesesLevel - 1
+    elseif token ~= "&" and token ~= "|" then
+      local filter    =   string.sub(token, 1, 1)
+      local operator  =   string.sub(token, 2, 2)
+      local value     =   string.sub(token, 3)
+      if value == "" then
+        value = nil
+      end
+      local matchingCards = {}
+
+      if not filterOptions[filter] then
+        broadcastToAll("Invalid filter type", Color.Red)
+        log("Invalid filter: " .. filter)
+        log(tokenList)
+        return {}
+      end
+
+      if operator == ":" or operator == "!" then
+        matchingCards = allCardsBagApi.getCardsByData(filterOptions[filter], value, includeOthers)
+      elseif operator == "<" or operator == ">" then
+        value = tonumber(value)
+        if not value then
+          broadcastToAll("Arithmetic operators require numeric values", Color.Red)
+          return {}
+        end
+        if operator == ">" then
+          value = value + 1
+        end
+
+        -- General case for numeric-compatible operators
+        if numericOperators[filter] then
+          for i = value - 1, 0, -1 do
+            for _, cardId in ipairs(allCardsBagApi.getCardsByData(filterOptions[filter], i, includeOthers)) do
+              table.insert(matchingCards, cardId)
+            end
+          end
+        else
+          broadcastToAll("Invalid combination of filter type and operator", Color.Red)
+          return {}
+        end
+      else
+        broadcastToAll("Invalid filter operator", Color.Red)
+        return {}
+      end
+
+      if matchingCards then 
+        if operator == "!" or operator == ">" then
+          matchingCards = allCardsBagApi.getOppositeCards(matchingCards, filterOptions[filter], includeOthers)
+        end
+        
+        if previousToken == "&" then
+          local replacementList = {}
+          for _, cardId in ipairs(matchingCards) do
+            if filterCardList[cardId] then
+              replacementList[cardId] = filterCardList[cardId]
+            end
+          end
+          filterCardList = replacementList
+        elseif previousToken == "" or previousToken == "(" or previousToken == "|" then
+          for _, cardId in ipairs(matchingCards) do
+            filterCardList[cardId] = true
+          end
+        end
+      else
+        broadcastToAll("Error in filter input", Color.Red)
+        return { }
+      end
+    end
+    previousToken = token
+  end
+
+  if parenthesesLevel > 0 then
+    broadcastToAll("Did not close " .. parenthesesLevel .. " parentheses", Color.Red)
+    return {}
+  end
+
+  local finalList = {}
+
+  for cardId, count in pairs(filterCardList) do
+    if type(count) == "number" then
+      for i = count - 1, 1, -1 do
+        table.insert(finalList, cardId)
+      end
+    end
+    table.insert(finalList, cardId)
+  end
+
+  if not next(finalList) then
+    broadcastToAll("No matches found", Color.Yellow)
+    return {}
+  end
+  -- for cardId, _ in pairs(filterCardList) do
+  --   local card = allCardsBagApi.getCardById(cardId)
+  --   if card ~= nil then
+  --     table.insert(finalList, { data = card.data, metadata = card.metadata})
+  --   end
+  -- end
+
+  return allCardsBagApi.sortCardsTable(finalList)
+end

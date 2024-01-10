@@ -1,8 +1,13 @@
 require("playercards/PlayerCardPanelData")
-
 local allCardsBagApi = require("playercards/AllCardsBagApi")
 local arkhamDb = require("arkhamdb/ArkhamDb")
 local spawnBag = require("playercards/SpawnBag")
+
+local spawnBagSaveStates = {
+  default = spawnBag.getStateForSave(),
+  middle = spawnBag.getStateForSave()
+}
+local currentState = "default"
 
 -- Size and position information for the three rows of class buttons
 local CIRCLE_BUTTON_SIZE = 250
@@ -46,6 +51,7 @@ local START_POSITIONS = {
   classCards = Vector(CARD_WIDTH * 9.5, 2, 1.4),
   investigator = Vector(6 * 2.5, 2, 1.3),
   cycle = Vector(CARD_WIDTH * 9.5, 2, 2.4),
+  deckBuilder = Vector(CARD_WIDTH * -14, 2, -0.7),
   other = Vector(CARD_WIDTH * 9.5, 2, 1.4),
   randomWeakness = Vector(0, 2, 1.4),
   -- Because the card spread is handled by the SpawnBag, we don't know (programatically) where this
@@ -296,7 +302,7 @@ end
 function createClearButton()
   self.createButton({
     function_owner = self,
-    click_function = "deleteAll",
+    click_function = "clearCardsButton",
     position = Vector(0, 0.1, 0.852),
     rotation = Vector(0, 0, 0),
     height = 170,
@@ -388,9 +394,19 @@ end
 
 -- Clears the table and updates positions based on scale.  Should be called before ANY card
 -- placement
-function prepareToPlaceCards()
+function prepareToPlaceCards(targetState)
+  swapState(targetState)
   deleteAll()
   scalePositions()
+end
+
+function swapState(targetState)
+  local targetState = targetState or "default"
+  if targetState ~= currentState then
+    spawnBagSaveStates[currentState] = spawnBag.getStateForSave()
+    spawnBag.loadFromSave(spawnBagSaveStates[targetState])
+    currentState = targetState
+  end
 end
 
 -- Updates the positions based on the current object scale to ensure the relative layout functions
@@ -417,7 +433,22 @@ end
 
 -- Deletes all cards currently placed on the table
 function deleteAll()
+  if currentState == "default" then
+    getObjectFromGUID('6d55fe').setVar("deckPlaced", false)
+  end
   spawnBag.recall(true)
+end
+
+function getPlacedCards(targetState)
+  if targetState then
+   swapState(targetState)
+  end
+  return spawnBag.getPlacedCards()
+end
+
+function clearCardsButton(_, _, _)
+  swapState("default")
+  deleteAll()
 end
 
 -- Spawn an investigator group, based on the current UI setting for either investigators or starter
@@ -485,7 +516,7 @@ end
 ---    InvestigatorPanelData
 ---@param investigatorData Table.  Spawn definition for the investigator, retrieved from
 ---    INVESTIGATORS
----@param position Vector.  Where to spawn the minicard; investigagor cards will be placed below
+---@param position Vector.  Where to spawn the minicard; investigator cards will be placed below
 function buildInvestigatorSpawnSpec(investigatorName, investigatorData, position)
   local sigPos = Vector(position):add(investigatorSignatureOffset)
   local spawns = buildCommonSpawnSpec(investigatorName, investigatorData, position)
@@ -506,7 +537,7 @@ end
 ---    InvestigatorPanelData
 ---@param investigatorData Table.  Spawn definition for the investigator, retrieved from
 ---    INVESTIGATORS
----@param position Vector.  Where to spawn the minicard; investigagor cards will be placed below
+---@param position Vector.  Where to spawn the minicard; investigator cards will be placed below
 ---@param oneCardOnly Boolean.  If true, will spawn only the first card in the investigator card
 ---    and minicard lists.  Otherwise, spawn them all in a deck
 function buildCommonSpawnSpec(investigatorName, investigatorData, position, oneCardOnly)
@@ -588,19 +619,21 @@ function placeClassCards(cardClass, isUpgraded)
     broadcastToAll("Still loading player cards, please try again in a few seconds", {0.9, 0.2, 0.2})
     return
   end
-  local cardIdList = allCardsBagApi.getCardsByClassAndLevel(cardClass, isUpgraded)
+  local cardIdList = allCardsBagApi.getCardsByData("class", cardClass)
 
   local skillList = { }
   local eventList = { }
   local assetList = { }
   for _, cardId in ipairs(cardIdList) do
     local cardMetadata = allCardsBagApi.getCardById(cardId).metadata
-    if (cardMetadata.type == "Skill") then
-      table.insert(skillList, cardId)
-    elseif (cardMetadata.type == "Event") then
-      table.insert(eventList, cardId)
-    elseif (cardMetadata.type == "Asset") then
-      table.insert(assetList, cardId)
+    if isUpgraded == (cardMetadata.level > 0) then
+      if (cardMetadata.type == "Skill") then
+        table.insert(skillList, cardId)
+      elseif (cardMetadata.type == "Event") then
+        table.insert(eventList, cardId)
+      elseif (cardMetadata.type == "Asset") then
+        table.insert(assetList, cardId)
+      end
     end
   end
   local groupPos = Vector(startPositions.classCards)
@@ -648,7 +681,7 @@ function spawnCycle(cycle)
     broadcastToAll("Still loading player cards, please try again in a few seconds", {0.9, 0.2, 0.2})
     return
   end
-  local cycleCardList = allCardsBagApi.getCardsByCycle(cycle)
+  local cycleCardList = allCardsBagApi.getCardsByData("cycle", cycle)
   local copiedList = { }
   for i, id in ipairs(cycleCardList) do
     copiedList[i] = id
@@ -754,4 +787,61 @@ function spawnRandomWeakness()
     globalPos = self.positionToWorld(startPositions.randomWeakness),
     rotation = FACE_UP_ROTATION,
   })
+end
+
+function spawnCardList(params)
+  local cardList      = params.cardList
+  local name          = params.name
+  local startPos      = params.startPos or "other"
+  local rotation      = params.rotation or FACE_UP_ROTATION
+  local spread        = params.spread or true
+  local spreadCols    = params.spreadCols or 20
+  local targetState   = params.targetState or "default"
+  local keepTable     = params.keepTable
+  
+  if not keepTable then
+    prepareToPlaceCards(targetState)
+  end
+
+  local groupPos      = params.groupPos or Vector(startPositions[startPos])
+  
+  spawnBag.spawn({
+    name = name,
+    cards = cardList,
+    globalPos = self.positionToWorld(groupPos),
+    rotation = rotation,
+    spread = spread,
+    spreadCols = spreadCols
+  })
+end
+
+-- @param params table:
+--    cardList: 
+--    name:
+--    startPos:
+--    rotation:
+--    spread:
+--    spreadCols:
+function spawnCardsByType(params)
+  local cardList      = params.cardList
+  local name          = params.name
+  local targetState   = params.targetState or "default"
+  local spreadCols    = params.spreadCols or 20
+  local startPos      = params.startPos or "other"
+  local params        = params
+  
+  prepareToPlaceCards(targetState)
+  local groupPos      = Vector(startPositions[startPos])
+  params.keepTable = true
+  
+  for subname, sublist in pairs(cardList) do
+    if #sublist > 0 then
+      params.groupPos = groupPos
+      params.cardList = sublist
+      params.name     = name .. subname
+      spawnCardList(params)
+      groupPos.z = groupPos.z + math.ceil(#sublist / spreadCols) * cardRowOffset + cardGroupOffset
+    end
+  end
+  
 end
