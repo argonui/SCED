@@ -1,17 +1,20 @@
 local blessCurseManagerApi = require("chaosbag/BlessCurseManagerApi")
 local guidReferenceApi = require("core/GUIDReferenceApi")
+local navigationOverlayApi = require("core/NavigationOverlayApi")
 local optionPanelApi = require("core/OptionPanelApi")
 local playmatApi = require("playermat/PlaymatApi")
 local searchLib = require("util/SearchLib")
 local victoryDisplayApi = require("core/VictoryDisplayApi")
 
 function onLoad()
-  addHotkey("Add Doom to Agenda", addDoomToAgenda)
-  addHotkey("Bless/Curse Status", showBlessCurseStatus)
-  addHotkey("Discard Object", discardObject)
+  addHotkey("Add doom to agenda", addDoomToAgenda)
+  addHotkey("Discard object", discardObject)
   addHotkey("Discard top card", discardTopDeck)
+  addHotkey("Display Bless/Curse status", showBlessCurseStatus)
   addHotkey("Move card to Victory Display", moveCardToVictoryDisplay)
   addHotkey("Remove a use", removeOneUse)
+  addHotkey("Switch seat clockwise", switchSeatClockwise)
+  addHotkey("Switch seat counter-clockwise", switchSeatCounterClockwise)
   addHotkey("Take clue from location", takeClueFromLocation)
   addHotkey("Upkeep", triggerUpkeep)
   addHotkey("Upkeep (Multi-handed)", triggerUpkeepMultihanded)
@@ -198,6 +201,59 @@ function removeOneUse(playerColor, hoveredObject)
 
   local discardForMatColor = getColorToDiscardFor(hoveredObject, playerColor)
   playmatApi.discardListOfObjects(discardForMatColor, { targetObject })
+end
+
+-- switches the triggering player to the next seat (clockwise)
+function switchSeatClockwise(playerColor)
+  switchSeat(playerColor, "clockwise")
+end
+
+-- switches the triggering player to the next seat (counter-clockwise)
+function switchSeatCounterClockwise(playerColor)
+  switchSeat(playerColor, "counter-clockwise")
+end
+
+-- handles seat switching in the given direction
+function switchSeat(playerColor, direction)
+  if playerColor == "Black" or playerColor == "Grey" then
+    broadcastToColor("This hotkey is only available to seated players.", playerColor, "Orange")
+    return
+  end
+
+  -- sort function for matcolors based on hand position (Green, White, Orange, Red)
+  local function sortByHandPosition(color1, color2)
+    local pos1 = Player[color1].getHandTransform().position
+    local pos2 = Player[color2].getHandTransform().position
+    return pos1.z > pos2.z
+  end
+
+  -- get used playermats
+  local usedColors = playmatApi.getUsedMatColors()
+  table.sort(usedColors, sortByHandPosition)
+
+  -- get current seat index
+  local index
+  for i, color in ipairs(usedColors) do
+    if color == playerColor then
+      index = i
+      break
+    end
+  end
+  if not index then
+    broadcastToColor("Couldn't detect investigator.", playerColor, "Orange")
+    return
+  end
+
+  -- get next color
+  index = index + ((direction == "clockwise") and -1 or 1)
+  if index == 0 then
+    index = #usedColors
+  elseif index > #usedColors then
+    index = 1
+  end
+
+  -- swap color
+  navigationOverlayApi.loadCamera(playerColor, usedColors[index])
 end
 
 -- takes a clue from a location, player needs to hover the clue directly or the location
