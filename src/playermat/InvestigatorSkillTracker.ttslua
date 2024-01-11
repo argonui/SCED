@@ -1,62 +1,56 @@
-local BUTTON_PARAMETERS          = {}
-BUTTON_PARAMETERS.function_owner = self
-BUTTON_PARAMETERS.height         = 650
-BUTTON_PARAMETERS.width          = 700
-BUTTON_PARAMETERS.position       = { x = -4.775, y = 0.1, z = -0.03 }
-BUTTON_PARAMETERS.color          = { 0, 0, 0, 0 }
-BUTTON_PARAMETERS.font_color     = { 0, 0, 0, 100 }
-BUTTON_PARAMETERS.font_size      = 450
+local buttonParameters          = {}
+buttonParameters.function_owner = self
+buttonParameters.height         = 650
+buttonParameters.width          = 700
+buttonParameters.position       = { x = -4.775, y = 0.1, z = -0.03 }
+buttonParameters.color          = { 0, 0, 0, 0 }
+buttonParameters.font_color     = { 0, 0, 0, 100 }
+buttonParameters.font_size      = 450
 
 function onSave() return JSON.encode(stats) end
 
 -- load stats and make buttons (left to right)
-function onLoad(saved_data)
-  stats = JSON.decode(saved_data) or { 1, 1, 1, 1 }
+function onLoad(savedData)
+  stats = JSON.decode(savedData) or { 1, 1, 1, 1 }
 
-  for i = 1, 4 do
-    BUTTON_PARAMETERS.label = stats[i] .. "   "
-    BUTTON_PARAMETERS.position.x = BUTTON_PARAMETERS.position.x + 1.91
-    BUTTON_PARAMETERS.click_function = attachIndex("button_click", i)
-    self.createButton(BUTTON_PARAMETERS)
+  for index = 1, 4 do
+    local fnName = "buttonClick" .. index
+    _G[fnName] = function(_, _, isRightClick) buttonClick(isRightClick, index) end
+    buttonParameters.click_function = fnName
+    buttonParameters.position.x = buttonParameters.position.x + 1.91
+    self.createButton(buttonParameters)
+    updateButtonLabel(index)
   end
 
   self.addContextMenuItem("Reset to 1s", function() updateStats({ 1, 1, 1, 1 }) end)
 end
 
--- helper function to carry index
-function attachIndex(click_function, index)
-  local fn_name = click_function .. index
-  _G[fn_name] = function(obj, player_color, isRightClick)
-    _G[click_function](obj, player_color, isRightClick, index)
-  end
-  return fn_name
-end
-
-function button_click(_, _, isRightClick, index)
+function buttonClick(isRightClick, index)
   stats[index] = math.min(math.max(stats[index] + (isRightClick and -1 or 1), 0), 99)
-  changeButton(index)
+  updateButtonLabel(index)
 end
 
-function changeButton(index)
-  local font_size = BUTTON_PARAMETERS.font_size
+-- sync the button label to the internal value
+function updateButtonLabel(index)
+  local fontSize = buttonParameters.font_size
   local whitespace = "   "
 
   if stats[index] > 9 then
-    font_size = BUTTON_PARAMETERS.font_size * 0.65
+    fontSize = buttonParameters.font_size * 0.65
     whitespace = "     "
   end
 
-  self.editButton({ index = index - 1, label = stats[index] .. whitespace, font_size = font_size })
+  self.editButton({ index = index - 1, label = stats[index] .. whitespace, font_size = fontSize })
 end
 
--- formatting of "newStats": {Willpower, Intellect, Fight, Agility}
+-- update the stats to the provided values
+---@param newStats Table Contains the new values for the stats: {Willpower, Intellect, Fight, Agility}
 function updateStats(newStats)
   if newStats and #newStats == 4 then
     stats = newStats
+
+    for i = 1, 4 do updateButtonLabel(i) end
   elseif newStats then
     printToAll("Provided new stats are incomplete or incorrectly formatted.", "Red")
-    return
   end
-
-  for i = 1, 4 do changeButton(i) end
 end
