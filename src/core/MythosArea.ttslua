@@ -134,13 +134,6 @@ end
 function getEncounterDeck()
   local searchResult = searchLib.atPosition(ENCOUNTER_DECK_POS, "isCardOrDeck")
 
-  for _, obj in ipairs(searchResult) do
-    if obj.type == 'Deck' then
-      return obj
-    end
-  end
-
-  -- if no deck was found, return the first hit (a card)
   if #searchResult > 0 then
     return searchResult[1]
   end
@@ -151,6 +144,7 @@ function drawEncounterCard(params)
   local encounterDeck = getEncounterDeck()
 
   if encounterDeck then
+    reshuffledAlready = false
     local card
     if encounterDeck.type == "Deck" then
       card = encounterDeck.takeObject()
@@ -160,7 +154,14 @@ function drawEncounterCard(params)
     actualEncounterCardDraw(card, params)
   else
     -- nothing here, time to reshuffle
-    reshuffleEncounterDeck(params)
+    if reshuffledAlready == true then
+      reshuffledAlready = false
+      -- print something?
+      return
+    end
+    reshuffleEncounterDeck() -- if there is no discard pile either, reshuffleEncounterDeck will give an error message already
+    reshuffledAlready = true
+    drawEncounterCard(params)
   end
 end
 
@@ -180,41 +181,24 @@ function actualEncounterCardDraw(card, params)
   deckLib.placeOrMergeIntoDeck(card, pos, { 0, rotY, faceUpRotation })
 end
 
-function reshuffleEncounterDeck(params)
-  -- flag to avoid multiple calls
-  if isReshuffling then return end
-  isReshuffling = true
-
-  -- shuffle and flip deck, draw card after completion
-  local searchResult = searchLib.atPosition(ENCOUNTER_DISCARD_POSITION, "isCardOrDeck")
-  if #searchResult > 0 then
-    local deck = searchResult[1]
-    if not deck.is_face_down then deck.flip() end
-    deck.shuffle()
-    deck.setPositionSmooth(Vector(ENCOUNTER_DECK_POS) + Vector(0, 2, 0), false, true)
-    Wait.time(function() actualEncounterCardDraw(deck.takeObject({ index = 0 }), params) end, 0.5)
-  else
-    printToAll("Couldn't find encounter discard pile to reshuffle.", { 1, 0, 0 })
-  end
-
-  -- disable flag
-  Wait.time(function() isReshuffling = false end, 1)
-end
-
-function discardIntoDeck()
+function reshuffleEncounterDeck()
   --flag to avoid multiple calls
   if isReshuffling then return end
   isReshuffling = true
-
-  -- flip deck and then shuffle
+  local encounterDeck = getEncounterDeck()
   local discardPile = searchLib.atPosition(ENCOUNTER_DISCARD_POSITION, "isCardOrDeck")
+    
   if #discardPile > 0 then
-    local deck = discardPile[1]
-    if not deck.is_face_down then deck.flip() end
-    deck.setPositionSmooth(Vector(ENCOUNTER_DECK_POS) + Vector(0, 2, 0), false, true)
-    --wait until deck is in place .75 seconds, then shuffle
-    broadcastToAll("Shuffled encounter discard into deck.", "White")
-    Wait.time(function() searchLib.atPosition(ENCOUNTER_DECK_POS, "isCardOrDeck")[1].shuffle() end, .75)
+    local discardDeck = discardPile[1]
+    if not discardDeck.is_face_down then discardDeck.setRotation({0, -90, 180}) end --flips discard pile
+    if encounterDeck == nil then
+      discardDeck.setPosition(Vector(ENCOUNTER_DECK_POS) + Vector({0, 1, 0}))
+      discardDeck.shuffle()
+    else
+      encounterDeck.putObject(discardDeck)
+      encounterDeck.shuffle()
+    end
+      broadcastToAll("Shuffled encounter discard into deck.", "White")
   else
     broadcastToAll("Encounter discard pile is already empty.", "Red")
   end
