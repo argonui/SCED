@@ -1,33 +1,21 @@
 local guidReferenceApi = require("core/GUIDReferenceApi")
 local playmatApi = require("playermat/PlaymatApi")
 
-function onClick_hideShow(player, matColor)
+function onClick_hide(player, matColor)
   local objects = guidReferenceApi.getObjectsByOwner(matColor)
-  local actionTokens = playmatApi.searchAroundPlaymat(matColor, "isActionToken")
-  local pos = objects.Playermat.getPosition()
-  local mod = (pos.y > 0) and -2 or 2
+  if not objects.Playermat then return end
 
-  -- move all objects
-  for _, obj in pairs(objects) do
-    obj.setPosition(obj.getPosition() + Vector(0, mod, 0))
-  end
+  player.showConfirmDialog("Really remove this playmat and related objects? This can't be reversed.",
+    function()
+      -- remove action tokens
+      local actionTokens = playmatApi.searchAroundPlaymat(matColor, "isActionToken")
+      for _, obj in ipairs(actionTokens) do
+        obj.destruct()
+      end
 
-  -- move action tokens
-  for _, obj in ipairs(actionTokens) do
-    obj.setLock(pos.y > 0)
-    obj.setPosition(obj.getPosition() + Vector(0, mod, 0))
-  end
-
-  -- set state of interceptor block
-  local allMats = guidReferenceApi.getObjectsByType("Playermat")
-  local state = false
-  for owner, mat in pairs(allMats) do
-    if mat.getPosition().y < 0 then
-      state = true
-      break
-    end
-  end
-
-  local interceptor = getObjectFromGUID("3dbe55")
-  interceptor.call("setState", state)
+      -- remove mat owned objects
+      for _, obj in pairs(objects) do
+        obj.destruct()
+      end
+    end)
 end
