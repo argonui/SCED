@@ -211,7 +211,7 @@ function formatTokenCount(type, omitBrackets)
   end
 end
 
--- called by cards that seal bless/curse tokens
+-- seals a token on a card (called by cards that seal bless/curse tokens)
 ---@param param Table This contains the type and guid of the sealed token
 function sealedToken(param)
   table.insert(tokensTaken[param.type], param.guid)
@@ -219,12 +219,32 @@ function sealedToken(param)
   updateButtonLabels()
 end
 
--- called by cards that seal bless/curse tokens
+-- returns a token to the bag (called by cards that seal bless/curse tokens)
 ---@param param Table This contains the type and guid of the released token
 function releasedToken(param)
   for i, v in ipairs(tokensTaken[param.type]) do
     if v == param.guid then
       table.remove(tokensTaken[param.type], i)
+      break
+    end
+  end
+  if not updating then
+    updating = true
+    Wait.frames(function()
+      broadcastCount(param.type)
+      updateButtonLabels()
+      updating = false
+    end, 1)
+  end
+end
+
+-- removes a token (called by cards that seal bless/curse tokens)
+---@param param Table This contains the type and guid of the released token
+function returnedToken(param)
+  for i, v in ipairs(tokensTaken[param.type]) do
+    if v == param.guid then
+      table.remove(tokensTaken[param.type], i)
+      numInPlay[param.type] = numInPlay[param.type] - 1
       break
     end
   end
@@ -300,9 +320,7 @@ end
 function addMenuOptions(parameters)
   local playerColor = parameters.playerColor
   local hoveredObject = parameters.hoveredObject
-  if hoveredObject == nil then
-    return
-  elseif hoveredObject.type ~= "Card" then
+  if hoveredObject == nil or hoveredObject.type ~= "Card" then
     broadcastToColor("Right-click seal options can only be added to cards.", playerColor)
     return
   elseif hoveredObject.hasTag("CardThatSeals") or hoveredObject.getVar("MENU_ADDED") == true then
