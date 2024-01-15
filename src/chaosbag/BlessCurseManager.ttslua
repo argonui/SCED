@@ -56,7 +56,6 @@ function resetTables()
   numInPlay = { Bless = 0, Curse = 0 }
   tokensTaken = { Bless = {}, Curse = {} }
   sealedTokens = {}
-  updateButtonLabels()
 end
 
 function initializeState()
@@ -86,6 +85,8 @@ function initializeState()
       end
     end
   end
+
+  updateButtonLabels()
 end
 
 function updateButtonLabels()
@@ -95,13 +96,43 @@ end
 
 function broadcastCount(token)
   local count = formatTokenCount(token)
-  if count == "(0/0)" then return end
+  if count == "(0 + 0)" then return end
   broadcastToAll(token .. " Tokens " .. count, "White")
 end
 
 function broadcastStatus(color)
   broadcastToColor("Curse Tokens " .. formatTokenCount("Curse"), color, "White")
   broadcastToColor("Bless Tokens " .. formatTokenCount("Bless"), color, "White")
+end
+
+---------------------------------------------------------
+-- TTS event handling
+---------------------------------------------------------
+
+-- enable tracking of bag changes for 1 second
+function onObjectDrop(_, object)
+  if not isBlurseToken(object) then return end
+
+  trackBagChange = true
+  Wait.time(function() trackBagChange = false end, 1)
+end
+
+-- handle manual returning of bless / curse tokens
+function onObjectEnterContainer(container, object)
+  if not (trackBagChange and isChaosbag(container) and isBlurseToken(object)) then return end
+
+  -- small delay to ensure token has entered bag
+  Wait.time(doReset, 0.5)
+end
+
+function isChaosbag(obj)
+  if obj.getDescription() ~= "Chaos Bag" then return end -- early exit for performance
+  return obj == chaosBagApi.findChaosBag()
+end
+
+function isBlurseToken(obj)
+  local name = obj.getName()
+  return name == "Bless" or name == "Curse"
 end
 
 ---------------------------------------------------------
@@ -128,10 +159,11 @@ function doRemove(color)
   broadcastToColor("Removed " .. removeTakenTokens("Bless") .. " Bless and " .. removeTakenTokens("Curse") .. " Curse tokens from play.", color, "White")
 
   resetTables()
+  updateButtonLabels()
   tokenArrangerApi.layout()
 end
 
-function doReset(color)
+function doReset()
   initializeState()
   broadcastCount("Curse")
   broadcastCount("Bless")
@@ -173,9 +205,9 @@ function formatTokenCount(type, omitBrackets)
   if type == nil then type = mode end
 
   if omitBrackets then
-    return (numInPlay[type] - #tokensTaken[type]) .. "/" .. #tokensTaken[type]
+    return (numInPlay[type] - #tokensTaken[type]) .. " + " .. #tokensTaken[type]
   else
-    return "(" .. (numInPlay[type] - #tokensTaken[type]) .. "/" .. #tokensTaken[type] .. ")"
+    return "(" .. (numInPlay[type] - #tokensTaken[type]) .. " + " .. #tokensTaken[type] .. ")"
   end
 end
 
