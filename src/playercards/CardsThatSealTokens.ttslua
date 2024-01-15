@@ -22,6 +22,11 @@ SHOW_MULTI_RELEASE  --@type: number (amount of tokens to release at once)
   - this entry allows releasing of multiple tokens at once
   - example usage: "Nephthys" (to release 3 bless tokens at once)
 
+SHOW_MULTI_RETURN   --@type: number (amount of tokens to return to pool at once)
+  - enables an entry in the context menu
+  - this entry allows returning tokens to the token pool
+  - example usage: "Nephthys" (to return 3 bless tokens at once)
+
 SHOW_MULTI_SEAL     --@type: number (amount of tokens to seal at once)
   - enables an entry in the context menu
   - this entry allows sealing of multiple tokens at once
@@ -96,6 +101,11 @@ function generateContextMenu()
     self.addContextMenuItem("Release token(s)", releaseAllTokens)
   end
 
+  -- conditional release option
+  if SHOW_MULTI_RETURN then
+    self.addContextMenuItem("Return " .. SHOW_MULTI_RETURN .. " token(s)", returnMultipleTokens)
+  end
+
   -- main context menu options to seal tokens
   for _, map in pairs(ID_URL_MAP) do
     if (VALID_TOKENS[map.name] ~= nil) or (UPDATE_ON_HOVER and tokensInBag[map.name] and not INVALID_TOKENS[map.name]) then
@@ -137,6 +147,10 @@ function readBag()
   for _, token in ipairs(chaosbag.getObjects()) do
     tokensInBag[token.name] = (tokensInBag[token.name] or 0) + 1
   end
+end
+
+function resetSealedTokens()
+  sealedTokens = {}
 end
 
 -- native event from TTS - used to update the context menu for cards like "Unrelenting"
@@ -211,6 +225,18 @@ function releaseAllTokens(playerColor)
   end
 end
 
+-- returns multiple tokens at once to the token pool
+function returnMultipleTokens(playerColor)
+  if SHOW_MULTI_RETURN <= #sealedTokens then
+    for i = 1, SHOW_MULTI_RETURN do
+      returnToken(table.remove(sealedTokens))
+    end
+    printToColor("Returning " .. SHOW_MULTI_RETURN .. " tokens", playerColor)
+  else
+    printToColor("Not enough tokens sealed.", playerColor)
+  end
+end
+
 -- returns the token (referenced by GUID) to the chaos bag
 function putTokenAway(guid)
   local token = getObjectFromGUID(guid)
@@ -222,5 +248,17 @@ function putTokenAway(guid)
   tokenArrangerApi.layout()
   if name == "Bless" or name == "Curse" then
     blessCurseManagerApi.releasedToken(name, guid)
+  end
+end
+
+-- returns the token to the pool (== removes it)
+function returnToken(guid)
+  local token = getObjectFromGUID(guid)
+  if not token then return end
+
+  local name = token.getName()
+  token.destruct()
+  if name == "Bless" or name == "Curse" then
+    blessCurseManagerApi.returnedToken(name, guid)
   end
 end
