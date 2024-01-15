@@ -30,9 +30,11 @@ local NOT_INTERACTABLE = {
   "975c39", -- vertical border right
 }
 
--- global variable for access
-chaosTokens = {}
-local chaosTokensLastMat = nil
+local chaosTokens = {}
+local chaosTokensLastMatGUID = nil
+
+-- chaos token stat tracking
+local tokenDrawingStats = { ["Overall"] = {} }
 
 local bagSearchers = {}
 local MAT_COLORS = { "White", "Orange", "Green", "Red" }
@@ -111,26 +113,23 @@ ID_URL_MAP = {
 }
 
 ---------------------------------------------------------
--- data for chaos token stat tracker
----------------------------------------------------------
-
-local tokenDrawingStats = {
-  ["Overall"] = {},
-  ["8b081b"]  = {},
-  ["bd0ff4"]  = {},
-  ["383d8b"]  = {},
-  ["0840d5"]  = {}
-}
-
----------------------------------------------------------
 -- general code
 ---------------------------------------------------------
 
 -- saving state of optionPanel to restore later
 function onSave()
+  local chaosTokensGUID = {}
+  for _, obj in ipairs(chaosTokens) do
+    if obj ~= nil then
+      table.insert(chaosTokensGUID, obj.getGUID())
+    end
+  end
+
   return JSON.encode({
     optionPanel = optionPanel,
-    acknowledgedUpgradeVersions = acknowledgedUpgradeVersions
+    acknowledgedUpgradeVersions = acknowledgedUpgradeVersions,
+    chaosTokensLastMatGUID = chaosTokensLastMatGUID,
+    chaosTokensGUID = chaosTokensGUID
   })
 end
 
@@ -140,6 +139,12 @@ function onLoad(savedData)
     optionPanel = loadedData.optionPanel
     acknowledgedUpgradeVersions = loadedData.acknowledgedUpgradeVersions
     updateOptionPanelState()
+
+    -- restore saved state for drawn chaos tokens
+    for _, guid in ipairs(loadedData.chaosTokensGUID or {}) do
+      table.insert(chaosTokens, getObjectFromGUID(guid))
+    end
+    chaosTokensLastMatGUID = loadedData.chaosTokensLastMatGUID
   else
     print("Saved state could not be found!")
   end
@@ -149,7 +154,6 @@ function onLoad(savedData)
     if obj ~= nil then obj.interactable = false end
   end
 
-  resetChaosTokenStatTracker()
   getModVersion()
   math.randomseed(os.time())
 
@@ -163,8 +167,8 @@ end
 -- container is being searched, a TTS bug can cause tokens to duplicate or vanish.  We lock the
 -- chaos bag during search operations to avoid this.
 function onObjectSearchStart(object, playerColor)
-  chaosbag = findChaosBag()
-  if object == chaosbag then
+  local chaosBag = findChaosBag()
+  if object == chaosBag then
     bagSearchers[playerColor] = true
   end
 end
@@ -173,8 +177,8 @@ end
 -- container is being searched, a TTS bug can cause tokens to duplicate or vanish.  We lock the
 -- chaos bag during search operations to avoid this.
 function onObjectSearchEnd(object, playerColor)
-  chaosbag = findChaosBag()
-  if object == chaosbag then
+  local chaosBag = findChaosBag()
+  if object == chaosBag then
     bagSearchers[playerColor] = nil
   end
 end
@@ -200,21 +204,37 @@ function onObjectEnterZone(zone, enteringObj)
   end
 end
 
+-- handle card drawing via number typing for multihanded gameplay
+-- (and additionally allow Norman Withers to draw multiple cards via number)
+function onObjectNumberTyped(hoveredObject, playerColor, number)
+  -- only continue for decks or cards
+  if hoveredObject.type ~= "Deck" and hoveredObject.type ~= "Card" then return end
+  
+  -- check whether the hovered object is part of a players draw objects
+  for _, color in ipairs(playmatApi.getUsedMatColors()) do
+    local deckAreaObjects = playmatApi.getDeckAreaObjects(color)
+    if deckAreaObjects.topCard == hoveredObject or deckAreaObjects.draw == hoveredObject then
+      playmatApi.drawCardsWithReshuffle(color, number)
+      return true
+    end
+  end
+end
+
 ---------------------------------------------------------
 -- chaos token drawing
 ---------------------------------------------------------
 
 -- checks scripting zone for chaos bag (also called by a lot of objects!)
 function findChaosBag()
-  local chaosbag_zone = getObjectFromGUID("83ef06")
+  local chaosBagZone = guidReferenceApi.getObjectByOwnerAndType("Mythos", "ChaosBagZone")
 
   -- error handling: scripting zone not found
-  if chaosbag_zone == nil then
+  if chaosBagZone == nil then
     printToAll("Zone for chaos bag detection couldn't be found.", "Red")
     return
   end
 
-  for _, item in ipairs(chaosbag_zone.getObjects()) do
+  for _, item in ipairs(chaosBagZone.getObjects()) do
     if item.getDescription() == "Chaos Bag" then
       return item
     end
@@ -225,8 +245,9 @@ function findChaosBag()
 end
 
 function returnChaosTokens()
+  local chaosBag = findChaosBag()
   for _, token in pairs(chaosTokens) do
-    if token ~= nil then chaosbag.putObject(token) end
+    if token ~= nil then chaosBag.putObject(token) end
   end
   chaosTokens = {}
 end
@@ -250,31 +271,30 @@ end
 function drawChaosToken(params)
   if not canTouchChaosTokens() then return end
 
-  local mat = params[1]
-  local tokenOffset = params[2]
-  local isRightClick = params[3]
-  chaosbag = findChaosBag()
+  local tokenOffset = {-1.55, 0.25, -0.58}
+  local matGUID = params.mat.getGUID()
 
   -- return token(s) on other playmat first
-  if chaosTokensLastMat ~= nil and chaosTokensLastMat ~= mat and #chaosTokens ~= 0 then
+  if chaosTokensLastMatGUID ~= nil and chaosTokensLastMatGUID ~= matGUID and #chaosTokens ~= 0 then
     returnChaosTokens()
-    chaosTokensLastMat = nil
+    chaosTokensLastMatGUID = nil
     return
   end
 
-  chaosTokensLastMat = mat
+  chaosTokensLastMatGUID = matGUID
 
   -- if we have left clicked and have no tokens OR if we have right clicked
-  if isRightClick or #chaosTokens == 0 then
-    if #chaosbag.getObjects() == 0 then return end
-    chaosbag.shuffle()
+  if params.drawAdditional or #chaosTokens == 0 then
+    local chaosBag = findChaosBag()
+    if #chaosBag.getObjects() == 0 then return end
+    chaosBag.shuffle()
 
     -- add the token to the list, compute new position based on list length
     tokenOffset[1] = tokenOffset[1] + (0.17 * #chaosTokens)
-    local token = chaosbag.takeObject({
+    local token = chaosBag.takeObject({
       index = 0,
-      position = mat.positionToWorld(tokenOffset),
-      rotation = mat.getRotation()
+      position = params.mat.positionToWorld(tokenOffset),
+      rotation = params.mat.getRotation()
     })
 
     -- get data for token description
@@ -284,9 +304,8 @@ function drawChaosToken(params)
     token.setDescription(specificData.description or "")
 
     -- track the chaos token (for stat tracker and future returning)
-    trackChaosToken(name, mat.getGUID())
+    trackChaosToken(name, matGUID)
     chaosTokens[#chaosTokens + 1] = token
-    return
   else
     returnChaosTokens()
   end
@@ -308,6 +327,10 @@ end
 ---------------------------------------------------------
 
 function trackChaosToken(tokenName, matGUID)
+  -- initialize tables
+  if not tokenDrawingStats[matGUID] then tokenDrawingStats[matGUID] = {} end
+
+  -- increase stats by 1
   tokenDrawingStats["Overall"][tokenName] = (tokenDrawingStats["Overall"][tokenName] or 0) + 1
   tokenDrawingStats[matGUID][tokenName]   = (tokenDrawingStats[matGUID][tokenName] or 0) + 1
 end
@@ -333,7 +356,7 @@ function handleStatTrackerClick(_, _, isRightClick)
         playerColor = playmatApi.getPlayerColor(matColor)
         playerName = Player[playerColor].steam_name or playerColor
 
-        local playerSquidCount = personalStats["Auto-fail"]
+        local playerSquidCount = personalStats["Auto-fail"] or 0
         if playerSquidCount > maxSquid then
           squidKing = playerName
           maxSquid = playerSquidCount
@@ -373,12 +396,7 @@ end
 
 -- resets the count for each token to 0
 function resetChaosTokenStatTracker()
-  for key, _ in pairs(tokenDrawingStats) do
-    tokenDrawingStats[key] = {}
-    for _, token in pairs(ID_URL_MAP) do
-      tokenDrawingStats[key][token.name] = 0
-    end
-  end
+  tokenDrawingStats = { ["Overall"] = {} }
 end
 
 ---------------------------------------------------------
@@ -509,14 +527,20 @@ function createChaosTokenNameLookupTable()
   return namesToIds
 end
 
+-- returns the currently drawn chaos tokens
+---@api ChaosBagApi
+function getChaosTokensinPlay()
+  return chaosTokens
+end
+
 -- returns a Table List of chaos token ids in the current chaos bag
----@api chaosbag/ChaosBagApi
+---@api ChaosBag / ChaosBagApi
 function getChaosBagState()
   local tokens = {}
   local invertedTable = createChaosTokenNameLookupTable()
-  local chaosbag = findChaosBag()
+  local chaosBag = findChaosBag()
 
-  for _, v in ipairs(chaosbag.getObjects()) do
+  for _, v in ipairs(chaosBag.getObjects()) do
     local id = invertedTable[v.name]
     if id then
       table.insert(tokens, id)
@@ -530,12 +554,12 @@ end
 
 -- respawns the chaos bag with a new state of tokens
 ---@param tokenList Table List of chaos token ids
----@api chaosbag/ChaosBagApi
+---@api ChaosBag / ChaosBagApi
 function setChaosBagState(tokenList)
   if not canTouchChaosTokens() then return end
 
-  local chaosbag = findChaosBag()
-  local chaosbagData = chaosbag.getData()
+  local chaosBag = findChaosBag()
+  local chaosBagData = chaosBag.getData()
   local reserveData = getObjectFromGUID("106418").getData()
   local tokenCache = {}
   local containedObjects = {}
@@ -552,16 +576,16 @@ function setChaosBagState(tokenList)
   end
 
   -- overwrite chaos bag content and respawn it
-  chaosbagData.ContainedObjects = containedObjects
-  chaosbag.destruct()
-  spawnObjectData({ data = chaosbagData })
+  chaosBagData.ContainedObjects = containedObjects
+  chaosBag.destruct()
+  spawnObjectData({ data = chaosBagData })
 
   -- remove tokens that are still in play
   for _, token in pairs(chaosTokens) do
     if token ~= nil then token.destruct() end
   end
   chaosTokens = {}
-  chaosTokensLastMat = nil
+  chaosTokensLastMatGUID = nil
 
   -- reset bless / curse manager
   blessCurseManagerApi.removeTakenTokensAndReset()
@@ -575,7 +599,7 @@ function spawnChaosToken(id)
   if not canTouchChaosTokens() then return end
 
   id = id:lower()
-  local chaosbag = findChaosBag()
+  local chaosBag = findChaosBag()
   local url = ID_URL_MAP[id].url or ""
 
   if url ~= "" then
@@ -586,7 +610,7 @@ function spawnChaosToken(id)
       rotation = { 0, 270, 0 },
       callback_function = function(obj)
         obj.setName(ID_URL_MAP[id].name)
-        chaosbag.putObject(obj)
+        chaosBag.putObject(obj)
         tokenArrangerApi.layout()
       end
     }).setCustomObject({
@@ -603,10 +627,10 @@ function removeChaosToken(id)
   if not canTouchChaosTokens() then return end
 
   local tokens = {}
-  local chaosbag = findChaosBag()
+  local chaosBag = findChaosBag()
   local name = ID_URL_MAP[id].name
 
-  for _, v in ipairs(chaosbag.getObjects()) do
+  for _, v in ipairs(chaosBag.getObjects()) do
     if v.name == name then table.insert(tokens, v.guid) end
   end
 
@@ -616,7 +640,7 @@ function removeChaosToken(id)
     return
   end
 
-  chaosbag.takeObject({
+  chaosBag.takeObject({
     guid = tokens[1],
     smooth = false,
     callback_function = function(obj)
@@ -631,15 +655,15 @@ end
 function emptyChaosBag()
   if not canTouchChaosTokens() then return end
 
-  local chaosbag = findChaosBag()
-  for _, object in ipairs(chaosbag.getObjects()) do
-    chaosbag.takeObject({ callback_function = function(item) item.destruct() end })
+  local chaosBag = findChaosBag()
+  for _, object in ipairs(chaosBag.getObjects()) do
+    chaosBag.takeObject({ callback_function = function(item) item.destruct() end })
   end
 end
 
 -- returns all sealed tokens on cards to the chaos bag
 function releaseAllSealedTokens(playerColor)
-  local chaosbag = findChaosBag()
+  local chaosBag = findChaosBag()
   for _, obj in ipairs(getObjectsWithTag("CardThatSeals")) do
     obj.call("releaseAllTokens", playerColor)
   end
