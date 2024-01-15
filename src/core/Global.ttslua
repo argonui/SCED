@@ -1225,7 +1225,8 @@ function playermatRemovalSelected(player, selectedIndex, id)
 
   if mat then
     -- confirmation dialog about deletion
-    player.showConfirmDialog("Do you really want to remove " .. matColor .. "'s playermat? This can't be reversed.", function() removePlayermat(matColor) end)
+    player.pingTable(mat.getPosition())
+    player.showConfirmDialog("Do you really want to remove " .. matColor .. "'s playermat and related objects? This can't be reversed.", function() removePlayermat(matColor) end)
   else
     -- info dialog that it is already deleted
     player.showInfoDialog(matColor .. "'s playermat has already been removed.")
@@ -1235,7 +1236,19 @@ end
 -- removes a playermat and all related objects from play
 ---@param matColor String Color of the playermat to remove
 function removePlayermat(matColor)
+  local matObjects = guidReferenceApi.getObjectsByOwner(matColor)
+  if not matObjects.Playermat then return end
 
+  -- remove action tokens
+  local actionTokens = playmatApi.searchAroundPlaymat(matColor, "isActionToken")
+  for _, obj in ipairs(actionTokens) do
+    obj.destruct()
+  end
+
+  -- remove mat owned objects
+  for _, obj in pairs(matObjects) do
+    obj.destruct()
+  end
 end
 
 -- sets the option panel to the correct state (corresponding to 'optionPanel')
@@ -1312,18 +1325,22 @@ function applyOptionPanelChange(id, state)
 
   -- option: Show hand helper for each player
   elseif id == "showHandHelper" then
-    for i, color in ipairs(MAT_COLORS) do
-      local pos = playmatApi.transformLocalPosition({0.05, 0, -1.182}, color)
-      local rot = playmatApi.returnRotation(color)
-      optionPanel[id][i] = spawnOrRemoveHelper(state, "Hand Helper", pos, rot)
+    local helperName = "Hand Helper"
+    local spawnData = playmatApi.getHelperSpawnData("All", helperName)
+    local i = 0
+    for color, data in pairs(spawnData) do
+      i = i + 1
+      optionPanel[id][i] = spawnOrRemoveHelper(state, helperName, data.position, data.rotation, color)
     end
 
   -- option: Show search assistant for each player
   elseif id == "showSearchAssistant" then
-    for i, color in ipairs(MAT_COLORS) do
-      local pos = playmatApi.transformLocalPosition({-0.3, 0, -1.182}, color)
-      local rot = playmatApi.returnRotation(color)
-      optionPanel[id][i] = spawnOrRemoveHelper(state, "Search Assistant", pos, rot)
+    local helperName = "Search Assistant"
+    local spawnData = playmatApi.getHelperSpawnData("All", helperName)
+    local i = 0
+    for color, data in pairs(spawnData) do
+      i = i + 1
+      optionPanel[id][i] = spawnOrRemoveHelper(state, helperName, data.position, data.rotation, color)
     end
 
   -- option: Show attachment helper
@@ -1345,13 +1362,17 @@ end
 ---@param name String Name of the helper object
 ---@param position Vector Position of the object (where it will spawn)
 ---@param rotation Vector Rotation of the object for spawning (default: {0, 270, 0})
+---@param owner String Owner of the object (defaults to "Mythos")
 ---@return. GUID of the spawnedObj (or nil if object was removed)
-function spawnOrRemoveHelper(state, name, position, rotation)
+function spawnOrRemoveHelper(state, name, position, rotation, owner)
   if (type(state) == "table" and #state == 0) then
     return removeHelperObject(name)
   elseif state then
     Player.getPlayers()[1].pingTable(position)
-    return spawnHelperObject(name, position, rotation).getGUID()
+    local spawnedGUID = spawnHelperObject(name, position, rotation).getGUID()
+    local cleanName = name:gsub("%s+", "")
+    guidReferenceApi.editIndex(owner or "Mythos", cleanName, spawnedGUID)
+    return spawnedGUID
   else
     return removeHelperObject(name)
   end
