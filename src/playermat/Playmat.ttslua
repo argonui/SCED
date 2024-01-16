@@ -215,8 +215,7 @@ function discardListOfObjects(objList)
       end
     -- put chaos tokens back into bag (e.g. Unrelenting)
     elseif tokenChecker.isChaosToken(obj) then
-      local chaosBag = chaosBagApi.findChaosBag()
-      chaosBag.putObject(obj)
+      chaosBagApi.returnChaosTokenToBag(obj)
     -- don't touch locked objects (like the table etc.)
     elseif not obj.getLock() then
       ownedObjects.Trash.putObject(obj)
@@ -667,15 +666,23 @@ end
 
 -- removes tokens from the provided card/deck
 function removeTokensFromObject(object)
+  if object.hasTag("CardThatSeals") then
+    local func = object.getVar("resetSealedTokens") -- check if function exists (it won't for older custom content)
+    if func ~= nil then
+      object.call("resetSealedTokens")
+    end
+  end
+
   for _, obj in ipairs(searchLib.onObject(object)) do
-    if obj.getGUID() ~= "4ee1f2" and -- table
+    if tokenChecker.isChaosToken(obj) then
+      chaosBagApi.returnChaosTokenToBag(obj)
+    elseif obj.getGUID() ~= "4ee1f2" and -- table
         obj ~= self and
         obj.type ~= "Deck" and
         obj.type ~= "Card" and
         obj.memo ~= nil and
         obj.getLock() == false and
-        obj.getDescription() ~= "Action Token" and
-        not tokenChecker.isChaosToken(obj) then
+        obj.getDescription() ~= "Action Token" then
       ownedObjects.Trash.putObject(obj)
     end
   end
