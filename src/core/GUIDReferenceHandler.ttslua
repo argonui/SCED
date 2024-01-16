@@ -96,12 +96,43 @@ local GuidReferences = {
   }
 }
 
+local editsToIndex = {
+  White  = {},
+  Orange = {},
+  Green  = {},
+  Red    = {},
+  Mythos = {}
+}
+
+-- save function to keep edits to the index
+function onSave() return JSON.encode({ editsToIndex = editsToIndex }) end
+
+-- load function to restore edits to the index
+function onLoad(savedData)
+  if savedData and savedData ~= "" then
+    local loadedData = JSON.decode(savedData)
+    editsToIndex = loadedData.editsToIndex
+    updateMainIndex()
+  end
+end
+
+-- merges the main index and the edits
+function updateMainIndex()
+  for owner, subTable in pairs(editsToIndex) do
+    for type, guid in pairs(subTable) do
+      GuidReferences[owner][type] = guid
+    end
+  end
+end
+
+-- returns an object reference for the requested owner and type
 function getObjectByOwnerAndType(params)
   local owner = params.owner or "Mythos"
   local type = params.type
   return getObjectFromGUID(GuidReferences[owner][type])
 end
 
+-- returns a list of objects for the requested type
 function getObjectsByType(type)
   local objList = {}
   for owner, objects in pairs(GuidReferences) do
@@ -113,6 +144,7 @@ function getObjectsByType(type)
   return objList
 end
 
+-- returns a list of objects for the requested owner
 function getObjectsByOwner(owner)
   local objList = {}
   for type, guid in pairs(GuidReferences[owner]) do
@@ -122,4 +154,10 @@ function getObjectsByOwner(owner)
     end
   end
   return objList
+end
+
+-- makes an edit to the main index
+function editIndex(params)
+  editsToIndex[params.owner][params.type] = params.guid
+  updateMainIndex()
 end
