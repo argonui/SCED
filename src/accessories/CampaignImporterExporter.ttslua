@@ -6,8 +6,6 @@ local optionPanelApi    = require("core/OptionPanelApi")
 local playAreaApi       = require("core/PlayAreaApi")
 local playmatApi        = require("playermat/PlaymatApi")
 
-local additionalIndex
-local campaignLog
 local checkWarning = true
 
 local campaignTokenData = {
@@ -87,7 +85,6 @@ end
 ---------------------------------------------------------
 
 function onCollisionEnter(info)
-  local objectData = info.collision_object.getData()
   if info.collision_object.hasTag("ImporterToken") then
     importFromToken(info.collision_object)
   end
@@ -112,7 +109,7 @@ function importFromToken(coin)
       if #campaignBox.getObjects() > 0 then
         placeCampaignFromToken(importData, coin)
       else
-        createCampaignFromToken(importData, coin)
+        restoreCampaignData(importData, coin)
       end
     end,
     function()
@@ -132,7 +129,7 @@ end
 function placeCampaignFromToken(importData, coin)
   getObjectFromGUID(importData["box"]).call("buttonClick_place")
   Wait.condition(
-    function() createCampaignFromToken(importData, coin) end,
+    function() restoreCampaignData(importData, coin) end,
     function() return findUniqueObjectWithTag("CampaignLog") ~= nil end,
     2,
     function() broadcastToAll("Error placing campaign box") end
@@ -140,14 +137,13 @@ function placeCampaignFromToken(importData, coin)
 end
 
 -- After content is placed on table, conducts all the other import operations
-function createCampaignFromToken(importData, coin)
+function restoreCampaignData(importData, coin)
 
   checkWarning = false
   if importData["additionalIndex"] then
-    findUniqueObjectWithTag("AllCardsHotfix").destruct()
+    guidReferenceApi.getObjectByOwnerAndType("Mythos", "AdditionalPlayerCardsBag").destruct()
     if coin.type == "Bag" then
-      local newBag = coin.takeObject({index = 0, position = importData["additionalIndex"]})
-      Wait.time(function() newBag.setLock(true) end, 1)
+      coin.takeObject({index = 0, position = importData["additionalIndex"], callback_function = function(obj) obj.setLock(true) end})
     else
       spawnObjectJSON({json = importData["additionalIndex"]})
     end
@@ -156,8 +152,7 @@ function createCampaignFromToken(importData, coin)
   -- destroy existing campaign log and load saved campaign log
   findUniqueObjectWithTag("CampaignLog").destruct()
   if coin.type == "Bag" then
-    local newLog = coin.takeObject({index = 0, position = importData["log"]})
-    Wait.time(function() newLog.setLock(true) end, 1)
+    local newLog = coin.takeObject({index = 0, position = importData["log"], callback_function = function(obj) obj.setLock(true) end})
   else
     spawnObjectData({ data = importData["log"] })
   end
@@ -228,13 +223,13 @@ function createCampaignToken(_, playerColor, _)
     return
   end
 
-  campaignLog = findUniqueObjectWithTag("CampaignLog")
+  local campaignLog = findUniqueObjectWithTag("CampaignLog")
   if campaignLog == nil then
     broadcastToAll("Campaign log not found!", Color.Red)
     return
   end
 
-  additionalIndex = findUniqueObjectWithTag("AllCardsHotfix")
+  local additionalIndex = guidReferenceApi.getObjectByOwnerAndType("Mythos", "AdditionalPlayerCardsBag")
 
   local traumaValues = { }
   local trauma = campaignLog.getVar("returnTrauma")
@@ -273,20 +268,14 @@ function createCampaignToken(_, playerColor, _)
   }
   campaignTokenData.GMNotes = JSON.encode(campaignData)
   campaignTokenData.Nickname = campaignBox.getName() .. os.date(" %b %d") .. " Save"
-  spawnObjectData({ data = campaignTokenData, callback_function = finishTokenSpawning })
-end
-
-function finishTokenSpawning(obj)
-  local logData = campaignLog.getData()
+  campaignTokenData.ContainedObjects = { }
   local indexData = additionalIndex.getData()
-  campaignLog.setLock(false)
-  additionalIndex.setLock(false)
-  checkWarning = false
-  obj.putObject(additionalIndex)
-  obj.putObject(campaignLog)
-  checkWarning = true
-  spawnObjectData({data = indexData})
-  spawnObjectData({data = logData})
+  indexData.Locked = false
+  table.insert(campaignTokenData.ContainedObjects, indexData)
+  local logData = campaignLog.getData()
+  logData.Locked = false
+  table.insert(campaignTokenData.ContainedObjects, logData)
+  spawnObjectData({ data = campaignTokenData })
   broadcastToAll("Campaign successfully exported! Save coin object to import on a fresh save", Color.Green)
 end
 
