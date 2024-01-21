@@ -1,118 +1,123 @@
 require("playercards/PlayerCardSpawner")
 
-local allCardsBagApi = require("playercards/AllCardsBagApi")
+local allCardsBagApi            = require("playercards/AllCardsBagApi")
 
-local buttonParameters          = {}
-buttonParameters.function_owner = self
-buttonParameters.height         = 200
-buttonParameters.width          = 1200
-buttonParameters.font_size      = 75
 
-local BUTTON_LABELS            = {}
 
-BUTTON_LABELS["spawn"]         = {}
-BUTTON_LABELS["spawn"][true]   = "Mode: Spawn all matching cards "
-BUTTON_LABELS["spawn"][false]  = "Mode: Spawn first matching card"
+local BUTTON_LABELS             = {}
+BUTTON_LABELS["spawn"]          = {}
+BUTTON_LABELS["spawn"][true]    = "Spawn all matching cards "
+BUTTON_LABELS["spawn"][false]   = "Spawn first matching card"
+BUTTON_LABELS["search"]         = {}
+BUTTON_LABELS["search"][true]   = "Name matches search term"
+BUTTON_LABELS["search"][false]  = "Name contains search term"
 
-BUTTON_LABELS["search"]        = {}
-BUTTON_LABELS["search"][true]  = "Mode: Name matches search term"
-BUTTON_LABELS["search"][false] = "Mode: Name contains search term"
+local inputParameters           = {}
+inputParameters.label           = "Click to enter card name"
+inputParameters.input_function  = "input_func"
+inputParameters.function_owner  = self
+inputParameters.alignment       = 2
+inputParameters.position        = { x = 0, y = 0.1, z = -0.62 }
+inputParameters.width           = 1200
+inputParameters.height          = 130
+inputParameters.font_size       = 107
+inputParameters.scale           = { 0.3, 1, 0.3 }
+inputParameters.color           = { 0.9, 0.7, 0.5 }
+inputParameters.font_color      = { 0, 0, 0 }
 
-local inputParameters          = {}
-inputParameters.label          = "Click to enter card name"
-inputParameters.input_function = "input_func"
-inputParameters.function_owner = self
-inputParameters.alignment      = 2
-inputParameters.position       = { 0, 0.05, -1.6 }
-inputParameters.width          = 1200
-inputParameters.height         = 130
-inputParameters.font_size      = 107
-
--- main code
-function onSave()
-    return JSON.encode({ spawnAll, searchExact, inputParameters.value })
-end
+function onSave() return JSON.encode({ spawnAll, searchExact, inputParameters.value }) end
 
 function onLoad(savedData)
-    local loadedData     = JSON.decode(savedData)
-    spawnAll              = loadedData[1] or false
-    searchExact           = loadedData[2] or false
-    inputParameters.value = loadedData[3] or ""
+  local loadedData                = JSON.decode(savedData)
+  spawnAll                        = loadedData[1] or false
+  searchExact                     = loadedData[2] or false
+  inputParameters.value           = loadedData[3] or ""
+  self.createInput(inputParameters)
 
-    -- index 0: button for spawn mode
-    buttonParameters.click_function = "search"
-    buttonParameters.label          = "Spawn matching card(s)!"
-    buttonParameters.position       = { 0, 0.06, 1.15 }
-    self.createButton(buttonParameters)
+  -- shared parameters
+  local buttonParameters          = {}
+  buttonParameters.function_owner = self
+  buttonParameters.font_size      = 65
+  buttonParameters.scale          = { 0.3, 1, 0.3 }
+  buttonParameters.hover_color    = { 0.4, 0.6, 0.8 }
+  buttonParameters.color          = { 0.9, 0.7, 0.5 }
 
-    -- index 1: button for spawn mode
-    buttonParameters.click_function = "spawnMode"
-    buttonParameters.label          = BUTTON_LABELS["spawn"][spawnAll]
-    buttonParameters.position[3]    = buttonParameters.position[3] + 0.4
-    self.createButton(buttonParameters)
+  -- index 0: button for spawn mode
+  buttonParameters.click_function = "spawnMode"
+  buttonParameters.label          = BUTTON_LABELS["spawn"][spawnAll]
+  buttonParameters.position       = { x = 0.18, y = 0.1, z = 0.555 }
+  buttonParameters.height         = 125
+  buttonParameters.width          = 800
+  self.createButton(buttonParameters)
 
-    -- index 2: button for search mode
-    buttonParameters.click_function = "searchMode"
-    buttonParameters.label          = BUTTON_LABELS["search"][searchExact]
-    buttonParameters.position[3]    = buttonParameters.position[3] + 0.4
-    self.createButton(buttonParameters)
+  -- index 1: button for search mode
+  buttonParameters.click_function = "searchMode"
+  buttonParameters.label          = BUTTON_LABELS["search"][searchExact]
+  buttonParameters.position       = { x = 0.18, y = 0.1, z = 0.63 }
+  self.createButton(buttonParameters)
 
-    self.createInput(inputParameters)
+  -- index 2: start search
+  buttonParameters.click_function = "search"
+  buttonParameters.label          = ""
+  buttonParameters.position       = { x = 0, y = 0, z = 0.8 }
+  buttonParameters.height         = 200
+  buttonParameters.width          = 1000
+  self.createButton(buttonParameters)
 end
 
 function spawnMode()
-    spawnAll = not spawnAll
-    self.editButton({ index = 1, label = BUTTON_LABELS["spawn"][spawnAll] })
+  spawnAll = not spawnAll
+  self.editButton({ index = 0, label = BUTTON_LABELS["spawn"][spawnAll] })
 end
 
 function searchMode()
-    searchExact = not searchExact
-    self.editButton({ index = 2, label = BUTTON_LABELS["search"][searchExact] })
+  searchExact = not searchExact
+  self.editButton({ index = 1, label = BUTTON_LABELS["search"][searchExact] })
 end
 
 -- if "Enter press" (\n) is found, start search and recreate input
 function input_func(_, _, input, stillEditing)
-    if not stillEditing then
-        inputParameters.value = input
-    elseif string.find(input, "%\n") ~= nil then
-        inputParameters.value = input.gsub(input, "%\n", "")
-        search()
-        self.removeInput(0)
-        self.createInput(inputParameters)
-    end
+  if not stillEditing then
+    inputParameters.value = input
+  elseif string.find(input, "%\n") ~= nil then
+    inputParameters.value = input.gsub(input, "%\n", "")
+    search()
+    self.removeInput(0)
+    self.createInput(inputParameters)
+  end
 end
 
 function search()
-    if inputParameters.value == nil or string.len(inputParameters.value) == 0 then
-        printToAll("Please enter a search string.", "Yellow")
-        return
-    end
+  if inputParameters.value == nil or string.len(inputParameters.value) == 0 then
+    printToAll("Please enter a search string.", "Yellow")
+    return
+  end
 
-    if string.len(inputParameters.value) < 3 then
-        printToAll("Please enter a longer search string.", "Yellow")
-        return
-    end
-    
-    if not allCardsBagApi.isBagPresent() then
-        printToAll("Player card bag couldn't be found.", "Red")
-        return
-    end
+  if string.len(inputParameters.value) < 3 then
+    printToAll("Please enter a longer search string.", "Yellow")
+    return
+  end
 
-    -- search all objects in bag
-    local cardList = allCardsBagApi.getCardsByName(inputParameters.value, searchExact)
-    if cardList == nil or #cardList == 0 then
-        printToAll("No match found.", "Red")
-        return
-    end
-    if (#cardList > 100) then
-      printToAll("Matched more than 100 cards, please try a more specific search.", "Yellow")
-      return
-    end
+  if not allCardsBagApi.isBagPresent() then
+    printToAll("Player card bag couldn't be found.", "Red")
+    return
+  end
 
-    -- sort table by name (reverse for multiple results, because bottom card spawns first)
-    table.sort(cardList, function(k1, k2) return spawnAll == (k1.data.Nickname > k2.data.Nickname) end)
+  -- search all objects in bag
+  local cardList = allCardsBagApi.getCardsByName(inputParameters.value, searchExact)
+  if cardList == nil or #cardList == 0 then
+    printToAll("No match found.", "Red")
+    return
+  end
+  if (#cardList > 100) then
+    printToAll("Matched more than 100 cards, please try a more specific search.", "Yellow")
+    return
+  end
 
-    local rot = self.getRotation()
-    local pos = self.positionToWorld(Vector(0, 2, -0.225))
-    Spawner.spawnCards(cardList, pos, rot, true)
+  -- sort table by name (reverse for multiple results, because bottom card spawns first)
+  table.sort(cardList, function(k1, k2) return spawnAll == (k1.data.Nickname > k2.data.Nickname) end)
+
+  local rot = self.getRotation()
+  local pos = self.positionToWorld(Vector(0, 2, -0.08))
+  Spawner.spawnCards(cardList, pos, rot, true)
 end
