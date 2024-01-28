@@ -10,11 +10,11 @@ Spawner = { }
 -- investigator, standard, and mini, spawning them in that order with larger cards on bottom.  If
 -- there are different types, the provided callback will be called once for each type as it spawns
 -- either a card or deck.
--- @param cardList: A list of Player Card data structures (data/metadata)
--- @param pos Position table where the cards should be spawned (global)
--- @param rot Rotation table for the orientation of the spawned cards (global)
--- @param sort Boolean, true if this list of cards should be sorted before spawning
--- @param callback Function, callback to be called after the card/deck spawns.
+---@param cardList Table A list of Player Card data structures (data/metadata)
+---@param pos Position table where the cards should be spawned (global)
+---@param rot Rotation table for the orientation of the spawned cards (global)
+---@param sort Boolean true if this list of cards should be sorted before spawning
+---@param callback Function callback to be called after the card/deck spawns.
 Spawner.spawnCards = function(cardList, pos, rot, sort, callback)
   if (sort) then
     table.sort(cardList, Spawner.cardComparator)
@@ -36,7 +36,7 @@ Spawner.spawnCards = function(cardList, pos, rot, sort, callback)
   -- Spawn each of the three types individually.  Each Y position shift accounts for the thickness
   -- of the spawned deck
   local position = { x = pos.x, y = pos.y, z = pos.z }
-  Spawner.spawn(investigatorCards, position, { rot.x, rot.y - 90, rot.z }, callback)
+  Spawner.spawn(investigatorCards, position, rot, callback)
 
   position.y = position.y + (#investigatorCards + #standardCards) * 0.07
   Spawner.spawn(standardCards, position, rot, callback)
@@ -82,11 +82,14 @@ end
 ---@param rot table Rotation for the orientation of the spawned cards (global)
 ---@param callback function callback to be called after the card/deck spawns.
 Spawner.spawn = function(cardList, pos, rot, callback)
-  if (#cardList == 0) then
-    return
-  end
+  if #cardList == 0 then return end
+
   -- Spawn a single card directly
-  if (#cardList == 1) then
+  if #cardList == 1 then
+    -- handle sideways card
+    if cardList[1].data.SidewaysCard then
+      rot = { rot.x, rot.y - 90, rot.z }
+    end
     spawnObjectData({
       data = cardList[1].data,
       position = pos,
@@ -95,6 +98,7 @@ Spawner.spawn = function(cardList, pos, rot, callback)
     })
     return
   end
+
   -- For multiple cards, construct a deck and spawn that
   local deck = Spawner.buildDeckDataTemplate()
   -- Decks won't inherently scale to the cards in them.  The card list being spawned should be all
@@ -104,21 +108,24 @@ Spawner.spawn = function(cardList, pos, rot, callback)
     scaleY = 1,
     scaleZ = cardList[1].data.Transform.scaleZ,
   }
+
   local sidewaysDeck = true
   for _, spawnCard in ipairs(cardList) do
     Spawner.addCardToDeck(deck, spawnCard.data)
     -- set sidewaysDeck to false if any card is not a sideways card
     sidewaysDeck = (sidewaysDeck and spawnCard.data.SidewaysCard)
   end
-  -- set the alt view angle for sideway decks
+
+  -- set the alt view angle for sideways decks
   if sidewaysDeck then
     deck.AltLookAngle = { x = 0, y = 180, z = 90 }
+    rot = { rot.x, rot.y - 90, rot.z }
   end
   spawnObjectData({
     data = deck,
     position = pos,
     rotation = rot,
-    callback_function = callback,
+    callback_function = callback
   })
 end
 
@@ -187,20 +194,19 @@ Spawner.buildDeckDataTemplate = function()
 end
 
 -- Returns the first ID which does not exist in the given table, starting at startId and increasing
--- @param objectTable Table keyed by strings which are numbers
--- @param startId First possible ID.
--- @return String ID >= startId
+---@param objectTable Table keyed by strings which are numbers
+---@param startId First possible ID.
+---@return String ID >= startId
 Spawner.findNextAvailableId = function(objectTable, startId)
   local id = startId
   while (objectTable[id] ~= nil) do
     id = tostring(tonumber(id) + 1)
   end
-
   return id
 end
 
 -- Get the PBCN (Permanent/Bonded/Customizable/Normal) value from the given metadata.
----@return: 1 for Permanent, 2 for Bonded or 4 for Normal. The actual values are
+---@return Number PBCN 1 for Permanent, 2 for Bonded or 3 for Normal. The actual values are
 --      irrelevant as they provide only grouping and the order between them doesn't matter.
 Spawner.getpbcn = function(metadata)
   if metadata.permanent then
