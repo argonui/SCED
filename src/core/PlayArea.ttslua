@@ -125,7 +125,7 @@ function onCollisionEnter(collisionInfo)
   -- If this card was being dragged, clear the dragging connections.  A multi-drag/drop may send
   -- the dropped card immediately into a deck, so this has to be done here
   if draggingGuids[card.getGUID()] ~= nil then
-    card.setVectorLines(nil)
+    card.setVectorLines({})
     draggingGuids[card.getGUID()] = nil
   end
   
@@ -197,7 +197,7 @@ function onUpdate()
       -- If object still exists then it's been dragged outside the area and needs to clear the
       -- lines attached to it
       if obj ~= nil then
-        obj.setVectorLines(nil)
+        obj.setVectorLines({})
       end
     end
     -- Even if the last location left the play area, need one last draw to clear the lines
@@ -257,11 +257,11 @@ end
 -- Global event handler, delegated from Global.  Clears any connection lines from dragged cards
 -- before they are destroyed by entering a deck.  Removal of the card from the dragging list will
 -- be handled during the next onUpdate() call.
-function tryObjectEnterContainer(params)
+function tryObjectEnterContainer()
   for draggedGuid, _ in pairs(draggingGuids) do
     local draggedObj = getObjectFromGUID(draggedGuid)
     if draggedObj ~= nil then
-      draggedObj.setVectorLines(nil)
+      draggedObj.setVectorLines({})
     end
   end
 end
@@ -451,13 +451,11 @@ function addOneWayVector(origin, target, vectorOwner, lines)
   -- Calculate card distance to be closer for horizontal positions than vertical, since cards are
   -- taller than they are wide
   local heading = Vector(originPos):sub(targetPos):heading("y")
-  local distanceFromCard = DIRECTIONAL_ARROW_DISTANCE * 0.7 +
-  DIRECTIONAL_ARROW_DISTANCE * 0.3 * math.abs(math.sin(math.rad(heading)))
+  local distanceFromCard = DIRECTIONAL_ARROW_DISTANCE * 0.7 + DIRECTIONAL_ARROW_DISTANCE * 0.3 * math.abs(math.sin(math.rad(heading)))
 
   -- Calculate the three possible arrow positions.  These are offset by half the arrow length to
   -- make them visually balanced by keeping the arrows centered, not tracking the point
-  local midpoint = Vector(originPos):add(targetPos):scale(Vector(0.5, 0.5, 0.5)):moveTowards(targetPos,
-    ARROW_ARM_LENGTH / 2)
+  local midpoint = Vector(originPos):add(targetPos):scale(0.5):moveTowards(targetPos, ARROW_ARM_LENGTH / 2)
   local closeToOrigin = Vector(originPos):moveTowards(targetPos, distanceFromCard + ARROW_ARM_LENGTH / 2)
   local closeToTarget = Vector(targetPos):moveTowards(originPos, distanceFromCard - ARROW_ARM_LENGTH / 2)
 
@@ -470,16 +468,14 @@ function addOneWayVector(origin, target, vectorOwner, lines)
 end
 
 -- Draws an arrowhead at the given position.
----@param arrowheadPos table Centerpoint of the arrowhead to draw (NOT the tip of the arrow)
----@param originPos table Origin point of the connection, used to position the arrow arms
+---@param arrowheadPos tts__Vector Centerpoint of the arrowhead to draw (NOT the tip of the arrow)
+---@param originPos tts__Vector Origin point of the connection, used to position the arrow arms
 ---@param vectorOwner tts__GameObject The object which these lines will be set to.  Used for relative
 ---    positioning and scaling, as well as highlighting connections during a drag operation
 ---@param lines table List of vector line elements.  Mutable, will be updated to add this arrow
 function addArrowLines(arrowheadPos, originPos, vectorOwner, lines)
-  local arrowArm1 = Vector(arrowheadPos):moveTowards(originPos, ARROW_ARM_LENGTH):sub(arrowheadPos):rotateOver("y",
-    -1 * ARROW_ANGLE):add(arrowheadPos)
-  local arrowArm2 = Vector(arrowheadPos):moveTowards(originPos, ARROW_ARM_LENGTH):sub(arrowheadPos):rotateOver("y",
-    ARROW_ANGLE):add(arrowheadPos)
+  local arrowArm1 = Vector(arrowheadPos):moveTowards(originPos, ARROW_ARM_LENGTH):sub(arrowheadPos):rotateOver("y", -1 * ARROW_ANGLE):add(arrowheadPos)
+  local arrowArm2 = Vector(arrowheadPos):moveTowards(originPos, ARROW_ARM_LENGTH):sub(arrowheadPos):rotateOver("y", ARROW_ANGLE):add(arrowheadPos)
 
   local head = vectorOwner.positionToLocal(arrowheadPos)
   local arm1 = vectorOwner.positionToLocal(arrowArm1)
