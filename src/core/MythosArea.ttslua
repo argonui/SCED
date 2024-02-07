@@ -19,6 +19,7 @@ local ENCOUNTER_DISCARD_AREA = {
 local ENCOUNTER_DECK_POS = { x = -3.93, y = 1, z = 5.76 }
 local ENCOUNTER_DISCARD_POSITION = { x = -3.85, y = 1, z = 10.38 }
 local isReshuffling = false
+local collisionEnabled = false
 local currentScenario, useFrontData, tokenData
 local TRASH, DATA_HELPER
 
@@ -31,6 +32,8 @@ function onLoad(saveState)
   end
   TRASH = guidReferenceApi.getObjectByOwnerAndType("Mythos", "Trash")
   DATA_HELPER = guidReferenceApi.getObjectByOwnerAndType("Mythos", "DataHelper")
+
+  Wait.time(function() collisionEnabled = true end, 0.1)
 end
 
 function onSave()
@@ -47,8 +50,14 @@ end
 
 -- TTS event handler.  Handles scenario name event triggering and encounter card token resets.
 function onCollisionEnter(collisionInfo)
+  if not collisionEnabled then return end
+
   local object = collisionInfo.collision_object
 
+  -- early exit for better performance
+  if object.type ~= "Card" then return end
+
+  -- get scenario name and maybe fire followup event
   if object.getName() == "Scenario" then
     local description = object.getDescription()
 
@@ -72,7 +81,7 @@ function onCollisionEnter(collisionInfo)
 
   local localPos = self.positionToLocal(object.getPosition())
   if inArea(localPos, ENCOUNTER_DECK_AREA) or inArea(localPos, ENCOUNTER_DISCARD_AREA) then
-    tokenSpawnTrackerApi.resetTokensSpawned(object.getGUID())
+    Wait.frames(function() tokenSpawnTrackerApi.resetTokensSpawned(object.getGUID()) end, 1)
     removeTokensFromObject(object)
   end
 end

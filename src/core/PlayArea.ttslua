@@ -39,13 +39,12 @@ local LOC_LINK_EXCLUDE_SCENARIOS    = {
   ["The Heart of Madness"] = true
 }
 
-local clueData                      = {}
-local spawnedLocationGUIDs          = {}
 local locations                     = {}
 local locationConnections           = {}
 local draggingGuids                 = {}
 local missingData                   = {}
-local locationData, currentScenario, connectionsEnabled
+local collisionEnabled              = false
+local currentScenario, connectionsEnabled
 
 ---------------------------------------------------------
 -- general code
@@ -67,6 +66,8 @@ function onLoad(savedData)
   currentScenario    = loadedData.currentScenario
   connectionColor    = loadedData.connectionColor or { 0.4, 0.4, 0.4, 1 }
   connectionsEnabled = loadedData.connectionsEnabled or true
+
+  Wait.time(function() collisionEnabled = true end, 0.1)
 end
 
 -- Called by Custom Data Helpers to push their location data into the Data Helper.  This adds the
@@ -105,31 +106,30 @@ end
 
 -- TTS event, called for each object that is placed on the playarea
 function onCollisionEnter(collisionInfo)
-  local obj = collisionInfo.collision_object
-  local objType = obj.name
+  if not collisionEnabled then return end
+
+  local object = collisionInfo.collision_object
+
+  if object.type == "Deck" then
+    table.insert(missingData, object)
+  end
 
   -- only continue for cards
-  if objType ~= "Card" and objType ~= "CardCustom" then
-    if objType == "Deck" then
-      table.insert(missingData, obj)
-    end
-    return
-  end
+  if object.type ~= "Card" then return end
 
   -- check if we should spawn clues here and do so according to playercount
-  local card = collisionInfo.collision_object
-  if shouldSpawnTokens(card) then
-    tokenManager.spawnForCard(card)
+  if shouldSpawnTokens(object) then
+    tokenManager.spawnForCard(object)
   end
-  
+
   -- If this card was being dragged, clear the dragging connections.  A multi-drag/drop may send
   -- the dropped card immediately into a deck, so this has to be done here
-  if draggingGuids[card.getGUID()] ~= nil then
-    card.setVectorLines({})
-    draggingGuids[card.getGUID()] = nil
+  if draggingGuids[object.getGUID()] ~= nil then
+    object.setVectorLines({})
+    draggingGuids[object.getGUID()] = nil
   end
-  
-  maybeTrackLocation(card)
+
+  maybeTrackLocation(object)
 end
 
 function shouldSpawnTokens(card)
@@ -534,11 +534,6 @@ function isInPlayArea(object)
   local c2 = { x = bounds.center.x + bounds.size.x / 2, z = bounds.center.z + bounds.size.z / 2 }
 
   return position.x > c1.x and position.x < c2.x and position.z > c1.z and position.z < c2.z
-end
-
--- Reset the play area's tracking of which cards have had tokens spawned.
-function resetSpawnedCards()
-  spawnedLocationGUIDs = {}
 end
 
 function onScenarioChanged(scenarioName)
