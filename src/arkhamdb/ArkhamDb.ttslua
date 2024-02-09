@@ -1,17 +1,17 @@
 do
   local allCardsBagApi = require("playercards/AllCardsBagApi")
   local playAreaApi = require("core/PlayAreaApi")
+
+  local ArkhamDb = {}
+  local internal = {}
   
-  local ArkhamDb = { }
-  local internal = { }
+  local tabooList = {}
+  local configuration
 
   local RANDOM_WEAKNESS_ID = "01000"
 
-  local tabooList = { }
-  --Forward declaration
-  ---@type Request
+  ---@class Request
   local Request = {}
-  local configuration
 
   -- Sets up the ArkhamDb interface.  Should be called from the parent object on load.
   ArkhamDb.initialize = function()
@@ -19,7 +19,6 @@ do
     Request.start({ configuration.api_uri, configuration.taboo }, function(status)
       local json = JSON.decode(internal.fixUtf16String(status.text))
       for _, taboo in pairs(json) do
-        ---@type <string, boolean>
         local cards = {}
 
         for _, card in pairs(JSON.decode(taboo.cards)) do
@@ -37,18 +36,19 @@ do
 
   -- Start the deck build process for the given player color and deck ID.  This
   -- will retrieve the deck from ArkhamDB, and pass to a callback for processing.
-  ---@param playerColor String.  Color name of the player mat to place this deck on (e.g. "Red").
-  ---@param deckId String.  ArkhamDB deck id to be loaded
-  ---@param isPrivate Boolean.  Whether this deck is published or private on ArkhamDB
-  ---@param loadNewest Boolean.  Whether the newest version of this deck should be loaded
-  ---@param loadInvestigators Boolean.  Whether investigator cards should be loaded as part of this
-  ---    deck
-  ---@param callback Function.  Callback which will be sent the results of this load.  Parameters
-  ---    to the callback will be:
-  ---        slots Table.  A map of card ID to count in the deck
+  ---@param playerColor string Color name of the player mat to place this deck on (e.g. "Red").
+  ---@param deckId string ArkhamDB deck id to be loaded
+  ---@param isPrivate boolean Whether this deck is published or private on ArkhamDB
+  ---@param loadNewest boolean Whether the newest version of this deck should be loaded
+  ---@param loadInvestigators boolean Whether investigator cards should be loaded as part of this deck
+  ---@param callback function Callback which will be sent the results of this load
+  ---    Parameters to the callback will be:
+  ---        slots table A map of card ID to count in the deck
   ---        investigatorCode String.  ID of the investigator in this deck
-  ---        customizations Table.  The decoded table of customization upgrades in this deck
+  ---        customizations table The decoded table of customization upgrades in this deck
   ---        playerColor String.  Color this deck is being loaded for
+  ---@return boolean
+  ---@return string
   ArkhamDb.getDecklist = function(
       playerColor,
       deckId,
@@ -56,14 +56,23 @@ do
       loadNewest,
       loadInvestigators,
       callback)
+    -- Get a simple card to see if the bag indexes are complete. If not, abort
+    -- the deck load. The called method will handle player notification.
+    local checkCard = allCardsBagApi.getCardById("01001")
+    if (checkCard ~= nil and checkCard.data == nil) then
+      return false, "Indexing not complete"
+    end
 
-    local deckUri = { configuration.api_uri,
-      isPrivate and configuration.private_deck or configuration.public_deck, deckId }
+    local deckUri = {
+      configuration.api_uri,
+      isPrivate and configuration.private_deck or configuration.public_deck,
+      deckId
+    }
 
     local deck = Request.start(deckUri, function(status)
       if string.find(status.text, "<!DOCTYPE html>") then
         internal.maybePrint("Private deck ID " .. deckId .. " is not shared", playerColor)
-        return false, table.concat({ "Private deck ", deckId, " is not shared" })
+        return false, "Private deck " .. deckId .. " is not shared"
       end
       local json = JSON.decode(status.text)
 
@@ -81,8 +90,8 @@ do
   -- Logs that a card could not be loaded in the mod by printing it to the console in the given
   -- color of the player owning the deck.  Attempts to look up the name on ArkhamDB for clarity,
   -- but prints the card ID if the name cannot be retrieved.
-  ---@param cardId String.  ArkhamDB ID of the card that could not be found
-  ---@param playerColor String.  Color of the player's deck that had the problem
+  ---@param cardId string ArkhamDB ID of the card that could not be found
+  ---@param playerColor string Color of the player's deck that had the problem
   ArkhamDb.logCardNotFound = function(cardId, playerColor)
     local request = Request.start({
       configuration.api_uri,
@@ -107,18 +116,17 @@ do
   -- response then applies standard transformations to the deck such as adding
   -- random weaknesses and checking for taboos.  Once the deck is processed,
   -- passes to loadCards to actually spawn the defined deck.
-  ---@param deck ArkhamImportDeck
-  ---@param playerColor String Color name of the player mat to place this deck on (e.g. "Red")
-  ---@param loadNewest Boolean Whether the newest version of this deck should be loaded
-  ---@param loadInvestigators Boolean Whether investigator cards should be loaded as part of this
-  ---    deck
-  ---@param callback Function Callback which will be sent the results of this load.  Parameters
-  ---    to the callback will be:
-  ---        slots Table.  A map of card ID to count in the deck
+  ---@param deck table ArkhamImportDeck
+  ---@param playerColor string Color name of the player mat to place this deck on (e.g. "Red")
+  ---@param loadNewest boolean Whether the newest version of this deck should be loaded
+  ---@param loadInvestigators boolean Whether investigator cards should be loaded as part of this deck
+  ---@param callback function Callback which will be sent the results of this load.
+  ---    Parameters to the callback will be:
+  ---        slots table A map of card ID to count in the deck
   ---        investigatorCode String.  ID of the investigator in this deck
   ---        bondedList A table of cardID keys to meaningless values.  Card IDs in this list were
   ---        added from a parent bonded card.
-  ---        customizations Table.  The decoded table of customization upgrades in this deck
+  ---        customizations table The decoded table of customization upgrades in this deck
   ---        playerColor String.  Color this deck is being loaded for
   internal.onDeckResult = function(deck, playerColor, loadNewest, loadInvestigators, callback)
     -- Load the next deck in the upgrade path if the option is enabled
@@ -175,9 +183,9 @@ do
   -- Checks to see if the slot list includes the random weakness ID. If it does,
   -- removes it from the deck and replaces it with the ID of a random basic weakness provided by the
   -- all cards bag
-  ---@param slots Table The slot list for cards in this deck. Table key is the cardId, value is the number
+  ---@param slots table The slot list for cards in this deck. Table key is the cardId, value is the number
   ---    of those cards which will be spawned
-  ---@param playerColor String Color of the player this deck is being loaded for. Used for broadcast
+  ---@param playerColor string Color of the player this deck is being loaded for. Used for broadcast
   ---    if a weakness is added.
   internal.maybeDrawRandomWeakness = function(slots, playerColor)
     local randomWeaknessAmount = slots[RANDOM_WEAKNESS_ID] or 0
@@ -193,8 +201,8 @@ do
   end
 
   -- Adds both the investigator (XXXXX) and minicard (XXXXX-m) slots with one copy each
-  ---@param deck Table The processed ArkhamDB deck response
-  ---@param slots Table The slot list for cards in this deck.  Table key is the cardId, value is the
+  ---@param deck table The processed ArkhamDB deck response
+  ---@param slots table The slot list for cards in this deck.  Table key is the cardId, value is the
   ---    number of those cards which will be spawned
   ---@return string: Contains the name of the art that should be loaded ("normal", "promo" or "revised")
   internal.addInvestigatorCards = function(deck, slots)
@@ -248,7 +256,7 @@ do
   end
 
   -- Process the card list looking for the customizable cards, and add their upgrade sheets if needed
-  ---@param slots Table The slot list for cards in this deck. Table key is the cardId, value is the number
+  ---@param slots table The slot list for cards in this deck. Table key is the cardId, value is the number
   --     of those cards which will be spawned
   internal.maybeAddUpgradeSheets = function(slots)
     for cardId, _ in pairs(slots) do
@@ -262,7 +270,7 @@ do
 
   -- Process the card list looking for the Summoned Servitor, and add its minicard to the list if
   -- needed
-  ---@param slots Table The slot list for cards in this deck. Table key is the cardId, value is the number
+  ---@param slots table The slot list for cards in this deck. Table key is the cardId, value is the number
   --     of those cards which will be spawned
   internal.maybeAddSummonedServitor = function(slots)
     if slots["09080"] ~= nil then
@@ -272,9 +280,9 @@ do
 
   -- On the Mend should have 1-per-investigator copies set aside, but ArkhamDB always sends 1.  Update
   -- the count based on the investigator count
-  ---@param slots Table The slot list for cards in this deck. Table key is the cardId, value is the number
+  ---@param slots table The slot list for cards in this deck. Table key is the cardId, value is the number
   --     of those cards which will be spawned
-  ---@param playerColor String Color of the player this deck is being loaded for. Used for broadcast if an error occurs
+  ---@param playerColor string Color of the player this deck is being loaded for. Used for broadcast if an error occurs
   internal.maybeAddOnTheMend = function(slots, playerColor)
     if slots["09006"] ~= nil then
       local investigatorCount = playAreaApi.getInvestigatorCount()
@@ -288,7 +296,7 @@ do
   end
 
   -- Process the card list looking for Reality Acid and adds the reference sheet when needed
-  ---@param slots Table The slot list for cards in this deck. Table key is the cardId, value is the number
+  ---@param slots table The slot list for cards in this deck. Table key is the cardId, value is the number
   --     of those cards which will be spawned
   internal.maybeAddRealityAcidReference = function(slots)
     if slots["89004"] ~= nil then
@@ -297,8 +305,8 @@ do
   end
 
   -- Processes the deck description from ArkhamDB and modifies the slot list accordingly
-  ---@param slots Table The slot list for cards in this deck. Table key is the cardId, value is the number
-  ---@param description String The deck desription from ArkhamDB
+  ---@param slots table The slot list for cards in this deck. Table key is the cardId, value is the number
+  ---@param description string The deck desription from ArkhamDB
   internal.maybeModifyDeckFromDescription = function(slots, description)
     -- check for import instructions
     local pos = string.find(description, "++SCED import instructions++")
@@ -322,26 +330,29 @@ do
         break
       end
 
-      if instructor == "" or (instructor ~= "add:" and instructor ~= "remove:") then return end
+      if instructor == "" or (instructor ~= "add:" and instructor ~= "remove:") then break end
 
       -- remove instructor from line
       line = line:gsub(instructor, "")
 
       -- evaluate instructions
-      local cardIds = {}
       for str in line:gmatch("([^,]+)") do
         if instructor == "add:" then
           slots[str] = (slots[str] or 0) + 1
         elseif instructor == "remove:" then
           if slots[str] == nil then break end
           slots[str] = math.max(slots[str] - 1, 0)
+
+          if slots[str] == 0 then
+            slots[str] = nil
+          end
         end
       end
     end
   end
 
   -- Process the slot list and looks for any cards which are bonded to those in the deck. Adds those cards to the slot list.
-  ---@param slots Table The slot list for cards in this deck. Table key is the cardId, value is the number of those cards which will be spawned
+  ---@param slots table The slot list for cards in this deck. Table key is the cardId, value is the number of those cards which will be spawned
   internal.extractBondedCards = function(slots)
     -- Create a list of bonded cards first so we don't modify slots while iterating
     local bondedCards = { }
@@ -372,8 +383,8 @@ do
   end
 
   -- Check the deck for cards on its taboo list. If they're found, replace the entry in the slot with the Taboo id (i.e. "XXXX" becomes "XXXX-t")
-  ---@param tabooId String The deck's taboo ID, taken from the deck response taboo_id field. May be nil, indicating that no taboo list should be used
-  ---@param slots Table The slot list for cards in this deck. Table key is the cardId, value is the number of those cards which will be spawned
+  ---@param tabooId string The deck's taboo ID, taken from the deck response taboo_id field. May be nil, indicating that no taboo list should be used
+  ---@param slots table The slot list for cards in this deck. Table key is the cardId, value is the number of those cards which will be spawned
   internal.checkTaboos = function(tabooId, slots, playerColor)
     if tabooId then
       for cardId, _ in pairs(tabooList[tabooId].cards) do
@@ -401,9 +412,9 @@ do
   end
 
   -- Gets the ArkhamDB config info from the configuration object.
-  ---@return Table.  Configuration data
+  ---@return table: configuration data
   internal.getConfiguration = function()
-    local configuration = getObjectsWithTag("import_configuration_provider")[1]:getTable("configuration")
+    local configuation = getObjectsWithTag("import_configuration_provider")[1].getTable("configuration")
     printPriority = configuration.priority
     return configuration
   end
@@ -414,15 +425,14 @@ do
     end)
   end
 
-  ---@type Request
   Request = {
     is_done = false,
     is_successful = false
   }
 
-  -- Creates a new instance of a Request. Should not be directly called. Instead use Request.start and Request.deferred.
-  ---@param uri string
-  ---@param configure fun(request: Request, status: WebRequestStatus)
+  -- Creates a new instance of a Request. Should not be directly called. Instead use Request.start() and Request.deferred().
+  ---@param uri table
+  ---@param configure fun(request, status)
   ---@return Request
   function Request:new(uri, configure)
     local this = {}
@@ -435,20 +445,16 @@ do
     end
 
     this.uri = uri
-
-    WebRequest.get(uri, function(status)
-      configure(this, status)
-    end)
+    WebRequest.get(uri, function(status) configure(this, status) end)
 
     return this
   end
 
   -- Creates a new request. on_success should set the request's is_done, is_successful, and content variables.
   -- Deferred should be used when you don't want to set is_done immediately (such as if you want to wait for another request to finish)
-  ---@param uri string
-  ---@param on_success fun(request: Request, status: WebRequestStatus, vararg any)
-  ---@param on_error fun(status: WebRequestStatus)|nil
-  ---@vararg any[]
+  ---@param uri table
+  ---@param on_success fun(request, status, vararg)
+  ---@param on_error fun(status)|nil
   ---@return Request
   function Request.deferred(uri, on_success, on_error, ...)
     local parameters = table.pack(...)
@@ -465,11 +471,11 @@ do
     end)
   end
 
-  -- Creates a new request. on_success should return weather the resultant data is as expected, and the processed content of the request.
-  ---@param uri string
-  ---@param on_success fun(status: WebRequestStatus, vararg any): boolean, any
-  ---@param on_error nil|fun(status: WebRequestStatus, vararg any): string
-  ---@vararg any[]
+  -- Creates a new request. on_success should return whether the resultant data is as expected, and the processed content of the request.
+  ---@param uri table
+  ---@param on_success fun(status, vararg): boolean, any
+  ---@param on_error nil|fun(status, vararg): string
+  ---@vararg any
   ---@return Request
   function Request.start(uri, on_success, on_error, ...)
     local parameters = table.pack(...)
@@ -482,17 +488,14 @@ do
   end
 
   ---@param requests Request[]
-  ---@param on_success fun(content: any[], vararg any[])
-  ---@param on_error fun(requests: Request[], vararg any[])|nil
+  ---@param on_success fun(content: any, vararg: any)
+  ---@param on_error fun(requests: Request, vararg: any)|nil
   ---@vararg any
   function Request.with_all(requests, on_success, on_error, ...)
     local parameters = table.pack(...)
 
     Wait.condition(function()
-      ---@type any[]
       local results = {}
-
-      ---@type Request[]
       local errors = {}
 
       for _, request in ipairs(requests) do
@@ -520,7 +523,6 @@ do
     end)
   end
 
-  ---@param callback fun(content: any, vararg any)
   function Request:with(callback, ...)
     local arguments = table.pack(...)
     Wait.condition(function()
