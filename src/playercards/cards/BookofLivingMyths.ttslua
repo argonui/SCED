@@ -1,0 +1,107 @@
+local playmatApi = require("playermat/PlaymatApi")
+local guidReferenceApi = require("core/GUIDReferenceApi")
+local chaosBagApi      = require("chaosbag/ChaosBagApi")
+
+
+function onSave()
+  return JSON.encode({ loopId = loopId })
+end
+
+function onLoad(savedData)
+  if savedData ~= "" then
+    local loadedData = JSON.decode(savedData)
+    if loadedData.loopId then
+      currentState = "Empty"
+      loopId = Wait.time(countBlessCurse, 1, -1)
+      self.addContextMenuItem("Clear Helper", deleteButtons)
+    end
+  else
+  self.addContextMenuItem("Enable Helper", createButtons)
+  end
+end
+
+
+function deleteButtons()
+  self.UI.hide("bless_button")
+  self.UI.hide("curse_button")
+  self.UI.hide("both_buttons")
+  self.clearContextMenu()
+  self.addContextMenuItem("Enable Helper", createButtons)
+  Wait.stop(loopId)
+  loopId = nil
+end
+
+-- Create buttons based on the button parameters
+function createButtons()
+  self.clearContextMenu()
+  self.addContextMenuItem("Clear Helper", deleteButtons)
+  currentState = "Empty"
+  loopId = Wait.time(countBlessCurse, 1, -1)
+  
+end
+
+function resolveCurse()
+    local closestMatColor = playmatApi.getMatColorByPosition(self.getPosition())
+    log(closestMatColor)
+    local mat = guidReferenceApi.getObjectByOwnerAndType(closestMatColor, "Playermat")
+    log(mat)
+    tokenType = "Curse"
+    
+    chaosBagApi.drawChaosToken(mat, true , tokenType)
+    
+end
+
+function resolveBless()
+    local closestMatColor = playmatApi.getMatColorByPosition(self.getPosition())
+    --log(closestMatColor)
+    local mat = guidReferenceApi.getObjectByOwnerAndType(closestMatColor, "Playermat")
+    --log(mat)
+    tokenType = "Bless"
+    --self.setRotationSmooth({0, 0, 0})
+    chaosBagApi.drawChaosToken(mat, true , tokenType)
+    
+end
+
+function countBlessCurse()
+-- count tokens in the bag and show appropriate button
+  numInBag = { Bless = 0, Curse = 0 }
+  local chaosBag = chaosBagApi.findChaosBag()
+  local tokens = {}
+  for _, v in ipairs(chaosBag.getObjects()) do
+    if v.name == "Bless" then
+      numInBag.Bless = numInBag.Bless + 1
+    elseif v.name == "Curse" then
+      numInBag.Curse = numInBag.Curse + 1
+    end
+  end
+  
+  if numInBag.Bless > numInBag.Curse then
+    if currentState ~= "More Bless" then
+      self.UI.show("bless_button")
+      self.UI.hide("curse_button")
+      self.UI.hide("both_buttons")
+    end
+    currentState = "More Bless"
+  elseif numInBag.Curse > numInBag.Bless then
+    if currentState ~= "More Curse" then
+      self.UI.show("curse_button")
+      self.UI.hide("bless_button")
+      self.UI.hide("both_buttons")
+    end
+    currentState = "More Curse"
+  elseif numInBag.Curse == 0 then
+    if currentState ~= "Empty" then
+      self.UI.hide("both_buttons")
+      self.UI.hide("bless_button")
+      self.UI.hide("curse_button")
+    end
+    currentState = "Empty"
+  else
+    if currentState ~= "Equal" then
+      self.UI.show("both_buttons")
+      self.UI.hide("bless_button")
+      self.UI.hide("curse_button")
+    end
+    currentState = "Equal"
+  end
+end
