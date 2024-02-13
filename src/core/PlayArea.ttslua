@@ -72,7 +72,7 @@ end
 
 -- Called by Custom Data Helpers to push their location data into the Data Helper.  This adds the
 -- data to the local token manager instance.
----@param args Table Single-value array holding the GUID of the Custom Data Helper making the call
+---@param args table Single-value array holding the GUID of the Custom Data Helper making the call
 function updateLocations(args)
   customDataHelper = getObjectFromGUID(args[1])
   if customDataHelper ~= nil then
@@ -125,7 +125,7 @@ function onCollisionEnter(collisionInfo)
   -- If this card was being dragged, clear the dragging connections.  A multi-drag/drop may send
   -- the dropped card immediately into a deck, so this has to be done here
   if draggingGuids[object.getGUID()] ~= nil then
-    object.setVectorLines(nil)
+    object.setVectorLines({})
     draggingGuids[object.getGUID()] = nil
   end
 
@@ -197,7 +197,7 @@ function onUpdate()
       -- If object still exists then it's been dragged outside the area and needs to clear the
       -- lines attached to it
       if obj ~= nil then
-        obj.setVectorLines(nil)
+        obj.setVectorLines({})
       end
     end
     -- Even if the last location left the play area, need one last draw to clear the lines
@@ -213,7 +213,7 @@ end
 
 -- Checks the given card and adds it to the list of locations tracked for connection purposes.
 -- A card will be added to the tracking if it is a location in the play area (based on centerpoint).
----@param card Object A card object, possibly a location.
+---@param card tts__Object A card object, possibly a location.
 function maybeTrackLocation(card)
   -- Collision checks for any part of the card overlap, but our other tracking is centerpoint
   -- Ignore any collision where the centerpoint isn't in the area
@@ -243,7 +243,7 @@ end
 -- and destruction, as a destroyed object does not trigger collision exit.  An object can also be
 -- deleted mid-drag, but the ordering for drag events means we can't clear those here and those will
 -- be cleared in the next onUpdate() cycle.
----@param card Object Card to (maybe) stop tracking
+---@param card tts__Object Card to (maybe) stop tracking
 function maybeUntrackLocation(card)
   -- Locked objects no longer collide (hence triggering an exit event) but are still in the play
   -- area.  If the object is now locked, don't remove it.
@@ -257,11 +257,11 @@ end
 -- Global event handler, delegated from Global.  Clears any connection lines from dragged cards
 -- before they are destroyed by entering a deck.  Removal of the card from the dragging list will
 -- be handled during the next onUpdate() call.
-function tryObjectEnterContainer(params)
+function tryObjectEnterContainer()
   for draggedGuid, _ in pairs(draggingGuids) do
     local draggedObj = getObjectFromGUID(draggedGuid)
     if draggedObj ~= nil then
-      draggedObj.setVectorLines(nil)
+      draggedObj.setVectorLines({})
     end
   end
 end
@@ -299,9 +299,9 @@ function rebuildConnectionList()
 end
 
 -- Extracts the card's icon string into a list of individual location icons
----@param cardId String GUID of the card to pull the icon data from
----@param iconCardList Table A table of icon->GUID list.  Mutable, will be updated by this method
----@param locData Table A table containing the metadata for the card (for the correct side)
+---@param cardId string GUID of the card to pull the icon data from
+---@param iconCardList table A table of icon->GUID list.  Mutable, will be updated by this method
+---@param locData table A table containing the metadata for the card (for the correct side)
 function buildLocListByIcon(cardId, iconCardList, locData)
   if locData ~= nil and locData.icons ~= nil then
     for icon in string.gmatch(locData.icons, "%a+") do
@@ -315,9 +315,9 @@ end
 
 -- Builds the connections for the given cardID by finding matching icons and adding them to the
 -- Playarea's locationConnections table.
----@param cardId String GUID of the card to build the connections for
----@param iconCardList Table A table of icon->GUID List.  Used to find matching icons for connections.
----@param locData Table A table containing the metadata for the card (for the correct side)
+---@param cardId string GUID of the card to build the connections for
+---@param iconCardList table A table of icon->GUID List.  Used to find matching icons for connections.
+---@param locData table A table containing the metadata for the card (for the correct side)
 function buildConnection(cardId, iconCardList, locData)
   if locData ~= nil and locData.connections ~= nil then
     locationConnections[cardId] = {}
@@ -412,11 +412,11 @@ end
 
 -- Draws a bidirectional location connection between the two cards, adding the lines to do so to the
 -- given lines list.
----@param card1 Object One of the card objects to connect
----@param card2 Object The other card object to connect
----@param vectorOwner Object The object which these lines will be set to.  Used for relative
+---@param card1 tts__Object One of the card objects to connect
+---@param card2 tts__Object The other card object to connect
+---@param vectorOwner tts__Object The object which these lines will be set to. Used for relative
 ---    positioning and scaling, as well as highlighting connections during a drag operation
----@param lines Table List of vector line elements.  Mutable, will be updated to add this connector
+---@param lines table List of vector line elements.  Mutable, will be updated to add this connector
 function addBidirectionalVector(card1, card2, vectorOwner, lines)
   local cardPos1 = card1.getPosition()
   local cardPos2 = card2.getPosition()
@@ -435,11 +435,11 @@ end
 
 -- Draws a one-way location connection between the two cards, adding the lines to do so to the
 -- given lines list.  Arrows will point towards the target card.
----@param origin Object Origin card in the connection
----@param target Object Target card object to connect
----@param vectorOwner Object The object which these lines will be set to.  Used for relative
+---@param origin tts__Object Origin card in the connection
+---@param target tts__Object Target card object to connect
+---@param vectorOwner tts__Object The object which these lines will be set to. Used for relative
 ---    positioning and scaling, as well as highlighting connections during a drag operation
----@param lines Table List of vector line elements.  Mutable, will be updated to add this connector
+---@param lines table List of vector line elements.  Mutable, will be updated to add this connector
 function addOneWayVector(origin, target, vectorOwner, lines)
   -- Start with the BiDi then add the arrow lines to it
   addBidirectionalVector(origin, target, vectorOwner, lines)
@@ -451,13 +451,11 @@ function addOneWayVector(origin, target, vectorOwner, lines)
   -- Calculate card distance to be closer for horizontal positions than vertical, since cards are
   -- taller than they are wide
   local heading = Vector(originPos):sub(targetPos):heading("y")
-  local distanceFromCard = DIRECTIONAL_ARROW_DISTANCE * 0.7 +
-  DIRECTIONAL_ARROW_DISTANCE * 0.3 * math.abs(math.sin(math.rad(heading)))
+  local distanceFromCard = DIRECTIONAL_ARROW_DISTANCE * 0.7 + DIRECTIONAL_ARROW_DISTANCE * 0.3 * math.abs(math.sin(math.rad(heading)))
 
   -- Calculate the three possible arrow positions.  These are offset by half the arrow length to
   -- make them visually balanced by keeping the arrows centered, not tracking the point
-  local midpoint = Vector(originPos):add(targetPos):scale(Vector(0.5, 0.5, 0.5)):moveTowards(targetPos,
-    ARROW_ARM_LENGTH / 2)
+  local midpoint = Vector(originPos):add(targetPos):scale(0.5):moveTowards(targetPos, ARROW_ARM_LENGTH / 2)
   local closeToOrigin = Vector(originPos):moveTowards(targetPos, distanceFromCard + ARROW_ARM_LENGTH / 2)
   local closeToTarget = Vector(targetPos):moveTowards(originPos, distanceFromCard - ARROW_ARM_LENGTH / 2)
 
@@ -470,16 +468,14 @@ function addOneWayVector(origin, target, vectorOwner, lines)
 end
 
 -- Draws an arrowhead at the given position.
----@param arrowheadPos Table Centerpoint of the arrowhead to draw (NOT the tip of the arrow)
----@param originPos Table Origin point of the connection, used to position the arrow arms
----@param vectorOwner Object The object which these lines will be set to.  Used for relative
+---@param arrowheadPos tts__Vector Centerpoint of the arrowhead to draw (NOT the tip of the arrow)
+---@param originPos tts__Vector Origin point of the connection, used to position the arrow arms
+---@param vectorOwner tts__Object The object which these lines will be set to.  Used for relative
 ---    positioning and scaling, as well as highlighting connections during a drag operation
----@param lines Table List of vector line elements.  Mutable, will be updated to add this arrow
+---@param lines table List of vector line elements.  Mutable, will be updated to add this arrow
 function addArrowLines(arrowheadPos, originPos, vectorOwner, lines)
-  local arrowArm1 = Vector(arrowheadPos):moveTowards(originPos, ARROW_ARM_LENGTH):sub(arrowheadPos):rotateOver("y",
-    -1 * ARROW_ANGLE):add(arrowheadPos)
-  local arrowArm2 = Vector(arrowheadPos):moveTowards(originPos, ARROW_ARM_LENGTH):sub(arrowheadPos):rotateOver("y",
-    ARROW_ANGLE):add(arrowheadPos)
+  local arrowArm1 = Vector(arrowheadPos):moveTowards(originPos, ARROW_ARM_LENGTH):sub(arrowheadPos):rotateOver("y", -1 * ARROW_ANGLE):add(arrowheadPos)
+  local arrowArm2 = Vector(arrowheadPos):moveTowards(originPos, ARROW_ARM_LENGTH):sub(arrowheadPos):rotateOver("y", ARROW_ANGLE):add(arrowheadPos)
 
   local head = vectorOwner.positionToLocal(arrowheadPos)
   local arm1 = vectorOwner.positionToLocal(arrowArm1)
@@ -493,7 +489,7 @@ end
 
 -- Move all contents on the play area (cards, tokens, etc) one slot in the given direction.  Certain
 -- fixed objects will be ignored, as will anything the player has tagged with 'displacement_excluded'
----@param playerColor String Color of the player requesting the shift.  Used solely to send an error
+---@param playerColor string Color of the player requesting the shift.  Used solely to send an error
 ---    message in the unlikely case that the scripting zone has been deleted
 function shiftContentsUp(playerColor)
   shiftContents(playerColor, "up")
@@ -528,8 +524,8 @@ end
 
 -- Check to see if the given object is within the bounds of the play area, based solely on the X and
 -- Z coordinates, ignoring height
----@param object Object Object to check
----@return. True if the object is inside the play area
+---@param object tts__Object Object to check
+---@return boolean: True if the object is inside the play area
 function isInPlayArea(object)
   local bounds = self.getBounds()
   local position = object.getPosition()
@@ -553,7 +549,7 @@ end
 
 -- Sets this playmat's snap points to limit snapping to locations or not.
 -- If matchTypes is false, snap points will be reset to snap all cards.
----@param matchTypes Boolean  Whether snap points should only snap for the matching card types.
+---@param matchTypes boolean  Whether snap points should only snap for the matching card types.
 function setLimitSnapsByType(matchTypes)
   local snaps = self.getSnapPoints()
   for i, snap in ipairs(snaps) do
@@ -586,7 +582,7 @@ function setConnectionColor(color)
 end
 
 -- count victory points on locations in play area
----@param highlightOff Boolean True if highlighting should be enabled
+---@param highlightOff boolean True if highlighting should be enabled
 ---@return. Returns the total amount of VP found in the play area
 function countVP(highlightOff)
   local totalVP = 0
@@ -612,14 +608,14 @@ function countVP(highlightOff)
 end
 
 -- checks if a card has clues on it, returns true if clues are on it
----@param card TTSObject Card to check for clues
+---@param card tts__Object Card to check for clues
 function cardHasClues(card)
   local searchResult = searchLib.onObject(card, "isClue")
   return #searchResult > 0
 end
 
 -- highlights all locations in the play area without metadata
----@param state Boolean True if highlighting should be enabled
+---@param state boolean True if highlighting should be enabled
 function highlightMissingData(state)
   for i, obj in pairs(missingData) do
     if obj ~= nil then
