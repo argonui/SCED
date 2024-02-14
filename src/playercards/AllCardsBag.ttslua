@@ -70,7 +70,10 @@ local specialCriteriaManualOverride = {
     "60309",
     "60320",
     "60506",
-    "10024"
+    "10024",
+    "10053",
+    "10061",
+    "10104"
 
   },
   heals_damage = {
@@ -114,29 +117,47 @@ local specialCriteriaManualOverride = {
     "09084",
     "09118",
     "54002",
-    "60309"
+    "60309",
+    "10032",
+    "10061",
+    "10104"
   },
   parley = {
+    "02272",
+    "04105",
+    "04105-t",
     "05020",
     "05020-t",
     "09028",
-    "09052",
-    "04105",
-    "10114",
-    "10009",
-    "10064",
+    "09052",    
     "09073",
-    "10070",
-    "10071",
-    "10091",
     "09081",
     "09081-t",
     "09088",
-    "10057",
+    "10009",
+    "10010",
+    "10114",
     "10026",
-    "10083",
+    "10035",
+    "10057",
+    "10062",
+    "10064",
+    "10065",
+    "10066",
+    "10070",
+    "10071",
+    "10073",
     "10074",
-    "10081"
+    "10077",
+    "10078",
+    "10081",
+    "10082",
+    "10083",
+    "10091",
+    "10094",
+    "10114",
+    "10128",
+    "10130",
   }
 }
 
@@ -339,9 +360,7 @@ function buildSupplementalIndexes()
         if cycleName == "the night of the zealot" then
           cycleName = "core"
         end
-        if cycleIndex[cycleName] == nil then
-          cycleIndex[cycleName] = { }
-        end
+        cycleIndex[cycleName] = cycleIndex[cycleName] or {}
         table.insert(cycleIndex[cycleName], cardMetadata.id)
       end
 
@@ -358,21 +377,6 @@ function buildSupplementalIndexes()
           table.insert(traitsIndex[trait], cardMetadata.id)
         end
       end
-      -- Old Taboo Code
-      -- if bonded then
-      --   for _, bondData in ipairs(bonded) do
-      --     local bondCardMetadata = cardIdIndex[bondData.id].metadata
-      --     for traitString in string.gmatch(bondCardMetadata.traits, "%w+.") do
-      --       local trait = string.lower(string.gsub(traitString, "[.]", ""))
-      --       if not checkedTraits[trait] then
-      --         if traitsIndex[trait] == nil then
-      --           traitsIndex[trait] = { }
-      --         end
-      --         table.insert(traitsIndex[trait], cardMetadata.id)
-      --       end
-      --     end
-      --   end
-      -- end
 
       if cardMetadata.willpowerIcons then
         if not willpowerIconsIndex[cardMetadata.willpowerIcons] then
@@ -424,9 +428,12 @@ function buildSupplementalIndexes()
 
       if cardMetadata.slot then
         local slotString = cardMetadata.slot .. "|"
+        -- Getting the initial number of slots by counting the '|' characters
         local slotCount = select(2, string.gsub(slotString, "|", ""))
+        -- Using regex to hit every slot in the slot string and add it to the corresponding subindex
         for slot in slotString:gmatch("[^|]+") do
           table.insert(slotIndex[string.lower(slot)], cardMetadata.id)
+          -- If the slot is a x2 slot, it will increase the slotCount, and also add it to the singular slot index (Hand for "Hand x2" for example)
           if string.match(slot, " x2") then
             slotCount = slotCount + 1
             table.insert(slotIndex[string.lower(string.sub(slot, 1, -4))], cardMetadata.id)
@@ -478,19 +485,19 @@ function buildSupplementalIndexes()
   end
   
   for _, indexTable in pairs(classIndex) do
-    table.sort(indexTable, cardComparator)
+    sortCardsTable(indexTable)
   end
   for _, indexTable in pairs(cycleIndex) do
-    table.sort(indexTable)
+    sortCardsTable(indexTable)
   end
   for _, indexTable in pairs(traitsIndex) do
-    table.sort(indexTable, cardComparator)
+    sortCardsTable(indexTable)
   end
   for _, indexTable in pairs(specialCriteriaIndex) do
-    table.sort(indexTable, cardComparator)
+    sortCardsTable(indexTable)
   end
-  table.sort(basicWeaknessList, cardComparator)
-  table.sort(uniqueWeaknessList, cardComparator)
+  sortCardsTable(basicWeaknessList)
+  sortCardsTable(uniqueWeaknessList)
 end
 
 -- Comparison function used to sort the class card bag indexes.  Sorts by card
@@ -560,7 +567,6 @@ end
 ---@param indexName exact string of the index variable to be referenced, minus the 'Index' part
 ---@param includeOthers boolean of whether or not to include non-player cards
 ---@param value key used to index into the dictionary
----@param value2 optional second key used to index into the sub-dictionary
 ---@return List of cards located at the precise index given the provided parameters
 function getCardsByData(params)
   -- Make sure indices are finished building
@@ -578,15 +584,6 @@ function getCardsByData(params)
     end
   end
 
-  local value2 = nil
-  if params.value2 then
-    if tonumber(params.value2) then
-      value2 = tonumber(params.value2)
-    else
-      value2 = string.lower(params.value2)
-    end
-  end
-
   -- Use global environment variable manipulation to get the corresponding index
   local cardList = _G[params.indexName .. "Index"]
   if not cardList then
@@ -595,9 +592,6 @@ function getCardsByData(params)
   end
   if value then
     cardList = cardList[value]
-  end
-  if value2 then
-    cardList = cardList[value2]
   end
 
   -- If invalid search parameters were entered, return an empty list
