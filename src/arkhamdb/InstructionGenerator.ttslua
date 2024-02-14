@@ -1,5 +1,7 @@
 local searchLib = require("util/SearchLib")
 
+local idList = {}
+
 function onLoad()
   local buttonParameters          = {}
   buttonParameters.function_owner = self
@@ -23,26 +25,13 @@ function onLoad()
 end
 
 function generate(_, playerColor)
-  local idList = {}
+  idList = {}
   for _, obj in ipairs(searchLib.onObject(self, "isCardOrDeck")) do
     if obj.type == "Card" then
-      local cardMetadata = JSON.decode(obj.getGMNotes())
-      
-      if cardMetadata then
-        local id = getIdFromData(cardMetadata)
-        if id then
-          table.insert(idList, id)
-        end
-      end
+      processCard(JSON.decode(obj.getGMNotes()), obj.getName())
     elseif obj.type == "Deck" then
       for _, deepObj in ipairs(obj.getData().ContainedObjects) do
-        local cardMetadata = JSON.decode(deepObj.GMNotes)
-        if cardMetadata then
-          local id = getIdFromData(cardMetadata)
-          if id then
-            table.insert(idList, id)
-          end
-        end
+        processCard(JSON.decode(deepObj.GMNotes), deepObj.Nickname)
       end
     end
   end
@@ -54,10 +43,13 @@ function generate(_, playerColor)
     broadcastToColor("Created deck instruction for " .. #idList .. " card(s). Copy it from the input field.", playerColor, "Green")
   end
 
+  -- sort the idList
+  table.sort(idList, sortById)
+
   -- construct the string
   local description = "++SCED import instructions++\n- add: "
-  for _, id in ipairs(idList) do
-    description = description .. id .. ", "
+  for _, entry in ipairs(idList) do
+    description = description .. entry.id .. " (**" .. entry.name .. "**)" .. ", "
   end
   
   -- remove last delimiter (last two characters)
@@ -71,6 +63,26 @@ function getIdFromData(metadata)
     return metadata.id
   elseif metadata.TtsZoopGuid then
     return metadata.TtsZoopGuid
+  end
+end
+
+function processCard(metadata, name)
+  if metadata then
+    local id = getIdFromData(metadata)
+    if id then
+      table.insert(idList, {id = id, name = name})
+    end
+  end
+end
+
+function sortById(a, b)
+  local numA = tonumber(a.id)
+  local numB = tonumber(b.id)
+
+  if numA and numB then
+    return numA < numB
+  else
+    return a.name < b.name
   end
 end
 
