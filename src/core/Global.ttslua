@@ -302,12 +302,34 @@ function drawChaosToken(params)
 
     -- add the token to the list, compute new position based on list length
     tokenOffset[1] = tokenOffset[1] + (0.17 * #chaosTokens)
-    local token = chaosBag.takeObject({
-      index = 0,
-      position = params.mat.positionToWorld(tokenOffset),
-      rotation = params.mat.getRotation()
-    })
+    
+    local token
 
+    if params.guidToBeResolved then -- resolve a sealed token from a card
+      token = getObjectFromGUID(params.guidToBeResolved)
+      token.setPositionSmooth(params.mat.positionToWorld(tokenOffset))
+      local guid = token.getGUID()
+      local tokenType = token.getName()
+      if tokenType == "Bless" or tokenType == "Curse" then
+        blessCurseManagerApi.releasedToken(tokenType, guid)
+      end
+      tokenArrangerApi.layout()
+    else -- take a token from the bag, either specified or random
+      local takeParameters = {
+        position = params.mat.positionToWorld(tokenOffset),
+        rotation = params.mat.getRotation()
+      }
+
+      if params.tokenType then
+          for i, lookedForToken in ipairs(chaosBag.getObjects()) do
+              if lookedForToken.name == params.tokenType then
+                  takeParameters.index = i - 1
+              end
+          end
+      end
+
+      token = chaosBag.takeObject(takeParameters)
+    end 
     -- get data for token description
     local name = token.getName()
     local tokenData = mythosAreaApi.returnTokenData().tokenData or {}
