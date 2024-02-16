@@ -299,9 +299,9 @@ do
     local pos = string.find(description, "++SCED import instructions++")
     if not pos then return end
 
-    -- remove everything before instructions (including newline)
-    local tempStr = string.sub(description, pos + 30)
-    
+    -- remove everything before instructions
+    local tempStr = string.sub(description, pos)
+
     -- parse each line in instructions
     for line in tempStr:gmatch("([^\n]+)") do
       -- remove dashes at the start
@@ -321,7 +321,10 @@ do
         break
       end
 
-      if instructor == "" or (instructor ~= "add:" and instructor ~= "remove:") then break end
+      -- go to the next line if no valid instructor found
+      if instructor ~= "add:" and instructor ~= "remove:" then
+        goto nextLine
+      end
 
       -- remove instructor from line
       line = line:gsub(instructor, "")
@@ -332,20 +335,23 @@ do
           slots[str] = (slots[str] or 0) + 1
         elseif instructor == "remove:" then
           if slots[str] == nil then
-            internal.maybePrint("Tried to remove " .. str .. ", but didn't find card in deck.", playerColor)
-            break
-          end
-          slots[str] = math.max(slots[str] - 1, 0)
+            internal.maybePrint("Tried to remove card ID " .. str .. ", but didn't find card in deck.", playerColor)
+          else
+            slots[str] = math.max(slots[str] - 1, 0)
 
-          -- fully remove cards that have a quantity of 0
-          if slots[str] == 0 then
-            slots[str] = nil
-          end
+            -- fully remove cards that have a quantity of 0
+            if slots[str] == 0 then
+              slots[str] = nil
 
-          -- also remove related minicard
-          slots[str .. "-m"] = nil
+              -- also remove related minicard
+              slots[str .. "-m"] = nil
+            end
+          end
         end
       end
+
+      -- jump mark at the end of the loop
+      ::nextLine::
     end
   end
 
