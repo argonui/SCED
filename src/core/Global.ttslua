@@ -46,12 +46,6 @@ local library, requestObj, modMeta
 local acknowledgedUpgradeVersions = {}
 local contentToShow = "campaigns"
 local currentListItem = 1
-local xmlVisibility = {
-  downloadWindow = false,
-  optionPanel = false,
-  playAreaGallery = false,
-  updateNotification = false
-}
 local tabIdTable = {
   tab1 = "campaigns",
   tab2 = "scenarios",
@@ -752,7 +746,7 @@ end
 
 -- click function for the "Custom URL" button in the playarea image gallery
 function onClick_customUrl(player)
-  onClick_toggleUi(_, "playareaGallery")
+  changeWindowVisibilityForColor(player.color, "playareaGallery")
   Wait.time(function()
     player.showInputDialog("Enter a custom URL for the playarea image", "", function(newURL)
       playAreaApi.updateSurface(newURL)
@@ -770,47 +764,41 @@ end
 -- the download button on the placeholder objects calls this to directly initiate a download
 ---@param params table contains url and guid of replacement object
 function placeholder_download(params)
+  function downloadCoroutine()
+    -- show progress bar
+    UI.setAttribute('download_progress', 'active', true)
+
+    -- update progress bar
+    while requestObj do
+      UI.setAttribute('download_progress', 'percentage', requestObj.download_progress * 100)
+      coroutine.yield(0)
+    end
+    UI.setAttribute('download_progress', 'percentage', 100)
+
+    -- wait 30 frames
+    for i = 1, 30 do
+      coroutine.yield(0)
+    end
+
+    -- hide progress bar
+    UI.setAttribute('download_progress', 'active', false)
+
+    -- hide download window
+    changeWindowVisibilityForColor(params.player.color, "downloadWindow", false)
+    return 1
+  end
+
   local url = SOURCE_REPO .. '/' .. params.url
   requestObj = WebRequest.get(url, function (request) contentDownloadCallback(request, params) end)
   startLuaCoroutine(Global, 'downloadCoroutine')
 end
 
-function downloadCoroutine()
-  -- show progress bar
-  UI.setAttribute('download_progress', 'active', true)
-
-  -- update progress bar
-  while requestObj do
-    UI.setAttribute('download_progress', 'percentage', requestObj.download_progress * 100)
-    coroutine.yield(0)
-  end
-  UI.setAttribute('download_progress', 'percentage', 100)
-
-  -- wait 30 frames
-  for i = 1, 30 do
-    coroutine.yield(0)
-  end
-
-  -- hide progress bar
-  UI.setAttribute('download_progress', 'active', false)
-
-  -- hide download window
-  if xmlVisibility.downloadWindow then
-    xmlVisibility.downloadWindow = false
-    UI.hide('downloadWindow')
-  end
-  return 1
-end
-
 -- spawns a bag that contains every object from the library
-function onClick_downloadAll()
+function onClick_downloadAll(player)
   broadcastToAll("Download initiated - this will take a few minutes!")
 
   -- hide download window
-  if xmlVisibility.downloadWindow then
-    xmlVisibility.downloadWindow = false
-    UI.hide('downloadWindow')
-  end
+  changeWindowVisibilityForColor(player.color, "downloadWindow", false)
 
   startLuaCoroutine(Global, "coroutineDownloadAll")
 end
@@ -826,9 +814,9 @@ function coroutineDownloadAll()
         "rotX": 0,
         "rotY": 270,
         "rotZ": 0,
-        "scaleX": 1.0,
-        "scaleY": 1.0,
-        "scaleZ": 1.0
+        "scaleX": 1,
+        "scaleY": 1,
+        "scaleZ": 1
       },
       "Nickname": "{{NICKNAME}}",
       "Bag": {
@@ -875,11 +863,11 @@ function coroutineDownloadAll()
 end
 
 -- spawns a placeholder box for the selected object
-function onClick_spawnPlaceholder()
+function onClick_spawnPlaceholder(player)
   -- get object references
   local item = library[contentToShow][currentListItem]
   local dummy = guidReferenceApi.getObjectByOwnerAndType("Mythos", "PlaceholderBoxDummy")
-  
+
   -- error handling
   if not item.boxsize or item.boxsize == "" or not item.boxart or item.boxart == "" then
     print("Error loading object.")
@@ -907,7 +895,7 @@ function onClick_spawnPlaceholder()
     rotation = {0, 270, 0},
     scale = scaleTable[item.boxsize],
   })
-  
+
   placeholder.setCustomObject({
     mesh = meshTable[item.boxsize],
     diffuse = item.boxart,
@@ -926,39 +914,84 @@ function onClick_spawnPlaceholder()
   Player.getPlayers()[1].pingTable(spawnPos)
 
   -- hide download window
-  if xmlVisibility.downloadWindow then
-    xmlVisibility.downloadWindow = false
-    UI.hide('downloadWindow')
-  end
+  changeWindowVisibilityForColor(player.color, "downloadWindow", false)
 end
 
 -- toggles the visibility of the respective UI
 ---@param player tts__Player Player that triggered this
----@param title string Name of the UI to toggle
-function onClick_toggleUi(player, title)
-  if title == "Navigation Overlay" then
+---@param windowId string Name of the UI to toggle
+function onClick_toggleUi(player, windowId)
+  if windowId == "Navigation Overlay" then
     navigationOverlayApi.cycleVisibility(player.color)
     return
-  -- hide the playareaGallery if visible
-  elseif title == "downloadWindow" and xmlVisibility.playAreaGallery then
-    onClick_toggleUi(_, "playAreaGallery")
-  -- hide the downloadWindow if visible
-  elseif title == "playAreaGallery" and xmlVisibility.downloadWindow then
-    onClick_toggleUi(_, "downloadWindow")
   end
 
-  if xmlVisibility[title] then
-    -- small delay to allow button click sounds to play
-    Wait.time(function() UI.hide(title) end, 0.1)
-  else
-    UI.show(title)
+  -- hide the playAreaGallery if visible
+  if windowId == "downloadWindow" then
+    changeWindowVisibilityForColor(player.color, "playAreaGallery", false)
+  -- hide the downloadWindow if visible
+  elseif windowId == "playAreaGallery" then
+    changeWindowVisibilityForColor(player.color, "downloadWindow", false)
   end
-  xmlVisibility[title] = not xmlVisibility[title]
+
+  changeWindowVisibilityForColor(player.color, windowId)
+end
+
+-- toggles the visibility of the specific window for the specified color
+---@param color string Player color to toggle the visibility for
+---@param windowId string ID of the XML element
+---@param overrideState? boolean Forcefully sets the new visibility
+---@return boolean visible Returns the new state of the visibility
+function changeWindowVisibilityForColor(color, windowId, overrideState)
+  -- current state
+  local colorString = UI.getAttribute(windowId, "visibility") or ""
+
+  -- parse the visibility string
+  local visible = false
+  local viewers = {}
+  for str in string.gmatch(colorString, "%a+") do
+    table.insert(viewers, str)
+    if str == color then
+      visible = true
+    end
+  end
+
+  -- add / remove the color as viewer
+  if visible == true then
+    removeValueFromTable(viewers, color)
+  elseif visible == false then
+    table.insert(viewers, color)
+  end
+  visible = not visible
+
+  -- resolve override
+  if overrideState == true and visible == false then
+    table.insert(viewers, color)
+    visible = true
+  elseif overrideState == false and visible == true then
+    removeValueFromTable(viewers, color)
+    visible = false
+  end
+
+  -- construct new string
+  local newColorString = ""
+  for _, viewer in ipairs(viewers) do
+    newColorString = newColorString .. viewer .. "|"
+  end
+
+  -- remove last delimiter
+  newColorString = newColorString:sub(1, -2)
+
+  -- update the visibility of the XML
+  UI.setAttribute(windowId, "visibility", newColorString)
+  UI.setAttribute(windowId, "active", newColorString ~= "")
+
+  return visible
 end
 
 -- forwards the call to the onClick function
-function togglePlayAreaGallery()
-  onClick_toggleUi(_, "playAreaGallery")
+function togglePlayAreaGallery(playerColor)
+  changeWindowVisibilityForColor(playerColor, "playareaGallery")
 end
 
 -- updates the preview window
@@ -1614,5 +1647,17 @@ function onClick_notification(_, parameter)
   end
   UI.hide("FinnIcon")
   UI.hide("updateNotification")
-  xmlVisibility["updateNotification"] = false
+end
+
+---------------------------------------------------------
+-- Utility functions
+---------------------------------------------------------
+
+function removeValueFromTable(t, val)
+  for i, v in ipairs(t) do
+    if v == val then
+      table.remove(t, i)
+      break
+    end
+  end
 end
