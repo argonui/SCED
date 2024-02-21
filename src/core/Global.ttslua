@@ -619,7 +619,7 @@ function setChaosBagState(tokenList)
   -- reset bless / curse manager
   blessCurseManagerApi.removeTakenTokensAndReset()
 
-  printToAll("Chaos bag set to chosen difficulty.", "Green")
+  printToAll("Chaos Bag set to chosen difficulty.", "Green")
 end
 
 -- spawns the specified chaos token and puts it into the chaos bag
@@ -1419,23 +1419,13 @@ function applyOptionPanelChange(id, state)
 
   -- option: Show hand helper for each player
   elseif id == "showHandHelper" then
-    local helperName = "Hand Helper"
-    local spawnData = playmatApi.getHelperSpawnData("All", helperName)
-    local i = 0
-    for color, data in pairs(spawnData) do
-      i = i + 1
-      optionPanel[id][i] = spawnOrRemoveHelper(state, helperName, data.position, data.rotation, color)
-    end
+    spawnOrRemoveHelperForPlayermats("Hand Helper", state)
+    optionPanel[id] = state
 
   -- option: Show search assistant for each player
   elseif id == "showSearchAssistant" then
-    local helperName = "Search Assistant"
-    local spawnData = playmatApi.getHelperSpawnData("All", helperName)
-    local i = 0
-    for color, data in pairs(spawnData) do
-      i = i + 1
-      optionPanel[id][i] = spawnOrRemoveHelper(state, helperName, data.position, data.rotation, color)
-    end
+    spawnOrRemoveHelperForPlayermats("Search Assistant", state)
+    optionPanel[id] = state
 
   -- option: Show attachment helper
   elseif id == "showAttachmentHelper" then
@@ -1451,6 +1441,15 @@ function applyOptionPanelChange(id, state)
   end
 end
 
+-- spawns or removes a helper object for all playermats
+---@param helperName string Name of the helper object
+---@param state boolean Contains the state of the option: true = spawn it, false = remove it
+function spawnOrRemoveHelperForPlayermats(helperName, state)
+  for color, data in pairs(playmatApi.getHelperSpawnData("All", helperName)) do
+    spawnOrRemoveHelper(state, helperName, data.position, data.rotation, color)
+  end
+end
+
 -- handler for spawn / remove functions of helper objects
 ---@param state boolean Contains the state of the option: true = spawn it, false = remove it
 ---@param name string Name of the helper object
@@ -1459,14 +1458,11 @@ end
 ---@param owner? string Owner of the object (defaults to "Mythos")
 ---@return string|nil GUID GUID of the spawnedObj (or nil if object was removed)
 function spawnOrRemoveHelper(state, name, position, rotation, owner)
-  if (type(state) == "table" and #state == 0) then
-    return removeHelperObject(name)
-  elseif state then
+  if state then
     Player.getPlayers()[1].pingTable(position)
     local spawnedGUID = spawnHelperObject(name, position, rotation).getGUID()
     local cleanName = name:gsub("%s+", "")
     guidReferenceApi.editIndex(owner or "Mythos", cleanName, spawnedGUID)
-    return spawnedGUID
   else
     return removeHelperObject(name)
   end
@@ -1477,7 +1473,7 @@ end
 ---@param position tts__Vector Desired position of the object
 ---@param rotation? tts__Vector Desired rotation of the object (defaults to object's rotation)
 function spawnHelperObject(name, position, rotation)
-  local sourceBag = guidReferenceApi.getObjectByOwnerAndType("Mythos","OptionPanelSource")
+  local sourceBag = guidReferenceApi.getObjectByOwnerAndType("Mythos", "OptionPanelSource")
 
   -- error handling for missing sourceBag
   if not sourceBag then
@@ -1506,41 +1502,24 @@ end
 -- removes the specified tool (by name)
 ---@param name string Object that should be removed
 function removeHelperObject(name)
-  -- links objects name to the respective option name (to grab the GUID for removal)
-  local referenceTable = {
-    ["Clean Up Helper"]       = "showCleanUpHelper",
-    ["Hand Helper"]           = "showHandHelper",
-    ["Search Assistant"]      = "showSearchAssistant",
-    ["Displacement Tool"]     = "showDisplacementTool",
-    ["Attachment Helper"]     = "showAttachmentHelper",
-    ["CYOA Campaign Guides"]  = "showCYOA"
-  }
-
-  local data = optionPanel[referenceTable[name]]
-
-  -- if there is a GUID stored, remove that object
-  if type(data) == "string" then
-    local obj = getObjectFromGUID(data)
-    if obj then obj.destruct() end
-
-  -- if it is a table (e.g. for the "Hand Helper", remove all of them)
-  elseif type(data) == "table" then
-    for _, guid in pairs(data) do
-      local obj = getObjectFromGUID(guid)
-      if obj then obj.destruct() end
-    end
+  local cleanName = name:gsub("%s+", "")
+  for _, obj in pairs(guidReferenceApi.getObjectsByType(cleanName)) do
+    obj.destruct()
   end
 end
 
 -- loads saved options
+---@param newOptions table Contains the new state for the option panel
 function loadSettings(newOptions)
-  -- TO-DO: instead of overriding, keep original table and only add new data
-  -- this will ensure that new options aren't set to nil when importing an old state
-  optionPanel = newOptions
-  updateOptionPanelState()
-  for id, state in pairs(optionPanel) do
-    applyOptionPanelChange(id, state)
+  for id, state in pairs(newOptions) do
+    if optionPanel[id] ~= state then
+      optionPanel[id] = state
+      applyOptionPanelChange(id, state)
+    end
   end
+
+  -- update XML UI state
+  updateOptionPanelState()
 end
 
 -- loads the default options
@@ -1557,7 +1536,8 @@ function onClick_defaultSettings()
   -- clean reset of variables
   optionPanel = {
     cardLanguage = "en",
-    playAreaConnectionColor = { 0.4, 0.4, 0.4, 1 },
+    changePlayAreaImage = false,
+    playAreaConnectionColor = { a = 1, b = 0.4, g = 0.4, r = 0.4 },
     playAreaConnections = true,
     playAreaSnapTags = true,
     showAttachmentHelper = false,
@@ -1565,8 +1545,8 @@ function onClick_defaultSettings()
     showCYOA = false,
     showDisplacementTool = false,
     showDrawButton = false,
-    showHandHelper = {},
-    showSearchAssistant = {},
+    showHandHelper = false,
+    showSearchAssistant = false,
     showTitleSplash = true,
     useClueClickers = false,
     useResourceCounters = "disabled",
