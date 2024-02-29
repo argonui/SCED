@@ -1,0 +1,79 @@
+-- Additional Victory Point Card
+local victoryDisplayApi = require("core/VictoryDisplayApi")
+
+local MIN_VALUE = -10
+local MAX_VALUE = 99
+local vp, notes
+
+function onSave()
+  return JSON.encode({ vp = vp, notes = notes })
+end
+
+function onLoad(savedData)
+  if savedData and savedData ~= "" then
+    local loadedData = JSON.decode(savedData)
+    vp = loadedData.vp
+    notes = loadedData.notes
+  else
+    vp = 1
+    notes = "Click to type"
+  end
+
+  createButtons()
+  createTextbox()
+end
+
+function createButtons()
+  self.createButton({
+    label = tostring(vp),
+    click_function = "click_function",
+    function_owner = self,
+    position = { 0, 1, -0.05 },
+    height = 600,
+    width = 1000,
+    font_size = 1000,
+    font_color = { 0, 0, 0, 100 },
+    color = { 0, 0, 0, 0 },
+    scale = { 0.25, 0.25, 0.25 }
+  })
+end
+
+function createTextbox()
+  self.createInput({
+    input_function = "input_function",
+    function_owner = self,
+    label          = "Click to type",
+    value          = notes,
+    alignment      = 2,
+    position       = { x = 0, y = 1, z = 0.825 },
+    width          = 4250,
+    height         = 2250,
+    font_size      = 360,
+    scale          = { 0.2, 0.2, 0.2 }
+  })
+end
+
+function updateNotes()
+  local md = JSON.decode(self.getGMNotes())
+  md.victory = vp
+  self.setGMNotes(JSON.encode(md))
+  victoryDisplayApi.update()
+end
+
+function updateSave()
+  self.script_state = JSON.encode({ vp = vp, notes = notes })
+end
+
+function input_function(_, _, inputValue, selected)
+  if selected == false then
+    notes = inputValue
+    updateSave()
+  end
+end
+
+function click_function(_, _, isRightClick)
+  vp = math.min(math.max(vp + (isRightClick and -1 or 1), MIN_VALUE), MAX_VALUE)
+  self.editButton({ index = 0, label = tostring(vp) })
+  updateSave()
+  updateNotes()
+end
