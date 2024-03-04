@@ -100,7 +100,7 @@ function loadCards(slots, investigatorId, bondedList, customizations, playerColo
 
     handleAncestralKnowledge(cardsToSpawn)
     handleUnderworldMarket(cardsToSpawn, playerColor)
-    handleHunchDeck(investigatorId, cardsToSpawn, playerColor)
+    handleHunchDeck(investigatorId, cardsToSpawn, bondedList, playerColor)
     handleSpiritDeck(investigatorId, cardsToSpawn, playerColor)
     handleCustomizableUpgrades(cardsToSpawn, customizations)
     handlePeteSignatureAssets(investigatorId, cardsToSpawn)
@@ -240,13 +240,14 @@ function handleAncestralKnowledge(cardList)
       table.insert(skillList, i)
     end
   end
-  if hasAncestralKnowledge then
-    for i = 1, 5 do
-      -- Move 5 random skills to SetAside3
-      local skillListIndex = math.random(#skillList)
-      cardList[skillList[skillListIndex]].zone = "UnderSetAside3"
-      table.remove(skillList, skillListIndex)
-    end
+
+  if not hasAncestralKnowledge then return end
+
+  for i = 1, 5 do
+    -- Move 5 random skills to SetAside3
+    local skillListIndex = math.random(#skillList)
+    cardList[skillList[skillListIndex]].zone = "UnderSetAside3"
+    table.remove(skillList, skillListIndex)
   end
 end
 
@@ -256,7 +257,7 @@ end
 function handleUnderworldMarket(cardList, playerColor)
   local hasMarket = false
   local illicitList = {}
-  -- Process the entire list to check for Underworld Market and get all possible skills, doing both in one pass
+  -- Process the entire list to check for Underworld Market and get all possible Illicit cards, doing both in one pass
   for i, card in ipairs(cardList) do
     if card.metadata.id == "09077" then
       -- Underworld Market found
@@ -267,27 +268,27 @@ function handleUnderworldMarket(cardList, playerColor)
     end
   end
 
-  if hasMarket then
-    if #illicitList < 10 then
-      printToAll("Only " .. #illicitList .. " Illicit cards in your deck, you can't trigger Underworld Market's ability.", playerColor)
-    else
-      -- Process cards to move them to the market deck. This is done in reverse
-      -- order because the sorting needs to be reversed (deck sorts for face down)
-      -- Performance here may be an issue, as table.remove() is an O(n) operation
-      -- which makes the full shift O(n^2). But keep it simple unless it becomes
-      -- a problem
-      for i = #illicitList, 1, -1 do
-        local moving = cardList[illicitList[i]]
-        moving.zone = "UnderSetAside3"
-        table.remove(cardList, illicitList[i])
-        table.insert(cardList, moving)
-      end
+  if not hasMarket then return end
 
-      if #illicitList > 10 then
-        printToAll("Moved all " .. #illicitList .. " Illicit cards to the Market deck, reduce it to 10", playerColor)
-      else
-        printToAll("Built the Market deck", playerColor)
-      end
+  if #illicitList < 10 then
+    printToAll("Only " .. #illicitList .. " Illicit cards in your deck, you can't trigger Underworld Market's ability.", playerColor)
+  else
+    -- Process cards to move them to the market deck. This is done in reverse
+    -- order because the sorting needs to be reversed (deck sorts for face down)
+    -- Performance here may be an issue, as table.remove() is an O(n) operation
+    -- which makes the full shift O(n^2). But keep it simple unless it becomes
+    -- a problem
+    for i = #illicitList, 1, -1 do
+      local moving = cardList[illicitList[i]]
+      moving.zone = "UnderSetAside3"
+      table.remove(cardList, illicitList[i])
+      table.insert(cardList, moving)
+    end
+
+    if #illicitList > 10 then
+      printToAll("Moved all " .. #illicitList .. " Illicit cards to the Market deck, reduce it to 10", playerColor)
+    else
+      printToAll("Built the Market deck", playerColor)
     end
   end
 end
@@ -297,37 +298,36 @@ end
 ---    investigator may not be included in the cardList
 ---@param cardList table Deck list being created
 ---@param playerColor string Color this deck is being loaded for
-function handleHunchDeck(investigatorId, cardList, playerColor)
-  if investigatorId == "05002" then -- Joe Diamond
-    local insightList = {}
-    for i, card in ipairs(cardList) do
-      if (card.metadata.type == "Event"
-          and card.metadata.traits ~= nil
-          and string.match(card.metadata.traits, "Insight")
-          and card.metadata.bonded_to == nil) then
-        table.insert(insightList, i)
-      end
+function handleHunchDeck(investigatorId, cardList, bondedList, playerColor)
+  if investigatorId ~= "05002" then return end
+
+  local insightList = {}
+  for i, card in ipairs(cardList) do
+    if (card.metadata.type == "Event"
+        and card.metadata.traits ~= nil
+        and string.match(card.metadata.traits, "Insight")
+        and bondedList[card.metadata.id] == nil) then
+      table.insert(insightList, i)
     end
-    -- Process insights to move them to the hunch deck. This is done in reverse
-    -- order because the sorting needs to be reversed (deck sorts for face down)
-    -- Performance here may be an issue, as table.remove() is an O(n) operation
-    -- which makes the full shift O(n^2). But keep it simple unless it becomes
-    -- a problem
-    for i = #insightList, 1, -1 do
-      local moving = cardList[insightList[i]]
-      moving.zone = "SetAside5"
-      table.remove(cardList, insightList[i])
-      table.insert(cardList, moving)
-    end
-    if #insightList < 11 then
-      printToAll("Joe's hunch deck must have 11 cards but the deck only has " .. #insightList ..
-          " Insight events.", playerColor)
-    elseif #insightList > 11 then
-      printToAll("Moved all " .. #insightList ..
-          " Insight events to the hunch deck, reduce it to 11.", playerColor)
-    else
-      printToAll("Built Joe's hunch deck", playerColor)
-    end
+  end
+  -- Process insights to move them to the hunch deck. This is done in reverse
+  -- order because the sorting needs to be reversed (deck sorts for face down)
+  -- Performance here may be an issue, as table.remove() is an O(n) operation
+  -- which makes the full shift O(n^2). But keep it simple unless it becomes
+  -- a problem
+  for i = #insightList, 1, -1 do
+    local moving = cardList[insightList[i]]
+    moving.zone = "SetAside5"
+    table.remove(cardList, insightList[i])
+    table.insert(cardList, moving)
+  end
+
+  if #insightList < 11 then
+    printToAll("Joe's hunch deck must have 11 cards but the deck only has " .. #insightList .. " Insight events.", playerColor)
+  elseif #insightList > 11 then
+    printToAll("Moved all " .. #insightList .. " Insight events to the hunch deck, reduce it to 11.", playerColor)
+  else
+    printToAll("Built Joe's hunch deck", playerColor)
   end
 end
 
@@ -337,38 +337,36 @@ end
 ---@param cardList table Deck list being created
 ---@param playerColor string Color this deck is being loaded for
 function handleSpiritDeck(investigatorId, cardList, playerColor)
-  if investigatorId == "02004-p" or investigatorId == "02004-pb" then -- Parallel Jim Culver
-    local spiritList = {}
-    for i, card in ipairs(cardList) do
-      if card.metadata.id == "90053" or (
-          card.metadata.type == "Asset"
-          and card.metadata.traits ~= nil
-          and string.match(card.metadata.traits, "Ally")
-          and card.metadata.level ~= nil
-          and card.metadata.level < 3) then
-        table.insert(spiritList, i)
-      end
+  if investigatorId ~= "02004-p" and investigatorId ~= "02004-pb" then return end
+
+  local spiritList = {}
+  for i, card in ipairs(cardList) do
+    if card.metadata.id == "90053" or (
+        card.metadata.type == "Asset"
+        and card.metadata.traits ~= nil
+        and string.match(card.metadata.traits, "Ally")
+        and card.metadata.level ~= nil
+        and card.metadata.level < 3) then
+      table.insert(spiritList, i)
     end
-    -- Process allies to move them to the spirit deck. This is done in reverse
-    -- order because the sorting needs to be reversed (deck sorts for face down)
-    -- Performance here may be an issue, as table.remove() is an O(n) operation
-    -- which makes the full shift O(n^2). But keep it simple unless it becomes
-    -- a problem
-    for i = #spiritList, 1, -1 do
-      local moving = cardList[spiritList[i]]
-      moving.zone = "SetAside5"
-      table.remove(cardList, spiritList[i])
-      table.insert(cardList, moving)
-    end
-    if #spiritList < 10 then
-      printToAll("Jim's spirit deck must have 9 Ally assets but the deck only has " .. (#spiritList - 1) ..
-          " Ally assets.", playerColor)
-    elseif #spiritList > 11 then
-      printToAll("Moved all " .. (#spiritList - 1) ..
-          " Ally assets to the spirit deck, reduce it to 10 (including Vengeful Shade).", playerColor)
-    else
-      printToAll("Built Jim's spirit deck", playerColor)
-    end
+  end
+  -- Process allies to move them to the spirit deck. This is done in reverse
+  -- order because the sorting needs to be reversed (deck sorts for face down)
+  -- Performance here may be an issue, as table.remove() is an O(n) operation
+  -- which makes the full shift O(n^2). But keep it simple unless it becomes
+  -- a problem
+  for i = #spiritList, 1, -1 do
+    local moving = cardList[spiritList[i]]
+    moving.zone = "SetAside5"
+    table.remove(cardList, spiritList[i])
+    table.insert(cardList, moving)
+  end
+  if #spiritList < 10 then
+    printToAll("Jim's spirit deck must have 9 Ally assets but the deck only has " .. (#spiritList - 1) .. " Ally assets.", playerColor)
+  elseif #spiritList > 11 then
+    printToAll("Moved all " .. (#spiritList - 1) .. " Ally assets to the spirit deck, reduce it to 10 (including Vengeful Shade).", playerColor)
+  else
+    printToAll("Built Jim's spirit deck", playerColor)
   end
 end
 
@@ -419,8 +417,7 @@ function handleCustomizableUpgrades(cardList, customizations)
               elseif baseId == "09101" then
                 selectedUpgrades[row].text = convertGrizzledSelections(str)
               elseif baseId == "09079" then -- Living Ink skill selection
-                -- All skills, regardless of row, are placed in upgrade slot 1 as a comma-delimited
-                -- list
+                -- All skills, regardless of row, are placed in upgrade slot 1 as a comma-delimited list
                 if selectedUpgrades[1] == nil then
                   selectedUpgrades[1] = { }
                 end
