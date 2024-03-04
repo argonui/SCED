@@ -60,45 +60,39 @@ end
 -- Create the card indexes by iterating all cards in the bag, parsing their
 -- metadata, and creating the keyed lookup tables for the cards.  This is a
 -- coroutine which will spread the workload by processing 20 cards before
--- yielding.  Based on the current count of cards this will require
--- approximately 60 frames to complete.
+-- yielding.
 function buildIndex()
+  local start = os.time()
   local cardCount = 0
   indexingDone = false
-  if (self.getData().ContainedObjects == nil) then
-    return 1
-  end
-  for i, cardData in ipairs(self.getData().ContainedObjects) do
-    local cardMetadata = JSON.decode(cardData.GMNotes)
-    if (cardMetadata ~= nil) then
+
+  -- process the allcardsbag itself
+  for _, cardData in ipairs(self.getData().ContainedObjects) do
+    -- using the more efficient 'json.parse()' to speed this process up
+    local cardMetadata = json.parse(cardData.GMNotes)
+    if cardMetadata then
       addCardToIndex(cardData, cardMetadata)
       cardCount = cardCount + 1
-      if cardCount > 9 then
+      if cardCount > 19 then
         cardCount = 0
         coroutine.yield(0)
       end
     end
   end
-  local hotfixBags = getObjectsWithTag("AllCardsHotfix")
-  for _, hotfixBag in ipairs(hotfixBags) do
-    if (#hotfixBag.getObjects() > 0) then
-      for i, cardData in ipairs(hotfixBag.getData().ContainedObjects) do
-        if cardData.ContainedObjects then
-          for j, deepCardData in ipairs(cardData.ContainedObjects) do
-            local deepCardMetadata = JSON.decode(deepCardData.GMNotes)
-            if deepCardMetadata ~= nil then
-              addCardToIndex(deepCardData, deepCardMetadata)
-              cardCount = cardCount + 1
-              if cardCount > 9 then
-                cardCount = 0
-                coroutine.yield(0)
-              end
-            end
-          end
-        else
-          local cardMetadata = JSON.decode(cardData.GMNotes)
-          if cardMetadata ~= nil then
-            addCardToIndex(cardData, cardMetadata)
+  log(os.time() - start)
+
+  -- process hotfix bags (and the additional playercards bag)
+  for _, hotfixBag in ipairs(getObjectsWithTag("AllCardsHotfix")) do
+    local hotfixData = hotfixBag.getData()
+    if not hotfixData.ContainedObjects then break end
+
+    for _, cardData in ipairs(hotfixData.ContainedObjects) do
+      -- process containers
+      if cardData.ContainedObjects then
+        for _, deepCardData in ipairs(cardData.ContainedObjects) do
+          local deepCardMetadata = json.parse(deepCardData.GMNotes)
+          if deepCardMetadata ~= nil then
+            addCardToIndex(deepCardData, deepCardMetadata)
             cardCount = cardCount + 1
             if cardCount > 9 then
               cardCount = 0
@@ -106,11 +100,24 @@ function buildIndex()
             end
           end
         end
+      -- process single cards
+      else
+        local cardMetadata = json.parse(cardData.GMNotes)
+        if cardMetadata ~= nil then
+          addCardToIndex(cardData, cardMetadata)
+          cardCount = cardCount + 1
+          if cardCount > 9 then
+            cardCount = 0
+            coroutine.yield(0)
+          end
+        end
       end
     end
   end
+  log(os.time() - start)
   buildSupplementalIndexes()
   indexingDone = true
+  log(os.time() - start)
   return 1
 end
 
@@ -118,21 +125,19 @@ end
 ---@param cardData table TTS object data for the card
 ---@param cardMetadata table SCED metadata for the card
 function addCardToIndex(cardData, cardMetadata)
+  local dataTable = { data = cardData, metadata = cardMetadata }
+
   -- use the ZoopGuid as fallback if no id present
-  if cardMetadata.id == nil and cardMetadata.TtsZoopGuid then
-    cardMetadata.id = cardMetadata.TtsZoopGuid
-  end
-  cardIdIndex[cardMetadata.id] = { data = cardData, metadata = cardMetadata }
-  if (cardMetadata.alternate_ids ~= nil) then
+  cardIdIndex[cardMetadata.id or cardMetadata.TtsZoopGuid] = dataTable
+  if cardMetadata.alternate_ids ~= nil then
     for _, alternateId in ipairs(cardMetadata.alternate_ids) do
-      cardIdIndex[alternateId] = { data = cardData, metadata = cardMetadata }
+      cardIdIndex[alternateId] = dataTable
     end
   end
 end
 
 function buildSupplementalIndexes()
   for cardId, card in pairs(cardIdIndex) do
-    local cardData = card.data
     local cardMetadata = card.metadata
     -- If the ID key and the metadata ID don't match this is a duplicate card created by an
     -- alternate_id, and we should skip it
