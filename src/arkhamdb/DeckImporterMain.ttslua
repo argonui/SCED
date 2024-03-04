@@ -77,7 +77,7 @@ end
 --     handling for certain investigators
 ---@param bondedList table A table of cardID keys to meaningless values.  Card IDs in this list were added
 --     from a parent bonded card.
----@param customizations string ArkhamDB data for customizations on customizable cards
+---@param customizations table ArkhamDB data for customizations on customizable cards
 ---@param playerColor string Color name of the player mat to place this deck on (e.g. "Red")
 ---@param loadAltInvestigator string Contains the name of alternative art for the investigator ("normal", "revised" or "promo")
 function loadCards(slots, investigatorId, bondedList, customizations, playerColor, loadAltInvestigator)
@@ -101,7 +101,7 @@ function loadCards(slots, investigatorId, bondedList, customizations, playerColo
     handleAncestralKnowledge(cardsToSpawn)
     handleUnderworldMarket(cardsToSpawn, playerColor)
     handleHunchDeck(investigatorId, cardsToSpawn, bondedList, playerColor)
-    handleSpiritDeck(investigatorId, cardsToSpawn, playerColor)
+    handleSpiritDeck(investigatorId, cardsToSpawn, playerColor, customizations)
     handleCustomizableUpgrades(cardsToSpawn, customizations)
     handlePeteSignatureAssets(investigatorId, cardsToSpawn)
 
@@ -336,31 +336,45 @@ end
 ---    investigator may not be included in the cardList
 ---@param cardList table Deck list being created
 ---@param playerColor string Color this deck is being loaded for
-function handleSpiritDeck(investigatorId, cardList, playerColor)
+---@param customizations table Additional deck information
+function handleSpiritDeck(investigatorId, cardList, playerColor, customizations)
   if investigatorId ~= "02004-p" and investigatorId ~= "02004-pb" then return end
 
   local spiritList = {}
-  for i, card in ipairs(cardList) do
-    if card.metadata.id == "90053" or (
-        card.metadata.type == "Asset"
-        and card.metadata.traits ~= nil
-        and string.match(card.metadata.traits, "Ally")
-        and card.metadata.level ~= nil
-        and card.metadata.level < 3) then
-      table.insert(spiritList, i)
+  if customizations["extra_deck"] then
+    -- split by ","
+    for str in string.gmatch(customizations["extra_deck"], "([^,]+)") do
+      local card = allCardsBagApi.getCardById(str)
+      if card ~= nil then
+        table.insert(cardList, { data = card.data, metadata = card.metadata, zone = "SetAside5" })
+        table.insert(spiritList, str)
+      end
+    end
+  else
+    for i, card in ipairs(cardList) do
+      if card.metadata.id == "90053" or (
+          card.metadata.type == "Asset"
+          and card.metadata.traits ~= nil
+          and string.match(card.metadata.traits, "Ally")
+          and card.metadata.level ~= nil
+          and card.metadata.level < 3) then
+        table.insert(spiritList, i)
+      end
+    end
+
+    -- Process allies to move them to the spirit deck. This is done in reverse
+    -- order because the sorting needs to be reversed (deck sorts for face down)
+    -- Performance here may be an issue, as table.remove() is an O(n) operation
+    -- which makes the full shift O(n^2). But keep it simple unless it becomes
+    -- a problem
+    for i = #spiritList, 1, -1 do
+      local moving = cardList[spiritList[i]]
+      moving.zone = "SetAside5"
+      table.remove(cardList, spiritList[i])
+      table.insert(cardList, moving)
     end
   end
-  -- Process allies to move them to the spirit deck. This is done in reverse
-  -- order because the sorting needs to be reversed (deck sorts for face down)
-  -- Performance here may be an issue, as table.remove() is an O(n) operation
-  -- which makes the full shift O(n^2). But keep it simple unless it becomes
-  -- a problem
-  for i = #spiritList, 1, -1 do
-    local moving = cardList[spiritList[i]]
-    moving.zone = "SetAside5"
-    table.remove(cardList, spiritList[i])
-    table.insert(cardList, moving)
-  end
+
   if #spiritList < 10 then
     printToAll("Jim's spirit deck must have 9 Ally assets but the deck only has " .. (#spiritList - 1) .. " Ally assets.", playerColor)
   elseif #spiritList > 11 then
@@ -373,7 +387,7 @@ end
 -- For any customization upgrade cards in the card list, process the metadata from the deck to
 -- set the save state to show the correct checkboxes/text field values
 ---@param cardList table Deck list being created
----@param customizations string ArkhamDB data for customizations on customizable cards
+---@param customizations table ArkhamDB data for customizations on customizable cards
 function handleCustomizableUpgrades(cardList, customizations)
   for _, card in ipairs(cardList) do
     if card.metadata.type == "UpgradeSheet" then
