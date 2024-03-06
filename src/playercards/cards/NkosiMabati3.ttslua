@@ -1,0 +1,110 @@
+local playmatApi = require("playermat/PlaymatApi")
+local guidReferenceApi = require("core/GUIDReferenceApi")
+local chaosBagApi      = require("chaosbag/ChaosBagApi")
+
+function onSave()
+    return JSON.encode()
+end
+  
+function onLoad(savedData)
+    self.addContextMenuItem("Enable Helper", createButtons)
+    self.addContextMenuItem("Clear Helper", deleteButtons)
+end
+
+-- Create buttons to choose sigil
+function createButtons()
+    self.clearContextMenu()
+    self.addContextMenuItem("Clear Helper", deleteButtons)
+    self.UI.show("choose")
+    self.UI.show("sigils")
+end
+
+-- Delete button and remove sigil
+function deleteButtons()
+    self.clearContextMenu()
+    self.addContextMenuItem("Enable Helper", createButtons)
+    self.UI.hide("resolve_skull")
+end
+
+function chooseSigil(_,_,id)
+    if id == "Bless" then
+        sigil = "Bless"
+        self.UI.hide("sigils")
+        self.UI.hide("choose")
+        self.UI.show("resolve_bless")
+    elseif id == "Curse" then
+        sigil = "Curse"
+        self.UI.hide("sigils")
+        self.UI.hide("choose")
+        self.UI.show("resolve_curse")
+    else
+        sigil = "Skull"
+        self.UI.hide("sigils")
+        self.UI.hide("choose")
+        self.UI.show("resolve_skull")
+    end
+    log("Sigil is " .. sigil)
+    
+end
+
+function resolveSigil()
+    local closestMatColor = playmatApi.getMatColorByPosition(self.getPosition())
+    local mat = guidReferenceApi.getObjectByOwnerAndType(closestMatColor, "Playermat")
+    tokenType = sigil
+    local tokensInPlay = chaosBagApi.getTokensInPlay()
+    local chaosbag = chaosBagApi.findChaosBag()
+    for i, obj in ipairs(chaosbag.getObjects()) do
+        -- if there are any sigils in the bag
+        log(obj.name)
+        if obj.name == tokenType then
+            log(tokensInPlay)          
+            if tokensInPlay ~= nil then
+                for j, token in ipairs(tokensInPlay) do
+                    if token.getName() == "Cultist" then
+                        -- draw XML to return token to bag
+                        
+                        token.UI.setXmlTable({
+                            {
+                                tag="HorizontalLayout",
+                                attributes={
+                                    height=200,
+                                    width=600,
+                                    scale="0.3 0.3 1",
+                                    rotation="0 0 180",
+                                    position="0 120 -22",
+                                    color="rgba(0,0,0,0.7)",
+                                },
+                                children={
+                                    {
+                                        tag="Button",
+                                        attributes={
+                                            fontSize=100,
+                                            color="White",
+                                        },
+                                        id="hi",
+                                        value="Nkosi React",
+                                        onClick="drawSigil",
+                                    },
+                                }
+                            }
+                        })
+                        return
+                    end
+                end
+                broadcastToAll("Cultist token not found in play area", "Red")
+                return
+            end
+            
+        end
+        
+    end
+    broadcastToAll(tokenType .. " token not found in chaos bag", "Red")
+    
+end
+
+function drawSigil(_,_,id)
+    log(id)
+    --chaosBagApi.returnChaosTokenToBag(token)
+    tokenType = "Skull"
+    chaosBagApi.drawChaosToken(mat, true, tokenType, _)
+end
