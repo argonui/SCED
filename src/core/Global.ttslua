@@ -46,12 +46,6 @@ local library, requestObj, modMeta
 local acknowledgedUpgradeVersions = {}
 local contentToShow = "campaigns"
 local currentListItem = 1
-local xmlVisibility = {
-  downloadWindow = false,
-  optionPanel = false,
-  playAreaGallery = false,
-  updateNotification = false
-}
 local tabIdTable = {
   tab1 = "campaigns",
   tab2 = "scenarios",
@@ -302,12 +296,34 @@ function drawChaosToken(params)
 
     -- add the token to the list, compute new position based on list length
     tokenOffset[1] = tokenOffset[1] + (0.17 * #chaosTokens)
-    local token = chaosBag.takeObject({
-      index = 0,
-      position = params.mat.positionToWorld(tokenOffset),
-      rotation = params.mat.getRotation()
-    })
+    
+    local token
 
+    if params.guidToBeResolved then -- resolve a sealed token from a card
+      token = getObjectFromGUID(params.guidToBeResolved)
+      token.setPositionSmooth(params.mat.positionToWorld(tokenOffset))
+      local guid = token.getGUID()
+      local tokenType = token.getName()
+      if tokenType == "Bless" or tokenType == "Curse" then
+        blessCurseManagerApi.releasedToken(tokenType, guid)
+      end
+      tokenArrangerApi.layout()
+    else -- take a token from the bag, either specified or random
+      local takeParameters = {
+        position = params.mat.positionToWorld(tokenOffset),
+        rotation = params.mat.getRotation()
+      }
+
+      if params.tokenType then
+          for i, lookedForToken in ipairs(chaosBag.getObjects()) do
+              if lookedForToken.name == params.tokenType then
+                  takeParameters.index = i - 1
+              end
+          end
+      end
+
+      token = chaosBag.takeObject(takeParameters)
+    end 
     -- get data for token description
     local name = token.getName()
     local tokenData = mythosAreaApi.returnTokenData().tokenData or {}
@@ -603,7 +619,7 @@ function setChaosBagState(tokenList)
   -- reset bless / curse manager
   blessCurseManagerApi.removeTakenTokensAndReset()
 
-  printToAll("Chaos bag set to chosen difficulty.", "Green")
+  printToAll("Chaos Bag set to chosen difficulty.", "Green")
 end
 
 -- spawns the specified chaos token and puts it into the chaos bag
@@ -730,7 +746,7 @@ end
 
 -- click function for the "Custom URL" button in the playarea image gallery
 function onClick_customUrl(player)
-  onClick_toggleUi(_, "playareaGallery")
+  changeWindowVisibilityForColor(player.color, "playareaGallery")
   Wait.time(function()
     player.showInputDialog("Enter a custom URL for the playarea image", "", function(newURL)
       playAreaApi.updateSurface(newURL)
@@ -748,47 +764,41 @@ end
 -- the download button on the placeholder objects calls this to directly initiate a download
 ---@param params table contains url and guid of replacement object
 function placeholder_download(params)
+  function downloadCoroutine()
+    -- show progress bar
+    UI.setAttribute('download_progress', 'active', true)
+
+    -- update progress bar
+    while requestObj do
+      UI.setAttribute('download_progress', 'percentage', requestObj.download_progress * 100)
+      coroutine.yield(0)
+    end
+    UI.setAttribute('download_progress', 'percentage', 100)
+
+    -- wait 30 frames
+    for i = 1, 30 do
+      coroutine.yield(0)
+    end
+
+    -- hide progress bar
+    UI.setAttribute('download_progress', 'active', false)
+
+    -- hide download window
+    changeWindowVisibilityForColor(params.player.color, "downloadWindow", false)
+    return 1
+  end
+
   local url = SOURCE_REPO .. '/' .. params.url
   requestObj = WebRequest.get(url, function (request) contentDownloadCallback(request, params) end)
   startLuaCoroutine(Global, 'downloadCoroutine')
 end
 
-function downloadCoroutine()
-  -- show progress bar
-  UI.setAttribute('download_progress', 'active', true)
-
-  -- update progress bar
-  while requestObj do
-    UI.setAttribute('download_progress', 'percentage', requestObj.download_progress * 100)
-    coroutine.yield(0)
-  end
-  UI.setAttribute('download_progress', 'percentage', 100)
-
-  -- wait 30 frames
-  for i = 1, 30 do
-    coroutine.yield(0)
-  end
-
-  -- hide progress bar
-  UI.setAttribute('download_progress', 'active', false)
-
-  -- hide download window
-  if xmlVisibility.downloadWindow then
-    xmlVisibility.downloadWindow = false
-    UI.hide('downloadWindow')
-  end
-  return 1
-end
-
 -- spawns a bag that contains every object from the library
-function onClick_downloadAll()
+function onClick_downloadAll(player)
   broadcastToAll("Download initiated - this will take a few minutes!")
 
   -- hide download window
-  if xmlVisibility.downloadWindow then
-    xmlVisibility.downloadWindow = false
-    UI.hide('downloadWindow')
-  end
+  changeWindowVisibilityForColor(player.color, "downloadWindow", false)
 
   startLuaCoroutine(Global, "coroutineDownloadAll")
 end
@@ -804,9 +814,9 @@ function coroutineDownloadAll()
         "rotX": 0,
         "rotY": 270,
         "rotZ": 0,
-        "scaleX": 1.0,
-        "scaleY": 1.0,
-        "scaleZ": 1.0
+        "scaleX": 1,
+        "scaleY": 1,
+        "scaleZ": 1
       },
       "Nickname": "{{NICKNAME}}",
       "Bag": {
@@ -853,11 +863,11 @@ function coroutineDownloadAll()
 end
 
 -- spawns a placeholder box for the selected object
-function onClick_spawnPlaceholder()
+function onClick_spawnPlaceholder(player)
   -- get object references
   local item = library[contentToShow][currentListItem]
   local dummy = guidReferenceApi.getObjectByOwnerAndType("Mythos", "PlaceholderBoxDummy")
-  
+
   -- error handling
   if not item.boxsize or item.boxsize == "" or not item.boxart or item.boxart == "" then
     print("Error loading object.")
@@ -885,12 +895,16 @@ function onClick_spawnPlaceholder()
     rotation = {0, 270, 0},
     scale = scaleTable[item.boxsize],
   })
-  
+
   placeholder.setCustomObject({
     mesh = meshTable[item.boxsize],
     diffuse = item.boxart,
     material = 3
   })
+
+  if item.boxsize == "big" then
+    placeholder.addTag("LargeBox")
+  end
 
   placeholder.setColorTint({1, 1, 1, 71/255})
   placeholder.setName(item.name)
@@ -900,39 +914,84 @@ function onClick_spawnPlaceholder()
   Player.getPlayers()[1].pingTable(spawnPos)
 
   -- hide download window
-  if xmlVisibility.downloadWindow then
-    xmlVisibility.downloadWindow = false
-    UI.hide('downloadWindow')
-  end
+  changeWindowVisibilityForColor(player.color, "downloadWindow", false)
 end
 
 -- toggles the visibility of the respective UI
 ---@param player tts__Player Player that triggered this
----@param title string Name of the UI to toggle
-function onClick_toggleUi(player, title)
-  if title == "Navigation Overlay" then
+---@param windowId string Name of the UI to toggle
+function onClick_toggleUi(player, windowId)
+  if windowId == "Navigation Overlay" then
     navigationOverlayApi.cycleVisibility(player.color)
     return
-  -- hide the playareaGallery if visible
-  elseif title == "downloadWindow" and xmlVisibility.playAreaGallery then
-    onClick_toggleUi(_, "playAreaGallery")
-  -- hide the downloadWindow if visible
-  elseif title == "playAreaGallery" and xmlVisibility.downloadWindow then
-    onClick_toggleUi(_, "downloadWindow")
   end
 
-  if xmlVisibility[title] then
-    -- small delay to allow button click sounds to play
-    Wait.time(function() UI.hide(title) end, 0.1)
-  else
-    UI.show(title)
+  -- hide the playAreaGallery if visible
+  if windowId == "downloadWindow" then
+    changeWindowVisibilityForColor(player.color, "playAreaGallery", false)
+  -- hide the downloadWindow if visible
+  elseif windowId == "playAreaGallery" then
+    changeWindowVisibilityForColor(player.color, "downloadWindow", false)
   end
-  xmlVisibility[title] = not xmlVisibility[title]
+
+  changeWindowVisibilityForColor(player.color, windowId)
+end
+
+-- toggles the visibility of the specific window for the specified color
+---@param color string Player color to toggle the visibility for
+---@param windowId string ID of the XML element
+---@param overrideState? boolean Forcefully sets the new visibility
+---@return boolean visible Returns the new state of the visibility
+function changeWindowVisibilityForColor(color, windowId, overrideState)
+  -- current state
+  local colorString = UI.getAttribute(windowId, "visibility") or ""
+
+  -- parse the visibility string
+  local visible = false
+  local viewers = {}
+  for str in string.gmatch(colorString, "%a+") do
+    table.insert(viewers, str)
+    if str == color then
+      visible = true
+    end
+  end
+
+  -- add / remove the color as viewer
+  if visible == true then
+    removeValueFromTable(viewers, color)
+  elseif visible == false then
+    table.insert(viewers, color)
+  end
+  visible = not visible
+
+  -- resolve override
+  if overrideState == true and visible == false then
+    table.insert(viewers, color)
+    visible = true
+  elseif overrideState == false and visible == true then
+    removeValueFromTable(viewers, color)
+    visible = false
+  end
+
+  -- construct new string
+  local newColorString = ""
+  for _, viewer in ipairs(viewers) do
+    newColorString = newColorString .. viewer .. "|"
+  end
+
+  -- remove last delimiter
+  newColorString = newColorString:sub(1, -2)
+
+  -- update the visibility of the XML
+  UI.setAttribute(windowId, "visibility", newColorString)
+  UI.setAttribute(windowId, "active", newColorString ~= "")
+
+  return visible
 end
 
 -- forwards the call to the onClick function
-function togglePlayAreaGallery()
-  onClick_toggleUi(_, "playAreaGallery")
+function togglePlayAreaGallery(playerColor)
+  changeWindowVisibilityForColor(playerColor, "playareaGallery")
 end
 
 -- updates the preview window
@@ -1044,10 +1103,29 @@ function updateDownloadItemList()
   end
 
   contentList.attributes.height = #contentList.children * 27
-  UI.setXmlTable(globalXml)
+  updateGlobalXml(globalXml)
 
   -- select the first item
   Wait.time(onClick_select, 0.2)
+end
+
+-- this helper function updates the global XML while preserving the visibility of windows
+function updateGlobalXml(newXml)
+  -- preserve visibility settings for these elements
+  local windowIdList = {
+    "playAreaGallery",
+    "downloadWindow",
+    "optionPanel"
+  }
+
+  -- get current state and update newXml
+  for _, windowId in ipairs(windowIdList) do
+    local element = getXmlTableElementById(newXml, windowId)
+    element.attributes.active = UI.getAttribute(windowId, "active")
+    element.attributes.visibility = UI.getAttribute(windowId, "visibility")
+  end
+
+  UI.setXmlTable(newXml)
 end
 
 -- called after the webrequest of downloading an item
@@ -1341,23 +1419,13 @@ function applyOptionPanelChange(id, state)
 
   -- option: Show hand helper for each player
   elseif id == "showHandHelper" then
-    local helperName = "Hand Helper"
-    local spawnData = playmatApi.getHelperSpawnData("All", helperName)
-    local i = 0
-    for color, data in pairs(spawnData) do
-      i = i + 1
-      optionPanel[id][i] = spawnOrRemoveHelper(state, helperName, data.position, data.rotation, color)
-    end
+    spawnOrRemoveHelperForPlayermats("Hand Helper", state)
+    optionPanel[id] = state
 
   -- option: Show search assistant for each player
   elseif id == "showSearchAssistant" then
-    local helperName = "Search Assistant"
-    local spawnData = playmatApi.getHelperSpawnData("All", helperName)
-    local i = 0
-    for color, data in pairs(spawnData) do
-      i = i + 1
-      optionPanel[id][i] = spawnOrRemoveHelper(state, helperName, data.position, data.rotation, color)
-    end
+    spawnOrRemoveHelperForPlayermats("Search Assistant", state)
+    optionPanel[id] = state
 
   -- option: Show attachment helper
   elseif id == "showAttachmentHelper" then
@@ -1373,6 +1441,15 @@ function applyOptionPanelChange(id, state)
   end
 end
 
+-- spawns or removes a helper object for all playermats
+---@param helperName string Name of the helper object
+---@param state boolean Contains the state of the option: true = spawn it, false = remove it
+function spawnOrRemoveHelperForPlayermats(helperName, state)
+  for color, data in pairs(playmatApi.getHelperSpawnData("All", helperName)) do
+    spawnOrRemoveHelper(state, helperName, data.position, data.rotation, color)
+  end
+end
+
 -- handler for spawn / remove functions of helper objects
 ---@param state boolean Contains the state of the option: true = spawn it, false = remove it
 ---@param name string Name of the helper object
@@ -1381,14 +1458,11 @@ end
 ---@param owner? string Owner of the object (defaults to "Mythos")
 ---@return string|nil GUID GUID of the spawnedObj (or nil if object was removed)
 function spawnOrRemoveHelper(state, name, position, rotation, owner)
-  if (type(state) == "table" and #state == 0) then
-    return removeHelperObject(name)
-  elseif state then
+  if state then
     Player.getPlayers()[1].pingTable(position)
     local spawnedGUID = spawnHelperObject(name, position, rotation).getGUID()
     local cleanName = name:gsub("%s+", "")
     guidReferenceApi.editIndex(owner or "Mythos", cleanName, spawnedGUID)
-    return spawnedGUID
   else
     return removeHelperObject(name)
   end
@@ -1399,7 +1473,7 @@ end
 ---@param position tts__Vector Desired position of the object
 ---@param rotation? tts__Vector Desired rotation of the object (defaults to object's rotation)
 function spawnHelperObject(name, position, rotation)
-  local sourceBag = guidReferenceApi.getObjectByOwnerAndType("Mythos","OptionPanelSource")
+  local sourceBag = guidReferenceApi.getObjectByOwnerAndType("Mythos", "OptionPanelSource")
 
   -- error handling for missing sourceBag
   if not sourceBag then
@@ -1428,41 +1502,24 @@ end
 -- removes the specified tool (by name)
 ---@param name string Object that should be removed
 function removeHelperObject(name)
-  -- links objects name to the respective option name (to grab the GUID for removal)
-  local referenceTable = {
-    ["Clean Up Helper"]       = "showCleanUpHelper",
-    ["Hand Helper"]           = "showHandHelper",
-    ["Search Assistant"]      = "showSearchAssistant",
-    ["Displacement Tool"]     = "showDisplacementTool",
-    ["Attachment Helper"]     = "showAttachmentHelper",
-    ["CYOA Campaign Guides"]  = "showCYOA"
-  }
-
-  local data = optionPanel[referenceTable[name]]
-
-  -- if there is a GUID stored, remove that object
-  if type(data) == "string" then
-    local obj = getObjectFromGUID(data)
-    if obj then obj.destruct() end
-
-  -- if it is a table (e.g. for the "Hand Helper", remove all of them)
-  elseif type(data) == "table" then
-    for _, guid in pairs(data) do
-      local obj = getObjectFromGUID(guid)
-      if obj then obj.destruct() end
-    end
+  local cleanName = name:gsub("%s+", "")
+  for _, obj in pairs(guidReferenceApi.getObjectsByType(cleanName)) do
+    obj.destruct()
   end
 end
 
 -- loads saved options
+---@param newOptions table Contains the new state for the option panel
 function loadSettings(newOptions)
-  -- TO-DO: instead of overriding, keep original table and only add new data
-  -- this will ensure that new options aren't set to nil when importing an old state
-  optionPanel = newOptions
-  updateOptionPanelState()
-  for id, state in pairs(optionPanel) do
-    applyOptionPanelChange(id, state)
+  for id, state in pairs(newOptions) do
+    if optionPanel[id] ~= state then
+      optionPanel[id] = state
+      applyOptionPanelChange(id, state)
+    end
   end
+
+  -- update XML UI state
+  updateOptionPanelState()
 end
 
 -- loads the default options
@@ -1479,7 +1536,8 @@ function onClick_defaultSettings()
   -- clean reset of variables
   optionPanel = {
     cardLanguage = "en",
-    playAreaConnectionColor = { 0.4, 0.4, 0.4, 1 },
+    changePlayAreaImage = false,
+    playAreaConnectionColor = { a = 1, b = 0.4, g = 0.4, r = 0.4 },
     playAreaConnections = true,
     playAreaSnapTags = true,
     showAttachmentHelper = false,
@@ -1487,8 +1545,8 @@ function onClick_defaultSettings()
     showCYOA = false,
     showDisplacementTool = false,
     showDrawButton = false,
-    showHandHelper = {},
-    showSearchAssistant = {},
+    showHandHelper = false,
+    showSearchAssistant = false,
     showTitleSplash = true,
     useClueClickers = false,
     useResourceCounters = "disabled",
@@ -1588,5 +1646,17 @@ function onClick_notification(_, parameter)
   end
   UI.hide("FinnIcon")
   UI.hide("updateNotification")
-  xmlVisibility["updateNotification"] = false
+end
+
+---------------------------------------------------------
+-- Utility functions
+---------------------------------------------------------
+
+function removeValueFromTable(t, val)
+  for i, v in ipairs(t) do
+    if v == val then
+      table.remove(t, i)
+      break
+    end
+  end
 end

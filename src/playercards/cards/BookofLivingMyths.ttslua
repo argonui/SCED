@@ -1,0 +1,108 @@
+local chaosBagApi      = require("chaosbag/ChaosBagApi")
+local guidReferenceApi = require("core/GUIDReferenceApi")
+local playmatApi       = require("playermat/PlaymatApi")
+
+function onLoad(savedData)
+  self.addContextMenuItem("Enable Helper", createButtons)
+  if savedData ~= "" then
+    local loadedData = JSON.decode(savedData)
+    if loadedData.loopId then
+      createButtons()
+    end
+  end
+end
+
+function deleteButtons()
+  self.clearContextMenu()
+  self.addContextMenuItem("Enable Helper", createButtons)
+  self.UI.setAttribute("inactives", "active", false)
+  self.UI.setAttribute("actives", "active", false)
+  if loopId then Wait.stop(loopId) end
+  loopId = nil
+  self.script_state = JSON.encode({ loopId = loopId })
+end
+
+-- create buttons and begin monitoring chaos bag for curse and bless tokens
+function createButtons()
+  self.clearContextMenu()
+  self.addContextMenuItem("Clear Helper", deleteButtons)
+  self.UI.setAttribute("inactives", "active", true)
+  self.UI.setAttribute("actives", "active", true)
+  loopId = Wait.time(maybeUpdateButtonState, 1, -1)
+  self.script_state = JSON.encode({ loopId = loopId })
+end
+
+function resolveToken(player, _, tokenType)
+  local matColor
+  if player.color == "Black" then
+    matColor = playmatApi.getMatColorByPosition(self.getPosition())
+  else
+    matColor = playmatApi.getMatColor(player.color)
+  end
+
+  local mat = guidReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
+  chaosBagApi.drawChaosToken(mat, true, tokenType)
+end
+
+-- count tokens in the bag and show appropriate buttons
+function maybeUpdateButtonState()
+  local numInBag = getBlessCurseInBag()
+  local state = { Bless = false, Curse = false }
+
+  if numInBag.Bless >= numInBag.Curse and numInBag.Bless > 0 then
+    state.Bless = true
+  end
+
+  if numInBag.Curse >= numInBag.Bless and numInBag.Curse > 0 then
+    state.Curse = true
+  end
+
+  setUiState(state)
+end
+
+function getBlessCurseInBag()
+  local numInBag = { Bless = 0, Curse = 0 }
+  local chaosBag = chaosBagApi.findChaosBag()
+
+  for _, v in ipairs(chaosBag.getObjects()) do
+    if v.name == "Bless" then
+      numInBag.Bless = numInBag.Bless + 1
+    elseif v.name == "Curse" then
+      numInBag.Curse = numInBag.Curse + 1
+    end
+  end
+
+  return numInBag
+end
+
+function setUiState(params)
+  -- set bless state
+  if params.Bless then
+    self.UI.show("Bless")
+    self.UI.hide("inactiveBless")
+  else
+    self.UI.show("inactiveBless")
+    self.UI.hide("Bless")
+  end
+
+  -- set curse state
+  if params.Curse then
+    self.UI.show("Curse")
+    self.UI.hide("inactiveCurse")
+  else
+    self.UI.show("inactiveCurse")
+    self.UI.hide("Curse")
+  end
+end
+
+function errorMessage()
+  local numInBag = getBlessCurseInBag()
+
+  if numInBag.Bless == 0 and numInBag.Curse == 0 then
+    broadcastToAll("There are no Bless or Curse tokens in the chaos bag.", "Red")
+  elseif numInBag.Bless > numInBag.Curse then
+    broadcastToAll("There are more Bless tokens than Curse tokens in the chaos bag.", "Red")
+  else
+    broadcastToAll("There are more Curse tokens than Bless tokens in the chaos bag.", "Red")
+  end
+end
