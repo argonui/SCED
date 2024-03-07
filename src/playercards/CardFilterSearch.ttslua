@@ -23,7 +23,7 @@ BUTTON_LABELS["location"][true]   = "Mode: TARGET BELOW"
 BUTTON_LABELS["location"][false]  = "Mode: TARGET RIGHT"
 
 local filterSetting = true
-local targetLocation = true
+local locationSetting = true
 
 local buttonParameters          = {}
 buttonParameters.function_owner = self
@@ -76,17 +76,11 @@ function onLoad()
     self.createButton(buttonParameters)
     -- index 2: button for location mode
     buttonParameters.click_function = "locationMode"
-    buttonParameters.label          = BUTTON_LABELS["location"][targetLocation]
+    buttonParameters.label          = BUTTON_LABELS["location"][locationSetting]
     buttonParameters.position       = { 1, 0.1, -0.5 }
     self.createButton(buttonParameters)
 
     self.createInput(inputParameters)
-
-    -- self.addContextMenuItem("More Information", function()
-    --     printToAll("------------------------------", "White")
-    --     printToAll("Search-A-Card v" .. information["version"] .. " by Chr1Z", "Orange")
-    --     printToAll("last updated: " .. information["last_updated"], "White")
-    -- end)
 end
 
 
@@ -117,13 +111,13 @@ function filterMode(_, _, _)
 end
 
 function locationMode(_, _, _)
-  targetLocation = not targetLocation
-  self.editButton({ index = 2, label = BUTTON_LABELS["location"][targetLocation] })
+  locationSetting = not locationSetting
+  self.editButton({ index = 2, label = BUTTON_LABELS["location"][locationSetting] })
 end
 
 function newFilterSearch(_, _, alt_click)
   if alt_click then
-    if targetLocation then
+    if locationSetting then
       playerCardPanelApi.deleteAll("default")
     else
       playerCardPanelApi.deleteAll("middle")
@@ -139,7 +133,7 @@ end
 
 function existingFilterSearch(_, _, alt_click)
   if alt_click then
-    if targetLocation then
+    if locationSetting then
       playerCardPanelApi.deleteAll("default")
     else
       playerCardPanelApi.deleteAll("middle")
@@ -152,7 +146,7 @@ function existingFilterSearch(_, _, alt_click)
   end
   local placedCards = {}
   local cardGUIDs = {}
-  if targetLocation then
+  if locationSetting then
     cardGUIDs = playerCardPanelApi.getPlacedCards("default")
   else
     cardGUIDs = playerCardPanelApi.getPlacedCards("middle")
@@ -174,41 +168,42 @@ function filterSearch(filterString, startingCards)
       return
   end
 
-  local targetLoc
-  local targetSta
+  local targetLocation
+  local targetState
 
-  if targetLocation then
-    targetLoc = "other"
-    targetSta = "default"
+  if locationSetting then
+    targetLocation = "other"
+    targetState = "default"
   else
-    targetLoc = "deckBuilder"
-    targetSta = "middle"
+    targetLocation = "deckBuilder"
+    targetState = "middle"
   end
 
   playerCardPanelApi.spawnCardList({
     cardList = createFilterCardList({tokenList = tokenizeString(filterString), startingCardSet = startingCards}),
     name = "filterSearch",
-    startPos = targetLoc,
+    startPos = targetLocation,
     spread = true,
     spreadCols = 20,
-    targetState = targetSta
+    targetState = targetState
   })
 end
 
+
+
 function tokenizeString(filterString)
   -- Create a list to store tokens
-  local tokens = {
-  }
+  local tokens = {}
 
   -- Iterate over the input_query and tokenize
   local current = ""
-  local inside_string = false
+  local insideString = false
   for char in filterString:gmatch('.') do
       if char == '"' then
-        inside_string = not inside_string
+        insideString = not insideString
         char = ''
       end
-      if char == ' ' and not inside_string then
+      if char == ' ' and not insideString then
           -- Space separates tokens, add the current token to the list
           if current ~= "" then
               table.insert(tokens, current)
@@ -369,12 +364,6 @@ function createFilterCardList(params)
     broadcastToAll("No matches found", Color.Yellow)
     return {}
   end
-  -- for cardId, _ in pairs(filterCardList) do
-  --   local card = allCardsBagApi.getCardById(cardId)
-  --   if card ~= nil then
-  --     table.insert(finalList, { data = card.data, metadata = card.metadata})
-  --   end
-  -- end
 
   return allCardsBagApi.sortCardsTable(finalList)
 end
