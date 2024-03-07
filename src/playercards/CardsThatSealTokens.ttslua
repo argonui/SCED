@@ -75,6 +75,8 @@ Thus it should be implemented like this:
 
 local blessCurseManagerApi = require("chaosbag/BlessCurseManagerApi")
 local chaosBagApi = require("chaosbag/ChaosBagApi")
+local guidReferenceApi = require("core/GUIDReferenceApi")
+local playmatApi = require("playermat/PlaymatApi")
 local tokenArrangerApi = require("accessories/TokenArrangerApi")
 
 local sealedTokens = {}
@@ -99,6 +101,15 @@ function generateContextMenu()
     self.addContextMenuItem("Release " .. SHOW_MULTI_RELEASE .. " token(s)", releaseMultipleTokens)
   else
     self.addContextMenuItem("Release token(s)", releaseAllTokens)
+  end
+
+  if RESOLVE_TOKEN then
+    local firstTokenType
+    for tokenType, val in pairs(VALID_TOKENS) do
+      firstTokenType = tokenType
+      break
+    end
+    self.addContextMenuItem("Resolve " .. firstTokenType, resolveSealed)
   end
 
   -- conditional release option
@@ -261,4 +272,16 @@ function returnToken(guid)
   if name == "Bless" or name == "Curse" then
     blessCurseManagerApi.returnedToken(name, guid)
   end
+end
+
+-- resolves sealed token as if it came from the chaos bag
+function resolveSealed()
+  if #sealedTokens == 0 then
+    broadcastToAll("No tokens sealed.", "Red")
+    return
+  end
+  local closestMatColor = playmatApi.getMatColorByPosition(self.getPosition())
+  local mat = guidReferenceApi.getObjectByOwnerAndType(closestMatColor, "Playermat")
+  local guidToBeResolved = table.remove(sealedTokens)
+  chaosBagApi.drawChaosToken(mat, true, _, guidToBeResolved)
 end

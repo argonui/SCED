@@ -105,9 +105,9 @@ do
           if (adbCardInfo.xp ~= nil and adbCardInfo.xp > 0) then
             cardName = cardName .. " (" .. adbCardInfo.xp .. ")"
           end
-          internal.maybePrint("Card not found: " .. cardName .. ", ArkhamDB ID " .. cardId, playerColor)
+          internal.maybePrint("Card not found: " .. cardName .. ", card ID " .. cardId, playerColor)
         else
-          internal.maybePrint("Card not found in ArkhamDB, ID " .. cardId, playerColor)
+          internal.maybePrint("Card not found in ArkhamDB/Index, ID " .. cardId, playerColor)
         end
       end)
   end
@@ -137,11 +137,13 @@ do
 
     internal.maybePrint(table.concat({ "Found decklist: ", deck.name }), playerColor)
     local slots = deck.slots
+
+    -- handles alternative investigators (parallel, promo or revised art)
     local loadAltInvestigator = "normal"
     if loadInvestigators then
       loadAltInvestigator = internal.addInvestigatorCards(deck, slots)
     end
-
+    
     internal.maybeModifyDeckFromDescription(slots, deck.description_md)
 
     local customizations = {}
@@ -209,6 +211,7 @@ do
     local investigatorId = deck.investigator_code
     slots[investigatorId .. "-m"] = 1
     local deckMeta = JSON.decode(deck.meta)
+
     -- handling alternative investigator art and parallel investigators
     local loadAltInvestigator = "normal"
     if deckMeta ~= nil then
@@ -307,14 +310,14 @@ do
   -- Processes the deck description from ArkhamDB and modifies the slot list accordingly
   ---@param slots table The slot list for cards in this deck. Table key is the cardId, value is the number
   ---@param description string The deck desription from ArkhamDB
-  internal.maybeModifyDeckFromDescription = function(slots, description)
+  internal.maybeModifyDeckFromDescription = function(slots, description, playerColor)
     -- check for import instructions
     local pos = string.find(description, "++SCED import instructions++")
     if not pos then return end
 
-    -- remove everything before instructions (including newline)
-    local tempStr = string.sub(description, pos + 30)
-    
+    -- remove everything before instructions
+    local tempStr = string.sub(description, pos)
+
     -- parse each line in instructions
     for line in tempStr:gmatch("([^\n]+)") do
       -- remove dashes at the start
@@ -334,7 +337,10 @@ do
         break
       end
 
-      if instructor == "" or (instructor ~= "add:" and instructor ~= "remove:") then break end
+      -- go to the next line if no valid instructor found
+      if instructor ~= "add:" and instructor ~= "remove:" then
+        goto nextLine
+      end
 
       -- remove instructor from line
       line = line:gsub(instructor, "")
@@ -344,14 +350,24 @@ do
         if instructor == "add:" then
           slots[str] = (slots[str] or 0) + 1
         elseif instructor == "remove:" then
-          if slots[str] == nil then break end
-          slots[str] = math.max(slots[str] - 1, 0)
+          if slots[str] == nil then
+            internal.maybePrint("Tried to remove card ID " .. str .. ", but didn't find card in deck.", playerColor)
+          else
+            slots[str] = math.max(slots[str] - 1, 0)
 
-          if slots[str] == 0 then
-            slots[str] = nil
+            -- fully remove cards that have a quantity of 0
+            if slots[str] == 0 then
+              slots[str] = nil
+
+              -- also remove related minicard
+              slots[str .. "-m"] = nil
+            end
           end
         end
       end
+
+      -- jump mark at the end of the loop
+      ::nextLine::
     end
   end
 
