@@ -1,7 +1,7 @@
---[[ Cleans up the table for the next scenario in a campaign:
-- sets counters to default values (resources and doom) or trauma values (health and sanity, if not disabled) from campaign log
-- puts everything on playmats and hands into respective trashcans
-- use the IGNORE_TAG to exclude objects from tidying (default: "CleanUpHelper_Ignore")]]
+-- Cleans up the table for the next scenario in a campaign:
+-- sets counters to default values (resources and doom) or trauma values (health and sanity, if not disabled) from campaign log
+-- puts everything on playmats and hands into respective trashcans
+-- use the IGNORE_TAG to exclude objects from tidying (default: "CleanUpHelper_Ignore")
 
 local blessCurseManagerApi = require("chaosbag/BlessCurseManagerApi")
 local chaosBagApi          = require("chaosbag/ChaosBagApi")
@@ -29,7 +29,6 @@ options["removeDrawnLines"]     = false
 
 local buttonParameters          = {}
 buttonParameters.function_owner = self
-
 
 ---------------------------------------------------------
 -- option loading and GUI setup
@@ -114,7 +113,7 @@ function cleanUp(_, color)
   ignoreCustomDataHelper()
   getTrauma()
 
-  -- delay to account for potential state change
+  -- delay to account for potential state change of campaign log
   Wait.time(updateCounters, 0.2)
 
   resetDoomCounter()
@@ -255,7 +254,7 @@ function tidyPlayareaCoroutine()
     for _, obj in ipairs(playAreaZone.getObjects()) do
       -- ignore these elements
       if obj.hasTag(IGNORE_TAG) == false
-          and obj.locked == false 
+          and obj.locked == false
           and obj.interactable == true then
         coroutine.yield(0)
         trash.putObject(obj)
@@ -279,7 +278,7 @@ function tidyPlayerMatCoroutine()
       -- get respective trash
       local trash = guidReferenceApi.getObjectByOwnerAndType(COLORS[i], "Trash")
       if trash == nil then
-        printToAll("Trashcan for " .. COLORS[i] .. " playmat could not be found!", "Red")
+        printToAll("Trashcan for " .. COLORS[i] .. " playmat could not be found! Skipping this playermat.", "Yellow")
         goto continue
       end
 
@@ -296,26 +295,39 @@ function tidyPlayerMatCoroutine()
         if obj.hasTag(IGNORE_TAG) == false
             and obj.getDescription() ~= "Action Token"
             and obj.hasTag("chaosBag") == false
-            and obj.locked == false 
+            and obj.locked == false
             and obj.interactable == true then
           coroutine.yield(0)
           trash.putObject(obj)
 
-        -- flip action tokens back to ready
-        elseif obj.getDescription() == "Action Token" and obj.is_face_down then
-          obj.flip()
-        end
-      end
+        -- action token handling
+        elseif obj.getDescription() == "Action Token" then
+          -- move the small action token to the proper position
+          if obj.getScale().x < 0.4 then
+            local pos = playmatApi.transformLocalPosition(Vector(-0.865, 0.1, -0.28), COLORS[i])
+            obj.setPosition(pos)
+          end
 
-      -- reset "activeInvestigatorId"
-      if i < 5 then
-        local playermat = guidReferenceApi.getObjectByOwnerAndType(COLORS[i], "Playermat")
-        if playermat then
-          playermat.setVar("activeInvestigatorId", "00000")
+          -- flip action tokens back to ready
+          if obj.is_face_down then
+            obj.flip()
+          end
+
+          -- reset action token state
+          local stateId = obj.getStateId()
+          if stateId ~= -1 and stateId ~= 6 then
+            obj.setState(6)
+          end
         end
       end
     end
     ::continue::
+  end
+
+  -- reset "activeInvestigatorId"
+  local playerMats = guidReferenceApi.getObjectsByType("Playermat")
+  for _, mat in pairs(playerMats) do
+    mat.setVar("activeInvestigatorId", "00000")
   end
 
   -- reset spawned data
