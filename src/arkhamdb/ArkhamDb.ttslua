@@ -141,29 +141,49 @@ do
     -- be changed, as later steps may act on cards added in each.  For example, a random weakness or
     -- investigator may have bonded cards or taboo entries, and should be present
     local slots = deck.slots
-    internal.maybeDrawRandomWeakness(slots, playerColor)
 
     -- handles alternative investigators (parallel, promo or revised art)
     local loadAltInvestigator = "normal"
     if loadInvestigators then
       loadAltInvestigator = internal.addInvestigatorCards(deck, slots)
     end
+    
+    internal.maybeModifyDeckFromDescription(slots, deck.description_md)
 
-    internal.maybeModifyDeckFromDescription(slots, deck.description_md, playerColor)
-    internal.maybeAddSummonedServitor(slots)
-    internal.maybeAddOnTheMend(slots, playerColor)
-    internal.maybeAddRealityAcidReference(slots)
-    local bondList = internal.extractBondedCards(slots)
-    internal.checkTaboos(deck.taboo_id, slots, playerColor)
-    internal.maybeAddUpgradeSheets(slots)
-
-    -- get upgrades for customizable cards
     local customizations = {}
     if deck.meta then
       customizations = JSON.decode(deck.meta)
     end
 
-    callback(slots, deck.investigator_code, bondList, customizations, playerColor, loadAltInvestigator)
+    local deckData = {
+      slots = slots,
+      taboo_id = deck.taboo_id,
+      investigatorId = deck.investigator_code,
+      customizations = customizations,
+      playerColor = playerColor,
+      loadAltInvestigator = loadAltInvestigator
+    }
+
+    ArkhamDb.adjustDeck(deckData, callback)
+  end
+
+  ArkhamDb.adjustDeck = function(deckData, callback)
+    -- Initialize deck slot table and perform common transformations.  The order of these should not
+    -- be changed, as later steps may act on cards added in each.  For example, a random weakness or
+    -- investigator may have bonded cards or taboo entries, and should be present
+    local slots = deckData.slots
+    internal.maybeDrawRandomWeakness(slots, playerColor)
+    internal.maybeAddSummonedServitor(slots)
+    internal.maybeAddOnTheMend(slots, playerColor)
+    internal.maybeAddRealityAcidReference(slots)
+    local bondList = internal.extractBondedCards(slots)
+    internal.checkTaboos(deckData.taboo_id, slots, playerColor)
+    internal.maybeAddUpgradeSheets(slots)
+
+    -- get upgrades for customizable cards
+    
+
+    callback(slots, deckData.investigatorId, bondList, deckData.customizations, deckData.playerColor, deckData.loadAltInvestigator)
   end
 
   -- Checks to see if the slot list includes the random weakness ID. If it does,
