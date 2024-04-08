@@ -122,6 +122,7 @@ function cleanUp(_, color)
   discardHands()
   chaosBagApi.returnChaosTokens()
   chaosBagApi.releaseAllSealedTokens(color)
+  maybeIgnoreTekeliliCards()
 
   printToAll("Tidying main play area...", "White")
   startLuaCoroutine(self, "tidyPlayareaCoroutine")
@@ -238,6 +239,18 @@ function discardHands()
   end
 end
 
+-- maybe ignore cards / decks on the tekelili helper
+function maybeIgnoreTekeliliCards()
+  local tekeliliHelper = getTekeliliHelper()
+
+  if tekeliliHelper then
+    local searchResult = searchLib.onObject(tekeliliHelper, "isCardOrDeck")
+    for _, obj in ipairs(searchResult) do
+      obj.addTag(IGNORE_TAG)
+    end
+  end
+end
+
 -- clean up for play area
 function tidyPlayareaCoroutine()
   local trash = guidReferenceApi.getObjectByOwnerAndType("Mythos", "Trash")
@@ -269,6 +282,8 @@ end
 
 -- clean up for the four playermats and the mythos area
 function tidyPlayerMatCoroutine()
+  local tekeliliHelper = getTekeliliHelper()
+
   for i = 1, 5 do
     -- only continue for playermat (1-4) if option enabled
     if options["tidyPlayermats"] or i == 5 then
@@ -280,6 +295,11 @@ function tidyPlayerMatCoroutine()
       if trash == nil then
         printToAll("Trashcan for " .. COLORS[i] .. " playmat could not be found! Skipping this playermat.", "Yellow")
         goto continue
+      end
+
+      -- maybe store tekelili cards
+      if tekeliliHelper and i ~= 5 then
+        tekeliliHelper.call("storeTekelili", COLORS[i])
       end
 
       local objList
@@ -320,8 +340,21 @@ function tidyPlayerMatCoroutine()
           end
         end
       end
+
+      -- maybe respawn tekelili cards
+      if tekeliliHelper and i ~= 5 then
+        tekeliliHelper.call("spawnStoredTekelili", COLORS[i])
+      end
     end
     ::continue::
+  end
+
+  -- maybe remove ignore tag from cards / decks on the tekelili helper
+  if tekeliliHelper then
+    local searchResult = searchLib.onObject(tekeliliHelper, "isCardOrDeck")
+    for _, obj in ipairs(searchResult) do
+      obj.removeTag(IGNORE_TAG)
+    end
   end
 
   -- reset "activeInvestigatorId"
@@ -339,4 +372,13 @@ function tidyPlayerMatCoroutine()
 
   printToAll("Clean up completed!", "Green")
   return 1
+end
+
+-- used to detect the "Tekeli-li Helper" for Edge of the Earth
+function getTekeliliHelper()
+  for _, obj in ipairs(getObjects()) do
+    if obj.getName() == "Tekeli-li Helper" then
+      return obj
+    end
+  end
 end
