@@ -257,6 +257,14 @@ function returnChaosTokenToBag(token)
   end
 end
 
+function getTokenIndex(token)
+  for i, obj in ipairs(chaosTokens) do
+    if obj == token then
+      return i
+    end
+  end
+end
+
 -- Checks to see if the chaos bag can be manipulated.  If a player is searching the bag when tokens
 -- are drawn or replaced a TTS bug can cause those tokens to vanish.  Any functions which change the
 -- contents of the bag should check this method before doing so.
@@ -295,13 +303,24 @@ function drawChaosToken(params)
     chaosBag.shuffle()
 
     -- add the token to the list, compute new position based on list length
-    tokenOffset[1] = tokenOffset[1] + (0.17 * #chaosTokens)
+    if params.returnedToken then
+      indexOfReturnedToken = getTokenIndex(params.returnedToken)
+      tokenPosition = params.returnedToken.getPosition()
+      if #chaosTokens > indexOfReturnedToken then
+        tokenRotation = params.mat.getRotation() + Vector(0, 0, -8)
+      end
+      returnChaosTokenToBag(params.returnedToken)
+    else 
+      tokenOffset[1] = tokenOffset[1] + (0.17 * #chaosTokens)
+      tokenPosition = params.mat.positionToWorld(tokenOffset)
+      tokenRotation = params.mat.getRotation()
+    end
     
     local token
 
     if params.guidToBeResolved then -- resolve a sealed token from a card
       token = getObjectFromGUID(params.guidToBeResolved)
-      token.setPositionSmooth(params.mat.positionToWorld(tokenOffset))
+      token.setPositionSmooth(tokenPosition)
       local guid = token.getGUID()
       local tokenType = token.getName()
       if tokenType == "Bless" or tokenType == "Curse" then
@@ -310,13 +329,13 @@ function drawChaosToken(params)
       tokenArrangerApi.layout()
     else -- take a token from the bag, either specified or random
       local takeParameters = {
-        position = params.mat.positionToWorld(tokenOffset),
-        rotation = params.mat.getRotation()
+        position = tokenPosition,
+        rotation = tokenRotation
       }
 
       if params.tokenType then
           for i, lookedForToken in ipairs(chaosBag.getObjects()) do
-              if lookedForToken.name == params.tokenType then
+              if lookedForToken.nickname == params.tokenType then
                   takeParameters.index = i - 1
               end
           end
