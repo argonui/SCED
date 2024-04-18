@@ -33,7 +33,7 @@ function onSave()
 end
   
 function onLoad(savedData)
-    self.addContextMenuItem("Enable Helper", createButtons)
+    self.addContextMenuItem("Enable Helper", chooseSigil)
     sigil= JSON.decode(savedData)
     if sigil and sigil ~= nil then
         makeXMLButton(sigil)
@@ -69,8 +69,8 @@ function makeXMLButton(chosenToken)
 )
 end 
 
--- Create buttons to choose sigil
-function createButtons(playerColor)
+-- Create dialog window to choose sigil and create sigil-drawing button
+function chooseSigil(playerColor)
     self.clearContextMenu()
     self.addContextMenuItem("Clear Helper", deleteButtons)
     Player[playerColor].showOptionsDialog("Choose Sigil", tokenNames, 1, 
@@ -88,7 +88,7 @@ end
 -- Delete button and remove sigil
 function deleteButtons()
     self.clearContextMenu()
-    self.addContextMenuItem("Enable Helper", createButtons)
+    self.addContextMenuItem("Enable Helper", chooseSigil)
     self.UI.setXml("")
     sigil = nil
 end
@@ -113,11 +113,19 @@ function resolveSigil()
         return
     end
 
-    local symbolMatch = false
+    local matchingSymbolsInPlay = {}
 
     for j, token in ipairs(tokensInPlay) do
         if (token.getName() == "Cultist" or token.getName() == "Elder Thing" or token.getName() == "Tablet") and token.getName() ~= sigil then
-            symbolMatch = true
+            matchingSymbolsInPlay[#matchingSymbolsInPlay + 1] = token
+        end
+    end
+
+    if #matchingSymbolsInPlay == 0 then
+        broadcastToAll("No eligible symbol token found in play area", "Red")
+        return
+    elseif #matchingSymbolsInPlay > 1 then
+        for j, token in ipairs(matchingSymbolsInPlay) do
             -- draw XML to return token to bag
             token.UI.setXmlTable({
                 {
@@ -156,11 +164,8 @@ function resolveSigil()
                 }
             })
         end
-    end
-
-    if not symbolMatch then
-        broadcastToAll("No eligible symbol token found in play area", "Red")
-        return
+    else
+        drawSigil(_, matchingSymbolsInPlay[1].getGUID())
     end
 end
 

@@ -304,6 +304,7 @@ function drawChaosToken(params)
 
     -- add the token to the list, compute new position based on list length
     if params.returnedToken then
+      trackChaosToken(params.returnedToken.getName(), matGUID, "subtract")
       indexOfReturnedToken = getTokenIndex(params.returnedToken)
       tokenPosition = params.returnedToken.getPosition()
       if #chaosTokens > indexOfReturnedToken then
@@ -317,8 +318,9 @@ function drawChaosToken(params)
     end
     
     local token
+
     -- resolve a sealed token from a card
-    if params.guidToBeResolved then
+    if params.guidToBeResolved then 
       token = getObjectFromGUID(params.guidToBeResolved)
       token.setPositionSmooth(tokenPosition)
       local guid = token.getGUID()
@@ -328,7 +330,7 @@ function drawChaosToken(params)
       end
       tokenArrangerApi.layout()
     -- take a token from the bag, either specified or random
-    else  
+    else 
       local takeParameters = {
         position = tokenPosition,
         rotation = tokenRotation
@@ -346,15 +348,18 @@ function drawChaosToken(params)
     end 
     -- get data for token description
     local name = token.getName()
-    if name == "" then name = "Custom" end
     
     local tokenData = mythosAreaApi.returnTokenData().tokenData or {}
     local specificData = tokenData[name] or {}
     token.setDescription(specificData.description or "")
 
     -- track the chaos token (for stat tracker and future returning)
-    trackChaosToken(name, matGUID)
-    chaosTokens[#chaosTokens + 1] = token
+    trackChaosToken(name, matGUID, "add")
+    if params.returnedToken then
+      chaosTokens[indexOfReturnedToken] = token
+    else
+      chaosTokens[#chaosTokens + 1] = token
+    end
   else
     returnChaosTokens()
   end
@@ -375,13 +380,19 @@ end
 -- chaos token stat tracker
 ---------------------------------------------------------
 
-function trackChaosToken(tokenName, matGUID)
+function trackChaosToken(tokenName, matGUID, addOrSubtract)
   -- initialize tables
   if not tokenDrawingStats[matGUID] then tokenDrawingStats[matGUID] = {} end
+  if tokenName == "" then tokenName = "Custom" end
 
-  -- increase stats by 1
-  tokenDrawingStats["Overall"][tokenName] = (tokenDrawingStats["Overall"][tokenName] or 0) + 1
-  tokenDrawingStats[matGUID][tokenName]   = (tokenDrawingStats[matGUID][tokenName] or 0) + 1
+  -- increase stats by 1 or decreause if token is returned
+  if addOrSubtract == "add" then 
+    tokenDrawingStats["Overall"][tokenName] = (tokenDrawingStats["Overall"][tokenName] or 0) + 1
+    tokenDrawingStats[matGUID][tokenName]   = (tokenDrawingStats[matGUID][tokenName] or 0) + 1
+  else
+    tokenDrawingStats["Overall"][tokenName] = (tokenDrawingStats["Overall"][tokenName] or 0) - 1
+    tokenDrawingStats[matGUID][tokenName]   = (tokenDrawingStats[matGUID][tokenName] or 0) - 1
+  end
 end
 
 -- Left-click: print stats, Right-click: reset stats
