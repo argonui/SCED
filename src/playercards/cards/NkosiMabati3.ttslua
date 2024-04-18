@@ -1,185 +1,176 @@
-local chaosBagApi       = require("chaosbag/ChaosBagApi")
-local guidReferenceApi  = require("core/GUIDReferenceApi")
-local playmatApi        = require("playermat/PlaymatApi")
+local chaosBagApi      = require("chaosbag/ChaosBagApi")
+local guidReferenceApi = require("core/GUIDReferenceApi")
+local playmatApi       = require("playermat/PlaymatApi")
 
-local tokenNames = {
-    "Skull",
-    "Cultist",
-    "Tablet",
-    "Elder Thing",
-    "Auto-fail",
-    "Bless",
-    "Curse",
-    "Frost",
-    "Custom Token"
+local tokenNames       = {
+  "Skull",
+  "Cultist",
+  "Tablet",
+  "Elder Thing",
+  "Auto-fail",
+  "Bless",
+  "Curse",
+  "Frost",
+  "Custom Token"
 }
 
-local dataForToken = {
-    ["Skull"] = { color = "#4A0400E6", icon = "token-skull"},
-    ["Cultist"] = { color = "#173B0BE6", icon = "token-cultist"},
-    ["Tablet"] = { color = "#1D2238E6", icon = "token-tablet"},
-    ["Elder Thing"] = { color = "#4D2331E6", icon = "token-elder-thing"},
-    ["Auto-fail"] = { color = "#9B0004E6", icon = "token-auto-fail"},
-    ["Bless"] = { color = "#9D702CE6", icon = "token-bless"},
-    ["Curse"] = { color = "#633A84E6", icon = "token-curse"},
-    ["Frost"] = { color = "#404450E6", icon = "token-frost"},
-    [""] = { color = "#77674DE6", icon = "token-custom"}
+local dataForToken     = {
+  ["Skull"] = { color = "#4A0400E6", icon = "token-skull" },
+  ["Cultist"] = { color = "#173B0BE6", icon = "token-cultist" },
+  ["Tablet"] = { color = "#1D2238E6", icon = "token-tablet" },
+  ["Elder Thing"] = { color = "#4D2331E6", icon = "token-elder-thing" },
+  ["Auto-fail"] = { color = "#9B0004E6", icon = "token-auto-fail" },
+  ["Bless"] = { color = "#9D702CE6", icon = "token-bless" },
+  ["Curse"] = { color = "#633A84E6", icon = "token-curse" },
+  ["Frost"] = { color = "#404450E6", icon = "token-frost" },
+  [""] = { color = "#77674DE6", icon = "token-custom" }
 }
 
 local sigil
 
 function onSave()
-    return JSON.encode(sigil)
+  return JSON.encode(sigil)
 end
-  
+
 function onLoad(savedData)
-    self.addContextMenuItem("Enable Helper", chooseSigil)
-    sigil= JSON.decode(savedData)
-    if sigil and sigil ~= nil then
-        makeXMLButton(sigil)
-        self.clearContextMenu()
-        self.addContextMenuItem("Clear Helper", deleteButtons)
-    end
+  self.addContextMenuItem("Enable Helper", chooseSigil)
+  sigil = JSON.decode(savedData)
+  if sigil and sigil ~= nil then
+    makeXMLButton(sigil)
+    self.clearContextMenu()
+    self.addContextMenuItem("Clear Helper", deleteButtons)
+  end
 end
 
 function makeXMLButton(chosenToken)
-    self.UI.setXmlTable({
-        {
-        tag="Button",
-        attributes={
-            height=450,
-            width=1400,
-            rotation="0 0 180",
-            scale="0.1 0.1 1",
-            position="0 -55 -22",
-            padding="50 50 50 50",
-            font="font_teutonic-arkham",
-            fontSize=300,
-            iconWidth=400,
-            iconAlignment="Right",
-            onClick="resolveSigil",
-            id=sigil,
-            icon=dataForToken[sigil].icon,
-            color=dataForToken[sigil].color,
-            textColor="White",
-        },
-        value="Resolve",
-        }
+  self.UI.setXmlTable({
+    {
+      tag = "Button",
+      attributes = {
+        height = 450,
+        width = 1400,
+        rotation = "0 0 180",
+        scale = "0.1 0.1 1",
+        position = "0 -55 -22",
+        padding = "50 50 50 50",
+        font = "font_teutonic-arkham",
+        fontSize = 300,
+        iconWidth = 400,
+        iconAlignment = "Right",
+        onClick = "resolveSigil",
+        id = sigil,
+        icon = dataForToken[sigil].icon,
+        color = dataForToken[sigil].color,
+        textColor = "White",
+      },
+      value = "Resolve",
     }
-)
-end 
+  }
+  )
+end
 
 -- Create dialog window to choose sigil and create sigil-drawing button
 function chooseSigil(playerColor)
-    self.clearContextMenu()
-    self.addContextMenuItem("Clear Helper", deleteButtons)
-    Player[playerColor].showOptionsDialog("Choose Sigil", tokenNames, 1, 
-        function(chosenToken)
-            if chosenToken == "Custom Token" then
-                sigil = ""
-            else
-                sigil = chosenToken
-            end
-            makeXMLButton(sigil)
-        end  
-    )  
+  self.clearContextMenu()
+  self.addContextMenuItem("Clear Helper", deleteButtons)
+  Player[playerColor].showOptionsDialog("Choose Sigil", tokenNames, 1,
+    function(chosenToken)
+      sigil = Global.call("getChaosTokenName", chosenToken)
+      makeXMLButton(sigil)
+    end
+  )
 end
 
 -- Delete button and remove sigil
 function deleteButtons()
-    self.clearContextMenu()
-    self.addContextMenuItem("Enable Helper", chooseSigil)
-    self.UI.setXml("")
-    sigil = nil
+  self.clearContextMenu()
+  self.addContextMenuItem("Enable Helper", chooseSigil)
+  self.UI.setXml("")
+  sigil = nil
 end
 
 function resolveSigil()
-    local tokensInPlay = chaosBagApi.getTokensInPlay()
-    local chaosbag = chaosBagApi.findChaosBag()
-    local match = false
-    for i, obj in ipairs(chaosbag.getObjects()) do
-        -- if there are any sigils in the bag
-        if obj.nickname == sigil then 
-            match = true 
-            break
-        end
+  local tokensInPlay = chaosBagApi.getTokensInPlay()
+  local chaosbag = chaosBagApi.findChaosBag()
+  local match = false
+  for i, obj in ipairs(chaosbag.getObjects()) do
+    -- if there are any sigils in the bag
+    if obj.nickname == sigil then
+      match = true
+      break
     end
-    if not match then
-        if sigil == "" then
-            broadcastToAll("Custom token not found in chaos bag", "Red")
-        else
-            broadcastToAll(sigil .. " token not found in chaos bag", "Red")
-        end   
-        return
-    end
+  end
+  if not match then
+    broadcastToAll(Global.call("getReadableTokenName", sigil) .. " not found in chaos bag", "Red")
+    return
+  end
 
-    local matchingSymbolsInPlay = {}
+  local matchingSymbolsInPlay = {}
 
-    for j, token in ipairs(tokensInPlay) do
-        if (token.getName() == "Cultist" or token.getName() == "Elder Thing" or token.getName() == "Tablet") and token.getName() ~= sigil then
-            matchingSymbolsInPlay[#matchingSymbolsInPlay + 1] = token
-        end
+  for j, token in ipairs(tokensInPlay) do
+    if (token.getName() == "Cultist" or token.getName() == "Elder Thing" or token.getName() == "Tablet") and token.getName() ~= sigil then
+      matchingSymbolsInPlay[#matchingSymbolsInPlay + 1] = token
     end
+  end
 
-    if #matchingSymbolsInPlay == 0 then
-        broadcastToAll("No eligible symbol token found in play area", "Red")
-        return
-    elseif #matchingSymbolsInPlay > 1 then
-        for j, token in ipairs(matchingSymbolsInPlay) do
-            -- draw XML to return token to bag
-            token.UI.setXmlTable({
-                {
-                    tag="VerticalLayout",
-                    attributes={
-                        height=275,
-                        width=275,
-                        spacing=0,
-                        padding="0 0 20 25",
-                        scale="0.4 0.4 1",
-                        rotation="0 0 180",
-                        position="0 0 -15",
-                        color="rgba(0,0,0,0.7)",
-                        onClick=self.getGUID() .. "/drawSigil(" .. token.getGUID() .. ")",
-                    },
-                    children={
-                        {
-                            tag="Text",
-                            attributes={
-                                fontSize="100",
-                                font="font_teutonic-arkham",
-                                color="#ffffff",
-                                text="Nkosi",
-                            },
-                        },
-                        {
-                            tag="Text",
-                            attributes={
-                                fontSize="125",
-                                font="font_arkhamslim",
-                                color="#ffffff",
-                                text="U",
-                            },
-                        },
-                    }
-                }
-            })
-        end
-    else
-        drawSigil(_, matchingSymbolsInPlay[1].getGUID())
+  if #matchingSymbolsInPlay == 0 then
+    broadcastToAll("No eligible symbol token found in play area", "Red")
+    return
+  elseif #matchingSymbolsInPlay > 1 then
+    for j, token in ipairs(matchingSymbolsInPlay) do
+      -- draw XML to return token to bag
+      token.UI.setXmlTable({
+        {
+          tag = "VerticalLayout",
+          attributes = {
+            height = 275,
+            width = 275,
+            spacing = 0,
+            padding = "0 0 20 25",
+            scale = "0.4 0.4 1",
+            rotation = "0 0 180",
+            position = "0 0 -15",
+            color = "rgba(0,0,0,0.7)",
+            onClick = self.getGUID() .. "/drawSigil(" .. token.getGUID() .. ")",
+          },
+          children = {
+            {
+              tag = "Text",
+              attributes = {
+                fontSize = "100",
+                font = "font_teutonic-arkham",
+                color = "#ffffff",
+                text = "Nkosi",
+              },
+            },
+            {
+              tag = "Text",
+              attributes = {
+                fontSize = "125",
+                font = "font_arkhamslim",
+                color = "#ffffff",
+                text = "U",
+              },
+            },
+          }
+        }
+      })
     end
+  else
+    drawSigil(_, matchingSymbolsInPlay[1].getGUID())
+  end
 end
 
 function drawSigil(player, tokenGUID)
-    
-    returnedToken = getObjectFromGUID(tokenGUID)    
-    local matColor = playmatApi.getMatColorByPosition(returnedToken.getPosition())
-    local mat = guidReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
+  returnedToken = getObjectFromGUID(tokenGUID)
+  local matColor = playmatApi.getMatColorByPosition(returnedToken.getPosition())
+  local mat = guidReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
 
-    chaosBagApi.drawChaosToken(mat, true, sigil, _, returnedToken)
-    local tokensInPlay = chaosBagApi.getTokensInPlay()
-    for j, returnedToken in ipairs(tokensInPlay) do
-        if returnedToken.getName() == "Cultist" or returnedToken.getName() == "Elder Thing" or returnedToken.getName() == "Tablet" then
-            returnedToken.UI.setXml("")
-        end
+  chaosBagApi.drawChaosToken(mat, true, sigil, _, returnedToken)
+  local tokensInPlay = chaosBagApi.getTokensInPlay()
+  for j, returnedToken in ipairs(tokensInPlay) do
+    if returnedToken.getName() == "Cultist" or returnedToken.getName() == "Elder Thing" or returnedToken.getName() == "Tablet" then
+      returnedToken.UI.setXml("")
     end
+  end
 end
