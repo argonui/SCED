@@ -403,16 +403,13 @@ end
 function trackChaosToken(tokenName, matGUID, subtract)
   -- initialize tables
   if not tokenDrawingStats[matGUID] then tokenDrawingStats[matGUID] = {} end
-  local tokenName = getReadableTokenName(tokenName)
 
-  -- increase stats by 1 or decreause if token is returned
-  if subtract == false or subtract == nil then
-    tokenDrawingStats["Overall"][tokenName] = (tokenDrawingStats["Overall"][tokenName] or 0) + 1
-    tokenDrawingStats[matGUID][tokenName]   = (tokenDrawingStats[matGUID][tokenName] or 0) + 1
-  else
-    tokenDrawingStats["Overall"][tokenName] = (tokenDrawingStats["Overall"][tokenName] or 0) - 1
-    tokenDrawingStats[matGUID][tokenName]   = (tokenDrawingStats[matGUID][tokenName] or 0) - 1
-  end
+  -- increase stats by 1 (or decrease if token is returned)
+  local modifier = (subtract and -1 or 1)
+
+  local tokenName = getReadableTokenName(tokenName)
+  tokenDrawingStats["Overall"][tokenName] = (tokenDrawingStats["Overall"][tokenName] or 0) + modifier
+  tokenDrawingStats[matGUID][tokenName]   = (tokenDrawingStats[matGUID][tokenName] or 0) + modifier
 end
 
 -- Left-click: print stats, Right-click: reset stats
@@ -445,7 +442,7 @@ function handleStatTrackerClick(_, _, isRightClick)
 
       -- get the total count of drawn tokens for the player
       local totalCount = 0
-      for tokenName, value in pairs(personalStats) do
+      for _, value in pairs(personalStats) do
         totalCount = totalCount + value
       end
 
@@ -455,11 +452,22 @@ function handleStatTrackerClick(_, _, isRightClick)
         printToAll("------------------------------")
         printToAll(playerName .. " Stats", playerColor)
 
-        for tokenName, value in pairs(personalStats) do
-          if value ~= 0 then
+        -- print stats in order of the "ID_URL_MAP"
+        for _, subtable in pairs(ID_URL_MAP) do
+          local tokenName = subtable.name
+          local value = personalStats[tokenName]
+          if value and value ~= 0 then
             printToAll(tokenName .. ': ' .. tostring(value))
           end
         end
+
+        -- also print stats for custom tokens
+        local customTokenName = getReadableTokenName("")
+        local customTokenCount = personalStats[customTokenName]
+        if customTokenCount and customTokenCount ~= 0 then
+          printToAll(customTokenName .. ': ' .. tostring(customTokenCount))
+        end
+
         printToAll('Total: ' .. tostring(totalCount))
       end
     end
