@@ -57,73 +57,68 @@ function onObjectLeaveContainer(container, _)
   end
 end
 
--- Create the card indexes by iterating all cards in the bag, parsing their
--- metadata, and creating the keyed lookup tables for the cards.  This is a
--- coroutine which will spread the workload by processing 20 cards before
--- yielding.  Based on the current count of cards this will require
--- approximately 60 frames to complete.
+-- Create the card indexes by iterating all cards in the bag, parsing their metadata
+-- and creating the keyed lookup tables for the cards. This is a coroutine which will
+-- spread the workload by processing 20 cards before yielding.
 function buildIndex()
   local cardCount = 0
   indexingDone = false
-  if (self.getData().ContainedObjects == nil) then
-    return 1
-  end
-  for i, cardData in ipairs(self.getData().ContainedObjects) do
-    local cardMetadata = JSON.decode(cardData.GMNotes)
-    if (cardMetadata ~= nil) then
-      addCardToIndex(cardData, cardMetadata)
-      cardCount = cardCount + 1
-      if cardCount > 9 then
-        cardCount = 0
-        coroutine.yield(0)
-      end
+
+  -- process the allcardsbag itself
+  for _, cardData in ipairs(self.getData().ContainedObjects) do
+    addCardToIndex(cardData)
+    cardCount = cardCount + 1
+    if cardCount > 19 then
+      cardCount = 0
+      coroutine.yield(0)
     end
   end
-  local hotfixBags = getObjectsWithTag("AllCardsHotfix")
-  for _, hotfixBag in ipairs(hotfixBags) do
-    if (#hotfixBag.getObjects() > 0) then
-      for i, cardData in ipairs(hotfixBag.getData().ContainedObjects) do
-        if cardData.ContainedObjects then
-          for j, deepCardData in ipairs(cardData.ContainedObjects) do
-            local deepCardMetadata = JSON.decode(deepCardData.GMNotes)
-            if deepCardMetadata ~= nil then
-              addCardToIndex(deepCardData, deepCardMetadata)
-              cardCount = cardCount + 1
-              if cardCount > 9 then
-                cardCount = 0
-                coroutine.yield(0)
-              end
-            end
+
+  -- process hotfix bags (and the additional playercards bag)
+  for _, hotfixBag in ipairs(getObjectsWithTag("AllCardsHotfix")) do
+    local hotfixData = hotfixBag.getData()
+    if not hotfixData.ContainedObjects then break end
+
+    for _, cardData in ipairs(hotfixData.ContainedObjects) do
+      -- process containers
+      if cardData.ContainedObjects then
+        for _, deepCardData in ipairs(cardData.ContainedObjects) do
+          addCardToIndex(deepCardData)
+          cardCount = cardCount + 1
+          if cardCount > 19 then
+            cardCount = 0
+            coroutine.yield(0)
           end
-        else
-          local cardMetadata = JSON.decode(cardData.GMNotes)
-          if cardMetadata ~= nil then
-            addCardToIndex(cardData, cardMetadata)
-            cardCount = cardCount + 1
-            if cardCount > 9 then
-              cardCount = 0
-              coroutine.yield(0)
-            end
-          end
+        end
+      -- process single cards
+      else
+        addCardToIndex(cardData)
+        cardCount = cardCount + 1
+        if cardCount > 19 then
+          cardCount = 0
+          coroutine.yield(0)
         end
       end
     end
   end
+
   buildSupplementalIndexes()
   indexingDone = true
   return 1
 end
 
--- Adds a card to any indexes it should be a part of, based on its metadata.
+-- Adds a card to any indexes it should be a part of, based on its metadata
 ---@param cardData table TTS object data for the card
----@param cardMetadata table SCED metadata for the card
-function addCardToIndex(cardData, cardMetadata)
+function addCardToIndex(cardData)
+  -- using the more efficient 'json.parse()' to speed this process up
+  local cardMetadata = json.parse(cardData.GMNotes)
+  if not cardMetadata then return end
+
   -- use the ZoopGuid as fallback if no id present
-  if cardMetadata.id == nil and cardMetadata.TtsZoopGuid then
-    cardMetadata.id = cardMetadata.TtsZoopGuid
-  end
-  cardIdIndex[cardMetadata.id] = { data = cardData, metadata = cardMetadata }
-  if (cardMetadata.alternate_ids ~= nil) then
+  cardIdIndex[cardMetadata.id or cardMetadata.TtsZoopGuid] = { data = cardData, metadata = cardMetadata }
+
+  -- also add data for alternate ids
+  if cardMetadata.alternate_ids ~= nil then
     for _, alternateId in ipairs(cardMetadata.alternate_ids) do
       cardIdIndex[alternateId] = { data = cardData, metadata = cardMetadata }
     end
@@ -133,11 +128,9 @@ end
 function buildSupplementalIndexes()
   for cardId, card in pairs(cardIdIndex) do
     local cardMetadata = card.metadata
-    -- If the ID key and the metadata ID don't match this is a duplicate card created by an
-    -- alternate_id, and we should skip it
+    -- If the ID key and the metadata ID don't match this is a duplicate card created by an alternate_id, and we should skip it
     if cardId == cardMetadata.id then
-      -- Add card to the basic weakness list, if appropriate.  Some weaknesses have
-      -- multiple copies, and are added multiple times
+      -- Add card to the basic weakness list, if appropriate. Some weaknesses have multiple copies, and are added multiple times
       if cardMetadata.weakness then
         table.insert(uniqueWeaknessList, cardMetadata.id)
         if cardMetadata.basicWeaknessCount ~= nil then
@@ -147,56 +140,31 @@ function buildSupplementalIndexes()
         end
       end
 
-      -- Add the card to the appropriate class and level indexes
-      local isGuardian = false
-      local isSeeker = false
-      local isMystic = false
-      local isRogue = false
-      local isSurvivor = false
-      local isNeutral = false
-      local upgradeKey
-      -- Excludes signature cards (which have no class or level) and alternate
-      -- ID entries
-      if (cardMetadata.class ~= nil and cardMetadata.level ~= nil) then
-        isGuardian = string.match(cardMetadata.class, "Guardian")
-        isSeeker = string.match(cardMetadata.class, "Seeker")
-        isMystic = string.match(cardMetadata.class, "Mystic")
-        isRogue = string.match(cardMetadata.class, "Rogue")
-        isSurvivor = string.match(cardMetadata.class, "Survivor")
-        isNeutral = string.match(cardMetadata.class, "Neutral")
-        if (cardMetadata.level > 0) then
+      -- Excludes signature cards (which have no class or level)
+      if cardMetadata.class ~= nil and cardMetadata.level ~= nil then
+        local upgradeKey
+        if cardMetadata.level > 0 then
           upgradeKey = "-upgrade"
         else
           upgradeKey = "-level0"
         end
-        if (isGuardian) then
-          table.insert(classAndLevelIndex["Guardian"..upgradeKey], cardMetadata.id)
-        end
-        if (isSeeker) then
-          table.insert(classAndLevelIndex["Seeker"..upgradeKey], cardMetadata.id)
-        end
-        if (isMystic) then
-          table.insert(classAndLevelIndex["Mystic"..upgradeKey], cardMetadata.id)
-        end
-        if (isRogue) then
-          table.insert(classAndLevelIndex["Rogue"..upgradeKey], cardMetadata.id)
-        end
-        if (isSurvivor) then
-          table.insert(classAndLevelIndex["Survivor"..upgradeKey], cardMetadata.id)
-        end
-        if (isNeutral) then
-          table.insert(classAndLevelIndex["Neutral"..upgradeKey], cardMetadata.id)
+
+        -- parse classes (separated by "|") and add the card to the appropriate class and level indices
+        for str in cardMetadata.class:gmatch("([^|]+)") do
+          table.insert(classAndLevelIndex[str .. upgradeKey], cardMetadata.id)
         end
 
+        -- add to cycle index
         local cycleName = cardMetadata.cycle
         if cycleName ~= nil then
           cycleName = string.lower(cycleName)
-          if string.match(cycleName, "return") then
-            cycleName = string.sub(cycleName, 11)
-          end
-          if cycleName == "the night of the zealot" then
-            cycleName = "core"
-          end
+
+          -- remove "return to " from cycle names
+          cycleName = cycleName:gsub("return to ", "")
+
+          -- override cycle name for night of the zealot
+          cycleName = cycleName:gsub("the night of the zealot", "core")
+
           if cycleIndex[cycleName] == nil then
             cycleIndex[cycleName] = { }
           end
@@ -205,29 +173,34 @@ function buildSupplementalIndexes()
       end
     end
   end
+
+  -- sort class and level indices
   for _, indexTable in pairs(classAndLevelIndex) do
     table.sort(indexTable, cardComparator)
   end
+
+  -- sort cycle indices
   for _, indexTable in pairs(cycleIndex) do
     table.sort(indexTable)
   end
+
+  -- sort weakness indices
   table.sort(basicWeaknessList, cardComparator)
   table.sort(uniqueWeaknessList, cardComparator)
 end
 
--- Comparison function used to sort the class card bag indexes.  Sorts by card
--- level, then name, then subname.
+-- Comparison function used to sort the class card bag indexes. Sorts by card level, then name, then subname.
 function cardComparator(id1, id2)
   local card1 = cardIdIndex[id1]
   local card2 = cardIdIndex[id2]
 
-  if (card1.metadata.level ~= card2.metadata.level) then
+  if card1.metadata.level ~= card2.metadata.level then
     return card1.metadata.level < card2.metadata.level
-  end
-  if (card1.data.Nickname ~= card2.data.Nickname) then
+  elseif card1.data.Nickname ~= card2.data.Nickname then
     return card1.data.Nickname < card2.data.Nickname
+  else
+    return card1.data.Description < card2.data.Description
   end
-  return card1.data.Description < card2.data.Description
 end
 
 function isIndexReady()
