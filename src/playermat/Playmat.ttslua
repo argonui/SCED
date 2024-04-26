@@ -9,6 +9,7 @@ local tokenManager                = require("core/token/TokenManager")
 
 -- we use this to turn off collision handling until onLoad() is complete
 local collisionEnabled            = false
+local currentlyEditingSlots       = false
 
 -- x-Values for discard buttons
 local DISCARD_BUTTON_OFFSETS      = { -1.365, -0.91, -0.455, 0, 0.455, 0.91 }
@@ -17,54 +18,22 @@ local SEARCH_AROUND_SELF_X_BUFFER = 8
 
 -- defined areas for object searching
 local MAIN_PLAY_AREA              = {
-  upperLeft = {
-    x = 1.98,
-    z = 0.736
-  },
-  lowerRight = {
-    x = -0.79,
-    z = -0.39
-  }
+  upperLeft = { x = 1.98, z = 0.736 },
+  lowerRight = { x = -0.79, z = -0.39 }
 }
 local INVESTIGATOR_AREA           = {
-  upperLeft = {
-    x = -1.084,
-    z = 0.06517
-  },
-  lowerRight = {
-    x = -1.258,
-    z = -0.0805
-  }
+  upperLeft = { x = -1.084, z = 0.06517 },
+  lowerRight = { x = -1.258, z = -0.0805 }
 }
 local THREAT_AREA                 = {
-  upperLeft = {
-    x = 1.53,
-    z = -0.34
-  },
-  lowerRight = {
-    x = -1.13,
-    z = -0.92
-  }
+  upperLeft = { x = 1.53, z = -0.34 },
+  lowerRight = { x = -1.13, z = -0.92 }
 }
 local DECK_DISCARD_AREA           = {
-  upperLeft = {
-    x = -1.62,
-    z = 0.855
-  },
-  lowerRight = {
-    x = -2.02,
-    z = -0.245
-  },
-  center = {
-    x = -1.82,
-    y = 0.5,
-    z = 0.305
-  },
-  size = {
-    x = 0.4,
-    y = 3,
-    z = 1.1
-  }
+  upperLeft = { x = -1.62, z = 0.855 },
+  lowerRight = { x = -2.02, z = -0.245 },
+  center = { x = -1.82, y = 0.5, z = 0.305 },
+  size = { x = 0.4, y = 3, z = 1.1 }
 }
 
 -- local position of draw and discard pile
@@ -74,24 +43,46 @@ local DISCARD_PILE_POSITION       = { x = -1.82, y = 0.1, z = 0.61 }
 -- global position of encounter discard pile
 local ENCOUNTER_DISCARD_POSITION  = { x = -3.85, y = 1.5, z = 10.38 }
 
+-- translation table for slot names to characters for special font
+local slotNameToChar              = {
+  ["any"] = "",
+  ["Accessory"] = "C",
+  ["Ally"] = "E",
+  ["Arcane"] = "G",
+  ["Body"] = "K",
+  ["Hand (right)"] = "M",
+  ["Hand (left)"] = "M",
+  ["Hand x2"] = "N",
+  ["Tarot"] = "A"
+}
+
+-- slot symbol for the respective slot (from top left to bottom right)
+local slotData
+local defaultSlotData             = {
+  -- 1st row
+  "any", "any", "any", "Tarot", "Hand (left)", "Hand (right)", "Ally",
+
+  -- 2nd row
+  "any", "any", "any", "Accessory", "Arcane", "Arcane", "Body"
+}
+
 -- global variable so it can be reset by the Clean Up Helper
 activeInvestigatorId              = "00000"
-
--- table of type-object reference pairs of all owned objects
-local ownedObjects                = {}
-local matColor                    = self.getMemo()
-
--- variable to track the status of the "Show Draw Button" option
 local isDrawButtonVisible         = false
 
 -- global variable to report "Dream-Enhancing Serum" status
 isDES                             = false
 
+-- table of type-object reference pairs of all owned objects
+local ownedObjects                = {}
+local matColor                    = self.getMemo()
+
 function onSave()
   return JSON.encode({
     playerColor = playerColor,
     activeInvestigatorId = activeInvestigatorId,
-    isDrawButtonVisible = isDrawButtonVisible
+    isDrawButtonVisible = isDrawButtonVisible,
+    slotData = slotData
   })
 end
 
@@ -101,6 +92,17 @@ function onLoad(savedData)
     playerColor = loadedData.playerColor
     activeInvestigatorId = loadedData.activeInvestigatorId
     isDrawButtonVisible = loadedData.isDrawButtonVisible
+
+    -- To-Do: remove this once the save state is properly populated
+    if loadedData.slotData then
+      slotData = loadedData.slotData
+    else
+      -- make a deep copy of the default table
+      slotData = {}
+      for _, slotName in ipairs(defaultSlotData) do
+        table.insert(slotData, slotName)
+      end
+    end
   end
 
   self.interactable = false
@@ -108,7 +110,7 @@ function onLoad(savedData)
   -- get object references to owned objects
   ownedObjects = guidReferenceApi.getObjectsByOwner(matColor)
 
-  -- button creation
+  -- discard button creation
   for i = 1, 6 do
     makeDiscardButton(DISCARD_BUTTON_OFFSETS[i], i)
   end
@@ -134,29 +136,31 @@ function onLoad(savedData)
   self.createButton({
     label = "Upkeep",
     click_function = "doUpkeep",
+    tooltip = "Right-click to change color",
     function_owner = self,
     position = { 1.84, 0.1, -0.44 },
     scale = { 0.12, 0.12, 0.12 },
-    width = 800,
+    width = 1000,
     height = 280,
     font_size = 180
   })
 
   self.createButton({
     label = "Edit Slots",
-    click_function = "editSlots",
+    click_function = "toggleSlotEditing",
+    tooltip = "Right-click to reset slot symbols",
     function_owner = self,
-    position = { 1.84, 0.1, 0.84 },
+    position = { 1.84, 0.1, 0.94 },
     scale = { 0.12, 0.12, 0.12 },
-    width = 800,
+    width = 1000,
     height = 280,
     font_size = 180
   })
 
   showDrawButton(isDrawButtonVisible)
+  redrawSlotXML()
   math.randomseed(os.time())
   Wait.time(function() collisionEnabled = true end, 0.1)
-  updateSlots()
 end
 
 ---------------------------------------------------------
@@ -196,16 +200,31 @@ function searchDeckAndDiscardArea(filter)
   return searchArea(pos, size, filter)
 end
 
-function doNotReady(card)
-  return card.getVar("do_not_ready") or false
-end
-
 -- rounds a number to the specified amount of decimal places
 ---@param num number Initial value
 ---@param numDecimalPlaces number Amount of decimal places
+---@return number: rounded number
 function round(num, numDecimalPlaces)
   local mult = 10 ^ (numDecimalPlaces or 0)
   return math.floor(num * mult + 0.5) / mult
+end
+
+-- edits the label of a button
+---@param oldLabel string Old label of the button
+---@param newLabel string New label of the button
+function editButtonLabel(oldLabel, newLabel)
+  local buttons = self.getButtons()
+  for i = 1, #buttons do
+    if buttons[i].label == oldLabel then
+      self.editButton({ index = buttons[i].index, label = newLabel })
+    end
+  end
+end
+
+-- updates the internal "messageColor" which is used for print/broadcast statements if no player is seated
+---@param clickedByColor string Colorstring of player who clicked a button
+function updateMessageColor(clickedByColor)
+  messageColor = Player[playerColor].seated and playerColor or clickedByColor
 end
 
 ---------------------------------------------------------
@@ -260,8 +279,8 @@ end
 ---------------------------------------------------------
 
 -- calls the Upkeep function with correct parameter
-function doUpkeepFromHotkey(color)
-  doUpkeep(_, color)
+function doUpkeepFromHotkey(clickedByColor)
+  doUpkeep(_, clickedByColor)
 end
 
 function doUpkeep(_, clickedByColor, isRightClick)
@@ -270,8 +289,7 @@ function doUpkeep(_, clickedByColor, isRightClick)
     return
   end
 
-  -- send messages to player who clicked button if no seated player found
-  messageColor = Player[playerColor].seated and playerColor or clickedByColor
+  updateMessageColor(clickedByColor)
 
   -- unexhaust cards in play zone, flip action tokens and find forcedLearning
   local forcedLearning = false
@@ -281,7 +299,7 @@ function doUpkeep(_, clickedByColor, isRightClick)
       obj.flip()
     elseif obj.type == "Card" and not inArea(self.positionToLocal(obj.getPosition()), INVESTIGATOR_AREA) then
       local cardMetadata = JSON.decode(obj.getGMNotes()) or {}
-      if not doNotReady(obj) then
+      if not (obj.getVar("do_not_ready") or false) then
         local cardRotation = round(obj.getRotation().y, 0) - rot.y
         local yRotDiff = 0
 
@@ -300,14 +318,18 @@ function doUpkeep(_, clickedByColor, isRightClick)
         rot.z = obj.is_face_down and 180 or 0
         obj.setRotation({ rot.x, rot.y + yRotDiff, rot.z })
       end
+
+      -- detect forced learning to handle card drawing accordingly
       if cardMetadata.id == "08031" then
         forcedLearning = true
       end
+
+      -- maybe replenish uses on certain cards
       if cardMetadata.uses ~= nil then
         tokenManager.maybeReplenishCard(obj, cardMetadata.uses, self)
       end
-      -- check decks for forced learning
     elseif obj.type == "Deck" and forcedLearning == false then
+      -- check decks for forced learning
       for _, deepObj in ipairs(obj.getObjects()) do
         local cardMetadata = JSON.decode(deepObj.gm_notes) or {}
         if cardMetadata.id == "08031" then
@@ -340,9 +362,8 @@ function doUpkeep(_, clickedByColor, isRightClick)
   -- draw a card (with handling for Patrice and Forced Learning)
   if activeInvestigatorId == "06005" then
     if forcedLearning then
-      printToColor(
-        "Wow, did you really take 'Versatile' to play Patrice with 'Forced Learning'? Choose which draw replacement effect takes priority and draw cards accordingly.",
-        messageColor)
+      printToColor("Wow, did you really take 'Versatile' to play Patrice with 'Forced Learning'?"
+        .. " Choose which draw replacement effect takes priority and draw cards accordingly.", messageColor)
     else
       local handSize = #Player[playerColor].getHandObjects()
       if handSize < 5 then
@@ -362,14 +383,14 @@ function doUpkeep(_, clickedByColor, isRightClick)
   end
 end
 
--- function for "draw 1 button" (that can be added via option panel)
-function doDrawOne(_, color)
-  -- send messages to player who clicked button if no seated player found
-  messageColor = Player[playerColor].seated and playerColor or color
+-- click function for "draw 1 button" (that can be added via option panel)
+function doDrawOne(_, clickedByColor)
+  updateMessageColor(clickedByColor)
   drawCardsWithReshuffle(1)
 end
 
--- draw X cards (shuffle discards if necessary)
+-- draws the specified amount of cards (and shuffles the discard if necessary)
+---@param numCards num Number of cards to draw
 function drawCardsWithReshuffle(numCards)
   local deckAreaObjects = getDeckAreaObjects()
 
@@ -430,6 +451,7 @@ function drawCardsWithReshuffle(numCards)
 end
 
 -- get the draw deck and discard pile objects and returns the references
+---@return table: string-indexed table with references to the found objects
 function getDeckAreaObjects()
   local deckAreaObjects = {}
   for _, object in ipairs(searchDeckAndDiscardArea("isCardOrDeck")) do
@@ -483,7 +505,7 @@ end
 function doDiscardOne()
   local hand = Player[playerColor].getHandObjects()
   if #hand == 0 then
-    broadcastToAll("Cannot discard from empty hand!", "Red")
+    broadcastToColor("Cannot discard from empty hand!", messageColor, "Red")
   else
     local choices = {}
     for i = 1, #hand do
@@ -498,7 +520,7 @@ function doDiscardOne()
     end
 
     if #choices == 0 then
-      broadcastToAll("Hidden cards can't be randomly discarded.", "Orange")
+      broadcastToColor("Hidden cards can't be randomly discarded.", messageColor, "Orange")
       return
     end
 
@@ -512,55 +534,19 @@ function doDiscardOne()
 end
 
 ---------------------------------------------------------
--- playmat slot modifying
+-- slot modifying
 ---------------------------------------------------------
 
--- translation table for slot names to characters for special font
-local slotFontCharacter = {
-  ["any"] = "",
-  ["Accessory"] = "C",
-  ["Ally"] = "E",
-  ["Arcane"] = "G",
-  ["Body"] = "K",
-  ["Hand (right)"] = "M",
-  ["Hand (left)"] = "M",
-  ["Hand x2"] = "N",
-  ["Tarot"] = "A"
-}
-
--- top left to bottom right
-local slotData = {
-  "any",
-  "any",
-  "any",
-  "Tarot",
-  "Hand (left)",
-  "Hand (right)",
-  "Ally",
-
-  -- 2nd row
-  "any",
-  "any",
-  "any",
-  "Accessory",
-  "Arcane",
-  "Arcane",
-  "Body"
-}
-
-function updateSlots()
+-- this will redraw the XML for the slot symbols based on the slotData table
+function redrawSlotXML()
   local xml = {}
   local snapId = 0
 
+  -- use the snap point positions in the main play area for positions
   for _, snap in ipairs(self.getSnapPoints()) do
     if inArea(snap.position, MAIN_PLAY_AREA) then
       snapId = snapId + 1
-
       local slotName = slotData[snapId]
-      local slotRotation = "0 0 180"
-      if slotName == "Hand (left)" then
-        slotRotation = "0 180 180"
-      end
 
       -- increased coordinates to account for scale (0.1)
       local x = snap.position.x * 100
@@ -568,10 +554,11 @@ function updateSlots()
       local slotXML = {
         tag = "Panel",
         attributes = {
+          id = "slotPanel" .. snapId,
           scale = "0.1 0.1 1",
-          width="150",
-          height="150",
-          rotation = slotRotation,
+          width = "150",
+          height = "150",
+          rotation = getSlotRotation(slotName),
           position = x .. " " .. y .. " -11"
         },
         children = {
@@ -582,7 +569,7 @@ function updateSlots()
               fontSize = "145",
               font = "font_arkhamicons",
               color = "#414141CB",
-              text = slotFontCharacter[slotName]
+              text = slotNameToChar[slotName]
             }
           }
         }
@@ -594,26 +581,70 @@ function updateSlots()
   self.UI.setXmlTable(xml)
 end
 
-function editSlots()
+-- toggle the "slot editing mode"
+function toggleSlotEditing(_, clickedByColor, isRightClick)
+  if isRightClick then
+    resetSlotSymbols()
+    return
+  end
+
+  updateMessageColor(clickedByColor)
+
+  -- toggle internal variable
+  currentlyEditingSlots = not currentlyEditingSlots
+
+  if currentlyEditingSlots then
+    editButtonLabel("Edit Slots", "Stop editing")
+    broadcastToColor("Click on a slot symbol (or an empty slot) to edit it.", messageColor, "Orange")
+  else
+    editButtonLabel("Stop editing", "Edit Slots")
+  end
+
+  -- set click function (or maybe disable it)
+  local clickFunc = currentlyEditingSlots and "slotClickfunction" or ""
   for i = 1, #slotData do
-    self.UI.setAttribute("slot" .. i, "onClick", "slotClickfunction")
+    self.UI.setAttribute("slot" .. i, "onClick", clickFunc)
   end
 end
 
-function slotClickfunction(player, _, id)
+-- click function for slot symbols during the "slot editing mode"
+function slotClickfunction(player, clickType, id)
   local index = id:gsub("slot", "")
   local slotNames = {}
-  for slotName, _ in pairs(slotFontCharacter) do
+  for slotName, _ in pairs(slotNameToChar) do
     table.insert(slotNames, slotName)
   end
 
   -- prompt player to choose symbol
   player.showOptionsDialog("Choose Slot Symbol", slotNames, slotData[index],
     function(chosenSlot, chosenIndex)
-      self.UI.setAttribute(id, "text", slotFontCharacter[chosenSlot])
       slotData[chosenIndex] = chosenSlot
+
+      -- update slot symbol
+      self.UI.setAttribute(id, "text", slotNameToChar[chosenSlot])
+
+      -- update slot rotation
+      self.UI.setAttribute("slotPanel" .. chosenIndex, "rotation", getSlotRotation(chosenSlot))
     end
   )
+end
+
+-- helper function to rotate the left hand
+function getSlotRotation(slotName)
+  if slotName == "Hand (left)" then
+    return "0 180 180"
+  else
+    return "0 0 180"
+  end
+end
+
+-- reset the slot symbols by making a deep copy of the default data and redrawing
+function resetSlotSymbols()
+  slotData = {}
+  for _, slotName in ipairs(defaultSlotData) do
+    table.insert(slotData, slotName)
+  end
+  redrawSlotXML()
 end
 
 ---------------------------------------------------------
@@ -678,15 +709,13 @@ end
 
 function syncCustomizableMetadata(card)
   local cardMetadata = JSON.decode(card.getGMNotes()) or {}
-  if cardMetadata == nil or cardMetadata.customizations == nil then
-    return
-  end
+  if cardMetadata == nil or cardMetadata.customizations == nil then return end
+
   for _, upgradeSheet in ipairs(searchAroundSelf("isCard")) do
     local upgradeSheetMetadata = JSON.decode(upgradeSheet.getGMNotes()) or {}
     if upgradeSheetMetadata.id == (cardMetadata.id .. "-c") then
       for i, customization in ipairs(cardMetadata.customizations) do
         if customization.replaces ~= nil and customization.replaces.uses ~= nil then
-          -- Allowed use of call(), no APIs for individual cards
           if upgradeSheet.call("isUpgradeActive", i) then
             cardMetadata.uses = customization.replaces.uses
             card.setGMNotes(JSON.encode(cardMetadata))
@@ -810,6 +839,8 @@ end
 -- investigator ID grabbing and skill tracker
 ---------------------------------------------------------
 
+-- updates the internal investigator id and action tokens if an investigator card is detected
+---@param card tts__Object Card that might be an investigator
 function maybeUpdateActiveInvestigator(card)
   if not inArea(self.positionToLocal(card.getPosition()), INVESTIGATOR_AREA) then return end
 
@@ -880,7 +911,7 @@ end
 -- manipulation of owned objects
 ---------------------------------------------------------
 
--- updates the specific owned counter
+-- updates the specified owned counter
 ---@param param table Contains the information to update:
 ---   type: String Counter to target
 ---   newValue: Number Value to set the counter to
@@ -894,8 +925,9 @@ function updateCounter(param)
   end
 end
 
--- returns the resource counter amount
+-- get the value the specified owned counter
 ---@param type string Counter to target
+---@return number: Counter value
 function getCounterValue(type)
   return ownedObjects[type].getVar("val")
 end
@@ -930,12 +962,11 @@ function returnGlobalDrawPosition()
   return self.positionToWorld(DRAW_DECK_POSITION)
 end
 
--- Sets this playermat's draw 1 button to visible
+-- creates / removes the draw 1 button
 ---@param visible boolean Whether the draw 1 button should be visible
 function showDrawButton(visible)
   isDrawButtonVisible = visible
 
-  -- create the "Draw 1" button
   if isDrawButtonVisible then
     self.createButton({
       label = "Draw 1",
@@ -943,12 +974,10 @@ function showDrawButton(visible)
       function_owner = self,
       position = { 1.84, 0.1, -0.36 },
       scale = { 0.12, 0.12, 0.12 },
-      width = 800,
+      width = 1000,
       height = 280,
       font_size = 180
     })
-
-    -- remove the "Draw 1" button
   else
     local buttons = self.getButtons()
     for i = 1, #buttons do
@@ -970,7 +999,7 @@ function clickableClues(showCounter)
   ownedObjects.ClickableClueCounter.setPosition(clickerPos + Vector(0, modY, 0))
 
   if showCounter then
-    -- current clue count
+    -- get current clue count
     clueCount = ownedObjects.ClueCounter.getVar("exposedValue")
 
     -- remove clues
@@ -979,7 +1008,7 @@ function clickableClues(showCounter)
     -- set value for clue clickers
     ownedObjects.ClickableClueCounter.call("updateVal", clueCount)
   else
-    -- current clue count
+    -- get current clue count
     clueCount = ownedObjects.ClickableClueCounter.getVar("val")
 
     -- spawn clues
@@ -1042,10 +1071,9 @@ function setLimitSnapsByType(matchTypes)
   self.setSnapPoints(snaps)
 end
 
--- Simple method to check if the given point is in a specified area.  Local use only,
+-- Simple method to check if the given point is in a specified area. Local use only
 ---@param point tts__Vector Point to check, only x and z values are relevant
----@param bounds table Defined area to see if the point is within.  See MAIN_PLAY_AREA for sample
---     bounds definition.
+---@param bounds table Defined area to see if the point is within. See MAIN_PLAY_AREA for sample bounds definition.
 ---@return boolean: True if the point is in the area defined by bounds
 function inArea(point, bounds)
   return (point.x < bounds.upperLeft.x
