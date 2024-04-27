@@ -57,7 +57,7 @@ local slotNameToChar              = {
 }
 
 -- slot symbol for the respective slot (from top left to bottom right)
-local slotData
+local slotData                    = {}
 local defaultSlotData             = {
   -- 1st row
   "any", "any", "any", "Tarot", "Hand (left)", "Hand (right)", "Ally",
@@ -390,7 +390,7 @@ function doDrawOne(_, clickedByColor)
 end
 
 -- draws the specified amount of cards (and shuffles the discard if necessary)
----@param numCards num Number of cards to draw
+---@param numCards number Number of cards to draw
 function drawCardsWithReshuffle(numCards)
   local deckAreaObjects = getDeckAreaObjects()
 
@@ -556,9 +556,8 @@ function redrawSlotXML()
         attributes = {
           id = "slotPanel" .. snapId,
           scale = "0.1 0.1 1",
-          width = "150",
-          height = "150",
-          rotation = getSlotRotation(slotName),
+          width = "175",
+          height = "175",
           position = x .. " " .. y .. " -11"
         },
         children = {
@@ -566,6 +565,7 @@ function redrawSlotXML()
             tag = "Text",
             attributes = {
               id = "slot" .. snapId,
+              rotation = getSlotRotation(slotName),
               fontSize = "145",
               font = "font_arkhamicons",
               color = "#414141CB",
@@ -596,35 +596,36 @@ function toggleSlotEditing(_, clickedByColor, isRightClick)
   if currentlyEditingSlots then
     editButtonLabel("Edit Slots", "Stop editing")
     broadcastToColor("Click on a slot symbol (or an empty slot) to edit it.", messageColor, "Orange")
+    for i = 1, #slotData do
+      self.UI.setAttribute("slotPanel" .. i, "onClick", "slotClickfunction")
+    end
   else
     editButtonLabel("Stop editing", "Edit Slots")
-  end
-
-  -- set click function (or maybe disable it)
-  local clickFunc = currentlyEditingSlots and "slotClickfunction" or ""
-  for i = 1, #slotData do
-    self.UI.setAttribute("slot" .. i, "onClick", clickFunc)
+    redrawSlotXML()
   end
 end
 
 -- click function for slot symbols during the "slot editing mode"
 function slotClickfunction(player, clickType, id)
-  local index = id:gsub("slot", "")
+  local slotIndex = id:gsub("slotPanel", "")
+  slotIndex = tonumber(slotIndex)
+
+  -- make a list of the table keys as options for the dialog box
   local slotNames = {}
   for slotName, _ in pairs(slotNameToChar) do
     table.insert(slotNames, slotName)
   end
 
   -- prompt player to choose symbol
-  player.showOptionsDialog("Choose Slot Symbol", slotNames, slotData[index],
-    function(chosenSlot, chosenIndex)
-      slotData[chosenIndex] = chosenSlot
+  player.showOptionsDialog("Choose Slot Symbol", slotNames, slotData[slotIndex],
+    function(chosenSlotName)
+      slotData[slotIndex] = chosenSlotName
 
       -- update slot symbol
-      self.UI.setAttribute(id, "text", slotNameToChar[chosenSlot])
+      self.UI.setAttribute("slot" .. slotIndex, "text", slotNameToChar[chosenSlotName])
 
       -- update slot rotation
-      self.UI.setAttribute("slotPanel" .. chosenIndex, "rotation", getSlotRotation(chosenSlot))
+      self.UI.setAttribute("slot" .. slotIndex, "rotation", getSlotRotation(chosenSlotName))
     end
   )
 end
