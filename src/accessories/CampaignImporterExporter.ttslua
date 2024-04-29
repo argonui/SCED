@@ -56,13 +56,13 @@ function onLoad()
   })
 end
 
-function onObjectLeaveContainer(container, _)
+function onObjectLeaveContainer(container)
   if container.hasTag("ImporterToken") then
     broadcastToAll("Removing objects from the Save Coin bag will break functionality. Please return the removed objects.", "Yellow")
   end
 end
 
-function onObjectEnterContainer(container, _)
+function onObjectEnterContainer(container)
   if container.hasTag("ImporterToken") then
     broadcastToAll("Adding objects to the Save Coin bag will break functionality. Please remove the objects.", "Yellow")
   end
@@ -78,7 +78,7 @@ function onCollisionEnter(info)
   end
 end
 
--- Identifies import token, determines campaign box and downloads it (if needed)
+-- identifies import token, determines campaign box and downloads it (if needed)
 function importFromToken(coin)
   broadcastToAll("Campaign Import Initiated")
   local importData = JSON.decode(coin.getGMNotes())
@@ -115,7 +115,7 @@ function importFromToken(coin)
   )
 end
 
--- After box has been downloaded, places content on table
+-- after box has been downloaded, places content on table
 function placeCampaignFromToken(importData, coin)
   getObjectFromGUID(importData["box"]).call("buttonClick_place")
   Wait.condition(
@@ -126,31 +126,28 @@ function placeCampaignFromToken(importData, coin)
   )
 end
 
--- After content is placed on table, conducts all the other import operations
+-- after content is placed on table, conducts all the other import operations
 function restoreCampaignData(importData, coin)
-  -- destroy existing campaign log
-  findUniqueObjectWithTag("CampaignLog").destruct()
+  -- go over internal items and respawn them (only storing campaign log and additional player cards)
+  for _, objData in ipairs(coin.getData().ContainedObjects) do
+    objData.Locked = true
+    local spawnData = { data = objData }
 
-  -- destroy existing "additional player cards" bag
-  if importData["additionalIndex"] then
-    guidReferenceApi.getObjectByOwnerAndType("Mythos", "AdditionalPlayerCardsBag").destruct()
-  end
-
-  if coin.type == "Bag" then
-    -- go over internal items and spawn them at the original position
-    for _, objData in ipairs(coin.getData().ContainedObjects) do
-      objData["Locked"] = true
-      spawnObjectData({data = objData})
+    -- maybe restore position of item and destroy duplicate
+    if objData.Nickname == "Additional Player Cards" then
+      local additionalIndex = guidReferenceApi.getObjectByOwnerAndType("Mythos", "AdditionalPlayerCardsBag")
+      spawnData.position = additionalIndex.getPosition()
+      additionalIndex.destruct()
+    else
+      local campaignLog = findUniqueObjectWithTag("CampaignLog")
+      if campaignLog then
+        spawnData.position = campaignLog.getPosition()
+        campaignLog.destruct()
+      end
     end
-  else
-    -- support for older save coins that stored the data serialized
-    if importData["additionalIndex"] then
-      spawnObjectJSON({json = importData["additionalIndex"]})
-    end
-    spawnObjectData({data = importData["log"]})
-  end
 
-  coin.destruct()
+    spawnObjectData(spawnData)
+  end
 
   chaosBagApi.setChaosBagState(importData["bag"])
 
@@ -164,21 +161,21 @@ function restoreCampaignData(importData, coin)
     deckImporterApi.setUiState(importData["decks"])
   end
 
-  playAreaApi.setInvestigatorCount(importData["clueCount"])
-
-  -- set campaign guide page
-  local guide = findUniqueObjectWithTag("CampaignGuide")
-  if guide then
-    Wait.condition(
-    -- Called after the condition function returns true
-      function() printToAll("Campaign Guide import successful!") end,
-      -- Condition function that is called continuously until it returns true or timeout is reached
-      function() return guide.Book.setPage(importData["guide"]) end,
-      -- Amount of time in seconds until the Wait times out
-      2,
-      -- Called if the Wait times out
-      function() printToAll("Campaign Guide import failed!") end
-    )
+  -- maybe set campaign guide page
+  if importData["guide"] then
+    local campaignGuide = findUniqueObjectWithTag("CampaignGuide")
+    if campaignGuide then
+      Wait.condition(
+      -- Called after the condition function returns true
+        function() printToAll("Campaign Guide import successful!") end,
+        -- Condition function that is called continuously until it returns true or timeout is reached
+        function() return campaignGuide.Book.setPage(importData["guide"]) end,
+        -- Amount of time in seconds until the Wait times out
+        2,
+        -- Called if the Wait times out
+        function() printToAll("Campaign Guide import failed!") end
+      )
+    end
   end
 
   Wait.time(function() optionPanelApi.loadSettings(importData["options"]) end, 0.5)
@@ -189,14 +186,21 @@ function restoreCampaignData(importData, coin)
     tourStarter.destruct()
   end
 
-  -- restore PlayArea image
+  -- restore PlayArea image and player count
   playAreaApi.updateSurface(importData["playarea"])
+  playAreaApi.setInvestigatorCount(importData["clueCount"])
 
+  coin.destruct()
   broadcastToAll("Campaign successfully imported!", "Green")
 end
 
--- Creates a campaign token with save data encoded into GM Notes based on the current state of the table
+-- creates a campaign token with save data encoded into GM Notes based on the current state of the table
 function createCampaignToken(_, playerColor, _)
+  local campaignData = {}
+
+  -- need to reset the contained objects to support multiple exports
+  campaignTokenData.ContainedObjects = {}
+
   -- find active campaign
   local campaignBox
   for _, obj in ipairs(getObjectsWithTag("CampaignBox")) do
@@ -204,7 +208,7 @@ function createCampaignToken(_, playerColor, _)
       if not campaignBox then
         campaignBox = obj
       else
-        broadcastToAll("Multiple empty campaign box detected; delete all but one.", "Red")
+        broadcastToAll("Multiple empty campaign boxes detected; delete all but one.", "Red")
         return
       end
     end
@@ -215,60 +219,55 @@ function createCampaignToken(_, playerColor, _)
     return
   end
 
-  local campaignLog = findUniqueObjectWithTag("CampaignLog")
-  if campaignLog == nil then
-    broadcastToAll("Campaign log not found!", "Red")
-    return
-  end
-
-  local additionalIndex = guidReferenceApi.getObjectByOwnerAndType("Mythos", "AdditionalPlayerCardsBag")
-  local traumaValues = { }
-  local trauma = campaignLog.getVar("returnTrauma")
-
-  if trauma ~= nil then
-    printToAll("Trauma values found in campaign log!", "Green")
-    trauma = campaignLog.call("returnTrauma")
-    for _, val in ipairs(trauma) do
-      table.insert(traumaValues, val)
-    end
-  else
-    traumaValues = nil
-    printToAll("Trauma values could not be found in campaign log!", "Yellow")
-  end
-
-  local campaignGuide = findUniqueObjectWithTag("CampaignGuide")
-  if campaignGuide == nil then
-    broadcastToAll("Campaign guide not found!", "Red")
-    return
-  end
-
-  -- clean up chaos tokens
+  -- clean up chaos tokens (needs to happen before saving chaos bag state)
   blessCurseApi.removeAll(playerColor)
   chaosBagApi.releaseAllSealedTokens(playerColor)
 
-  local campaignData = {
-    box = campaignBox.getGUID(),
-    log = campaignLog.getPosition(),
-    bag = chaosBagApi.getChaosBagState(),
-    trauma = traumaValues,
-    decks = deckImporterApi.getUiState(),
-    clueCount = playAreaApi.getInvestigatorCount(),
-    playarea = playAreaApi.getSurface(),
-    options = optionPanelApi.getOptions(),
-    guide = campaignGuide.Book.getPage(),
-    additionalIndex = additionalIndex.getPosition()
-  }
+  -- main data collection
+  campaignData.box = campaignBox.getGUID()
+  campaignData.bag = chaosBagApi.getChaosBagState()
+  campaignData.decks = deckImporterApi.getUiState()
+  campaignData.clueCount = playAreaApi.getInvestigatorCount()
+  campaignData.playarea = playAreaApi.getSurface()
+  campaignData.options = optionPanelApi.getOptions()
+
+  -- save campaign log if present
+  local campaignLog = findUniqueObjectWithTag("CampaignLog")
+  if campaignLog then
+    local logData = campaignLog.getData()
+    logData.Locked = false
+    table.insert(campaignTokenData.ContainedObjects, logData)
+
+    -- maybe also extract the trauma values
+    local trauma = campaignLog.getVar("returnTrauma")
+    if trauma then
+      printToAll("Trauma values found in campaign log!", "Green")
+      campaignData.trauma = {}
+      for _, val in ipairs(campaignLog.call("returnTrauma")) do
+        table.insert(campaignData.trauma, val)
+      end
+    else
+      printToAll("Trauma values could not be found in campaign log!", "Yellow")
+    end
+  end
+
+  -- store campaign guide page if present
+  local campaignGuide = findUniqueObjectWithTag("CampaignGuide")
+  if campaignGuide then
+    campaignData.guide = campaignGuide.Book.getPage()
+  end
+
+  -- store the additional index if there are any cards in it
+  local additionalIndex = guidReferenceApi.getObjectByOwnerAndType("Mythos", "AdditionalPlayerCardsBag")
+  if additionalIndex and #additionalIndex.getObjects() > 0 then
+    local indexData = additionalIndex.getData()
+    indexData.Locked = false
+    table.insert(campaignTokenData.ContainedObjects, indexData)
+  end
+
+  -- finish the data for the campaign token
   campaignTokenData.GMNotes = JSON.encode(campaignData)
   campaignTokenData.Nickname = campaignBox.getName() .. os.date(" %b %d") .. " Save"
-  campaignTokenData.ContainedObjects = { }
-
-  local indexData = additionalIndex.getData()
-  indexData.Locked = false
-  table.insert(campaignTokenData.ContainedObjects, indexData)
-
-  local logData = campaignLog.getData()
-  logData.Locked = false
-  table.insert(campaignTokenData.ContainedObjects, logData)
 
   spawnObjectData({ data = campaignTokenData })
   broadcastToAll("Campaign successfully exported! Save coin object to import on a different save.", "Green")

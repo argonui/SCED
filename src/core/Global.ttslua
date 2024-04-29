@@ -54,7 +54,7 @@ local tabIdTable = {
   tab5 = "fanmadePlayerCards"
 }
 
--- optionPanel data
+-- optionPanel data (intentionally not local!)
 optionPanel = {}
 local LANGUAGES = {
   { code = "zh_CN", name = "简体中文" },
@@ -762,7 +762,6 @@ end
 
 -- returns all sealed tokens on cards to the chaos bag
 function releaseAllSealedTokens(playerColor)
-  local chaosBag = findChaosBag()
   for _, obj in ipairs(getObjectsWithTag("CardThatSeals")) do
     obj.call("releaseAllTokens", playerColor)
   end
@@ -1331,17 +1330,16 @@ end
 
 -- called by toggling an option
 function onClick_toggleOption(_, id)
-  local state = self.UI.getAttribute(id, "isOn")
+  local toggleState = self.UI.getAttribute(id, "isOn")
 
-  -- flip state (and handle stupid "False" value)
-  if state == "False" then
-    state = true
+  -- flip state (and handle stupid "False" values)
+  if toggleState == "False" then
+    self.UI.setAttribute(id, "isOn", true)
+    applyOptionPanelChange(id, true)
   else
-    state = false
+    self.UI.setAttribute(id, "isOn", "False")
+    applyOptionPanelChange(id, false)
   end
-
-  self.UI.setAttribute(id, "isOn", state)
-  applyOptionPanelChange(id, state)
 end
 
 -- color selection for playArea
@@ -1439,24 +1437,23 @@ function updateOptionPanelState()
   end
 end
 
--- handles the applying of option selections and calls the respective functions based
+-- handles the applying of option selections and calls the respective functions based on the id
 ---@param id string ID of the option that was selected or deselected
 ---@param state boolean|any State of the option (true = enabled)
 function applyOptionPanelChange(id, state)
+  optionPanel[id] = state
+
   -- option: Snap tags
   if id == "useSnapTags" then
     playmatApi.setLimitSnapsByType(state, "All")
-    optionPanel[id] = state
 
     -- option: Draw 1 button
   elseif id == "showDrawButton" then
     playmatApi.showDrawButton(state, "All")
-    optionPanel[id] = state
 
     -- option: Clickable clue counters
   elseif id == "useClueClickers" then
     playmatApi.clickableClues(state, "All")
-    optionPanel[id] = state
 
     -- update master clue counter
     local counter = guidReferenceApi.getObjectByOwnerAndType("Mythos", "MasterClueCounter")
@@ -1465,52 +1462,39 @@ function applyOptionPanelChange(id, state)
     -- option: Play area snap tags
   elseif id == "playAreaConnections" then
     playAreaApi.setConnectionDrawState(state)
-    optionPanel[id] = state
 
     -- option: Play area connection color
   elseif id == "playAreaConnectionColor" then
     playAreaApi.setConnectionColor(state)
     UI.setAttribute(id, "color", "#" .. Color.new(state):toHex())
-    optionPanel[id] = state
 
     -- option: Play area snap tags
   elseif id == "playAreaSnapTags" then
     playAreaApi.setLimitSnapsByType(state)
-    optionPanel[id] = state
-
-    -- option: Show Title on placing scenarios
-  elseif id == "showTitleSplash" then
-    optionPanel[id] = state
-
-    -- option: Change custom playarea image on setup
-  elseif id == "changePlayAreaImage" then
-    optionPanel[id] = state
 
     -- option: Show clean up helper
   elseif id == "showCleanUpHelper" then
-    optionPanel[id] = spawnOrRemoveHelper(state, "Clean Up Helper", { -66, 1.6, 46 })
+   spawnOrRemoveHelper(state, "Clean Up Helper", { -66, 1.6, 46 })
 
     -- option: Show hand helper for each player
   elseif id == "showHandHelper" then
     spawnOrRemoveHelperForPlayermats("Hand Helper", state)
-    optionPanel[id] = state
 
     -- option: Show search assistant for each player
   elseif id == "showSearchAssistant" then
     spawnOrRemoveHelperForPlayermats("Search Assistant", state)
-    optionPanel[id] = state
 
     -- option: Show attachment helper
   elseif id == "showAttachmentHelper" then
-    optionPanel[id] = spawnOrRemoveHelper(state, "Attachment Helper", { -62, 1.4, 0 })
+    spawnOrRemoveHelper(state, "Attachment Helper", { -62, 1.4, 0 })
 
     -- option: Show CYOA campaign guides
   elseif id == "showCYOA" then
-    optionPanel[id] = spawnOrRemoveHelper(state, "CYOA Campaign Guides", { 39, 1.3, -20 })
+    spawnOrRemoveHelper(state, "CYOA Campaign Guides", { 39, 1.3, -20 })
 
     -- option: Show displacement tool
   elseif id == "showDisplacementTool" then
-    optionPanel[id] = spawnOrRemoveHelper(state, "Displacement Tool", { -57, 1.6, 46 })
+    spawnOrRemoveHelper(state, "Displacement Tool", { -57, 1.6, 46 })
   end
 end
 
@@ -1537,7 +1521,7 @@ function spawnOrRemoveHelper(state, name, position, rotation, owner)
     local cleanName = name:gsub("%s+", "")
     guidReferenceApi.editIndex(owner or "Mythos", cleanName, spawnedGUID)
   else
-    return removeHelperObject(name)
+    removeHelperObject(name)
   end
 end
 
@@ -1597,15 +1581,6 @@ end
 
 -- loads the default options
 function onClick_defaultSettings()
-  for id, _ in pairs(optionPanel) do
-    local state = false
-    -- override for settings that are enabled by default
-    if id == "useSnapTags" or id == "showTitleSplash" then
-      state = true
-    end
-    applyOptionPanelChange(id, state)
-  end
-
   -- clean reset of variables
   optionPanel = {
     cardLanguage = "en",
@@ -1625,6 +1600,11 @@ function onClick_defaultSettings()
     useResourceCounters = "disabled",
     useSnapTags = true
   }
+
+  -- applying changes
+  for id, state in pairs(optionPanel) do
+    applyOptionPanelChange(id, state)
+  end
 
   -- update UI
   updateOptionPanelState()
