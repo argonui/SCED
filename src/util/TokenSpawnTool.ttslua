@@ -1,6 +1,9 @@
+local playmatApi = require("playermat/PlaymatApi")
 local searchLib = require("util/SearchLib")
 local tokenManager = require("core/token/TokenManager")
 local TOKEN_INDEX = {}
+
+TOKEN_INDEX[1] = "actionToken"
 TOKEN_INDEX[3] = "resourceCounter"
 TOKEN_INDEX[4] = "damage"
 TOKEN_INDEX[5] = "path"
@@ -18,6 +21,15 @@ local stateTable = {
   ["secret"]   = 6,
   ["supply"]   = 7,
   ["offering"] = 8
+}
+
+local actionStateTable = {
+  ["Guardian"] = 1,
+  ["Seeker"]   = 2,
+  ["Rogue"]    = 3,
+  ["Mystic"]   = 4,
+  ["Survivor"] = 5,
+  ["Neutral"]  = 6
 }
 
 ---@param index number Index of the pressed key
@@ -73,6 +85,21 @@ function onScriptingButtonDown(index, playerColor)
           return
         end
       end
+    end
+  -- check for nearest investigator card and change action token state to its class 
+  elseif tokenType == "actionToken" then
+    local matColor = playmatApi.getMatColorByPosition(position)
+    local result = playmatApi.searchAroundPlaymat(matColor, "isCard")
+    for j, card in ipairs(result) do
+      local metadata = JSON.decode(card.getGMNotes()) or {}
+      if metadata.type == "Investigator" then
+        investigatorClass = metadata.class
+      end
+    end
+
+    local stateID = actionStateTable[investigatorClass]
+    if stateID ~= nil and stateID ~= 6 then
+      callback = function(spawned) spawned.setState(stateID) end
     end
   end
 
