@@ -1,6 +1,7 @@
 local deckLib = require("util/DeckLib")
 local guidReferenceApi = require("core/GUIDReferenceApi")
 local playAreaApi = require("core/PlayAreaApi")
+local playmatApi = require("playermat/PlaymatApi")
 local searchLib = require("util/SearchLib")
 local tokenArrangerApi = require("accessories/TokenArrangerApi")
 local tokenChecker = require("core/token/TokenChecker")
@@ -14,7 +15,6 @@ local ENCOUNTER_DISCARD_AREA = {
   upperLeft = { x = 1.62, z = 0.42 },
   lowerRight = { x = 1.58, z = 0.38 }
 }
-local DRAWN_ENCOUNTER_CARD_OFFSET = { 1.365, 0.5, -0.625 }
 
 -- global position of encounter deck and discard pile
 local ENCOUNTER_DECK_POS = { x = -3.93, y = 1, z = 5.76 }
@@ -186,26 +186,8 @@ function actualEncounterCardDraw(card, params)
     faceUpRotation = 180
   end
 
-  -- get position and rotation for the specific playmat
-  local pos = params.mat.positionToWorld(DRAWN_ENCOUNTER_CARD_OFFSET)
-  local rot = { 0, params.mat.getRotation().y, faceUpRotation }
-
-  -- maybe override position with first empty slot in threat area (right to left)
-  if not params.stack then
-    local searchPos = Vector(-0.91, 0.5, -0.625)
-    for i = 1, 5 do
-      local globalSearchPos = params.mat.positionToWorld(searchPos)
-      local searchResult = searchLib.atPosition(globalSearchPos, "isCardOrDeck")
-      if #searchResult == 0 then
-        pos = globalSearchPos
-        break
-      else
-        searchPos.x = searchPos.x + 0.455
-      end
-    end
-  end
-
-  deckLib.placeOrMergeIntoDeck(card, pos, rot)
+  local rot = playmatApi.returnRotation(params.matColor):setAt("z", faceUpRotation)
+  deckLib.placeOrMergeIntoDeck(card, params.position, rot)
 end
 
 function reshuffleEncounterDeck()
