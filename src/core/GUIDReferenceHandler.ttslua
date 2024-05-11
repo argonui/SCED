@@ -1,3 +1,5 @@
+local searchLib = require("util/SearchLib")
+
 local GuidReferences = {
   White = {
     ClueCounter = "d86b7c",
@@ -155,4 +157,38 @@ end
 function editIndex(params)
   editsToIndex[params.owner][params.type] = params.guid
   updateMainIndex()
+end
+
+-- Returns the owner of the provided object (either the matColor or "Mythos")
+---@param object tts__GameObject Object to check
+function getOwnerOfObject(object)
+  if object == nil then return end
+
+  -- use GUID to check owners instead of obtaining each as reference
+  local objectGuid = object.getGUID()
+
+  -- check if object is directly owned
+  for owner, subtable in pairs(GuidReferences) do
+    for type, guid in pairs(subtable) do
+      if guid == objectGuid then
+        return owner
+      end
+    end
+  end
+
+  -- check if it is on an owned object
+  local result = searchLib.belowPosition(object.getPosition())
+
+  for owner, subtable in pairs(GuidReferences) do
+    for type, guid in pairs(subtable) do
+      for _, searchObj in ipairs(result) do
+        if guid == searchObj.getGUID() then
+          return owner
+        end
+      end
+    end
+  end
+
+  -- default to "Mythos"
+  return "Mythos"
 end
