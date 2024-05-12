@@ -62,10 +62,10 @@ end
 function takeCardIntoThreatArea(playerColor, hoveredObject)
   -- only continue if an unlocked card
   if hoveredObject == nil
-      or hoveredObject.type ~= "Card"
+      or hoveredObject.type ~= "Card" and hoveredObject.type ~= "Deck"
       or hoveredObject.hasTag("Location")
       or hoveredObject.locked then
-    broadcastToColor("Hover a non-location and try again.", playerColor, "Yellow")
+    broadcastToColor("Hover a non-location card and try again.", playerColor, "Yellow")
     return
   end
 
@@ -76,7 +76,7 @@ function takeCardIntoThreatArea(playerColor, hoveredObject)
     broadcastToColor("Threat area is full.", playerColor,"Yellow")
     return 
   end
-  local pos = playmatApi.getEncounterCardDrawPosition(matColor, false)
+  
   
   -- initialize list of objects to move
   local moveTheseObjects = {}
@@ -86,23 +86,8 @@ function takeCardIntoThreatArea(playerColor, hoveredObject)
   end
   
   -- find out if the original card is on the green or red playmats
-  local result
-  local result = playmatApi.searchAroundPlaymat("Green", "isCard")
-  local originalMatColor
+  local originalMatColor = guidReferenceApi.getOwnerOfObject(hoveredObject)
   
-  for _, card in ipairs(result) do
-    if hoveredObject.getGUID() == card.getGUID() then
-      originalMatColor = "Green"
-    end
-  end
-  
-  local result = playmatApi.searchAroundPlaymat("Red", "isCard")
-  
-  for _, card in ipairs(result) do
-    if hoveredObject.getGUID() == card.getGUID() then
-      originalMatColor = "Red"
-    end
-  end
   -- determine modifiers for the playmats
   local modifierY
   if originalMatColor == "Red" then
@@ -120,9 +105,17 @@ function takeCardIntoThreatArea(playerColor, hoveredObject)
     localPositions[i] = localPos
   end
   
+  -- move the main card
+  local pos = playmatApi.getEncounterCardDrawPosition(matColor, false)
   hoveredObject.setPosition(pos)
   hoveredObject.setRotation(hoveredObject.getRotation() - Vector(0, 270-mat.getRotation().y-modifierY, 0))
   
+  local cardName = hoveredObject.getName()
+  if cardName == nil or cardName == "" then
+    cardName = "card(s)"
+  end
+  broadcastToAll("Placed " .. cardName .. " into threat area.", "White")
+
   for i, obj in ipairs(moveTheseObjects) do
     if not obj.locked then
       local globalPos = hoveredObject.positionToWorld(localPositions[i])
