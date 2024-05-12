@@ -69,12 +69,12 @@ function onLoad(savedData)
   end
 
   -- this needs to be here since the playarea will be reloaded when the image changes
-  self.interactable  = false 
+  self.interactable  = false
 
   Wait.time(function() collisionEnabled = true end, 0.1)
 end
 
--- Called by Custom Data Helpers to push their location data into the Data Helper.  This adds the
+-- Called by Custom Data Helpers to push their location data into the Data Helper. This adds the
 -- data to the local token manager instance.
 ---@param args table Single-value array holding the GUID of the Custom Data Helper making the call
 function updateLocations(args)
@@ -84,31 +84,10 @@ function updateLocations(args)
   end
 end
 
--- sets the image of the playarea
-function updateSurface(newURL)
-  local customInfo = self.getCustomObject()
+---------------------------------------------------------
+-- TTS event handling
+---------------------------------------------------------
 
-  if newURL ~= "" and newURL ~= nil and newURL ~= DEFAULT_URL then
-    customInfo.image = newURL
-    broadcastToAll("New Playarea Image Applied", "Green")
-  else
-    customInfo.image = DEFAULT_URL
-    broadcastToAll("Default Playarea Image Applied", "Green")
-  end
-
-  self.setCustomObject(customInfo)
-
-  local guid = nil
-
-  if customDataHelper then guid = customDataHelper.getGUID() end
-  self.reload()
-
-  if guid ~= nil then
-    Wait.time(function() updateLocations({ guid }) end, 1)
-  end
-end
-
--- TTS event, called for each object that is placed on the playarea
 function onCollisionEnter(collisionInfo)
   if not collisionEnabled then return end
 
@@ -126,7 +105,7 @@ function onCollisionEnter(collisionInfo)
     tokenManager.spawnForCard(object)
   end
 
-  -- If this card was being dragged, clear the dragging connections.  A multi-drag/drop may send
+  -- If this card was being dragged, clear the dragging connections. A multi-drag/drop may send
   -- the dropped card immediately into a deck, so this has to be done here
   if draggingGuids[object.getGUID()] ~= nil then
     object.setVectorLines({})
@@ -134,22 +113,6 @@ function onCollisionEnter(collisionInfo)
   end
 
   maybeTrackLocation(object)
-end
-
-function shouldSpawnTokens(card)
-  local metadata = JSON.decode(card.getGMNotes())
-  if metadata == nil then
-    return tokenManager.hasLocationData(card)
-  end
-  return metadata.type == "Location"
-      or metadata.type == "Enemy"
-      or metadata.type == "Treachery"
-      or metadata.weakness
-      -- hardcoded IDs for "Makeshift Trap" and "Shrine of the Moirai"
-      -- these cards are events with uses, that attach to encounter cards and thus will enter play in the playarea
-      -- TODO: probably turn this into a metadata field if we get more cards like that
-      or metadata.id == "07310"
-      or metadata.id == "09100"
 end
 
 function onCollisionExit(collisionInfo)
@@ -161,13 +124,10 @@ function onObjectDestroy(object)
   maybeUntrackLocation(object)
 end
 
-function onObjectPickUp(player, object)
-  -- only continue for cards
-  local objType = object.name
-  if objType ~= "Card" and objType ~= "CardCustom" then return end
+function onObjectPickUp(_, object)
+  if object.type ~= "Card" then return end
 
-  -- onCollisionExit USUALLY fires first, so we have to check the card to see if it's a location we
-  -- should be tracking
+  -- onCollisionExit USUALLY fires first, so we have to check the card to see if it's a location we should be tracking
   if showLocationLinks() and isInPlayArea(object) and object.getGMNotes() ~= nil and object.getGMNotes() ~= "" then
     local pickedUpGuid = object.getGUID()
     local metadata = JSON.decode(object.getGMNotes()) or {}
@@ -188,9 +148,8 @@ function onObjectPickUp(player, object)
   end
 end
 
+-- Due to the frequence of onUpdate calls, ensure that we only process any changes once
 function onUpdate()
-  -- Due to the frequence of onUpdate calls, ensure that we only process any changes to the
-  -- connection list once, and only redraw once
   local needsConnectionRebuild = false
   local needsConnectionDraw = false
   for guid, _ in pairs(draggingGuids) do
@@ -198,8 +157,7 @@ function onUpdate()
     if obj == nil or not isInPlayArea(obj) then
       draggingGuids[guid] = nil
       needsConnectionRebuild = true
-      -- If object still exists then it's been dragged outside the area and needs to clear the
-      -- lines attached to it
+      -- If object still exists then it's outside the area and needs to lose the lines attached to it
       if obj ~= nil then
         obj.setVectorLines({})
       end
@@ -213,6 +171,38 @@ function onUpdate()
   if needsConnectionDraw then
     drawDraggingConnections()
   end
+end
+
+-- Global event handler, delegated from Global. Clears any connection lines from dragged cards
+-- before they are destroyed by entering a deck. Removal of the card from the dragging list will
+-- be handled during the next onUpdate() call.
+function tryObjectEnterContainer()
+  for draggedGuid, _ in pairs(draggingGuids) do
+    local draggedObj = getObjectFromGUID(draggedGuid)
+    if draggedObj ~= nil then
+      draggedObj.setVectorLines({})
+    end
+  end
+end
+
+---------------------------------------------------------
+-- main functionality
+---------------------------------------------------------
+
+function shouldSpawnTokens(card)
+  local metadata = JSON.decode(card.getGMNotes())
+  if metadata == nil then
+    return tokenManager.hasLocationData(card)
+  end
+  return metadata.type == "Location"
+      or metadata.type == "Enemy"
+      or metadata.type == "Treachery"
+      or metadata.weakness
+      -- hardcoded IDs for "Makeshift Trap" and "Shrine of the Moirai"
+      -- these cards are events with uses, that attach to encounter cards and thus will enter play in the playarea
+      -- TODO: probably turn this into a metadata field if we get more cards like that
+      or metadata.id == "07310"
+      or metadata.id == "09100"
 end
 
 -- Checks the given card and adds it to the list of locations tracked for connection purposes.
@@ -243,8 +233,8 @@ function maybeTrackLocation(card)
   end
 end
 
--- Stop tracking a location for connection drawing.  This should be called for both collision exit
--- and destruction, as a destroyed object does not trigger collision exit.  An object can also be
+-- Stop tracking a location for connection drawing. This should be called for both collision exit
+-- and destruction, as a destroyed object does not trigger collision exit. An object can also be
 -- deleted mid-drag, but the ordering for drag events means we can't clear those here and those will
 -- be cleared in the next onUpdate() cycle.
 ---@param card tts__Object Card to (maybe) stop tracking
@@ -258,22 +248,9 @@ function maybeUntrackLocation(card)
   end
 end
 
--- Global event handler, delegated from Global.  Clears any connection lines from dragged cards
--- before they are destroyed by entering a deck.  Removal of the card from the dragging list will
--- be handled during the next onUpdate() call.
-function tryObjectEnterContainer()
-  for draggedGuid, _ in pairs(draggingGuids) do
-    local draggedObj = getObjectFromGUID(draggedGuid)
-    if draggedObj ~= nil then
-      draggedObj.setVectorLines({})
-    end
-  end
-end
-
 -- Builds a list of GUID to GUID connection information based on the currently tracked locations.
 -- This will update the connection information and store it in the locationConnections data member,
--- but does not draw those connections.  This should often be followed by a call to
--- drawBaseConnections()
+-- but does not draw those connections. This should often be followed by a call to drawBaseConnections()
 function rebuildConnectionList()
   if not showLocationLinks() then
     locationConnections = {}
@@ -304,7 +281,7 @@ end
 
 -- Extracts the card's icon string into a list of individual location icons
 ---@param cardId string GUID of the card to pull the icon data from
----@param iconCardList table A table of icon->GUID list.  Mutable, will be updated by this method
+---@param iconCardList table A table of icon->GUID list. Mutable, will be updated by this method
 ---@param locData table A table containing the metadata for the card (for the correct side)
 function buildLocListByIcon(cardId, iconCardList, locData)
   if locData ~= nil and locData.icons ~= nil then
@@ -320,7 +297,7 @@ end
 -- Builds the connections for the given cardID by finding matching icons and adding them to the
 -- Playarea's locationConnections table.
 ---@param cardId string GUID of the card to build the connections for
----@param iconCardList table A table of icon->GUID List.  Used to find matching icons for connections.
+---@param iconCardList table A table of icon->GUID List. Used to find matching icons for connections.
 ---@param locData table A table containing the metadata for the card (for the correct side)
 function buildConnection(cardId, iconCardList, locData)
   if locData ~= nil and locData.connections ~= nil then
@@ -331,7 +308,7 @@ function buildConnection(cardId, iconCardList, locData)
           -- If the reciprocal exists, convert it to BiDi, otherwise add as a one-way
           if locationConnections[connectedGuid] ~= nil
               and (locationConnections[connectedGuid][cardId] == ONE_WAY
-                or locationConnections[connectedGuid][cardId] == BIDIRECTIONAL) then
+              or locationConnections[connectedGuid][cardId] == BIDIRECTIONAL) then
             locationConnections[connectedGuid][cardId] = BIDIRECTIONAL
             locationConnections[cardId][connectedGuid] = nil
           else
@@ -348,7 +325,6 @@ function buildConnection(cardId, iconCardList, locData)
 end
 
 -- Draws the lines for connections currently in locationConnections but not in draggingGuids.
--- Constructed vectors will be set to the playmat
 function drawBaseConnections()
   if not showLocationLinks() then
     locationConnections = {}
@@ -381,10 +357,7 @@ end
 
 -- Draws the lines for cards which are currently being dragged.
 function drawDraggingConnections()
-  if not showLocationLinks() then
-    return
-  end
-  local cardConnectionLines = {}
+  if not showLocationLinks() then return end
   local ownedVectors = {}
 
   for originGuid, _ in pairs(draggingGuids) do
@@ -414,13 +387,12 @@ function drawDraggingConnections()
   end
 end
 
--- Draws a bidirectional location connection between the two cards, adding the lines to do so to the
--- given lines list.
+-- Draws a bidirectional location connection between the two cards, adding the necessary lines to the list
 ---@param card1 tts__Object One of the card objects to connect
 ---@param card2 tts__Object The other card object to connect
 ---@param vectorOwner tts__Object The object which these lines will be set to. Used for relative
 ---    positioning and scaling, as well as highlighting connections during a drag operation
----@param lines table List of vector line elements.  Mutable, will be updated to add this connector
+---@param lines table List of vector line elements. Mutable, will be updated to add this connector
 function addBidirectionalVector(card1, card2, vectorOwner, lines)
   local cardPos1 = card1.getPosition()
   local cardPos2 = card2.getPosition()
@@ -438,7 +410,7 @@ function addBidirectionalVector(card1, card2, vectorOwner, lines)
 end
 
 -- Draws a one-way location connection between the two cards, adding the lines to do so to the
--- given lines list.  Arrows will point towards the target card.
+-- given lines list. Arrows will point towards the target card.
 ---@param origin tts__Object Origin card in the connection
 ---@param target tts__Object Target card object to connect
 ---@param vectorOwner tts__Object The object which these lines will be set to. Used for relative
@@ -452,12 +424,11 @@ function addOneWayVector(origin, target, vectorOwner, lines)
   originPos.y = CONNECTION_LINE_Y
   targetPos.y = CONNECTION_LINE_Y
 
-  -- Calculate card distance to be closer for horizontal positions than vertical, since cards are
-  -- taller than they are wide
+  -- Calculate distance to be closer for horizontal positions than vertical, since cards are taller than wide
   local heading = Vector(originPos):sub(targetPos):heading("y")
   local distanceFromCard = DIRECTIONAL_ARROW_DISTANCE * 0.7 + DIRECTIONAL_ARROW_DISTANCE * 0.3 * math.abs(math.sin(math.rad(heading)))
 
-  -- Calculate the three possible arrow positions.  These are offset by half the arrow length to
+  -- Calculate the three possible arrow positions. These are offset by half the arrow length to
   -- make them visually balanced by keeping the arrows centered, not tracking the point
   local midpoint = Vector(originPos):add(targetPos):scale(0.5):moveTowards(targetPos, ARROW_ARM_LENGTH / 2)
   local closeToOrigin = Vector(originPos):moveTowards(targetPos, distanceFromCard + ARROW_ARM_LENGTH / 2)
@@ -489,100 +460,6 @@ function addArrowLines(arrowheadPos, originPos, vectorOwner, lines)
     color = vectorOwner == self and connectionColor or DRAGGING_CONNECTION_COLOR,
     thickness = vectorOwner == self and CONNECTION_THICKNESS or DRAGGING_CONNECTION_THICKNESS,
   })
-end
-
--- Move all contents on the play area (cards, tokens, etc) one slot in the given direction.  Certain
--- fixed objects will be ignored, as will anything the player has tagged with 'displacement_excluded'
----@param playerColor string Color of the player requesting the shift.  Used solely to send an error
----    message in the unlikely case that the scripting zone has been deleted
-function shiftContentsUp(playerColor)
-  shiftContents(playerColor, "up")
-end
-
-function shiftContentsDown(playerColor)
-  shiftContents(playerColor, "down")
-end
-
-function shiftContentsLeft(playerColor)
-  shiftContents(playerColor, "left")
-end
-
-function shiftContentsRight(playerColor)
-  shiftContents(playerColor, "right")
-end
-
-function shiftContents(playerColor, direction)
-  local zone = guidReferenceApi.getObjectByOwnerAndType("Mythos", "PlayAreaZone")
-  if not zone then
-    broadcastToColor("Scripting zone couldn't be found.", playerColor, "Red")
-    return
-  end
-
-  for _, object in ipairs(zone.getObjects()) do
-    if not (SHIFT_EXCLUSION[object.getGUID()] or object.hasTag("displacement_excluded")) then
-      object.translate(SHIFT_OFFSETS[direction])
-    end
-  end
-  Wait.time(drawBaseConnections, 0.1)
-end
-
--- Check to see if the given object is within the bounds of the play area, based solely on the X and
--- Z coordinates, ignoring height
----@param object tts__Object Object to check
----@return boolean: True if the object is inside the play area
-function isInPlayArea(object)
-  local bounds = self.getBounds()
-  local position = object.getPosition()
-  -- Corners are arbitrary since it's all global - c1 goes down both axes, c2 goes up
-  local c1 = { x = bounds.center.x - bounds.size.x / 2, z = bounds.center.z - bounds.size.z / 2 }
-  local c2 = { x = bounds.center.x + bounds.size.x / 2, z = bounds.center.z + bounds.size.z / 2 }
-
-  return position.x > c1.x and position.x < c2.x and position.z > c1.z and position.z < c2.z
-end
-
-function onScenarioChanged(scenarioName)
-  currentScenario = scenarioName
-  if not showLocationLinks() then
-    broadcastToAll("Automatic location connections not available for this scenario")
-  end
-end
-
-function showLocationLinks()
-  return not LOC_LINK_EXCLUDE_SCENARIOS[currentScenario] and connectionsEnabled
-end
-
--- Sets this playmat's snap points to limit snapping to locations or not.
--- If matchTypes is false, snap points will be reset to snap all cards.
----@param matchTypes boolean  Whether snap points should only snap for the matching card types.
-function setLimitSnapsByType(matchTypes)
-  local snaps = self.getSnapPoints()
-  for i, snap in ipairs(snaps) do
-    local snapTags = snaps[i].tags
-    if matchTypes then
-      if snapTags == nil then
-        snaps[i].tags = { "Location" }
-      else
-        table.insert(snaps[i].tags, "Location")
-      end
-    else
-      snaps[i].tags = nil
-    end
-  end
-  self.setSnapPoints(snaps)
-end
-
--- called by the option panel to enabled / disable location connections
-function setConnectionDrawState(state)
-  connectionsEnabled = state
-  rebuildConnectionList()
-  drawBaseConnections()
-end
-
--- called by the option panel to edit the location connection color
-function setConnectionColor(color)
-  connectionColor = color
-  rebuildConnectionList()
-  drawBaseConnections()
 end
 
 -- count victory points on locations in play area
@@ -634,6 +511,141 @@ function highlightMissingData(state)
   end
 end
 
+---------------------------------------------------------
+-- functions for outside calls
+---------------------------------------------------------
+
+-- Move all contents on the play area (cards, tokens, etc) one slot in the given direction. Certain
+-- fixed objects will be ignored, as will anything the player has tagged with 'displacement_excluded'
+---@param playerColor string Color of the player requesting the shift (used for error messages)
+function shiftContentsUp(playerColor)
+  shiftContents(playerColor, "up")
+end
+
+function shiftContentsDown(playerColor)
+  shiftContents(playerColor, "down")
+end
+
+function shiftContentsLeft(playerColor)
+  shiftContents(playerColor, "left")
+end
+
+function shiftContentsRight(playerColor)
+  shiftContents(playerColor, "right")
+end
+
+function shiftContents(playerColor, direction)
+  local zone = guidReferenceApi.getObjectByOwnerAndType("Mythos", "PlayAreaZone")
+  if not zone then
+    broadcastToColor("Scripting zone couldn't be found.", playerColor, "Red")
+    return
+  end
+
+  for _, object in ipairs(zone.getObjects()) do
+    if not (SHIFT_EXCLUSION[object.getGUID()] or object.hasTag("displacement_excluded")) then
+      object.translate(SHIFT_OFFSETS[direction])
+    end
+  end
+  Wait.time(drawBaseConnections, 0.1)
+end
+
+-- sets the image of the playarea
+---@param newURL string URL for the new surface image
+function updateSurface(newURL)
+  local customInfo = self.getCustomObject()
+
+  if newURL ~= "" and newURL ~= nil and newURL ~= DEFAULT_URL then
+    customInfo.image = newURL
+    broadcastToAll("New Playarea Image Applied", "Green")
+  else
+    customInfo.image = DEFAULT_URL
+    broadcastToAll("Default Playarea Image Applied", "Green")
+  end
+
+  self.setCustomObject(customInfo)
+
+  local guid = nil
+  if customDataHelper then
+    guid = customDataHelper.getGUID()
+  end
+
+  self.reload()
+
+  if guid ~= nil then
+    Wait.time(function() updateLocations({ guid }) end, 1)
+  end
+end
+
+-- Toggles the tags for the playarea's snap points to limit snapping to locations or not
+-- If matchTypes is false, snap points will be reset to snap all cards
+---@param matchTypes boolean Whether snap points should only snap for the matching card types
+function setLimitSnapsByType(matchTypes)
+  local snaps = self.getSnapPoints()
+  for _, snap in ipairs(snaps) do
+    if matchTypes then
+      if snap.tags == nil then
+        snap.tags = { "Location" }
+      else
+        table.insert(snap.tags, "Location")
+      end
+    else
+      snap.tags = nil
+    end
+  end
+  self.setSnapPoints(snaps)
+end
+
+-- called by the option panel to enabled / disable location connections
+function setConnectionDrawState(state)
+  connectionsEnabled = state
+  rebuildConnectionList()
+  drawBaseConnections()
+end
+
+-- called by the option panel to edit the location connection color
+function setConnectionColor(color)
+  connectionColor = color
+  rebuildConnectionList()
+  drawBaseConnections()
+end
+
+function onScenarioChanged(scenarioName)
+  currentScenario = scenarioName
+  if not showLocationLinks() then
+    broadcastToAll("Automatic location connections not available for this scenario")
+  end
+end
+
+function getTrackedLocations()
+  return locations
+end
+
+---------------------------------------------------------
+-- utility functions
+---------------------------------------------------------
+
+-- Check to see if the given object is within the bounds of the play area (using X and Z coordinates)
+---@param object tts__Object Object to check
+---@return boolean: True if the object is inside the play area
+function isInPlayArea(object)
+  local bounds = self.getBounds()
+  local position = object.getPosition()
+  -- Corners are arbitrary since it's all global - c1 goes down both axes, c2 goes up
+  local c1 = { x = bounds.center.x - bounds.size.x / 2, z = bounds.center.z - bounds.size.z / 2 }
+  local c2 = { x = bounds.center.x + bounds.size.x / 2, z = bounds.center.z + bounds.size.z / 2 }
+
+  return position.x > c1.x and position.x < c2.x and position.z > c1.z and position.z < c2.z
+end
+
+function showLocationLinks()
+  return not LOC_LINK_EXCLUDE_SCENARIOS[currentScenario] and connectionsEnabled
+end
+
+function round(num, numDecimalPlaces)
+  local mult = 10 ^ (numDecimalPlaces or 0)
+  return math.floor(num * mult + 0.5) / mult
+end
+
 -- rebuilds local snap points (could be useful in the future again)
 function buildSnaps()
   local upperleft = { x = 1.53, z = -1.09 }
@@ -659,10 +671,4 @@ function buildSnaps()
     end
   end
   self.setSnapPoints(snaps)
-end
-
--- utility function
-function round(num, numDecimalPlaces)
-  local mult = 10 ^ (numDecimalPlaces or 0)
-  return math.floor(num * mult + 0.5) / mult
 end
