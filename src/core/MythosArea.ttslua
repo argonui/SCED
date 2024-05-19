@@ -170,7 +170,10 @@ function drawEncounterCard(params)
     end
 
     -- if there is no discard pile either, reshuffleEncounterDeck will give an error message already
-    reshuffleEncounterDeck()
+    local success = reshuffleEncounterDeck()
+
+    -- only continue if there was a discard pile
+    if not success then return end
     reshuffledAlready = true
     drawEncounterCard(params)
   end
@@ -190,10 +193,17 @@ function actualEncounterCardDraw(card, params)
   deckLib.placeOrMergeIntoDeck(card, params.position, rot)
 end
 
+-- gets the discard pile and shuffles it into the encounter deck
+---@return boolean: Whether the operation was successfully performed
 function reshuffleEncounterDeck()
   -- flag to avoid multiple calls
-  if isReshuffling then return end
+  if isReshuffling then
+    return false
+  end
   isReshuffling = true
+
+  -- disable flag after 1s delay
+  Wait.time(function() isReshuffling = false end, 1)
 
   local encounterDeck = getEncounterDeck()
   local discardPile = searchLib.atPosition(ENCOUNTER_DISCARD_POSITION, "isCardOrDeck")
@@ -215,12 +225,11 @@ function reshuffleEncounterDeck()
     end
     encounterDeck.shuffle()
     broadcastToAll("Shuffled encounter discard into deck.", "White")
+    return true
   else
     broadcastToAll("Encounter discard pile is already empty.", "Red")
+    return false
   end
-
-  -- disable flag
-  Wait.time(function() isReshuffling = false end, 1)
 end
 
 ---------------------------------------------------------
