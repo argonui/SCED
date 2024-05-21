@@ -161,12 +161,12 @@ function restoreCampaignData(importData, coin)
     deckImporterApi.setUiState(importData["decks"])
   end
 
-  -- maybe set campaign guide page
-  if importData["guide"] then
+  -- maybe set campaign guide page (unless it was on the first page)
+  if importData["guide"] and importData["guide"] ~= 0 then
     local campaignGuide = findUniqueObjectWithTag("CampaignGuide")
     if campaignGuide then
       Wait.condition(
-      -- Called after the condition function returns true
+        -- Called after the condition function returns true
         function() printToAll("Campaign Guide import successful!") end,
         -- Condition function that is called continuously until it returns true or timeout is reached
         function() return campaignGuide.Book.setPage(importData["guide"]) end,
@@ -189,6 +189,13 @@ function restoreCampaignData(importData, coin)
   -- restore PlayArea image and player count
   playAreaApi.updateSurface(importData["playarea"])
   playAreaApi.setInvestigatorCount(importData["clueCount"])
+
+  -- restore Playmat slots
+  if importData["slotData"] then
+    for matColor, slotData in pairs(importData["slotData"]) do
+      playmatApi.loadSlotData(matColor, slotData)
+    end
+  end
 
   coin.destruct()
   broadcastToAll("Campaign successfully imported!", "Green")
@@ -263,6 +270,13 @@ function createCampaignToken(_, playerColor, _)
     local indexData = additionalIndex.getData()
     indexData.Locked = false
     table.insert(campaignTokenData.ContainedObjects, indexData)
+  end
+
+  -- get the slot symbol data for each playmat (use GUIDReferenceApi to only get this for existing playmats)
+  campaignData.slotData = {}
+  for matColor, _ in pairs(guidReferenceApi.getObjectsByType("Playermat")) do
+    local slotData = playmatApi.getSlotData(matColor)
+    campaignData.slotData[matColor] = slotData
   end
 
   -- finish the data for the campaign token
