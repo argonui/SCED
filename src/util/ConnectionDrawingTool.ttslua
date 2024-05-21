@@ -1,87 +1,98 @@
-local lines = {}
+local connections = {}
 
--- save "lines" to be able to remove them after loading
 function onSave()
-  return JSON.encode(lines)
+  return JSON.encode({ connections = connections })
 end
 
 function onLoad(savedData)
   if savedData and savedData ~= "" then
-    lines = JSON.decode(savedData) or {}
+    local loadedData = JSON.decode(savedData) or {}
+    connections = loadedData.connections
+    processLines()
   end
+
+  addHotkey("Drawing Tool: Reset", function() connections = {} processLines() end)
+  addHotkey("Drawing Tool: Redraw", processLines)
 end
 
--- create timer when numpad 0 is pressed
-function onScriptingButtonDown(index, player_color)
+function onScriptingButtonDown(index, playerColor)
   if index ~= 10 then return end
-  TimerID = Wait.time(function() draw_from(Player[player_color]) end, 1)
+
+  Timer.create {
+    identifier = playerColor .. "_draw_from",
+    function_name = "draw_from",
+    parameters = { player = Player[playerColor] },
+    delay = 1
+  }
 end
 
--- called for long press of numpad 0, draws lines from hovered object to selected objects
-function draw_from(player)
-  local source = player.getHoverObject()
+function draw_from(params)
+  local source = params.player.getHoverObject()
   if not source then return end
 
-  for _, item in ipairs(player.getSelectedObjects()) do
-    if item.getGUID() ~= source.getGUID() then
+  for _, item in ipairs(params.player.getSelectedObjects()) do
+    if item ~= source then
       if item.getGUID() > source.getGUID() then
-        draw_with_pair(item, source)
+        addPair(item, source)
       else
-        draw_with_pair(source, item)
+        addPair(source, item)
       end
     end
   end
 
-  process_lines()
+  processLines()
 end
 
--- general drawing of all lines between selected objects
-function onScriptingButtonUp(index, player_color)
+function onScriptingButtonUp(index, playerColor)
   if index ~= 10 then return end
-  -- returns true only if there is a timer to cancel. If this is false then we've waited longer than a second.
-  if not Wait.stop(TimerID) then return end
 
-  local items = Player[player_color].getSelectedObjects()
-  if #items < 2 then
-    broadcastToColor("You must have at least two items selected (currently: " .. #items .. ").", player_color, "Red")
-    return
-  end
+  -- returns true only if there is a timer to cancel. If this is false then we've waited longer than a second.
+  if not Timer.destroy(playerColor .. "_draw_from") then return end
+
+  local items = Player[playerColor].getSelectedObjects()
+  if #items < 2 then return end
 
   table.sort(items, function(a, b) return a.getGUID() > b.getGUID() end)
 
-  for f = 1, #items - 1 do
-    for s = f + 1, #items do
-      draw_with_pair(items[f], items[s])
+  for i = 1, #items do
+    local first = items[i]
+
+    for j = i, #items do
+      local second = items[j]
+      addPair(first, second)
     end
   end
 
-  process_lines()
+  processLines()
 end
 
--- adds two objects to table of vector lines
-function draw_with_pair(first, second)
-  local guid_first  = first.getGUID()
-  local guid_second = second.getGUID()
+function addPair(first, second)
+  local first_guid = first.getGUID()
+  local second_guid = second.getGUID()
 
-  if Global.getVectorLines() == nil then lines = {} end
-  if not lines[guid_first] then lines[guid_first] = {} end
-
-  if lines[guid_first][guid_second] then
-    lines[guid_first][guid_second] = nil
-  else
-    lines[guid_first][guid_second] = { points = { first.getPosition(), second.getPosition() }, color = "White" }
-  end
+  if not connections[first_guid] then connections[first_guid] = {} end
+  connections[first_guid][second_guid] = not connections[first_guid][second_guid]
 end
 
--- updates the global vector lines based on "lines"
-function process_lines()
-  local drawing = {}
+function processLines()
+  local lines = {}
 
-  for _, first in pairs(lines) do
-    for _, data in pairs(first) do
-      table.insert(drawing, data)
+  for source_guid, target_guids in pairs(connections) do
+    local source = getObjectFromGUID(source_guid)
+
+    for target_guid, exists in pairs(target_guids) do
+      if exists then
+        local target = getObjectFromGUID(target_guid)
+
+        if source and target then
+          table.insert(lines, {
+            points = { source.getPosition(), target.getPosition() },
+            color = Color.White
+          })
+        end
+      end
     end
   end
 
-  Global.setVectorLines(drawing)
+  Global.setVectorLines(lines)
 end
