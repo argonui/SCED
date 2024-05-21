@@ -302,12 +302,14 @@ function layout(_, _, isRightClick)
   end
 
   -- clone tokens from chaos bag (default position above trash can)
-  local rawData = chaosBag.getData().ContainedObjects
+  local rawData = chaosBag.getData().ContainedObjects or {}
 
   -- optionally get the data for tokens in play
   if includeDrawnTokens then
     for _, token in pairs(chaosBagApi.getTokensInPlay()) do
-      if token ~= nil then table.insert(rawData, token.getData()) end
+      if token ~= nil then
+        table.insert(rawData, token.getData())
+      end
     end
   end
 
@@ -335,8 +337,15 @@ function layout(_, _, isRightClick)
     end
   end
 
-  -- sort table by value (symbols last if same value)
-  table.sort(data, tokenValueComparator)
+  -- handling for near empty chaos bag
+  if #data == 0 then
+    -- small delay to limit update calls
+    Wait.time(function() updating = false end, 0.1)
+    return
+  elseif #data > 1 then
+    -- sort table by value (symbols last if same value)
+    table.sort(data, tokenValueComparator)
+  end
 
   -- laying out the tokens
   local pos = self.getPosition() + Vector(3.55, -0.05, -3.95)
@@ -349,7 +358,7 @@ function layout(_, _, isRightClick)
   local valueCount = 1
   local tokenName = false
 
-  for i, item in ipairs(data) do
+  for _, item in ipairs(data) do
     -- this is true for the first token in a new row
     if item.value ~= currentValue then
       if percentage then
@@ -380,18 +389,14 @@ function layout(_, _, isRightClick)
     createPercentageButton(tokenCount, valueCount, tokenName)
   end
 
-  -- introducing a small delay to limit update calls
+  -- small delay to limit update calls
   Wait.time(function() updating = false end, 0.1)
 end
 
 -- called from outside to set default values for tokens
 function onTokenDataChanged(parameters)
-  local tokenData = parameters.tokenData or {}
-  local currentScenario = parameters.currentScenario or ""
-  local useFrontData = parameters.useFrontData
-
   -- update token precedence
-  for key, table in pairs(tokenData) do
+  for key, table in pairs(parameters.tokenData or {}) do
     local modifier = table.modifier
     if modifier == -999 then modifier = 0 end
     tokenPrecedence[key][1] = modifier
