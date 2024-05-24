@@ -425,7 +425,7 @@ end
 ---@param groupName string Name of the group to spawn, matching a key in InvestigatorPanelData
 function spawnInvestigators(groupName)
   if INVESTIGATOR_GROUPS[groupName] == nil then
-    printToAll("No " .. groupName .. " data yet")
+    printToAll("No investigator data for " .. groupName .. " yet")
     return
   end
 
@@ -434,7 +434,7 @@ function spawnInvestigators(groupName)
   local investigatorCount = #INVESTIGATOR_GROUPS[groupName]
   local position = getInvestigatorRowStartPos(investigatorCount, row)
 
-  for i, investigatorName in ipairs(INVESTIGATOR_GROUPS[groupName]) do
+  for _, investigatorName in ipairs(INVESTIGATOR_GROUPS[groupName]) do
     for _, spawnSpec in ipairs(buildInvestigatorSpawnSpec(investigatorName, INVESTIGATORS[investigatorName], position)) do
       spawnBag.spawn(spawnSpec)
     end
@@ -625,14 +625,34 @@ function spawnCycle(cycle)
   prepareToPlaceCards()
   spawnInvestigators(cycle)
 
+  -- sort custom cards
+  local sortByMetadata = false
+  if cycle == "Other" then
+    sortByMetadata = true
+  end
+
   spawnBag.spawn({
     name = "cycle" .. cycle,
-    cards = allCardsBagApi.getCardsByCycle(cycle),
+    cards = allCardsBagApi.getCardsByCycle(cycle, sortByMetadata),
     globalPos = self.positionToWorld(startPositions.cycle),
     rotation = FACE_UP_ROTATION,
     spread = true,
     spreadCols = 20
   })
+end
+
+-- Comparison function used to sort the class card bag indexes. Sorts by card level, then name, then subname.
+function cardComparator(id1, id2)
+  local card1 = cardIdIndex[id1]
+  local card2 = cardIdIndex[id2]
+
+  if card1.metadata.level ~= card2.metadata.level then
+    return card1.metadata.level < card2.metadata.level
+  elseif card1.data.Nickname ~= card2.data.Nickname then
+    return card1.data.Nickname < card2.data.Nickname
+  else
+    return card1.data.Description < card2.data.Description
+  end
 end
 
 function spawnBonded()
