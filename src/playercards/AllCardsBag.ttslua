@@ -1,3 +1,5 @@
+local guidReferenceApi = require("core/GUIDReferenceApi")
+
 local cardIdIndex = { }
 local classAndLevelIndex = { }
 local basicWeaknessList = { }
@@ -5,6 +7,7 @@ local uniqueWeaknessList = { }
 local cycleIndex = { }
 
 local indexingDone = false
+local otherCardsDetected = false
 
 function onLoad()
   self.addContextMenuItem("Rebuild Index", startIndexBuild)
@@ -63,6 +66,7 @@ end
 function buildIndex()
   local cardCount = 0
   indexingDone = false
+  otherCardsDetected = false
 
   -- process the allcardsbag itself
   for _, cardData in ipairs(self.getData().ContainedObjects) do
@@ -108,6 +112,7 @@ function buildIndex()
   end
 
   buildSupplementalIndexes()
+  updatePlayerCardPanel()
   indexingDone = true
   return 1
 end
@@ -174,6 +179,7 @@ function buildSupplementalIndexes()
         else
           -- track cards without defined cycle (should only be fan-made cards)
           cycleName = "other"
+          otherCardsDetected = true
         end
 
         -- maybe initialize table
@@ -214,6 +220,12 @@ function cardComparator(id1, id2)
   end
 end
 
+-- inform the player card panel about the presence of other cards (no cycle -> fan-made)
+function updatePlayerCardPanel()
+  local panel = guidReferenceApi.getObjectByOwnerAndType("Mythos", "PlayerCardPanel")
+  panel.call("createXML", otherCardsDetected)
+end
+
 ---@return boolean: If true, the bag is currently not indexing and ready to be accessed
 function isIndexReady()
   if not indexingDone then
@@ -223,14 +235,14 @@ function isIndexReady()
 end
 
 -- Returns a specific card from the bag, based on ArkhamDB ID
----@param id string ID of the card to retrieve
+---@param params table ID of the card to retrieve
 ---@return table: If the indexes are still being constructed, returns an empty table.
 --  Otherwise, a single table with the following fields
---    cardData: TTS object data, suitable for spawning the card
---    cardMetadata: Table of parsed metadata
-function getCardById(id)
+--    data: TTS object data, suitable for spawning the card
+--    metadata: Table of parsed metadata
+function getCardById(params)
   if not isIndexReady() then return {} end
-  return cardIdIndex[id]
+  return cardIdIndex[params.id]
 end
 
 -- Returns a list of cards from the bag matching a class and level (0 or upgraded)
@@ -239,8 +251,8 @@ end
 --  isUpgraded: true for upgraded cards (Level 1-5), false for Level 0
 ---@return table: If the indexes are still being constructed, returns an empty table.
 --  Otherwise, a list of tables, each with the following fields
---    cardData: TTS object data, suitable for spawning the card
---    cardMetadata: Table of parsed metadata
+--    data: TTS object data, suitable for spawning the card
+--    metadata: Table of parsed metadata
 function getCardsByClassAndLevel(params)
   if not isIndexReady() then return {} end
 
@@ -250,7 +262,7 @@ function getCardsByClassAndLevel(params)
   else
     upgradeKey = "-level0"
   end
-  return classAndLevelIndex[params.class..upgradeKey]
+  return classAndLevelIndex[params.class .. upgradeKey]
 end
 
 -- Returns a list of cards from the bag matching a cycle
@@ -259,8 +271,8 @@ end
 --  sortByMetadata: true to sort the table by metadata instead of ID
 ---@return table: If the indexes are still being constructed, returns an empty table.
 --  Otherwise, a list of tables, each with the following fields
---    cardData: TTS object data, suitable for spawning the card
---    cardMetadata: Table of parsed metadata
+--    data: TTS object data, suitable for spawning the card
+--    metadata: Table of parsed metadata
 function getCardsByCycle(params)
   if not isIndexReady() then return {} end
 
