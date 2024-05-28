@@ -12,16 +12,18 @@ buttonParameters.height         = 325
 
 local inputParameters           = {}
 inputParameters.function_owner  = self
-inputParameters.font_size       = 100
-inputParameters.width           = 250
-inputParameters.height          = inputParameters.font_size + 23
+inputParameters.font_size       = 200
+inputParameters.width           = 500
+inputParameters.height          = inputParameters.font_size + 46
 inputParameters.alignment       = 3
 inputParameters.validation      = 2
 inputParameters.tab             = 2
+inputParameters.scale          = { 0.5, 0.5, 0.5 }
 
 local percentageLabel           = {}
 percentageLabel.function_owner  = self
 percentageLabel.click_function  = "none"
+percentageLabel.font_size       = 200
 percentageLabel.width           = 0
 percentageLabel.height          = 0
 
@@ -69,13 +71,13 @@ function onLoad(savedData)
   end
 
   createButtonsAndInputs()
-  
+
   -- maybe trigger layout() to draw percentage buttons
   local objList = getObjectsWithTag("tempToken")
   if #objList > 0 then
     Wait.time(layout, 0.5)
   end
-  
+
   -- context menu items
   self.addContextMenuItem("Load default values", function()
     loadDefaultValues()
@@ -153,10 +155,10 @@ function loadDefaultValues()
     ["Tablet"]      = { -3,   5},
     ["Elder Thing"] = { -4,   6},
     ["Auto-fail"]   = { -100, 7},
-    ["Bless"]       = { 101,  8},
-    ["Curse"]       = { -101, 9},
-    ["Frost"]       = { -99, 10},
-    [""]            = { 0,   11}
+    ["Bless"]       = { 110,  8},
+    ["Curse"]       = { -110, 9},
+    ["Frost"]       = { -105, 10},
+    [""]            = { 0,    11}
   }
 end
 
@@ -195,9 +197,11 @@ function createButtonsAndInputs()
     click_function = "layout",
     tooltip        = "Left-Click: Update!\nRight-Click: Hide Tokens!",
     position       = { 0.725, 0.1, 2.025 },
+    scale          = { 0.5, 0.5, 0.5 },
     color          = { 1, 1, 1 },
-    width          = 675,
-    height         = 175
+    font_size      = 200,
+    width          = 1350,
+    height         = 325
   })
 end
 
@@ -238,14 +242,14 @@ function deleteCopiedTokens()
 end
 
 -- creates buttons as labels as display for percentage values
-function createPercentageButton(tokenCount, valueCount, tokenName)
-  local startPos = Vector(2.3, -0.04, 0.875 * valueCount)
+function createPercentageButton(tokenCount, rowCount, tokenName)
+  local startPos = Vector(2.3, -0.04, 0.875 * rowCount)
 
   if percentage == "cumulative" then
-    percentageLabel.scale = { 1.5, 1.5, 1.5 }
+    percentageLabel.scale = { 0.75, 0.75, 0.75 }
     percentageLabel.position = startPos - Vector(0, 0, 2.85)
   else
-    percentageLabel.scale = { 2, 2, 2 }
+    percentageLabel.scale = { 1, 1, 1 }
     percentageLabel.position = startPos - Vector(0, 0, 2.675)
   end
 
@@ -254,8 +258,8 @@ function createPercentageButton(tokenCount, valueCount, tokenName)
     percentageLabel.font_color = { 0.35, 0.71, 0.85 }
   elseif tokenName == "Auto-fail" then
     percentageLabel.font_color = { 0.86, 0.1, 0.1 }
-    -- check if the tokenName contains letters (e.g. symbol token)
   elseif string.match(tokenName, "%a") ~= nil then
+    -- tokenName contains letters (e.g. symbol token)
     percentageLabel.font_color = { 0.68, 0.53, 0.86 }
   else
     percentageLabel.font_color = { 0.85, 0.67, 0.33 }
@@ -302,12 +306,14 @@ function layout(_, _, isRightClick)
   end
 
   -- clone tokens from chaos bag (default position above trash can)
-  local rawData = chaosBag.getData().ContainedObjects
+  local rawData = chaosBag.getData().ContainedObjects or {}
 
   -- optionally get the data for tokens in play
   if includeDrawnTokens then
     for _, token in pairs(chaosBagApi.getTokensInPlay()) do
-      if token ~= nil then table.insert(rawData, token.getData()) end
+      if token ~= nil then
+        table.insert(rawData, token.getData())
+      end
     end
   end
 
@@ -335,8 +341,15 @@ function layout(_, _, isRightClick)
     end
   end
 
-  -- sort table by value (symbols last if same value)
-  table.sort(data, tokenValueComparator)
+  -- handling for near empty chaos bag
+  if #data == 0 then
+    -- small delay to limit update calls
+    Wait.time(function() updating = false end, 0.1)
+    return
+  elseif #data > 1 then
+    -- sort table by value (symbols last if same value)
+    table.sort(data, tokenValueComparator)
+  end
 
   -- laying out the tokens
   local pos = self.getPosition() + Vector(3.55, -0.05, -3.95)
@@ -346,21 +359,21 @@ function layout(_, _, isRightClick)
   local rotation = self.getRotation()
   local currentValue = data[1].value
   local tokenCount = { row = 0, sum = 0, total = #data }
-  local valueCount = 1
-  local tokenName = false
+  local rowCount = 1
+  local tokenName
 
-  for i, item in ipairs(data) do
+  for _, item in ipairs(data) do
     -- this is true for the first token in a new row
     if item.value ~= currentValue then
       if percentage then
         tokenCount.sum = tokenCount.sum + tokenCount.row
-        createPercentageButton(tokenCount, valueCount, tokenName)
+        createPercentageButton(tokenCount, rowCount, tokenName)
       end
 
       location.x = location.x - 1.75
       location.z = pos.z
       currentValue = item.value
-      valueCount = valueCount + 1
+      rowCount = rowCount + 1
       tokenCount.row = 0
     end
 
@@ -377,21 +390,17 @@ function layout(_, _, isRightClick)
   -- this is repeated to create the button for the last token
   if percentage then
     tokenCount.sum = tokenCount.sum + tokenCount.row
-    createPercentageButton(tokenCount, valueCount, tokenName)
+    createPercentageButton(tokenCount, rowCount, tokenName)
   end
 
-  -- introducing a small delay to limit update calls
+  -- small delay to limit update calls
   Wait.time(function() updating = false end, 0.1)
 end
 
 -- called from outside to set default values for tokens
 function onTokenDataChanged(parameters)
-  local tokenData = parameters.tokenData or {}
-  local currentScenario = parameters.currentScenario or ""
-  local useFrontData = parameters.useFrontData
-
   -- update token precedence
-  for key, table in pairs(tokenData) do
+  for key, table in pairs(parameters.tokenData or {}) do
     local modifier = table.modifier
     if modifier == -999 then modifier = 0 end
     tokenPrecedence[key][1] = modifier
