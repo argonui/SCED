@@ -26,22 +26,20 @@ local CYCLE_BUTTONS_Z_OFFSET = 0.2665
 
 local STARTER_DECK_MODE_SELECTED_COLOR = { 0.2, 0.2, 0.2, 0.8 }
 local TRANSPARENT = { 0, 0, 0, 0 }
-local STARTER_DECK_MODE_STARTERS = "starters"
-local STARTER_DECK_MODE_CARDS_ONLY = "cards"
 
-local FACE_UP_ROTATION = { x = 0, y = 270, z = 0}
-local FACE_DOWN_ROTATION = { x = 0, y = 270, z = 180}
+local FACE_UP_ROTATION = { x = 0, y = 270, z = 0 }
+local FACE_DOWN_ROTATION = { x = 0, y = 270, z = 180 }
 
 -- ----------  IMPORTANT  ----------
 -- Coordinates defined below are in global dimensions relative to the panel - DO NOT USE THESE
--- DIRECTLY.  Call scalePositions() before use, and reference the variables below
+-- DIRECTLY. Call scalePositions() before use, and reference the variables below
 
 -- Layout width for a single card, in global coordinate space
 local CARD_WIDTH = 2.3
 
--- Coordinates to begin laying out cards.  These vary based on the cards that are being placed by
+-- Coordinates to begin laying out cards. These vary based on the cards that are being placed by
 -- considering the width of the cards, number of cards, and desired spread intervals.
--- IMPORTANT!  Because of the mix of global card sizes and relative-to-scale positions, the X and Y
+-- IMPORTANT! Because of the mix of global card sizes and relative-to-scale positions, the X and Y
 -- coordinates on these provide global disances while the Z is local.
 local START_POSITIONS = {
   classCards = Vector(CARD_WIDTH * 9.5, 2, 1.4),
@@ -50,7 +48,7 @@ local START_POSITIONS = {
   other = Vector(CARD_WIDTH * 9.5, 2, 1.4),
   randomWeakness = Vector(0, 2, 1.4),
   -- Because the card spread is handled by the SpawnBag, we don't know (programatically) where this
-  -- should be placed.  If more customizable cards are added it will need to be moved.
+  -- should be placed. If more customizable cards are added it will need to be moved.
   summonedServitor = Vector(CARD_WIDTH * -7.5, 2, 1.7)
 }
 
@@ -64,12 +62,12 @@ local INVESTIGATOR_POSITION_SHIFT_ROW = Vector(0, 0, 11)
 local INVESTIGATOR_POSITION_SHIFT_COL = Vector(-6, 0, 0)
 local INVESTIGATOR_MAX_COLS = 6
 
--- Positions relative to the minicard to place other stacks.  Both signature card piles and starter
+-- Positions relative to the minicard to place other stacks. Both signature card piles and starter
 -- decks use SIGNATURE_OFFSET
 local INVESTIGATOR_CARD_OFFSET = Vector(0, 0, 2.55)
 local INVESTIGATOR_SIGNATURE_OFFSET = Vector(0, 0, 5.75)
 
--- USE THESE!  Positions and offset shifts accounting for the scale of the panel
+-- USE THESE! Positions and offset shifts accounting for the scale of the panel
 local startPositions
 local cardRowOffset
 local cardGroupOffset
@@ -78,7 +76,14 @@ local investigatorPositionShiftCol
 local investigatorCardOffset
 local investigatorSignatureOffset
 
-local CLASS_LIST = { "Guardian", "Seeker", "Rogue", "Mystic", "Survivor", "Neutral" }
+local CLASS_LIST = {
+  "Guardian",
+  "Seeker",
+  "Rogue",
+  "Mystic",
+  "Survivor",
+  "Neutral"
+}
 local CYCLE_LIST = {
   "Core",
   "The Dunwich Legacy",
@@ -94,9 +99,8 @@ local CYCLE_LIST = {
 }
 
 local excludedNonBasicWeaknesses
-
-local starterDeckMode = STARTER_DECK_MODE_CARDS_ONLY
-local helpVisibleToPlayers = { }
+local spawnStarterDecks = false
+local helpVisibleToPlayers = {}
 
 function onSave()
   return JSON.encode({ spawnBagState = spawnBag.getStateForSave() })
@@ -104,7 +108,7 @@ end
 
 function onLoad(savedData)
   if savedData and savedData ~= "" then
-    local saveState = JSON.decode(savedData) or { }
+    local saveState = JSON.decode(savedData) or {}
     if saveState.spawnBagState ~= nil then
       spawnBag.loadFromSave(saveState.spawnBagState)
     end
@@ -117,7 +121,7 @@ end
 -- Build a list of non-basic weaknesses which should be excluded from the last weakness set,
 -- including all signature cards and evolved weaknesses.
 function buildExcludedWeaknessList()
-  excludedNonBasicWeaknesses = { }
+  excludedNonBasicWeaknesses = {}
   for _, investigator in pairs(INVESTIGATORS) do
     for _, signatureId in ipairs(investigator.signatures) do
       excludedNonBasicWeaknesses[signatureId] = true
@@ -274,9 +278,8 @@ function createCycleButtons()
       if rowCount == 3 then
         -- Account for two centered buttons on the final row
         buttonPos.x = buttonPos.x + CYCLE_BUTTONS_X_OFFSET / 2
-        --[[ Account for centered button on the final row
-        buttonPos.x = buttonPos.x + CYCLE_BUTTONS_X_OFFSET
-        ]]
+        -- Account for centered button on the final row
+        -- buttonPos.x = buttonPos.x + CYCLE_BUTTONS_X_OFFSET
       end
     else
       buttonPos.x = buttonPos.x + CYCLE_BUTTONS_X_OFFSET
@@ -297,8 +300,6 @@ function createClearButton()
 end
 
 function createInvestigatorModeButtons()
-  local starterMode = starterDeckMode == STARTER_DECK_MODE_STARTERS
-
   self.createButton({
     function_owner = self,
     click_function = "setCardsOnlyMode",
@@ -306,18 +307,18 @@ function createInvestigatorModeButtons()
     height = 170,
     width = 760,
     scale = Vector(0.25, 1, 0.25),
-    color = starterMode and TRANSPARENT or STARTER_DECK_MODE_SELECTED_COLOR
+    color = spawnStarterDecks and TRANSPARENT or STARTER_DECK_MODE_SELECTED_COLOR
   })
   self.createButton({
     function_owner = self,
-    click_function = "setStarterDeckMode",
+    click_function = "setspawnStarterDecks",
     position = Vector(0.66, 0.1, -0.322),
     height = 170,
     width = 760,
     scale = Vector(0.25, 1, 0.25),
-    color = starterMode and STARTER_DECK_MODE_SELECTED_COLOR or TRANSPARENT
+    color = spawnStarterDecks and STARTER_DECK_MODE_SELECTED_COLOR or TRANSPARENT
   })
-  local checkX = starterMode and 0.52 or 0.11
+  local checkX = spawnStarterDecks and 0.52 or 0.11
   self.createButton({
     function_owner = self,
     label = "✓",
@@ -325,10 +326,75 @@ function createInvestigatorModeButtons()
     position = Vector(checkX, 0.11, -0.317),
     height = 0,
     width = 0,
-    scale = Vector(0.3, 1, 0.3),
+    font_size = 300,
+    scale = Vector(0.1, 1, 0.1),
     font_color = { 0, 0, 0 },
     color = { 1, 1, 1 }
   })
+end
+
+function createXML(showOtherCardsButton)
+  -- basic XML for the help button
+  local xmlTable = {
+    {
+      tag = "Panel",
+      attributes = {
+        active = "false",
+        id = "helpPanel",
+        position = "-165 -70 -2",
+        rotation = "0 0 180",
+        height = "50",
+        width = "107",
+        color = "#00000099"
+      },
+      children = {
+        tag = "Text",
+        attributes = {
+          id = "helpText",
+          rectAlignment = "MiddleCenter",
+          height = "480",
+          width = "1000",
+          scale = "0.1 0.1 1",
+          fontSize = "66",
+          color = "#F5F5F5",
+          backgroundColor = "#FF0000",
+          alignment = "MiddleLeft",
+          horizontalOverflow = "wrap",
+          text = "• Select a group to place cards\n" ..
+          "• Copy the cards you want for your deck\n" ..
+          "• Select a new group to clear the placed cards and see new ones\n" ..
+          "• Clear to remove all cards"
+        }
+      }
+    }
+  }
+
+  -- add the "Additional Cards" button if cards without cycle were detected
+  if showOtherCardsButton then
+    local otherCardsButtonXml = {
+      tag = "Panel",
+      attributes = {
+        position = "44.25 65.75 -11",
+        rotation = "0 0 180",
+        height = "225",
+        width = "225",
+        scale = "0.1 0.1 1",
+        onClick = "spawnOtherCards"
+      },
+      children = {
+        tag = "Image",
+        attributes = { image = "OtherCards" }
+      }
+    }
+    table.insert(xmlTable, otherCardsButtonXml)
+  end
+  helpVisibleToPlayers = {}
+  self.UI.setXmlTable(xmlTable)
+end
+
+-- click function for the XML button for the additional player cards
+function spawnOtherCards()
+  spawnCycle("Other")
 end
 
 function toggleHelp(_, playerColor, _)
@@ -354,13 +420,13 @@ function updateHelpVisibility()
   self.UI.setAttribute("helpPanel", "active", string.len(visibility) > 0)
 end
 
-function setStarterDeckMode()
-  starterDeckMode = STARTER_DECK_MODE_STARTERS
+function setspawnStarterDecks()
+  spawnStarterDecks = true
   updateStarterModeButtons()
 end
 
 function setCardsOnlyMode()
-  starterDeckMode = STARTER_DECK_MODE_CARDS_ONLY
+  spawnStarterDecks = false
   updateStarterModeButtons()
 end
 
@@ -384,7 +450,7 @@ end
 function scalePositions()
   -- Assume scaling is consistent in X and Z dimensions
   local scale = 1 / self.getScale().x
-  startPositions = { }
+  startPositions = {}
   for key, pos in pairs(START_POSITIONS) do
     -- Because a scaled object means a different global size, using global distance for Z results in
     -- the cards being closer or farther depending on the scale. Leave the Z values and only scale X and Y
@@ -405,14 +471,12 @@ function deleteAll()
   spawnBag.recall(true)
 end
 
--- Spawn an investigator group, based on the current UI setting for either investigators or starter
--- decks.
+-- Spawn an investigator group, based on the current UI setting for either investigators or starter decks
 ---@param groupName string Name of the group to spawn, matching a key in InvestigatorPanelData
 function spawnInvestigatorGroup(groupName)
-  local starterMode = starterDeckMode == STARTER_DECK_MODE_STARTERS
   prepareToPlaceCards()
   Wait.frames(function()
-    if starterMode then
+    if spawnStarterDecks then
       spawnStarters(groupName)
     else
       spawnInvestigators(groupName)
@@ -420,12 +484,12 @@ function spawnInvestigatorGroup(groupName)
   end, 2)
 end
 
--- Spawn cards for all investigators in the given group.  This creates piles for all defined
+-- Spawn cards for all investigators in the given group. This creates piles for all defined
 -- investigator cards and minicards as well as the signature cards.
 ---@param groupName string Name of the group to spawn, matching a key in InvestigatorPanelData
 function spawnInvestigators(groupName)
   if INVESTIGATOR_GROUPS[groupName] == nil then
-    printToAll("No " .. groupName .. " data yet")
+    printToAll("No investigator data for " .. groupName .. " yet")
     return
   end
 
@@ -434,7 +498,7 @@ function spawnInvestigators(groupName)
   local investigatorCount = #INVESTIGATOR_GROUPS[groupName]
   local position = getInvestigatorRowStartPos(investigatorCount, row)
 
-  for i, investigatorName in ipairs(INVESTIGATOR_GROUPS[groupName]) do
+  for _, investigatorName in ipairs(INVESTIGATOR_GROUPS[groupName]) do
     for _, spawnSpec in ipairs(buildInvestigatorSpawnSpec(investigatorName, INVESTIGATORS[investigatorName], position)) do
       spawnBag.spawn(spawnSpec)
     end
@@ -451,14 +515,14 @@ end
 function getInvestigatorRowStartPos(investigatorCount, row)
   local rowStart = Vector(startPositions.investigator)
   rowStart:add(Vector(
-      investigatorPositionShiftRow.x * (row - 1),
-      investigatorPositionShiftRow.y * (row - 1),
-      investigatorPositionShiftRow.z * (row - 1)))
+    investigatorPositionShiftRow.x * (row - 1),
+    investigatorPositionShiftRow.y * (row - 1),
+    investigatorPositionShiftRow.z * (row - 1)))
   local investigatorsInRow = math.min(investigatorCount - INVESTIGATOR_MAX_COLS * (row - 1), INVESTIGATOR_MAX_COLS)
   rowStart:add(Vector(
-      investigatorPositionShiftCol.x * (INVESTIGATOR_MAX_COLS - investigatorsInRow) / 2,
-      investigatorPositionShiftCol.y * (INVESTIGATOR_MAX_COLS - investigatorsInRow) / 2,
-      investigatorPositionShiftCol.z * (INVESTIGATOR_MAX_COLS - investigatorsInRow) / 2))
+    investigatorPositionShiftCol.x * (INVESTIGATOR_MAX_COLS - investigatorsInRow) / 2,
+    investigatorPositionShiftCol.y * (INVESTIGATOR_MAX_COLS - investigatorsInRow) / 2,
+    investigatorPositionShiftCol.z * (INVESTIGATOR_MAX_COLS - investigatorsInRow) / 2))
   return rowStart
 end
 
@@ -470,23 +534,23 @@ function buildInvestigatorSpawnSpec(investigatorName, investigatorData, position
   local sigPos = Vector(position):add(investigatorSignatureOffset)
   local spawns = buildCommonSpawnSpec(investigatorName, investigatorData, position)
   table.insert(spawns, {
-      name = investigatorName .. "signatures",
-      cards = investigatorData.signatures,
-      globalPos = self.positionToWorld(sigPos),
-      rotation = FACE_UP_ROTATION
-    })
+    name = investigatorName .. "signatures",
+    cards = investigatorData.signatures,
+    globalPos = self.positionToWorld(sigPos),
+    rotation = FACE_UP_ROTATION
+  })
 
   return spawns
 end
 
--- Builds the spawn specs for minicards and investigator cards.  These are common enough to be
+-- Builds the spawn specs for minicards and investigator cards. These are common enough to be
 -- shared, and will only differ in whether they spawn the full stack of possible investigator and
 -- minicards, or only the first of each.
 ---@param investigatorName string Name of the investigator, matching a key in InvestigatorPanelData
 ---@param investigatorData table Spawn definition for the investigator, retrieved from INVESTIGATORS
 ---@param position tts__Vector Where to spawn the minicard; investigagor cards will be placed below
 ---@param oneCardOnly? boolean If true, will spawn only the first card in the investigator card
----    and minicard lists.  Otherwise, spawn them all in a deck
+---    and minicard lists. Otherwise, spawn them all in a deck
 function buildCommonSpawnSpec(investigatorName, investigatorData, position, oneCardOnly)
   local cardPos = Vector(position):add(investigatorCardOffset)
   return {
@@ -533,23 +597,24 @@ function spawnStarterDeck(investigatorName, investigatorData, position)
   end
   local deckPos = Vector(position):add(investigatorSignatureOffset)
   arkhamDb.getDecklist("None", investigatorData.starterDeck, true, false, false, function(slots)
-    local cardIdList = { }
+    local cardIdList = {}
     for id, count in pairs(slots) do
       for i = 1, count do
         table.insert(cardIdList, id)
       end
     end
     spawnBag.spawn({
-      name = investigatorName.."starter",
+      name = investigatorName .. "starter",
       cards = cardIdList,
       globalPos = self.positionToWorld(deckPos),
       rotation = FACE_DOWN_ROTATION
     })
   end)
 end
+
 -- Clears the currently placed cards, then places cards for the given class and level spread
 ---@param cardClass string Class to place ("Guardian", "Seeker", etc)
----@param isUpgraded boolean If true, spawn the Level 1-5 cards.  Otherwise, Level 0.
+---@param isUpgraded boolean If true, spawn the Level 1-5 cards. Otherwise, Level 0.
 function spawnClassCards(cardClass, isUpgraded)
   prepareToPlaceCards()
   Wait.frames(function() placeClassCards(cardClass, isUpgraded) end, 2)
@@ -557,18 +622,15 @@ end
 
 -- Spawn the class cards.
 ---@param cardClass string Class to place ("Guardian", "Seeker", etc)
----@param isUpgraded boolean If true, spawn the Level 1-5 cards.  Otherwise, Level 0.
+---@param isUpgraded boolean If true, spawn the Level 1-5 cards. Otherwise, Level 0.
 function placeClassCards(cardClass, isUpgraded)
-  local indexReady = allCardsBagApi.isIndexReady()
-  if (not indexReady) then
-    broadcastToAll("Still loading player cards, please try again in a few seconds", {0.9, 0.2, 0.2})
-    return
-  end
+  if not allCardsBagApi.isIndexReady() then return end
+
   local cardIdList = allCardsBagApi.getCardsByClassAndLevel(cardClass, isUpgraded)
 
-  local skillList = { }
-  local eventList = { }
-  local assetList = { }
+  local skillList = {}
+  local eventList = {}
+  local assetList = {}
   for _, cardId in ipairs(cardIdList) do
     local cardMetadata = allCardsBagApi.getCardById(cardId).metadata
     if (cardMetadata.type == "Skill") then
@@ -617,21 +679,20 @@ end
 -- Spawns the investigator sets and all cards for the given cycle
 ---@param cycle string Name of a cycle, should match the standard used in card metadata
 function spawnCycle(cycle)
+  if not allCardsBagApi.isIndexReady() then return end
+
   prepareToPlaceCards()
   spawnInvestigators(cycle)
-  local indexReady = allCardsBagApi.isIndexReady()
-  if (not indexReady) then
-    broadcastToAll("Still loading player cards, please try again in a few seconds", {0.9, 0.2, 0.2})
-    return
+
+  -- sort custom cards
+  local sortByMetadata = false
+  if cycle == "Other" then
+    sortByMetadata = true
   end
-  local cycleCardList = allCardsBagApi.getCardsByCycle(cycle)
-  local copiedList = { }
-  for i, id in ipairs(cycleCardList) do
-    copiedList[i] = id
-  end
+
   spawnBag.spawn({
-    name = "cycle"..cycle,
-    cards = copiedList,
+    name = "cycle" .. cycle,
+    cards = allCardsBagApi.getCardsByCycle(cycle, sortByMetadata),
     globalPos = self.positionToWorld(startPositions.cycle),
     rotation = FACE_UP_ROTATION,
     spread = true,
@@ -671,16 +732,13 @@ end
 
 -- Clears the current cards, and places all basic weaknesses on the table.
 function spawnWeaknesses()
+  if not allCardsBagApi.isIndexReady() then return end
+
   prepareToPlaceCards()
-  local indexReady = allCardsBagApi.isIndexReady()
-  if (not indexReady) then
-    broadcastToAll("Still loading player cards, please try again in a few seconds", {0.9, 0.2, 0.2})
-    return
-  end
-  local weaknessIdList = allCardsBagApi.getUniqueWeaknesses()
-  local basicWeaknessList = { }
-  local otherWeaknessList = { }
-  for i, id in ipairs(weaknessIdList) do
+
+  local basicWeaknessList = {}
+  local otherWeaknessList = {}
+  for _, id in ipairs(allCardsBagApi.getUniqueWeaknesses()) do
     local cardMetadata = allCardsBagApi.getCardById(id).metadata
     if cardMetadata.basicWeaknessCount ~= nil and cardMetadata.basicWeaknessCount > 0 then
       table.insert(basicWeaknessList, id)
@@ -721,7 +779,7 @@ function spawnRandomWeakness()
   prepareToPlaceCards()
   local weaknessId = allCardsBagApi.getRandomWeaknessId()
   if (weaknessId == nil) then
-    broadcastToAll("All basic weaknesses are in play!", {0.9, 0.2, 0.2})
+    broadcastToAll("All basic weaknesses are in play!", { 0.9, 0.2, 0.2 })
     return
   end
   spawnBag.spawn({

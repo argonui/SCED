@@ -1,10 +1,13 @@
-local cardIdIndex = { }
-local classAndLevelIndex = { }
-local basicWeaknessList = { }
-local uniqueWeaknessList = { }
-local cycleIndex = { }
+local guidReferenceApi = require("core/GUIDReferenceApi")
+
+local cardIdIndex = {}
+local classAndLevelIndex = {}
+local basicWeaknessList = {}
+local uniqueWeaknessList = {}
+local cycleIndex = {}
 
 local indexingDone = false
+local otherCardsDetected = false
 
 function onLoad()
   self.addContextMenuItem("Rebuild Index", startIndexBuild)
@@ -12,13 +15,13 @@ function onLoad()
   Wait.frames(startIndexBuild, 30)
 end
 
--- Called by Hotfix bags when they load.  If we are still loading indexes, then
+-- Called by Hotfix bags when they load. If we are still loading indexes, then
 -- the all cards and hotfix bags are being loaded together, and we can ignore
--- this call as the hotfix will be included in the initial indexing.  If it is
+-- this call as the hotfix will be included in the initial indexing. If it is
 -- called once indexing is complete it means the hotfix bag has been added
 -- later, and we should rebuild the index to integrate the hotfix bag.
 function rebuildIndexForHotfix()
-  if (indexingDone) then
+  if indexingDone then
     startIndexBuild()
   end
 end
@@ -26,23 +29,23 @@ end
 -- Resets all current bag indexes
 function clearIndexes()
   indexingDone = false
-  cardIdIndex = { }
-  classAndLevelIndex = { }
-  classAndLevelIndex["Guardian-upgrade"] = { }
-  classAndLevelIndex["Seeker-upgrade"] = { }
-  classAndLevelIndex["Mystic-upgrade"] = { }
-  classAndLevelIndex["Survivor-upgrade"] = { }
-  classAndLevelIndex["Rogue-upgrade"] = { }
-  classAndLevelIndex["Neutral-upgrade"] = { }
-  classAndLevelIndex["Guardian-level0"] = { }
-  classAndLevelIndex["Seeker-level0"] = { }
-  classAndLevelIndex["Mystic-level0"] = { }
-  classAndLevelIndex["Survivor-level0"] = { }
-  classAndLevelIndex["Rogue-level0"] = { }
-  classAndLevelIndex["Neutral-level0"] = { }
-  cycleIndex = { }
-  basicWeaknessList = { }
-  uniqueWeaknessList = { }
+  cardIdIndex = {}
+  classAndLevelIndex = {}
+  classAndLevelIndex["Guardian-upgrade"] = {}
+  classAndLevelIndex["Seeker-upgrade"] = {}
+  classAndLevelIndex["Mystic-upgrade"] = {}
+  classAndLevelIndex["Survivor-upgrade"] = {}
+  classAndLevelIndex["Rogue-upgrade"] = {}
+  classAndLevelIndex["Neutral-upgrade"] = {}
+  classAndLevelIndex["Guardian-level0"] = {}
+  classAndLevelIndex["Seeker-level0"] = {}
+  classAndLevelIndex["Mystic-level0"] = {}
+  classAndLevelIndex["Survivor-level0"] = {}
+  classAndLevelIndex["Rogue-level0"] = {}
+  classAndLevelIndex["Neutral-level0"] = {}
+  cycleIndex = {}
+  basicWeaknessList = {}
+  uniqueWeaknessList = {}
 end
 
 -- Clears the bag indexes and starts the coroutine to rebuild the indexes
@@ -63,6 +66,7 @@ end
 function buildIndex()
   local cardCount = 0
   indexingDone = false
+  otherCardsDetected = false
 
   -- process the allcardsbag itself
   for _, cardData in ipairs(self.getData().ContainedObjects) do
@@ -84,8 +88,8 @@ function buildIndex()
     end
 
     for _, cardData in ipairs(hotfixData.ContainedObjects) do
-      -- process containers
       if cardData.ContainedObjects then
+        -- process containers
         for _, deepCardData in ipairs(cardData.ContainedObjects) do
           addCardToIndex(deepCardData)
           cardCount = cardCount + 1
@@ -94,8 +98,8 @@ function buildIndex()
             coroutine.yield(0)
           end
         end
-      -- process single cards
       else
+        -- process single cards
         addCardToIndex(cardData)
         cardCount = cardCount + 1
         if cardCount > 19 then
@@ -108,6 +112,7 @@ function buildIndex()
   end
 
   buildSupplementalIndexes()
+  updatePlayerCardPanel()
   indexingDone = true
   return 1
 end
@@ -116,8 +121,19 @@ end
 ---@param cardData table TTS object data for the card
 function addCardToIndex(cardData)
   -- using the more efficient 'json.parse()' to speed this process up
-  local cardMetadata = json.parse(cardData.GMNotes)
-  if not cardMetadata then return end
+  local status, cardMetadata = pcall(function() return json.parse(cardData.GMNotes) end)
+
+  -- if an error happens, fallback to the regular parser
+  if status ~= true or cardMetadata == nil then
+    log("Fast parser failed for " .. cardData.Nickname .. ", using old parser instead.")
+    cardMetadata = JSON.decode(cardData.GMNotes)
+  end
+
+  -- if metadata was not valid JSON or empty, don't add the card
+  if not cardMetadata == nil then
+    log("Error parsing " .. cardData.Nickname)
+    return
+  end
 
   -- use the ZoopGuid as fallback if no id present
   cardMetadata.id = cardMetadata.id or cardMetadata.TtsZoopGuid
@@ -131,37 +147,35 @@ function addCardToIndex(cardData)
   end
 end
 
+-- Creates the supplemental indexes for classes, weaknesses etc.
 function buildSupplementalIndexes()
   for cardId, card in pairs(cardIdIndex) do
-    local cardMetadata = card.metadata
     -- If the ID key and the metadata ID don't match this is a duplicate card created by an alternate_id, and we should skip it
-    if cardId == cardMetadata.id then
+    if cardId == card.metadata.id then
       -- Add card to the basic weakness list, if appropriate. Some weaknesses have multiple copies, and are added multiple times
-      if cardMetadata.weakness then
-        table.insert(uniqueWeaknessList, cardMetadata.id)
-        if cardMetadata.basicWeaknessCount ~= nil then
-          for i = 1, cardMetadata.basicWeaknessCount do
-            table.insert(basicWeaknessList, cardMetadata.id)
+      if card.metadata.weakness then
+        table.insert(uniqueWeaknessList, card.metadata.id)
+        if card.metadata.basicWeaknessCount ~= nil then
+          for i = 1, card.metadata.basicWeaknessCount do
+            table.insert(basicWeaknessList, card.metadata.id)
           end
         end
       end
 
       -- Excludes signature cards (which have no class or level)
-      if cardMetadata.class ~= nil and cardMetadata.level ~= nil then
-        local upgradeKey
-        if cardMetadata.level > 0 then
+      if card.metadata.class ~= nil and card.metadata.level ~= nil then
+        local upgradeKey = "-level0"
+        if card.metadata.level > 0 then
           upgradeKey = "-upgrade"
-        else
-          upgradeKey = "-level0"
         end
 
         -- parse classes (separated by "|") and add the card to the appropriate class and level indices
-        for str in cardMetadata.class:gmatch("([^|]+)") do
-          table.insert(classAndLevelIndex[str .. upgradeKey], cardMetadata.id)
+        for str in card.metadata.class:gmatch("([^|]+)") do
+          table.insert(classAndLevelIndex[str .. upgradeKey], card.metadata.id)
         end
 
         -- add to cycle index
-        local cycleName = cardMetadata.cycle
+        local cycleName = card.metadata.cycle
         if cycleName ~= nil then
           cycleName = string.lower(cycleName)
 
@@ -170,12 +184,17 @@ function buildSupplementalIndexes()
 
           -- override cycle name for night of the zealot
           cycleName = cycleName:gsub("the night of the zealot", "core")
-
-          if cycleIndex[cycleName] == nil then
-            cycleIndex[cycleName] = { }
-          end
-          table.insert(cycleIndex[cycleName], cardMetadata.id)
+        else
+          -- track cards without defined cycle (should only be fan-made cards)
+          cycleName = "other"
+          otherCardsDetected = true
         end
+
+        -- maybe initialize table
+        if cycleIndex[cycleName] == nil then
+          cycleIndex[cycleName] = {}
+        end
+        table.insert(cycleIndex[cycleName], card.metadata.id)
       end
     end
   end
@@ -209,109 +228,173 @@ function cardComparator(id1, id2)
   end
 end
 
+-- inform the player card panel about the presence of other cards (no cycle -> fan-made)
+function updatePlayerCardPanel()
+  local panel = guidReferenceApi.getObjectByOwnerAndType("Mythos", "PlayerCardPanel")
+  panel.call("createXML", otherCardsDetected)
+end
+
+---@return boolean: If true, the bag is currently not indexing and ready to be accessed
 function isIndexReady()
+  if not indexingDone then
+    broadcastToAll("Still loading player cards, please try again in a few seconds", { 0.9, 0.2, 0.2 })
+  end
   return indexingDone
 end
 
 -- Returns a specific card from the bag, based on ArkhamDB ID
--- Params table:
---     id: String ID of the card to retrieve
--- Return: If the indexes are still being constructed, an empty table is
---     returned.  Otherwise, a single table with the following fields
---       cardData: TTS object data, suitable for spawning the card
---       cardMetadata: Table of parsed metadata
+---@param params table ID of the card to retrieve
+---@return table: If the indexes are still being constructed, returns an empty table.
+--  Otherwise, a single table with the following fields
+--    data: TTS object data, suitable for spawning the card
+--    metadata: Table of parsed metadata
 function getCardById(params)
-  if (not indexingDone) then
-    broadcastToAll("Still loading player cards, please try again in a few seconds", {0.9, 0.2, 0.2})
-    return { }
-  end
+  if not isIndexReady() then return {} end
   return cardIdIndex[params.id]
 end
 
 -- Returns a list of cards from the bag matching a class and level (0 or upgraded)
--- Params table:
---     class: String class to retrieve ("Guardian", "Seeker", etc)
---     isUpgraded: true for upgraded cards (Level 1-5), false for Level 0
--- Return: If the indexes are still being constructed, returns an empty table.
---     Otherwise, a list of tables, each with the following fields
---       cardData: TTS object data, suitable for spawning the card
---       cardMetadata: Table of parsed metadata
+---@param params table
+--  class: String class to retrieve ("Guardian", "Seeker", etc)
+--  isUpgraded: true for upgraded cards (Level 1-5), false for Level 0
+---@return table: If the indexes are still being constructed, returns an empty table.
+--  Otherwise, a list of tables, each with the following fields
+--    data: TTS object data, suitable for spawning the card
+--    metadata: Table of parsed metadata
 function getCardsByClassAndLevel(params)
-  if (not indexingDone) then
-    broadcastToAll("Still loading player cards, please try again in a few seconds", {0.9, 0.2, 0.2})
-    return { }
-  end
-  local upgradeKey
-  if (params.upgraded) then
+  if not isIndexReady() then return {} end
+
+  local upgradeKey = "-level0"
+  if params.upgraded then
     upgradeKey = "-upgrade"
+  end
+  return classAndLevelIndex[params.class .. upgradeKey]
+end
+
+-- Returns a list of cards from the bag matching a cycle
+---@param params table
+--  cycle: String cycle to retrieve ("The Scarlet Keys" etc.)
+--  sortByMetadata: true to sort the table by metadata instead of ID
+---@return table: If the indexes are still being constructed, returns an empty table.
+--  Otherwise, a list of tables, each with the following fields
+--    data: TTS object data, suitable for spawning the card
+--    metadata: Table of parsed metadata
+function getCardsByCycle(params)
+  if not isIndexReady() then return {} end
+
+  if not params.sortByMetadata then
+    return cycleIndex[string.lower(params.cycle)]
+  end
+
+  -- sort list by metadata (useful for custom cards without proper IDs)
+  local cardList = {}
+  for _, id in ipairs(cycleIndex[string.lower(params.cycle)]) do
+    table.insert(cardList, id)
+  end
+
+  table.sort(cardList, metadataSortFunction)
+  return cardList
+end
+
+-- sorts cards by metadata: class, type, level, name and then description
+function metadataSortFunction(id1, id2)
+  local card1 = cardIdIndex[id1]
+  local card2 = cardIdIndex[id2]
+
+  -- extract class per card
+  local classValue1 = getClassValueFromString(card1.metadata.class)
+  local classValue2 = getClassValueFromString(card2.metadata.class)
+
+  -- conversion tables to simplify type sorting
+  local typeConversion = {
+    Asset = 1,
+    Event = 2,
+    Skill = 3
+  }
+
+  if classValue1 ~= classValue2 then
+    return classValue1 < classValue2
+  elseif typeConversion[card1.metadata.type] ~= typeConversion[card2.metadata.type] then
+    return typeConversion[card1.metadata.type] < typeConversion[card2.metadata.type]
+  elseif card1.metadata.level ~= card2.metadata.level then
+    return card1.metadata.level < card2.metadata.level
+  elseif card1.data.Nickname ~= card2.data.Nickname then
+    return card1.data.Nickname < card2.data.Nickname
   else
-    upgradeKey = "-level0"
+    return card1.data.Description < card2.data.Description
   end
-  return classAndLevelIndex[params.class..upgradeKey];
 end
 
-function getCardsByCycle(cycleName)
-  if (not indexingDone) then
-    broadcastToAll("Still loading player cards, please try again in a few seconds", {0.9, 0.2, 0.2})
-    return { }
+-- helper function to calculate the class value for sorting from the "|" separated string
+function getClassValueFromString(s)
+  local classValueList = {
+    Guardian = 1,
+    Seeker = 2,
+    Rogue = 3,
+    Mystic = 4,
+    Survivor = 5,
+    Neutral = 6
+  }
+  local classValue = 0
+  for str in s:gmatch("([^|]+)") do
+    -- this sorts multiclass cards
+    classValue = classValue * 10 + classValueList[str]
   end
-  return cycleIndex[string.lower(cycleName)]
+  return classValue
 end
 
--- Searches the bag for cards which match the given name and returns a list.  Note that this is
--- an O(n) search without index support.  It may be slow.
+-- Searches the bag for cards which match the given name and returns a list. Note that this is
+-- an O(n) search without index support. It may be slow.
 -- Parameter array must contain these fields to define the search:
---   name String or string fragment to search for names
---   exact Whether the name match should be exact
+--   name: String or string fragment to search for names
+--   exact: Whether the name match should be exact
 function getCardsByName(params)
   local name = params.name
   local exact = params.exact
-  local results = { }
+  local results = {}
+
   -- Track cards (by ID) that we've added to avoid duplicates that may come from alternate IDs
-  local addedCards = { }
+  local addedCards = {}
   for _, cardData in pairs(cardIdIndex) do
     if (not addedCards[cardData.metadata.id]) then
       if (exact and (string.lower(cardData.data.Nickname) == string.lower(name)))
           or (not exact and string.find(string.lower(cardData.data.Nickname), string.lower(name), 1, true)) then
-            table.insert(results, cardData)
-            addedCards[cardData.metadata.id] = true
+        table.insert(results, cardData)
+        addedCards[cardData.metadata.id] = true
       end
     end
   end
   return results
 end
 
--- Gets a random basic weakness from the bag.  Once a given ID has been returned
--- it will be removed from the list and cannot be selected again until a reload
--- occurs or the indexes are rebuilt, which will refresh the list to include all
--- weaknesses.
--- Return: String ID of the selected weakness.
+-- Gets a random basic weakness from the bag. Once a given ID has been returned it will be
+-- removed from the list and cannot be selected again until a reload occurs or the indexes
+-- are rebuilt, which will refresh the list to include all weaknesses.
+---@return string: ID of the selected weakness
 function getRandomWeaknessId()
-    local availableWeaknesses = buildAvailableWeaknesses()
-  if (#availableWeaknesses > 0) then
+  local availableWeaknesses = buildAvailableWeaknesses()
+  if #availableWeaknesses > 0 then
     return availableWeaknesses[math.random(#availableWeaknesses)]
   end
 end
 
 -- Constructs a list of available basic weaknesses by starting with the full pool of basic
 -- weaknesses then removing any which are currently in the play or deck construction areas
--- Return: Table array of weakness IDs which are valid to choose from
+---@return table: Array of weakness IDs which are valid to choose from
 function buildAvailableWeaknesses()
-  local weaknessesInPlay = { }
+  local weaknessesInPlay = {}
   local allObjects = getAllObjects()
   for _, object in ipairs(allObjects) do
-    if (object.name == "Deck") then
+    if object.type == "Deck" then
       for _, cardData in ipairs(object.getData().ContainedObjects) do
-        local cardMetadata = JSON.decode(cardData.GMNotes)
-        incrementWeaknessCount(weaknessesInPlay, cardMetadata)
+        incrementWeaknessCount(weaknessesInPlay, JSON.decode(cardData.GMNotes))
       end
-    elseif (object.name == "Card") then
-      local cardMetadata = JSON.decode(object.getGMNotes())
-      incrementWeaknessCount(weaknessesInPlay, cardMetadata)
+    elseif object.type == "Card" then
+      incrementWeaknessCount(weaknessesInPlay, JSON.decode(object.getGMNotes()))
     end
   end
 
-  local availableWeaknesses = { }
+  local availableWeaknesses = {}
   for _, weaknessId in ipairs(basicWeaknessList) do
     if (weaknessesInPlay[weaknessId] ~= nil and weaknessesInPlay[weaknessId] > 0) then
       weaknessesInPlay[weaknessId] = weaknessesInPlay[weaknessId] - 1
@@ -332,8 +415,8 @@ end
 
 -- Helper function that adds one to the table entry for the number of weaknesses in play
 function incrementWeaknessCount(table, cardMetadata)
-  if (isBasicWeakness(cardMetadata)) then
-    if (table[cardMetadata.id] == nil) then
+  if isBasicWeakness(cardMetadata) then
+    if table[cardMetadata.id] == nil then
       table[cardMetadata.id] = 1
     else
       table[cardMetadata.id] = table[cardMetadata.id] + 1
@@ -343,7 +426,7 @@ end
 
 function isBasicWeakness(cardMetadata)
   return cardMetadata ~= nil
-    and cardMetadata.weakness
-    and cardMetadata.basicWeaknessCount ~= nil
-    and cardMetadata.basicWeaknessCount > 0
+      and cardMetadata.weakness
+      and cardMetadata.basicWeaknessCount ~= nil
+      and cardMetadata.basicWeaknessCount > 0
 end
