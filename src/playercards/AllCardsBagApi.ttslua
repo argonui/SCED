@@ -6,22 +6,29 @@ do
     return guidReferenceApi.getObjectByOwnerAndType("Mythos", "AllCardsBag")
   end
 
-  -- Returns a specific card from the bag, based on ArkhamDB ID
-  ---@param id table String ID of the card to retrieve
-  ---@return table table
-  --  If the indexes are still being constructed, an empty table is
-  --  returned.  Otherwise, a single table with the following fields
-  --    cardData: TTS object data, suitable for spawning the card
-  --    cardMetadata: Table of parsed metadata
-  AllCardsBagApi.getCardById = function(id)
-    return getAllCardsBag().call("getCardById", {id = id})
+  -- internal function to create a copy of the table to avoid operating on variables owned by different objects
+  local function returnCopyOfList(data)
+    local copiedList = {}
+    for _, id in ipairs(data) do
+      table.insert(copiedList, id)
+    end
+    return copiedList
   end
 
-  -- Gets a random basic weakness from the bag.  Once a given ID has been returned
-  -- it will be removed from the list and cannot be selected again until a reload
-  -- occurs or the indexes are rebuilt, which will refresh the list to include all
-  -- weaknesses.
-  ---@return string: ID of the selected weakness.
+  -- Returns a specific card from the bag, based on ArkhamDB ID
+  ---@param id string ID of the card to retrieve
+  ---@return table: If the indexes are still being constructed, returns an empty table.
+  --  Otherwise, a single table with the following fields
+  --    data: TTS object data, suitable for spawning the card
+  --    metadata: Table of parsed metadata
+  AllCardsBagApi.getCardById = function(id)
+    return getAllCardsBag().call("getCardById", { id = id })
+  end
+
+  -- Gets a random basic weakness from the bag. Once a given ID has been returned it 
+  -- will be removed from the list and cannot be selected again until a reload occurs
+  -- or the indexes are rebuilt, which will refresh the list to include all weaknesses.
+  ---@return string: ID of the selected weakness
   AllCardsBagApi.getRandomWeaknessId = function()
     return getAllCardsBag().call("getRandomWeaknessId")
   end
@@ -30,21 +37,21 @@ do
     return getAllCardsBag().call("isIndexReady")
   end
 
-  -- Called by Hotfix bags when they load.  If we are still loading indexes, then
+  -- Called by Hotfix bags when they load. If we are still loading indexes, then
   -- the all cards and hotfix bags are being loaded together, and we can ignore
-  -- this call as the hotfix will be included in the initial indexing.  If it is
+  -- this call as the hotfix will be included in the initial indexing. If it is
   -- called once indexing is complete it means the hotfix bag has been added
   -- later, and we should rebuild the index to integrate the hotfix bag.
   AllCardsBagApi.rebuildIndexForHotfix = function()
-    return getAllCardsBag().call("rebuildIndexForHotfix")
+    getAllCardsBag().call("rebuildIndexForHotfix")
   end
 
-  -- Searches the bag for cards which match the given name and returns a list.  Note that this is
-  -- an O(n) search without index support.  It may be slow.
+  -- Searches the bag for cards which match the given name and returns a list.
+  -- Note that this is an O(n) search without index support. It may be slow.
   ---@param name string or string fragment to search for names
   ---@param exact boolean Whether the name match should be exact
   AllCardsBagApi.getCardsByName = function(name, exact)
-    return getAllCardsBag().call("getCardsByName", {name = name, exact = exact})
+    return returnCopyOfList(getAllCardsBag().call("getCardsByName", { name = name, exact = exact }))
   end
 
   AllCardsBagApi.isBagPresent = function()
@@ -53,21 +60,28 @@ do
 
   -- Returns a list of cards from the bag matching a class and level (0 or upgraded)
   ---@param class string class to retrieve ("Guardian", "Seeker", etc)
-  ---@param upgraded boolean true for upgraded cards (Level 1-5), false for Level 0
+  ---@param upgraded boolean True for upgraded cards (Level 1-5), false for Level 0
   ---@return table: If the indexes are still being constructed, returns an empty table.
-  --     Otherwise, a list of tables, each with the following fields
-  --       cardData: TTS object data, suitable for spawning the card
-  --       cardMetadata: Table of parsed metadata
+  --  Otherwise, a list of tables, each with the following fields
+  --    data: TTS object data, suitable for spawning the card
+  --    metadata: Table of parsed metadata
   AllCardsBagApi.getCardsByClassAndLevel = function(class, upgraded)
-    return getAllCardsBag().call("getCardsByClassAndLevel", {class = class, upgraded = upgraded})
+    return returnCopyOfList(getAllCardsBag().call("getCardsByClassAndLevel", { class = class, upgraded = upgraded }))
   end
 
-  AllCardsBagApi.getCardsByCycle = function(cycle)
-    return getAllCardsBag().call("getCardsByCycle", cycle)
+  -- Returns a list of cards from the bag matching a cycle
+  ---@param cycle string Cycle to retrieve ("The Scarlet Keys" etc.)
+  ---@param sortByMetadata boolean If true, sorts the table by metadata instead of ID
+  ---@return table: If the indexes are still being constructed, returns an empty table.
+  --  Otherwise, a list of tables, each with the following fields
+  --    data: TTS object data, suitable for spawning the card
+  --    metadata: Table of parsed metadata
+  AllCardsBagApi.getCardsByCycle = function(cycle, sortByMetadata)
+    return returnCopyOfList(getAllCardsBag().call("getCardsByCycle", { cycle = cycle, sortByMetadata = sortByMetadata }))
   end
 
   AllCardsBagApi.getUniqueWeaknesses = function()
-    return getAllCardsBag().call("getUniqueWeaknesses")
+    return returnCopyOfList(getAllCardsBag().call("getUniqueWeaknesses"))
   end
 
   return AllCardsBagApi

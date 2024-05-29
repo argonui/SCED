@@ -1,32 +1,32 @@
 require("playercards/PlayerCardSpawner")
 
 -- Allows spawning of defined lists of cards which will be created from the template in the All
--- Player Cards bag.  SpawnBag.spawn will create objects based on a table definition, while
--- SpawnBag.recall will clean them all up.  Recall will be limited to a small area around the
--- spawned objects.  Objects moved out of this area will not be cleaned up.
+-- Player Cards bag. SpawnBag.spawn will create objects based on a table definition, while
+-- SpawnBag.recall will clean them all up. Recall will be limited to a small area around the
+-- spawned objects. Objects moved out of this area will not be cleaned up.
 --
 -- SpawnSpec: Spawning requires a spawn specification with the following structure:
 -- {
---   name: Name of this spawn content, used for internal tracking.  Multiple specs can be spawned,
+--   name: Name of this spawn content, used for internal tracking. Multiple specs can be spawned,
 --       but each requires a separate name
 --   cards: A list of card IDs to be spawned
---   globalPos: Where the spawned objects should be placed, in global coordinates.  This should be
+--   globalPos: Where the spawned objects should be placed, in global coordinates. This should be
 --       a valid Vector with x, y, and z defined, e.g. { x = 5, y = 1, z = 15 }
---   rotation: Rotation for the spawned objects.  X=180 should be used for face down items.  As with
+--   rotation: Rotation for the spawned objects. X=180 should be used for face down items. As with
 --       globalPos, this should be a valid Vector with x, y, and z defined
---   spread: Optional Boolean.  If present and true, cards will be spawned next to each other in a
---       spread moving to the right.  globalPos will define the location of the first card, each
+--   spread: Optional Boolean. If present and true, cards will be spawned next to each other in a
+--       spread moving to the right. globalPos will define the location of the first card, each
 --       after that will be moved a predefined distance
---   spreadCols: Optional integer.  If spread is true, specifies the maximum columns cards will be
---       laid out in before starting a new row.  If spread is true but spreadCols is not set, all
+--   spreadCols: Optional integer. If spread is true, specifies the maximum columns cards will be
+--       laid out in before starting a new row. If spread is true but spreadCols is not set, all
 --       cards will be in a single row (however long that may be)
 -- }
 -- See BondedBag.ttslua for an example
 do
   local allCardsBagApi = require("playercards/AllCardsBagApi")
 
-  local SpawnBag = { }
-  local internal = { }
+  local SpawnBag = {}
+  local internal = {}
 
   -- To assist debugging, will draw a box around the recall zone when it's set up
   local SHOW_RECALL_ZONE = false
@@ -36,8 +36,8 @@ do
   local RECALL_BUFFER_Z = 0.5
 
   -- In order to mimic the behavior of the previous memory buttons we use a temporary bag when
-  -- recalling objects.  This bag is tiny and transparent, and will be placed at the same location as
-  -- this object.  Once all placed cards are recalled bag to this bag, it will be destroyed
+  -- recalling objects. This bag is tiny and transparent, and will be placed at the same location as
+  -- this object. Once all placed cards are recalled bag to this bag, it will be destroyed
   local RECALL_BAG = {
     Name = "Bag",
     Transform = {
@@ -58,8 +58,8 @@ do
   }
 
   -- Tracks what has been placed by this "bag" so they can be recalled
-  local placedSpecs = { }
-  local placedObjectGuids = { }
+  local placedSpecs = {}
+  local placedObjectGuids = {}
   local recallZone = nil
 
   -- Loads a table of saved state, extracted during the parent object's onLoad
@@ -81,24 +81,16 @@ do
   -- Places the given spawnSpec on the table. See comment at the start of the file for spawnSpec table data and examples
   SpawnBag.spawn = function(spawnSpec)
     -- Limit to one placement at a time
-    if (placedSpecs[spawnSpec.name]) then
-      return
-    end
-    if (spawnSpec == nil) then
-      -- TODO: error here
-      return
-    end
-    local cardsToSpawn = { }
-    local cardList = spawnSpec.cards
-    for _, cardId in ipairs(cardList) do
-      local cardData = allCardsBagApi.getCardById(cardId)
-      if (cardData ~= nil) then
-        table.insert(cardsToSpawn, cardData)
-      else
-        -- TODO: error here
+    if placedSpecs[spawnSpec.name] or spawnSpec == nil then return end
+
+    local cardsToSpawn = {}
+    for _, cardId in ipairs(spawnSpec.cards) do
+      local card = allCardsBagApi.getCardById(cardId)
+      if card ~= nil then
+        table.insert(cardsToSpawn, card)
       end
     end
-    if (spawnSpec.spread) then
+    if spawnSpec.spread then
       Spawner.spawnCardSpread(cardsToSpawn, spawnSpec.globalPos, spawnSpec.spreadCols or 9999, spawnSpec.rotation, false, internal.recordPlacedObject)
     else
       -- TTS decks come out in reverse order of the cards, reverse the list so the input order stays
@@ -120,14 +112,13 @@ do
       internal.recallSpawned()
     end
 
-    -- We've recalled everything we can, some cards may have been moved out of the
-    -- card area.  Just reset at this point.
-    placedSpecs = { }
-    placedObjectGuids = { }
+    -- We've recalled everything we can, some cards may have been moved out of the card area. Just reset at this point.
+    placedSpecs = {}
+    placedObjectGuids = {}
     recallZone = nil
   end
 
-  -- Deleted all spawned cards.
+  -- Delete all spawned cards
   internal.deleteSpawned = function()
     for guid, _ in pairs(placedObjectGuids) do
       local obj = getObjectFromGUID(guid)
@@ -140,9 +131,9 @@ do
     end
   end
 
-  -- Recalls spawned cards with a fake bag that replicates the memory bag recall style.
+  -- Recalls spawned cards with a fake bag that replicates the memory bag recall style
   internal.recallSpawned = function()
-    local trash = spawnObjectData({data = RECALL_BAG, position = self.getPosition()})
+    local trash = spawnObjectData({ data = RECALL_BAG, position = self.getPosition() })
     for guid, _ in pairs(placedObjectGuids) do
       local obj = getObjectFromGUID(guid)
       if (obj ~= nil) then
@@ -156,71 +147,70 @@ do
     trash.destruct()
   end
 
-
-  -- Callback for when an object has been spawned.  Tracks the object for later recall and updates the
-  -- recall zone.
+  -- Callback for when an object has been spawned. Tracks the object for later recall and updates the recall zone.
   internal.recordPlacedObject = function(spawned)
     placedObjectGuids[spawned.getGUID()] = true
     internal.expandRecallZone(spawned)
   end
 
-  -- Expands the current recall zone based on the position of the given object.  The recall zone will
+  -- Expands the current recall zone based on the position of the given object. The recall zone will
   -- be maintained as the bounding box of the extreme object positions, plus a small amount of buffer
   internal.expandRecallZone = function(spawnedCard)
     local pos = spawnedCard.getPosition()
     if (recallZone == nil) then
       -- First card out of the bag, initialize surrounding that
-      recallZone = { }
+      recallZone = {}
       recallZone.upperLeft = { x = pos.x + RECALL_BUFFER_X, z = pos.z + RECALL_BUFFER_Z }
       recallZone.lowerRight = { x = pos.x - RECALL_BUFFER_X, z = pos.z - RECALL_BUFFER_Z }
       return
-    else
-      if (pos.x > recallZone.upperLeft.x) then
-        recallZone.upperLeft.x = pos.x + RECALL_BUFFER_X
-      end
-      if (pos.x < recallZone.lowerRight.x) then
-        recallZone.lowerRight.x = pos.x - RECALL_BUFFER_X
-      end
-      if (pos.z > recallZone.upperLeft.z) then
-        recallZone.upperLeft.z = pos.z + RECALL_BUFFER_Z
-      end
-      if (pos.z < recallZone.lowerRight.z) then
-        recallZone.lowerRight.z = pos.z - RECALL_BUFFER_Z
-      end
     end
-    if (SHOW_RECALL_ZONE) then
+
+    if pos.x > recallZone.upperLeft.x then
+      recallZone.upperLeft.x = pos.x + RECALL_BUFFER_X
+    end
+    if pos.x < recallZone.lowerRight.x then
+      recallZone.lowerRight.x = pos.x - RECALL_BUFFER_X
+    end
+    if pos.z > recallZone.upperLeft.z then
+      recallZone.upperLeft.z = pos.z + RECALL_BUFFER_Z
+    end
+    if pos.z < recallZone.lowerRight.z then
+      recallZone.lowerRight.z = pos.z - RECALL_BUFFER_Z
+    end
+
+    if SHOW_RECALL_ZONE then
       local y = 1.5
       local thick = 0.05
       Global.setVectorLines({
         {
-          points    = { {recallZone.upperLeft.x,y,recallZone.upperLeft.z}, {recallZone.upperLeft.x,y,recallZone.lowerRight.z} },
-          color     = {1,0,0},
+          points    = { { recallZone.upperLeft.x, y, recallZone.upperLeft.z }, { recallZone.upperLeft.x, y, recallZone.lowerRight.z } },
+          color     = { 1, 0, 0 },
           thickness = thick,
-          rotation  = {0,0,0}
+          rotation  = { 0, 0, 0 }
         },
         {
-          points    = { {recallZone.upperLeft.x,y,recallZone.lowerRight.z}, {recallZone.lowerRight.x,y,recallZone.lowerRight.z} },
-          color     = {1,0,0},
+          points    = { { recallZone.upperLeft.x, y, recallZone.lowerRight.z }, { recallZone.lowerRight.x, y, recallZone.lowerRight.z } },
+          color     = { 1, 0, 0 },
           thickness = thick,
-          rotation  = {0,0,0}
+          rotation  = { 0, 0, 0 }
         },
         {
-          points    = { {recallZone.lowerRight.x,y,recallZone.lowerRight.z}, {recallZone.lowerRight.x,y,recallZone.upperLeft.z} },
-          color     = {1,0,0},
+          points    = { { recallZone.lowerRight.x, y, recallZone.lowerRight.z }, { recallZone.lowerRight.x, y, recallZone.upperLeft.z } },
+          color     = { 1, 0, 0 },
           thickness = thick,
-          rotation  = {0,0,0}
+          rotation  = { 0, 0, 0 }
         },
         {
-          points    = { {recallZone.lowerRight.x,y,recallZone.upperLeft.z}, {recallZone.upperLeft.x,y,recallZone.upperLeft.z} },
-          color     = {1,0,0},
+          points    = { { recallZone.lowerRight.x, y, recallZone.upperLeft.z }, { recallZone.upperLeft.x, y, recallZone.upperLeft.z } },
+          color     = { 1, 0, 0 },
           thickness = thick,
-          rotation  = {0,0,0}
+          rotation  = { 0, 0, 0 }
         }
       })
     end
   end
 
-  -- Checks to see if the given object is in the current recall zone.  If there isn't a recall zone,
+  -- Checks to see if the given object is in the current recall zone. If there isn't a recall zone,
   -- will return true so that everything can be easily cleaned up.
   internal.isInRecallZone = function(obj)
     if (recallZone == nil) then
@@ -228,11 +218,11 @@ do
     end
     local pos = obj.getPosition()
     return (pos.x < recallZone.upperLeft.x and pos.x > recallZone.lowerRight.x
-        and pos.z < recallZone.upperLeft.z and pos.z > recallZone.lowerRight.z)
+      and pos.z < recallZone.upperLeft.z and pos.z > recallZone.lowerRight.z)
   end
 
   internal.reverseList = function(list)
-    local reversed = { }
+    local reversed = {}
     for i = 1, #list do
       reversed[i] = list[#list - i + 1]
     end
