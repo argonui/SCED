@@ -846,11 +846,13 @@ function maybeUpdateActiveInvestigator(card)
   if not inArea(self.positionToLocal(card.getPosition()), INVESTIGATOR_AREA) then return end
 
   local notes = JSON.decode(card.getGMNotes())
-  local class
+  local class = "Neutral"
+  local extraToken
 
   if notes ~= nil and notes.type == "Investigator" and notes.id ~= nil then
     if notes.id == activeInvestigatorId then return end
     class = notes.class
+    extraToken = notes.extraToken
     activeInvestigatorId = notes.id
     ownedObjects.InvestigatorSkillTracker.call("updateStats", {
       notes.willpowerIcons,
@@ -866,46 +868,33 @@ function maybeUpdateActiveInvestigator(card)
     return
   end
 
-  -- change state of action tokens
-  local search = searchArea(self.positionToWorld({ -1.1, 0.05, -0.27 }), { 4, 1, 1 })
-  local smallToken = nil
-  local STATE_TABLE = {
-    ["Guardian"] = 1,
-    ["Seeker"]   = 2,
-    ["Rogue"]    = 3,
-    ["Mystic"]   = 4,
-    ["Survivor"] = 5,
-    ["Neutral"]  = 6
-  }
-
-  for _, obj in ipairs(search) do
-    if obj.getDescription() == "Action Token" and obj.getStateId() > 0 then
-      if obj.getScale().x < 0.4 then
-        smallToken = obj
-      else
-        setObjectState(obj, STATE_TABLE[class])
-      end
-    end
+  -- remove old action tokens
+  for _, obj in ipairs(searchAroundSelf("isUniversalToken")) do
+    obj.destruct()
   end
 
-  -- update the small token with special action for certain investigators
-  local SPECIAL_ACTIONS = {
-    ["04002"]    = 8,  -- Ursula Downs
-    ["01002"]    = 9,  -- Daisy Walker
-    ["01502"]    = 9,  -- Daisy Walker
-    ["01002-pb"] = 9,  -- Daisy Walker
-    ["06003"]    = 10, -- Tony Morgan
-    ["04003"]    = 11, -- Finn Edwards
-    ["08016"]    = 14  -- Bob Jenkins
-  }
+  -- spawn three regular action tokens (investigator specific one in the bottom spot)
+  for i = 1, 3 do
+    -- get position
+    local pos = self.positionToWorld(Vector(-1.54 + i * 0.18, 0, -0.28)):setAt("y", 0.1)
 
-  if smallToken ~= nil then
-    setObjectState(smallToken, SPECIAL_ACTIONS[activeInvestigatorId] or STATE_TABLE[class])
+    tokenManager.spawnToken(pos, "universalActionAbility", self.getRotation(), function(spawned)
+      spawned.call("updateClassAndSymbol", { class = class, symbol = class })
+    end)
   end
-end
 
-function setObjectState(obj, stateId)
-  if obj.getStateId() ~= stateId then obj.setState(stateId) end
+  -- spawn additional token (maybe specific for investigator)
+  if extraToken ~= "None" then
+    -- set value to class if currently "nil"
+    extraToken = extraToken or class
+
+    -- get position
+    local pos = self.positionToWorld(Vector(-1, 0, 0.118)):setAt("y", 0.1)
+
+    tokenManager.spawnToken(pos, "universalActionAbility", self.getRotation(), function(spawned)
+      spawned.call("updateClassAndSymbol", { class = class, symbol = extraToken })
+    end)
+  end
 end
 
 ---------------------------------------------------------

@@ -3,7 +3,7 @@ local searchLib = require("util/SearchLib")
 local tokenManager = require("core/token/TokenManager")
 local TOKEN_INDEX = {}
 
-TOKEN_INDEX[1] = "actionToken"
+TOKEN_INDEX[1] = "universalActionAbility"
 TOKEN_INDEX[3] = "resourceCounter"
 TOKEN_INDEX[4] = "damage"
 TOKEN_INDEX[5] = "path"
@@ -21,15 +21,6 @@ local stateTable = {
   ["secret"]   = 6,
   ["supply"]   = 7,
   ["offering"] = 8
-}
-
-local actionStateTable = {
-  ["Guardian"] = 1,
-  ["Seeker"]   = 2,
-  ["Rogue"]    = 3,
-  ["Mystic"]   = 4,
-  ["Survivor"] = 5,
-  ["Neutral"]  = 6
 }
 
 ---@param index number Index of the pressed key
@@ -58,7 +49,7 @@ function onScriptingButtonDown(index, playerColor)
         break
       end
     end
-    
+
     -- this is used to load the correct state for additional resource tokens (e.g. "Ammo")
     local stateID = stateTable[string.lower(subType)]
     if stateID ~= nil and stateID ~= 1 then
@@ -87,20 +78,20 @@ function onScriptingButtonDown(index, playerColor)
       end
     end
   -- check for nearest investigator card and change action token state to its class 
-  elseif tokenType == "actionToken" then
+  elseif tokenType == "universalActionAbility" then
     local matColor = playmatApi.getMatColorByPosition(position)
     local result = playmatApi.searchAroundPlaymat(matColor, "isCard")
-    local investigatorClass = "Neutral"
+    local class = "Neutral"
     for j, card in ipairs(result) do
       local metadata = JSON.decode(card.getGMNotes()) or {}
       if metadata.type == "Investigator" then
-        investigatorClass = metadata.class
+        class = metadata.class
+        break
       end
     end
 
-    local stateID = actionStateTable[investigatorClass]
-    if stateID ~= nil and stateID ~= 6 then
-      callback = function(spawned) spawned.setState(stateID) end
+    callback = function(spawned)
+      spawned.call("updateClassAndSymbol", { class = class, symbol = class })
     end
   end
 
