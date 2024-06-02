@@ -71,45 +71,42 @@ function takeCardIntoThreatArea(playerColor, hoveredObject)
 
   local matColor = playmatApi.getMatColor(playerColor)
   local mat = guidReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
+
   -- do not continue if the threat area is already full
-  if playmatApi.getEncounterCardDrawPosition(matColor, false) == playmatApi.getEncounterCardDrawPosition(matColor, true) then 
-    broadcastToColor("Threat area is full.", playerColor,"Yellow")
-    return 
+  if playmatApi.getEncounterCardDrawPosition(matColor, false) == playmatApi.getEncounterCardDrawPosition(matColor, true) then
+    broadcastToColor("Threat area is full.", playerColor, "Yellow")
+    return
   end
-  
-  
+
   -- initialize list of objects to move
   local moveTheseObjects = {}
-  
   for _, obj in ipairs(searchLib.onObject(hoveredObject, "isTileOrToken")) do
     table.insert(moveTheseObjects, obj)
   end
-  
+
   -- find out if the original card is on the green or red playmats
   local originalMatColor = guidReferenceApi.getOwnerOfObject(hoveredObject)
-  
+
   -- determine modifiers for the playmats
-  local modifierY
+  local modifierY = 0
   if originalMatColor == "Red" then
     modifierY = 90
   elseif originalMatColor == "Green" then
     modifierY = -90
-  else
-    modifierY = 0
   end
 
+  -- store local positions of objects
   local localPositions = {}
-
   for i, obj in ipairs(moveTheseObjects) do
     local localPos = hoveredObject.positionToLocal(obj.getPosition())
     localPositions[i] = localPos
   end
-  
+
   -- move the main card
   local pos = playmatApi.getEncounterCardDrawPosition(matColor, false)
   hoveredObject.setPosition(pos)
-  hoveredObject.setRotation(hoveredObject.getRotation() - Vector(0, 270-mat.getRotation().y-modifierY, 0))
-  
+  hoveredObject.setRotation(hoveredObject.getRotation() - Vector(0, 270 - mat.getRotation().y - modifierY, 0))
+
   local cardName = hoveredObject.getName()
   if cardName == nil or cardName == "" then
     cardName = "card(s)"
@@ -120,7 +117,7 @@ function takeCardIntoThreatArea(playerColor, hoveredObject)
     if not obj.locked then
       local globalPos = hoveredObject.positionToWorld(localPositions[i])
       obj.setPosition(globalPos)
-      obj.setRotation(obj.getRotation() - Vector(0, 270-mat.getRotation().y-modifierY, 0))
+      obj.setRotation(obj.getRotation() - Vector(0, 270 - mat.getRotation().y - modifierY, 0))
     end
   end
 end
@@ -136,15 +133,17 @@ function discardObject(playerColor, hoveredObject)
   end
 
   -- These should probably not be discarded normally. Ask player for confirmation.
-  if (hoveredObject.type == "Deck") or hoveredObject.hasTag("Location") then
+  if hoveredObject.type == "Deck" or hoveredObject.hasTag("Location") then
     local suspect = (hoveredObject.type == "Deck") and "Deck" or "Location"
-    Player[playerColor].showConfirmDialog("Discard " .. suspect .. "?", function () performDiscard(playerColor, hoveredObject) end)
+    Player[playerColor].showConfirmDialog("Discard " .. suspect .. "?",
+      function() performDiscard(playerColor, hoveredObject) end)
     return
   end
 
   performDiscard(playerColor, hoveredObject)
 end
 
+-- actually performs the discarding of the object and tokens / tiles on it
 function performDiscard(playerColor, hoveredObject)
   -- initialize list of objects to discard
   local discardTheseObjects = { hoveredObject }
@@ -169,13 +168,14 @@ function discardTopDeck(playerColor, hoveredObject)
     broadcastToColor("Hover a deck/card and try again.", playerColor, "Yellow")
     return
   end
+
+  -- take top card from deck (unless it is already a single card)
+  local takenCard = hoveredObject
   if hoveredObject.type == "Deck" then
-    takenCard = hoveredObject.takeObject({index = 0})
-  else
-    takenCard = hoveredObject
+    takenCard = hoveredObject.takeObject({ index = 0 })
   end
   Wait.frames(function() performDiscard(playerColor, takenCard) end, 1)
-end 
+end
 
 -- helper function to get the player to trigger the discard function for
 function getColorToDiscardFor(hoveredObject, playerColor)
@@ -194,15 +194,21 @@ function getColorToDiscardFor(hoveredObject, playerColor)
   areaNearPlaymat.minZ = bounds.center.z - bounds.size.z / 2 - bufferAroundPlaymat
   areaNearPlaymat.maxZ = bounds.center.z + bounds.size.z / 2 + bufferAroundPlaymat
 
-  -- discard to closest mat if near it, use triggering playmat if not
-  local discardForMatColor
+  -- discard to closest mat if near it
   if inArea(pos, areaNearPlaymat) then
     return closestMatColor
-  elseif pos.y > (Player[playerColor].getHandTransform().position.y - (Player[playerColor].getHandTransform().scale.y / 2)) then -- discard to closest mat if card is in a hand
-    return closestMatColor
-  else
-    return playmatApi.getMatColor(playerColor)
   end
+
+  -- discard to closest mat if card is in a hand
+  local handZone = guidReferenceApi.getObjectByOwnerAndType(closestMatColor, "HandZone")
+  for _, zone in ipairs(hoveredObject.getZones()) do
+    if zone == handZone then
+      return closestMatColor
+    end
+  end
+
+  -- discard to triggering mat if previous conditions weren't met
+  return playmatApi.getMatColor(playerColor)
 end
 
 -- moves the hovered card to the victory display
@@ -408,17 +414,17 @@ function takeClueFromLocation(playerColor, hoveredObject)
   end
 
   if clickableClues then
-    pos = {x = 0.49, y = 2.66, z = 0.00}
+    pos = { x = 0.49, y = 2.66, z = 0.00 }
     playmatApi.updateCounter(matColor, "ClickableClueCounter", _, 1)
   else
-    pos = playmatApi.transformLocalPosition({x = -1.12, y = 0.05, z = 0.7}, matColor)
+    pos = playmatApi.transformLocalPosition({ x = -1.12, y = 0.05, z = 0.7 }, matColor)
   end
-  
+
   local rot = playmatApi.returnRotation(matColor)
 
   -- check if found clue is a stack or single token
   if clue.getQuantity() > 1 then
-    clue.takeObject({position = pos, rotation = rot})
+    clue.takeObject({ position = pos, rotation = rot })
   else
     clue.setPositionSmooth(pos)
     clue.setRotation(rot)
@@ -448,9 +454,9 @@ end
 ---@param bounds table Defined area to see if the point is within
 function inArea(point, bounds)
   return (point.x > bounds.minX
-      and point.x < bounds.maxX
-      and point.z > bounds.minZ
-      and point.z < bounds.maxZ)
+    and point.x < bounds.maxX
+    and point.z > bounds.minZ
+    and point.z < bounds.maxZ)
 end
 
 -- capitalizes the first letter
