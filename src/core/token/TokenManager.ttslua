@@ -2,6 +2,7 @@ do
   local guidReferenceApi = require("core/GUIDReferenceApi")
   local optionPanelApi = require("core/OptionPanelApi")
   local playAreaApi = require("core/PlayAreaApi")
+  local playmatApi = require("playermat/PlaymatApi")
   local searchLib = require("util/SearchLib")
   local tokenSpawnTrackerApi = require("core/token/TokenSpawnTrackerApi")
 
@@ -153,7 +154,7 @@ do
 
   -- Spawns a set of tokens on the given card.
   ---@param card tts__Object Card to spawn tokens on
-  ---@param tokenType string Type of token to spawn, for example "damage", "horror" or "resource"
+  ---@param tokenType string Type of token to spawn (template needs to be in source bag)
   ---@param tokenCount number How many tokens to spawn.  For damage or horror this value will be set to the
   --     spawned state object rather than spawning multiple tokens
   ---@param shiftDown? number An offset for the z-value of this group of tokens
@@ -174,8 +175,7 @@ do
 
   -- Spawns a single counter token and sets the value to tokenValue. Used for damage and horror tokens.
   ---@param card tts__Object Card to spawn tokens on
-  ---@param tokenType string type of token to spawn, valid values are "damage" and "horror".  Other
-  --     types should use spawnMultipleTokens()
+  ---@param tokenType string Type of token to spawn (template needs to be in source bag)
   ---@param tokenValue number Value to set the damage/horror to
   TokenManager.spawnCounterToken = function(card, tokenType, tokenValue, shiftDown)
     if tokenValue < 1 or tokenValue > 50 then return end
@@ -199,11 +199,10 @@ do
   end
 
   -- Spawns a number of tokens.
-  ---@param tokenType string type of token to spawn, valid values are resource", "doom", or "clue".
-  --     Other types should use spawnCounterToken()
+  ---@param tokenType string Type of token to spawn (template needs to be in source bag)
   ---@param tokenCount number How many tokens to spawn
   ---@param shiftDown? number An offset for the z-value of this group of tokens
-  ---@param subType? string Subtype of token to spawn.  This will only differ from the tokenName for resource tokens
+  ---@param subType? string Subtype of token to spawn. This will only differ from the tokenName for resource or action tokens
   TokenManager.spawnMultipleTokens = function(card, tokenType, tokenCount, shiftDown, subType)
     -- not checking the max at this point since clue offsets are calculated dynamically
     if tokenCount < 1 then return end
@@ -239,16 +238,16 @@ do
       return
     end
 
-    -- handling for not provided subtype (for example when spawning from custom data helpers)
-    if subType == nil then
-      subType = ""
-    end
-
     -- this is used to load the correct state for additional resource tokens (e.g. "Ammo")
     local callback = nil
-    local stateID = stateTable[string.lower(subType)]
+    local stateID = stateTable[string.lower(subType or "")]
     if tokenType == "resource" and stateID ~= nil and stateID ~= 1 then
       callback = function(spawned) spawned.setState(stateID) end
+    elseif tokenType == "universalActionAbility" then
+      local matColor = playmatApi.getMatColorByPosition(card.getPosition())
+      local class = playmatApi.returnInvestigatorClass(matColor)
+
+      callback = function(spawned) spawned.call("updateClassAndSymbol", { class = class, symbol = subType or class }) end
     end
 
     for i = 1, tokenCount do
@@ -258,9 +257,8 @@ do
 
   -- Spawns a single token at the given global position by copying it from the template bag.
   ---@param position tts__Vector Global position to spawn the token
-  ---@param tokenType string type of token to spawn, valid values are "damage", "horror",
-  --     "resource", "doom", or "clue"
-  ---@param rotation tts__Vector Rotation to be used for the new token.  Only the y-value will be used,
+  ---@param tokenType string Type of token to spawn (template needs to be in source bag)
+  ---@param rotation tts__Vector Rotation to be used for the new token. Only the y-value will be used,
   --     x and z will use the default rotation from the source bag
   ---@param callback? function A callback function triggered after the new token is spawned
   TokenManager.spawnToken = function(position, tokenType, rotation, callback)
@@ -513,7 +511,7 @@ do
     -- if there are already more uses than the replenish amount, keep them
     if foundTokens > uses[1].count then
       newCount = foundTokens
-    -- only replenish up until the replenish amount
+      -- only replenish up until the replenish amount
     elseif newCount > uses[1].count then
       newCount = uses[1].count
     end

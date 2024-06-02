@@ -82,8 +82,10 @@ local defaultSlotData             = {
   "any", "any", "any", "Accessory", "Arcane", "Arcane", "Body"
 }
 
--- global variable so it can be reset by the Clean Up Helper
+-- global variables for access
+activeInvestigatorClass           = "Neutral"
 activeInvestigatorId              = "00000"
+
 local isDrawButtonVisible         = false
 
 -- global variable to report "Dream-Enhancing Serum" status
@@ -95,20 +97,22 @@ local matColor                    = self.getMemo()
 
 function onSave()
   return JSON.encode({
-    playerColor = playerColor,
+    activeInvestigatorClass = activeInvestigatorClass,
     activeInvestigatorId = activeInvestigatorId,
     isDrawButtonVisible = isDrawButtonVisible,
+    playerColor = playerColor,
     slotData = slotData
   })
 end
 
 function onLoad(savedData)
   if savedData and savedData ~= "" then
-    local loadedData     = JSON.decode(savedData)
-    playerColor          = loadedData.playerColor
-    activeInvestigatorId = loadedData.activeInvestigatorId
-    isDrawButtonVisible  = loadedData.isDrawButtonVisible
-    slotData             = loadedData.slotData
+    local loadedData        = JSON.decode(savedData)
+    activeInvestigatorClass = loadedData.activeInvestigatorClass
+    activeInvestigatorId    = loadedData.activeInvestigatorId
+    isDrawButtonVisible     = loadedData.isDrawButtonVisible
+    playerColor             = loadedData.playerColor
+    slotData                = loadedData.slotData
   end
 
   self.interactable = false
@@ -291,7 +295,7 @@ function doUpkeep(_, clickedByColor, isRightClick)
   local forcedLearning = false
   local rot = self.getRotation()
   for _, obj in ipairs(searchAroundSelf()) do
-    if obj.getDescription() == "Action Token" and obj.is_face_down then
+    if obj.hasTag("UniversalToken") == true and obj.is_face_down then
       obj.flip()
     elseif obj.type == "Card" and not inArea(self.positionToLocal(obj.getPosition()), INVESTIGATOR_AREA) then
       local cardMetadata = JSON.decode(obj.getGMNotes()) or {}
@@ -829,8 +833,7 @@ function removeTokensFromObject(object)
         obj.type ~= "Deck" and
         obj.type ~= "Card" and
         obj.memo ~= nil and
-        obj.getLock() == false and
-        obj.getDescription() ~= "Action Token" then
+        obj.getLock() == false then
       ownedObjects.Trash.putObject(obj)
     end
   end
@@ -846,14 +849,13 @@ function maybeUpdateActiveInvestigator(card)
   if not inArea(self.positionToLocal(card.getPosition()), INVESTIGATOR_AREA) then return end
 
   local notes = JSON.decode(card.getGMNotes())
-  local class = "Neutral"
   local extraToken
 
   if notes ~= nil and notes.type == "Investigator" and notes.id ~= nil then
     if notes.id == activeInvestigatorId then return end
-    class = notes.class
-    extraToken = notes.extraToken
+    activeInvestigatorClass = notes.class
     activeInvestigatorId = notes.id
+    extraToken = notes.extraToken
     ownedObjects.InvestigatorSkillTracker.call("updateStats", {
       notes.willpowerIcons,
       notes.intellectIcons,
@@ -861,7 +863,7 @@ function maybeUpdateActiveInvestigator(card)
       notes.agilityIcons
     })
   elseif activeInvestigatorId ~= "00000" then
-    class = "Neutral"
+    activeInvestigatorClass = "Neutral"
     activeInvestigatorId = "00000"
     ownedObjects.InvestigatorSkillTracker.call("updateStats", { 1, 1, 1, 1 })
   else
@@ -879,14 +881,14 @@ function maybeUpdateActiveInvestigator(card)
     local pos = self.positionToWorld(Vector(-1.54 + i * 0.17, 0, -0.28)):add(Vector(0, 0.2, 0))
 
     tokenManager.spawnToken(pos, "universalActionAbility", self.getRotation(), function(spawned)
-      spawned.call("updateClassAndSymbol", { class = class, symbol = class })
+      spawned.call("updateClassAndSymbol", { class = activeInvestigatorClass, symbol = activeInvestigatorClass })
     end)
   end
 
   -- spawn additional token (maybe specific for investigator)
   if extraToken ~= "None" then
     -- set value to class if currently "nil"
-    extraToken = extraToken or class
+    extraToken = extraToken or activeInvestigatorClass
 
     -- get position (on the investigator card for abilities)
     local pos
@@ -897,7 +899,7 @@ function maybeUpdateActiveInvestigator(card)
     end
 
     tokenManager.spawnToken(pos, "universalActionAbility", self.getRotation(), function(spawned)
-      spawned.call("updateClassAndSymbol", { class = class, symbol = extraToken })
+      spawned.call("updateClassAndSymbol", { class = activeInvestigatorClass, symbol = extraToken })
     end)
   end
 end
