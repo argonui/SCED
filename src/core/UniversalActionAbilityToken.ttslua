@@ -52,7 +52,9 @@ function onLoad(savedData)
 
   updateDisplay()
   addContextMenu()
-  math.randomseed(os.time())
+
+  -- get random seed from Global so all are different
+  math.randomseed(Global.call("getRandomSeed"))
 end
 
 function updateDisplay()
@@ -72,7 +74,7 @@ function updateDisplay()
     {
       tag = "Image",
       attributes = {
-        image = "Bundle/Border",
+        image = "Bundle/Ring",
         height = "200",
         width = "200",
         position = "0 0 -10.2",
@@ -105,7 +107,7 @@ function updateDisplay()
     {
       tag = "Image",
       attributes = {
-        image = "Bundle/Border",
+        image = "Bundle/Ring",
         color = "#000000",
         height = "200",
         width = "200",
@@ -179,30 +181,42 @@ function updateDisplay()
   end
 end
 
+function getSymbolList()
+  local symbolList = {}
+  for str in string.gmatch(symbol, "([^/]+)") do
+    table.insert(symbolList, str)
+  end
+  return symbolList
+end
+
 function addContextMenu()
   self.addContextMenuItem("Change color", function(playerColor)
     Player[playerColor].showOptionsDialog("Choose color", listOfClasses, class, updateClass)
   end)
 
-  -- get display symbol from potential list
-  local symbols = {}
-  for str in string.gmatch(symbol, "([^/]+)") do
-    table.insert(symbols, str)
-  end
-
-  self.addContextMenuItem("Change symbol", function(playerColor)
-    Player[playerColor].showOptionsDialog("Choose symbol", listOfSymbols, symbols[1], updateSymbol)
+  self.addContextMenuItem("Change 1st symbol", function(playerColor)
+    local symbolList = getSymbolList()
+    Player[playerColor].showOptionsDialog("Choose symbol", listOfSymbols, symbolList[1], function(newSymbol)
+      if symbolList[2] then
+        symbol = newSymbol .. "/" .. symbolList[2]
+      else
+        symbol = newSymbol
+      end
+      updateDisplay()
+    end)
   end)
 
   self.addContextMenuItem("Change 2nd symbol", function(playerColor)
-    Player[playerColor].showOptionsDialog("Choose 2nd symbol", listOfSymbols, symbols[1], function(additionalSymbol)
-      symbol = symbols[1] .. "/" .. additionalSymbol
+    local symbolList = getSymbolList()
+    Player[playerColor].showOptionsDialog("Choose 2nd symbol", listOfSymbols, symbolList[2] or symbolList[1], function(newSymbol)
+      symbol = symbolList[1] .. "/" .. newSymbol
       updateDisplay()
     end)
   end)
 
   self.addContextMenuItem("Remove 2nd symbol", function()
-    symbol = symbols[1]
+    local symbolList = getSymbolList()
+    symbol = symbolList[1]
     updateDisplay()
   end)
 end
