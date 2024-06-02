@@ -11,11 +11,13 @@ local listOfClasses = {
 
 local listOfSymbols = {
   "Activate",
+  "Engage",
   "Evade",
   "Explore",
   "Fight",
   "FreeTrigger",
   "Investigate",
+  "Move",
   "Parley",
   "PlayItem",
   "Reaction",
@@ -30,6 +32,14 @@ local listOfSymbols = {
   "Survivor"
 }
 
+local colorsForClasses = {
+  Guardian = Color.new(19 / 255, 84 / 255, 165 / 255),
+  Mystic = Color.new(82 / 255, 18 / 255, 97 / 255),
+  Neutral = Color.new(108 / 255, 110 / 255, 112 / 255),
+  Rogue = Color.new(17 / 255, 72 / 255, 54 / 255),
+  Seeker = Color.new(228 / 255, 148 / 255, 74 / 255),
+  Survivor = Color.new(190 / 255, 30 / 255, 45 / 255)
+}
 
 function onSave()
   return JSON.encode({ class = class, symbol = symbol })
@@ -42,6 +52,7 @@ function onLoad(savedData)
 
   updateDisplay()
   addContextMenu()
+  math.randomseed(os.time())
 end
 
 function updateDisplay()
@@ -52,21 +63,23 @@ function updateDisplay()
       attributes = {
         id = "ClassFront",
         image = class .. "Class",
-        height = "200",
-        width = "200",
-        position = "0 0 0.1",
-        rotation = "0 180 180"
+        height = "2000",
+        width = "2000",
+        scale = "0.1 0.1 1",
+        position = "0 0 -10.1",
+        rotation = "0 0 180"
       }
     },
-    -- circular border on the front
+    -- ring on the front
     {
       tag = "Image",
       attributes = {
-        image = "Border",
-        height = "200",
-        width = "200",
-        position = "0 0 0.2",
-        rotation = "0 180 180"
+        image = "Ring",
+        height = "2000",
+        width = "2000",
+        scale = "0.1 0.1 1",
+        position = "0 0 -10.2",
+        rotation = "0 0 180"
       }
     },
     -- symbol on the front
@@ -75,10 +88,11 @@ function updateDisplay()
       attributes = {
         id = "SymbolFront",
         image = symbol,
-        height = "200",
-        width = "200",
-        position = "0 0 0.3",
-        rotation = "0 180 180"
+        height = "2000",
+        width = "2000",
+        scale = "0.1 0.1 1",
+        position = "0 0 -10.3",
+        rotation = "0 0 180"
       }
     },
     -- background on the back
@@ -87,23 +101,24 @@ function updateDisplay()
       attributes = {
         id = "ClassBack",
         image = "NeutralClass",
-        height = "200",
-        width = "200",
-        position = "0 0 -10.1",
-        rotation = "0 0 180"
+        height = "2000",
+        width = "2000",
+        scale = "0.1 0.1 1",
+        position = "0 0 0.1",
+        rotation = "0 180 180"
       }
     },
-    -- circular border on the back
+    -- ring on the back
     {
       tag = "Image",
       attributes = {
-        image = "Border",
-        -- update color on the back for neutral
-        color = (class == "Neutral") and "#000000" or "#FFFFFF",
-        height = "200",
-        width = "200",
-        position = "0 0 -10.2",
-        rotation = "0 0 180"
+        image = "Ring",
+        color = "#000000",
+        height = "2000",
+        width = "2000",
+        scale = "0.1 0.1 1",
+        position = "0 0 0.2",
+        rotation = "0 180 180"
       }
     },
     -- symbol on the back
@@ -112,16 +127,52 @@ function updateDisplay()
       attributes = {
         id = "SymbolBack",
         image = symbol,
-        -- update color on the back for neutral
-        color = (class == "Neutral") and "#000000" or "#FFFFFF",
-        height = "200",
-        width = "200",
-        position = "0 0 -10.3",
-        rotation = "0 0 180"
+        color = "#000000",
+        height = "2000",
+        width = "2000",
+        scale = "0.1 0.1 1",
+        position = "0 0 0.3",
+        rotation = "0 180 180"
       }
     }
   }
+
+  -- handling for double symbols
+  if string.contains(symbol, "/") then
+    local symbols = {}
+    for str in string.gmatch(symbol, "([^/]+)") do
+      table.insert(symbols, str)
+    end
+
+    -- update front image
+    xml[3].attributes.image = symbols[1]
+    xml[3].attributes.height = xml[3].attributes.height / 2
+    xml[3].attributes.width = xml[3].attributes.width / 2
+    xml[3].attributes.position = "35 0 -10.3"
+
+    -- add 2nd image element to front
+    local frontSymbolXml = deepcopy(xml[3])
+    frontSymbolXml.attributes.image = symbols[2]
+    frontSymbolXml.attributes.position = "-35 0 -10.3"
+    table.insert(xml, frontSymbolXml)
+
+    -- update back image
+    xml[6].attributes.image = symbols[1]
+    xml[6].attributes.height = xml[6].attributes.height / 2
+    xml[6].attributes.width = xml[6].attributes.width / 2
+    xml[6].attributes.position = "35 0 0.3"
+
+    -- add 2nd image element to back
+    local backSymbolXml = deepcopy(xml[6])
+    backSymbolXml.attributes.image = symbols[2]
+    backSymbolXml.attributes.position = "-35 0 0.3"
+    table.insert(xml, backSymbolXml)
+  end
+
   self.UI.setXmlTable(xml)
+
+  -- set color tint
+  self.setColorTint(colorsForClasses[class])
 
   -- update name (only show symbol name if it isn't the class name)
   if isClassName(symbol) then
@@ -132,9 +183,9 @@ function updateDisplay()
 
   -- update scale
   if symbol == "FreeTrigger" or symbol == "Reaction" then
-    self.setScale({0.35, 1, 0.35})
+    self.setScale({ 0.35, 1, 0.35 })
   else
-    self.setScale({0.45, 1, 0.45})
+    self.setScale({ 0.45, 1, 0.45 })
   end
 end
 
@@ -143,12 +194,33 @@ function addContextMenu()
     Player[playerColor].showOptionsDialog("Choose class", listOfClasses, class, updateClass)
   end)
 
+  -- get display symbol from potential list
+  local symbols = {}
+  for str in string.gmatch(symbol, "([^/]+)") do
+    table.insert(symbols, str)
+  end
+
   self.addContextMenuItem("Change symbol", function(playerColor)
-    Player[playerColor].showOptionsDialog("Choose symbol", listOfSymbols, symbol, updateSymbol)
+    Player[playerColor].showOptionsDialog("Choose symbol", listOfSymbols, symbols[1], updateSymbol)
+  end)
+
+  self.addContextMenuItem("Add 2nd symbol", function(playerColor)
+    if string.contains(symbol, "/") then
+      broadcastToColor("Two symbols is the maximum!", playerColor, "Orange")
+    else
+      Player[playerColor].showOptionsDialog("Choose 2nd symbol", listOfSymbols, symbol, function(additionalSymbol)
+        symbol = symbol .. "/" .. additionalSymbol
+        updateDisplay()
+      end)
+    end
   end)
 end
 
 function updateClass(newClass)
+  -- also update the symbol if it matches the class
+  if class == symbol then
+    symbol = newClass or "Neutral"
+  end
   class = newClass or "Neutral"
   updateDisplay()
 end
@@ -171,4 +243,29 @@ function isClassName(str)
     end
   end
   return false
+end
+
+function onRandomize()
+  local newSymbol = listOfSymbols[math.random(1, #listOfSymbols)]
+
+  -- if the new symbol is a class symbol, don't get a random class
+  if isClassName(newSymbol) then
+    updateClassAndSymbol({ class = newSymbol, symbol = newSymbol })
+  else
+    updateClassAndSymbol({ class = listOfClasses[math.random(1, #listOfClasses)], symbol = newSymbol })
+  end
+end
+
+function deepcopy(orig)
+  local copy
+  if type(orig) == 'table' then
+    copy = {}
+    for orig_key, orig_value in next, orig, nil do
+      copy[deepcopy(orig_key)] = deepcopy(orig_value)
+    end
+    setmetatable(copy, deepcopy(getmetatable(orig)))
+  else -- number, string, boolean, etc
+    copy = orig
+  end
+  return copy
 end
