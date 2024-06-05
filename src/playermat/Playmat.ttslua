@@ -16,6 +16,7 @@ local DISCARD_BUTTON_X_START      = -1.365
 local DISCARD_BUTTON_X_OFFSET     = 0.455
 
 local SEARCH_AROUND_SELF_X_BUFFER = 8
+local SEARCH_AROUND_SELF_Z_BUFFER = 1.75
 
 -- defined areas for object searching
 local MAIN_PLAY_AREA              = {
@@ -87,7 +88,7 @@ activeInvestigatorId              = "00000"
 local isDrawButtonVisible         = false
 
 -- global variable to report "Dream-Enhancing Serum" status
-isDES                             = false
+hasDES                             = false
 
 -- table of type-object reference pairs of all owned objects
 local ownedObjects                = {}
@@ -166,17 +167,23 @@ end
 
 -- finds all objects on the playmat and associated set aside zone.
 function searchAroundSelf(filter)
+  local scale = self.getScale()
   local bounds = self.getBoundsNormalized()
+
   -- Increase the width to cover the set aside zone
   bounds.size.x = bounds.size.x + SEARCH_AROUND_SELF_X_BUFFER
   bounds.size.y = 1
-  -- Since the cast is centered on the position, shift left or right to keep the non-set aside edge
-  -- of the cast at the edge of the playmat
-  -- setAsideDirection accounts for the set aside zone being on the left or right, depending on the
-  -- table position of the playmat
+  bounds.size.z = bounds.size.z + SEARCH_AROUND_SELF_Z_BUFFER
+
+  -- 'setAsideDirection' accounts for the set aside zone being on the left or right,
+  -- depending on the table position of the playmat
   local setAsideDirection = bounds.center.z > 0 and 1 or -1
+
+  -- Since the cast is centered on the position, shift left or right to keep
+  -- the non-set aside edge of the cast at the edge of the playmat
   local localCenter = self.positionToLocal(bounds.center)
-  localCenter.x = localCenter.x + setAsideDirection * SEARCH_AROUND_SELF_X_BUFFER / 2 / self.getScale().x
+  localCenter.x = localCenter.x + setAsideDirection * SEARCH_AROUND_SELF_X_BUFFER / 2 / scale.x
+  localCenter.z = localCenter.z - SEARCH_AROUND_SELF_Z_BUFFER / 2 / scale.z
   return searchArea(self.positionToWorld(localCenter), bounds.size, filter)
 end
 
@@ -287,7 +294,8 @@ function doUpkeep(_, clickedByColor, isRightClick)
 
   updateMessageColor(clickedByColor)
 
-  -- unexhaust cards in play zone, flip action tokens and find forcedLearning
+  -- unexhaust cards in play zone, flip action tokens and find Forced Learning / Dream-Enhancing Serum
+  checkForDES()
   local forcedLearning = false
   local rot = self.getRotation()
   for _, obj in ipairs(searchAroundSelf()) do
@@ -315,7 +323,7 @@ function doUpkeep(_, clickedByColor, isRightClick)
         obj.setRotation({ rot.x, rot.y + yRotDiff, rot.z })
       end
 
-      -- detect forced learning to handle card drawing accordingly
+      -- detect Forced Learning to handle card drawing accordingly
       if cardMetadata.id == "08031" then
         forcedLearning = true
       end
@@ -528,6 +536,23 @@ function doDiscardOne()
 
     local playerName = Player[playerColor].steam_name or playerColor
     broadcastToAll(playerName .. " randomly discarded card " .. choices[num] .. "/" .. #hand .. ".", "White")
+  end
+end
+
+-- checks if DES is present
+function checkForDES()
+  hasDES = false
+  for _, obj in ipairs(searchAroundSelf()) do
+    if obj.type == "Card" then
+      local cardMetadata = JSON.decode(obj.getGMNotes()) or {}
+
+      -- position is used to exclude deck / discard
+      local cardPos = self.positionToLocal(obj.getPosition())
+      if cardMetadata.id == "06159" and cardPos.x > -1 then
+        hasDES = true
+        break
+      end
+    end
   end
 end
 
@@ -750,9 +775,6 @@ function onCollisionEnter(collisionInfo)
   -- only continue for cards
   if object.type ~= "Card" then return end
 
-  -- detect if "Dream-Enhancing Serum" is placed
-  if object.getName() == "Dream-Enhancing Serum" then isDES = true end
-
   maybeUpdateActiveInvestigator(object)
   syncCustomizableMetadata(object)
 
@@ -763,11 +785,6 @@ function onCollisionEnter(collisionInfo)
   elseif shouldSpawnTokens(object) then
     spawnTokensFor(object)
   end
-end
-
--- detect if "Dream-Enhancing Serum" is removed
-function onCollisionExit(collisionInfo)
-  if collisionInfo.collision_object.getName() == "Dream-Enhancing Serum" then isDES = false end
 end
 
 -- checks if tokens should be spawned for the provided card
