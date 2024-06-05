@@ -295,8 +295,8 @@ function doUpkeep(_, clickedByColor, isRightClick)
   updateMessageColor(clickedByColor)
 
   -- unexhaust cards in play zone, flip action tokens and find Forced Learning / Dream-Enhancing Serum
+  checkForDES()
   local forcedLearning = false
-  hasDES = false
   local rot = self.getRotation()
   for _, obj in ipairs(searchAroundSelf()) do
     if obj.getDescription() == "Action Token" and obj.is_face_down then
@@ -326,8 +326,6 @@ function doUpkeep(_, clickedByColor, isRightClick)
       -- detect Forced Learning to handle card drawing accordingly
       if cardMetadata.id == "08031" then
         forcedLearning = true
-      elseif cardMetadata.id == "06159" then
-        hasDES = true
       end
 
       -- maybe replenish uses on certain cards
@@ -538,6 +536,23 @@ function doDiscardOne()
 
     local playerName = Player[playerColor].steam_name or playerColor
     broadcastToAll(playerName .. " randomly discarded card " .. choices[num] .. "/" .. #hand .. ".", "White")
+  end
+end
+
+-- checks if DES is present
+function checkForDES()
+  hasDES = false
+  for _, obj in ipairs(searchAroundSelf()) do
+    if obj.type == "Card" then
+      local cardMetadata = JSON.decode(obj.getGMNotes()) or {}
+
+      -- position is used to exclude deck / discard
+      local cardPos = self.positionToLocal(obj.getPosition())
+      if cardMetadata.id == "06159" and cardPos.x < 1 then
+        hasDES = true
+        break
+      end
+    end
   end
 end
 
