@@ -90,7 +90,7 @@ activeInvestigatorId              = "00000"
 local isDrawButtonVisible         = false
 
 -- global variable to report "Dream-Enhancing Serum" status
-hasDES                             = false
+hasDES                            = false
 
 -- table of type-object reference pairs of all owned objects
 local ownedObjects                = {}
@@ -894,30 +894,52 @@ function maybeUpdateActiveInvestigator(card)
 
   -- spawn three regular action tokens (investigator specific one in the bottom spot)
   for i = 1, 3 do
-    -- get position
     local pos = self.positionToWorld(Vector(-1.54 + i * 0.17, 0, -0.28)):add(Vector(0, 0.2, 0))
 
-    tokenManager.spawnToken(pos, "universalActionAbility", self.getRotation(), function(spawned)
-      spawned.call("updateClassAndSymbol", { class = activeInvestigatorClass, symbol = activeInvestigatorClass })
-    end)
+    tokenManager.spawnToken(pos, "universalActionAbility", self.getRotation(),
+      function(spawned)
+        spawned.call("updateClassAndSymbol", { class = activeInvestigatorClass, symbol = activeInvestigatorClass })
+      end)
   end
 
   -- spawn additional token (maybe specific for investigator)
-  if extraToken and extraToken ~= "None" then
-    -- set value to class if currently "nil"
+  if extraToken ~= "None" then
+    -- set to current class if nil
     extraToken = extraToken or activeInvestigatorClass
 
-    -- get position (on the investigator card for abilities)
-    local pos
-    if extraToken == "FreeTrigger" or extraToken == "Reaction" then
-      pos = self.positionToWorld(Vector(-1, 0, 0.118)):add(Vector(0, 0.2, 0))
-    else
-      pos = self.positionToWorld(Vector(-1.54 + 4 * 0.17, 0, -0.28)):add(Vector(0, 0.2, 0))
-    end
+    -- local positions
+    local tokenSpawnPos = {
+      action = {
+        Vector(-0.86, 0, -0.28), -- left of the regular three actions
+        Vector(-1.54, 0, -0.28), -- right of the regular three actions
+      },
+      ability = {
+        Vector(-1, 0, 0.118),  -- bottom left corner of the investigator card
+        Vector(-1, 0, -0.118), -- top left corner of the investigator card
+      }
+    }
 
-    tokenManager.spawnToken(pos, "universalActionAbility", self.getRotation(), function(spawned)
-      spawned.call("updateClassAndSymbol", { class = activeInvestigatorClass, symbol = extraToken })
-    end)
+    -- spawn tokens (split string by "|")
+    local count = { action = 0, ability = 0 }
+    for str in string.gmatch(extraToken, "([^|]+)") do
+      local type = "action"
+      if str == "FreeTrigger" or str == "Reaction" then
+        type = "ability"
+      end
+
+      count[type] = count[type] + 1
+      if count[type] > 2 then
+        print("More than two extra tokens of the same type are not supported.")
+      else
+        local localSpawnPos = tokenSpawnPos[type][count[type]]
+        local globalSpawnPos = self.positionToWorld(localSpawnPos):add(Vector(0, 0.2, 0))
+
+        tokenManager.spawnToken(globalSpawnPos, "universalActionAbility", self.getRotation(),
+          function(spawned)
+            spawned.call("updateClassAndSymbol", { class = activeInvestigatorClass, symbol = str })
+          end)
+      end
+    end
   end
 end
 
