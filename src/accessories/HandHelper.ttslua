@@ -1,7 +1,7 @@
 local playmatApi = require("playermat/PlaymatApi")
 
 -- forward declaration of variables that are used across functions
-local matColor, handColor, loopId, hovering
+local matColor, handColor, hovering
 
 function onLoad()
   local buttonParamaters          = {}
@@ -10,7 +10,7 @@ function onLoad()
   -- index 0: button as hand size label
   buttonParamaters.hover_color    = "White"
   buttonParamaters.click_function = "none"
-  buttonParamaters.position       = { 0, 0.11, -0.4 }
+  buttonParamaters.position       = Vector(0, 0.11, -0.4)
   buttonParamaters.height         = 0
   buttonParamaters.width          = 0
   buttonParamaters.font_size      = 500
@@ -19,17 +19,14 @@ function onLoad()
 
   -- index 1: button to toggle "des"
   buttonParamaters.label          = "DES: ✗"
-  buttonParamaters.click_function = "none"
-  buttonParamaters.position       = { 0, 0.11, 0.25 }
-  buttonParamaters.height         = 0
-  buttonParamaters.width          = 0
+  buttonParamaters.position.z     = 0.25
   buttonParamaters.font_size      = 120
   self.createButton(buttonParamaters)
 
   -- index 2: button to discard a card
-  buttonParamaters.label          = "discard random card"
+  buttonParamaters.label          = "Discard Random Card"
   buttonParamaters.click_function = "discardRandom"
-  buttonParamaters.position       = { 0, 0.11, 0.7 }
+  buttonParamaters.position.z     = 0.7
   buttonParamaters.height         = 175
   buttonParamaters.width          = 900
   buttonParamaters.font_size      = 90
@@ -39,27 +36,24 @@ function onLoad()
   updateColors()
 
   -- start loop to update card count
-  loopId = Wait.time(updateValue, 1, -1)
+  playmatApi.checkForDES(matColor)
+  Wait.time(updateValue, 1, -1)
 end
 
 -- updates colors when object is dropped somewhere
 function onDrop() updateColors() end
 
--- toggles counting method briefly
-function onObjectHover(hover_color, obj)
-  -- only continue if correct player hovers over "self"
-  if obj ~= self or hover_color ~= handColor or hovering then return end
+-- disables DES counting while hovered
+function onObjectHover(hoverColor, object)
+  if hoverColor ~= handColor then return end
 
-  -- toggle this flag so this doesn't get executed multiple times during the delay
-  hovering = true
-
-  -- stop loop, toggle "des" and displayed value briefly, then start new loop after 2s
-  Wait.stop(loopId)
-  updateValue(true)
-  Wait.time(function()
-    loopId = Wait.time(updateValue, 1, -1)
+  if object == self then
+    hovering = true
+    playmatApi.checkForDES(matColor)
+    updateValue()
+  else
     hovering = false
-  end, 1)
+  end
 end
 
 -- updates the matcolor and handcolor variable
@@ -70,7 +64,7 @@ function updateColors()
 end
 
 -- count cards in hand (by name for DES)
-function updateValue(toggle)
+function updateValue()
   -- update colors if handColor doesn't own a handzone
   if Player[handColor].getHandCount() == 0 then
     updateColors()
@@ -79,19 +73,24 @@ function updateValue(toggle)
   -- if there is still no handzone, then end here
   if Player[handColor].getHandCount() == 0 then return end
 
-  -- get state of "Dream-Enhancing Serum" from playermat and update button label
-  local des = playmatApi.isDES(matColor)
-  if toggle then des = not des end
-  self.editButton({ index = 1, label = "DES: " .. (des and "✓" or "✗") })
+  -- get state of "Dream-Enhancing Serum" from playermat
+  local hasDES = playmatApi.hasDES(matColor)
+
+  -- default to regular count if hovered
+  if hovering then
+    hasDES = false
+  end
+
+  self.editButton({ index = 1, label = "DES: " .. (hasDES and "✓" or "✗") })
 
   -- count cards in hand
   local hand = Player[handColor].getHandObjects()
   local size = 0
 
-  if des then
+  if hasDES then
     local cardHash = {}
     for _, obj in pairs(hand) do
-      if obj.tag == "Card" then
+      if obj.type == "Card" then
         local name = obj.getName()
         local title = string.match(name, '(.+)(%s%(%d+%))') or name
         cardHash[title] = true
@@ -102,12 +101,14 @@ function updateValue(toggle)
     end
   else
     for _, obj in pairs(hand) do
-      if obj.tag == "Card" then size = size + 1 end
+      if obj.type == "Card" then
+        size = size + 1
+      end
     end
   end
 
   -- update button label and color
-  self.editButton({ index = 0, font_color = des and "Green" or "White", label = size })
+  self.editButton({ index = 0, font_color = hasDES and "Green" or "White", label = size })
 end
 
 -- discards a random non-hidden card from hand
