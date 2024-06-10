@@ -6,6 +6,7 @@
 local blessCurseManagerApi      = require("chaosbag/BlessCurseManagerApi")
 local chaosBagApi               = require("chaosbag/ChaosBagApi")
 local guidReferenceApi          = require("core/GUIDReferenceApi")
+local mythosAreaApi             = require("core/MythosAreaApi")
 local playAreaApi               = require("core/PlayAreaApi")
 local playmatApi                = require("playermat/PlaymatApi")
 local searchLib                 = require("util/SearchLib")
@@ -26,6 +27,12 @@ local options                   = {}
 options["importTrauma"]         = true
 options["tidyPlayermats"]       = true
 options["removeDrawnLines"]     = false
+
+-- don't clean playmats for preludes
+local scenarioName
+local preludeList = {
+  ["Prelude: Welcome to Hemlock Vale!"] = true
+}
 
 local buttonParameters          = {}
 buttonParameters.function_owner = self
@@ -109,6 +116,7 @@ function cleanUp(_, color)
   printToAll("Clean up started!", "Orange")
   printToAll("Resetting counters...", "White")
 
+  getScenarioName()
   soundCubeApi.playSoundByName("Vacuum")
   ignoreCustomDataHelper()
   getTrauma()
@@ -119,6 +127,7 @@ function cleanUp(_, color)
   resetDoomCounter()
   blessCurseManagerApi.removeAll(color)
   removeLines()
+  returnMiniCards()
   discardHands()
   chaosBagApi.returnChaosTokens()
   chaosBagApi.releaseAllSealedTokens(color)
@@ -132,7 +141,14 @@ end
 -- modular functions, called by other functions
 ---------------------------------------------------------
 
+function getScenarioName()
+  local tokenData = mythosAreaApi.returnTokenData()
+  scenarioName = tokenData.currentScenario
+end
+
 function updateCounters()
+  if not getOptionValue() then return end
+
   playmatApi.updateCounter("All", "ResourceCounter", 5)
   playmatApi.updateCounter("All", "ClickableClueCounter", 0)
   playmatApi.resetSkillTracker("All")
@@ -226,9 +242,33 @@ function removeLines()
   end
 end
 
+-- returns the mini cards back to the owning mat
+function returnMiniCards()
+  -- stop if playermats get tidied anyway
+  if getOptionValue() then return end
+
+  -- get mini cards in play
+  local miniCardIndex = {}
+  for _, obj in ipairs(getObjectsWithTag("Minicard")) do
+    local notes = JSON.decode(obj.getGMNotes())
+    if notes ~= nil and notes.id then
+      miniCardIndex[notes.id] = obj
+    end
+  end
+
+  -- move mini cards
+  for _, mat in pairs(guidReferenceApi.getObjectsByType("Playermat")) do
+    local miniId = mat.getVar("activeInvestigatorId") .. "-m"
+    if miniCardIndex[miniId] then
+      local pos = mat.positionToWorld(Vector(-1.36, 0, -0.625)):setAt("y", 1.67)
+      miniCardIndex[miniId].setPosition(pos)
+    end
+  end
+end
+
 -- discard all hand objects
 function discardHands()
-  if not options["tidyPlayermats"] then return end
+  if not getOptionValue() then return end
   for i = 1, 4 do
     local trash = guidReferenceApi.getObjectByOwnerAndType(COLORS[i], "Trash")
     if trash == nil then return end
@@ -253,6 +293,11 @@ end
 
 -- clean up for play area
 function tidyPlayareaCoroutine()
+  -- small wait to allow other operations to finish
+  for k = 1, 10 do
+    coroutine.yield(0)
+  end
+
   local trash = guidReferenceApi.getObjectByOwnerAndType("Mythos", "Trash")
   local playAreaZone = guidReferenceApi.getObjectByOwnerAndType("Mythos", "PlayAreaZone")
 
@@ -286,7 +331,7 @@ function tidyPlayerMatCoroutine()
 
   for i = 1, 5 do
     -- only continue for playermat (1-4) if option enabled
-    if options["tidyPlayermats"] or i == 5 then
+    if getOptionValue() or i == 5 then
       -- delay for animation purpose
       for k = 1, 30 do
         coroutine.yield(0)
@@ -362,5 +407,15 @@ function getTekeliliHelper()
     if obj.getName() == "Tekeli-li Helper" then
       return obj
     end
+  end
+end
+
+-- get value with respect to override value
+function getOptionValue()
+  -- don't clean up playermats if playing a prelude from the list
+  if preludeList[scenarioName] then
+    return false
+  else
+    return options["tidyPlayermats"]
   end
 end
