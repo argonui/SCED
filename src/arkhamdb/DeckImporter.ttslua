@@ -1,12 +1,38 @@
-require("arkhamdb/DeckImporterUi")
 require("playercards/PlayerCardSpawner")
 
 local allCardsBagApi = require("playercards/AllCardsBagApi")
 local arkhamDb = require("arkhamdb/ArkhamDb")
+local guidReferenceApi = require("core/GUIDReferenceApi")
 local playmatApi = require("playermat/PlaymatApi")
 local zones = require("playermat/Zones")
 
+local matsWithInvestigator = {}
 local startsInPlayCount = 0
+
+local INPUT_FIELD_HEIGHT = 340
+local INPUT_FIELD_WIDTH = 1500
+local FIELD_COLOR = { 0.9, 0.7, 0.5 }
+
+local PRIVATE_TOGGLE_LABELS = {}
+PRIVATE_TOGGLE_LABELS[true] = "Private"
+PRIVATE_TOGGLE_LABELS[false] = "Published"
+
+local UPGRADED_TOGGLE_LABELS = {}
+UPGRADED_TOGGLE_LABELS[true] = "Upgraded"
+UPGRADED_TOGGLE_LABELS[false] = "Specific"
+
+local LOAD_INVESTIGATOR_TOGGLE_LABELS = {}
+LOAD_INVESTIGATOR_TOGGLE_LABELS[true] = "Yes"
+LOAD_INVESTIGATOR_TOGGLE_LABELS[false] = "No"
+
+local redDeckId = ""
+local orangeDeckId = ""
+local whiteDeckId = ""
+local greenDeckId = ""
+
+local privateDeck = true
+local loadNewestDeck = true
+local loadInvestigators = false
 
 function onLoad(script_state)
   initializeUi(JSON.decode(script_state))
@@ -16,14 +42,175 @@ end
 
 function onSave() return JSON.encode(getUiState()) end
 
+-- Returns a table with the full state of the UI, including options and deck IDs.
+-- This can be used to persist via onSave(), or provide values for a load operation
+---@return uiStateTable uiStateTable Contains data about the current UI state
+function getUiState()
+  return {
+    redDeck = redDeckId,
+    orangeDeck = orangeDeckId,
+    whiteDeck = whiteDeckId,
+    greenDeck = greenDeckId,
+    privateDeck = privateDeck,
+    loadNewest = loadNewestDeck,
+    investigators = loadInvestigators
+  }
+end
+
+-- Updates the state of the UI based on the provided table. Any values not provided will be left the same.
+---@param uiStateTable table Table of values to update on importer
+function setUiState(uiStateTable)
+  self.clearButtons()
+  self.clearInputs()
+  initializeUi(uiStateTable)
+end
+
+-- Sets up the UI for the deck loader, populating fields from the given save state table decoded from onLoad()
+function initializeUi(savedUiState)
+  if savedUiState ~= nil then
+    redDeckId = savedUiState.redDeck
+    orangeDeckId = savedUiState.orangeDeck
+    whiteDeckId = savedUiState.whiteDeck
+    greenDeckId = savedUiState.greenDeck
+    privateDeck = savedUiState.privateDeck
+    loadNewestDeck = savedUiState.loadNewest
+    loadInvestigators = savedUiState.investigators
+  end
+
+  makeOptionToggles()
+  makeDeckIdFields()
+  makeBuildButton()
+end
+
+function makeOptionToggles()
+  -- common parameters
+  local checkbox_parameters = {}
+  checkbox_parameters.function_owner = self
+  checkbox_parameters.width = INPUT_FIELD_WIDTH
+  checkbox_parameters.height = INPUT_FIELD_HEIGHT
+  checkbox_parameters.scale = { 0.1, 0.1, 0.1 }
+  checkbox_parameters.font_size = 240
+  checkbox_parameters.hover_color = { 0.4, 0.6, 0.8 }
+  checkbox_parameters.color = FIELD_COLOR
+
+  -- public / private deck
+  checkbox_parameters.click_function = "publicPrivateChanged"
+  checkbox_parameters.position = { 0.25, 0.1, -0.102 }
+  checkbox_parameters.tooltip = "Published or private deck?\n\nPLEASE USE A PRIVATE DECK IF JUST FOR TTS TO AVOID FLOODING ARKHAMDB PUBLISHED DECK LISTS!"
+  checkbox_parameters.label = PRIVATE_TOGGLE_LABELS[privateDeck]
+  self.createButton(checkbox_parameters)
+
+  -- load upgraded?
+  checkbox_parameters.click_function = "loadUpgradedChanged"
+  checkbox_parameters.position = { 0.25, 0.1, -0.01 }
+  checkbox_parameters.tooltip = "Load newest upgrade or exact deck?"
+  checkbox_parameters.label = UPGRADED_TOGGLE_LABELS[loadNewestDeck]
+  self.createButton(checkbox_parameters)
+
+  -- load investigators?
+  checkbox_parameters.click_function = "loadInvestigatorsChanged"
+  checkbox_parameters.position = { 0.25, 0.1, 0.081 }
+  checkbox_parameters.tooltip = "Spawn investigator cards?"
+  checkbox_parameters.label = LOAD_INVESTIGATOR_TOGGLE_LABELS[loadInvestigators]
+  self.createButton(checkbox_parameters)
+end
+
+-- Create the four deck ID entry fields
+function makeDeckIdFields()
+  local input_parameters = {}
+  -- Parameters common to all entry fields
+  input_parameters.function_owner = self
+  input_parameters.scale = { 0.1, 0.1, 0.1 }
+  input_parameters.width = INPUT_FIELD_WIDTH
+  input_parameters.height = INPUT_FIELD_HEIGHT
+  input_parameters.font_size = 320
+  input_parameters.tooltip = "Deck ID from ArkhamDB URL of the deck\nPublic URL: 'https://arkhamdb.com/decklist/view/101/knowledge-overwhelming-solo-deck-1.0' = '101'\nPrivate URL: 'https://arkhamdb.com/deck/view/102' = '102'"
+  input_parameters.alignment = 3 -- Center
+  input_parameters.color = FIELD_COLOR
+  input_parameters.font_color = { 0, 0, 0 }
+  input_parameters.validation = 2 -- Integer
+
+  -- Green
+  input_parameters.input_function = "greenDeckChanged"
+  input_parameters.position = { -0.166, 0.1, 0.385 }
+  input_parameters.value = greenDeckId
+  self.createInput(input_parameters)
+  -- Red
+  input_parameters.input_function = "redDeckChanged"
+  input_parameters.position = { 0.171, 0.1, 0.385 }
+  input_parameters.value = redDeckId
+  self.createInput(input_parameters)
+  -- White
+  input_parameters.input_function = "whiteDeckChanged"
+  input_parameters.position = { -0.166, 0.1, 0.474 }
+  input_parameters.value = whiteDeckId
+  self.createInput(input_parameters)
+  -- Orange
+  input_parameters.input_function = "orangeDeckChanged"
+  input_parameters.position = { 0.171, 0.1, 0.474 }
+  input_parameters.value = orangeDeckId
+  self.createInput(input_parameters)
+end
+
+-- Create the Build All button. This is a transparent button which covers the Build All portion of the background graphic
+function makeBuildButton()
+  local button_parameters = {}
+  button_parameters.click_function = "loadDecks"
+  button_parameters.function_owner = self
+  button_parameters.position = { 0, 0.1, 0.71 }
+  button_parameters.width = 320
+  button_parameters.height = 30
+  button_parameters.color = { 0, 0, 0, 0 }
+  button_parameters.tooltip = "Click to build all four decks!"
+  self.createButton(button_parameters)
+end
+
+-- Event handlers for deck ID change
+function redDeckChanged(_, _, inputValue) redDeckId = inputValue end
+function orangeDeckChanged(_, _, inputValue) orangeDeckId = inputValue end
+function whiteDeckChanged(_, _, inputValue) whiteDeckId = inputValue end
+function greenDeckChanged(_, _, inputValue) greenDeckId = inputValue end
+
+-- Event handlers for toggle buttons
+function publicPrivateChanged()
+  privateDeck = not privateDeck
+  self.editButton { index = 0, label = PRIVATE_TOGGLE_LABELS[privateDeck] }
+end
+
+function loadUpgradedChanged()
+  loadNewestDeck = not loadNewestDeck
+  self.editButton { index = 1, label = UPGRADED_TOGGLE_LABELS[loadNewestDeck] }
+end
+
+function loadInvestigatorsChanged()
+  loadInvestigators = not loadInvestigators
+  self.editButton { index = 2, label = LOAD_INVESTIGATOR_TOGGLE_LABELS[loadInvestigators] }
+end
+
+function loadDecks()
+  if not allCardsBagApi.isIndexReady() then return end
+  matsWithInvestigator = playmatApi.getUsedMatColors()
+  if redDeckId ~= nil and redDeckId ~= "" then
+    buildDeck("Red", redDeckId)
+  end
+  if orangeDeckId ~= nil and orangeDeckId ~= "" then
+    buildDeck("Orange", orangeDeckId)
+  end
+  if whiteDeckId ~= nil and whiteDeckId ~= "" then
+    buildDeck("White", whiteDeckId)
+  end
+  if greenDeckId ~= nil and greenDeckId ~= "" then
+    buildDeck("Green", greenDeckId)
+  end
+end
+
 -- Returns the zone name where the specified card should be placed, based on its metadata.
 ---@param cardMetadata table  Contains card metadata
----@return string Zone Name of the zone such as "Deck", "SetAside1", etc.
---     See Zones object documentation for a list of valid zones.
+---@return string Zone Name of the zone such as "Deck", "SetAside1", etc. (See zones file for a list of valid zones)
 function getDefaultCardZone(cardMetadata, bondedList)
-  if (cardMetadata.id == "09080-m") then -- Have to check the Servitor before other minicards
+  if cardMetadata.id == "09080-m" then -- Have to check the Servitor before other minicards
     return "SetAside6"
-  elseif (cardMetadata.id == "09006") then -- On The Mend is set aside
+  elseif cardMetadata.id == "09006" then -- On The Mend is set aside
     return "SetAside2"
   elseif bondedList[cardMetadata.id] then
     return "SetAside2"
@@ -68,14 +255,11 @@ end
 -- at the appropriate zones and report an error to the user if any could not be loaded.
 -- This is a callback function which handles the results of ArkhamDb.getDecklist()
 -- This method uses an encapsulated coroutine with yields to make the card spawning cleaner.
---
----@param slots table Key-Value table of cardId:count. cardId is the ArkhamDB ID of the card to spawn,
---     and count is the number which should be spawned
+---@param slots table Key-Value table of cardId:count
 ---@param investigatorId string ArkhamDB ID (code) for this deck's investigator.
---     Investigator cards should already be added to the slots list if they
---     should be spawned, but this value is separate to check for special
---     handling for certain investigators
----@param bondedList table A table of cardID keys to meaningless values.  Card IDs in this list were added
+--     Investigator cards should already be added to the slots list if they should be spawned,
+--     but this value is separate to check for special handling for certain investigators
+---@param bondedList table A table of cardID keys to meaningless values. Card IDs in this list were added
 --     from a parent bonded card.
 ---@param customizations table ArkhamDB data for customizations on customizable cards
 ---@param playerColor string Color name of the player mat to place this deck on (e.g. "Red")
@@ -83,6 +267,7 @@ end
 function loadCards(slots, investigatorId, bondedList, customizations, playerColor, loadAltInvestigator)
   function coinside()
     local cardsToSpawn = {}
+    local resourceModifier = 0
 
     -- reset the startsInPlayCount
     startsInPlayCount = 0
@@ -93,11 +278,18 @@ function loadCards(slots, investigatorId, bondedList, customizations, playerColo
         for i = 1, cardCount do
           table.insert(cardsToSpawn, { data = card.data, metadata = card.metadata, zone = cardZone })
         end
-
         slots[cardId] = 0
+      end
+
+      -- check for resource modifiers
+      if cardId == "02037" then -- Indebted
+        resourceModifier = resourceModifier - 2 * cardCount
+      elseif cardId == "05278" then -- Another Day, Another Dollar
+        resourceModifier = resourceModifier + 2 * cardCount
       end
     end
 
+    updateStartingResources(playerColor, resourceModifier)
     handleAncestralKnowledge(cardsToSpawn)
     handleUnderworldMarket(cardsToSpawn, playerColor)
     handleHunchDeck(investigatorId, cardsToSpawn, bondedList, playerColor)
@@ -107,14 +299,18 @@ function loadCards(slots, investigatorId, bondedList, customizations, playerColo
 
     -- Split the card list into separate lists for each zone
     local zoneDecks = buildZoneLists(cardsToSpawn)
+
+    -- Check for existing cards in zones and maybe skip them
+    removeBusyZones(playerColor, zoneDecks)
+
     -- Spawn the list for each zone
     for zone, zoneCards in pairs(zoneDecks) do
       local deckPos = zones.getZonePosition(playerColor, zone):setAt("y", 3)
       local deckRot = zones.getDefaultCardRotation(playerColor, zone)
-
       local callback = nil
+
       -- If cards are spread too close together TTS groups them weirdly, selecting multiples
-      -- when hovering over a single card.  This distance is the minimum to avoid that
+      -- when hovering over a single card. This distance is the minimum to avoid that.
       local spreadDistance = 1.15
       if (zone == "SetAside4") then
         -- SetAside4 is reserved for customization cards, and we want them spread on the table
@@ -153,7 +349,7 @@ function loadCards(slots, investigatorId, bondedList, customizations, playerColo
   startLuaCoroutine(self, "coinside")
 end
 
--- Callback handler for the main deck spawning.  Looks for cards which should start in hand, and
+-- Callback handler for the main deck spawning. Looks for cards which should start in hand, and
 -- draws them for the appropriate player.
 ---@param deck tts__Object Callback-provided spawned deck object
 ---@param playerColor string Color of the player to draw the cards to
@@ -176,32 +372,32 @@ function deckSpawned(deck, playerColor)
   end
 end
 
--- Converts the Raven Quill's selections from card IDs to card names.  This could be more elegant
+-- Converts the Raven Quill's selections from card IDs to card names. This could be more elegant
 -- but the inputs are very static so we're using some brute force.
 ---@param selectionString string provided by ArkhamDB, indicates the customization selections
 --     Should be either a single card ID or two separated by a ^ (e.g. XXXXX^YYYYY)
 function convertRavenQuillSelections(selectionString)
-  if (string.len(selectionString) == 5) then
+  if string.len(selectionString) == 5 then
     return getCardName(selectionString)
-  elseif (string.len(selectionString) == 11) then
+  elseif string.len(selectionString) == 11 then
     return getCardName(string.sub(selectionString, 1, 5)) .. ", " .. getCardName(string.sub(selectionString, 7))
   end
 end
 
 -- Converts Grizzled's selections from a single string with "^".
 ---@param selectionString string provided by ArkhamDB, indicates the customization selections
---     Should be two Traits separated by a ^ (e.g. XXXXX^YYYYY)
+--     Should be two traits separated by a ^ (e.g. XXXXX^YYYYY)
 function convertGrizzledSelections(selectionString)
   return selectionString:gsub("%^", ", ")
 end
 
--- Returns the simple name of a card given its ID.  This will find the card and strip any trailing
+-- Returns the simple name of a card given its ID. This will find the card and strip any trailing
 -- SCED-specific suffixes such as (Taboo) or (Level)
 function getCardName(cardId)
   local card = allCardsBagApi.getCardById(cardId)
-  if (card ~= nil) then
+  if card then
     local name = card.data.Nickname
-    if (string.find(name, " %(")) then
+    if string.find(name, " %(") then
       return string.sub(name, 1, string.find(name, " %(") - 1)
     else
       return name
@@ -211,7 +407,7 @@ end
 
 -- Split a single list of cards into a separate table of lists, keyed by the zone
 ---@param cards table Table of {cardData, cardMetadata, zone}
----@return table ZoneNames Table with zoneName as index: {zoneName=card list}
+---@return table zoneDecks Table with zoneName as index: {zoneName=card list}
 function buildZoneLists(cards)
   local zoneList = {}
   for _, card in ipairs(cards) do
@@ -224,11 +420,60 @@ function buildZoneLists(cards)
   return zoneList
 end
 
+-- removes zones from list if they are occupied
+---@param playerColor string Color this deck is being loaded for
+---@param zoneDecks table Table with zoneName as index: {zoneName=card list}
+function removeBusyZones(playerColor, zoneDecks)
+  -- check for existing investigator
+  for _, matColor in ipairs(matsWithInvestigator) do
+    if matColor == playerColor then
+      zoneDecks["Investigator"] = nil
+      printToAll("Skipped investigator import", playerColor)
+      break
+    end
+  end
+
+  -- check for existing minicard
+  local mat = guidReferenceApi.getObjectByOwnerAndType(playerColor, "Playermat")
+  local miniId = mat.getVar("activeInvestigatorId") .. "-m"
+
+  -- remove taboo suffix since we don't have this for minicards
+  miniId = miniId:gsub("-t", "")
+
+  for _, obj in ipairs(getObjectsWithTag("Minicard")) do
+    local notes = JSON.decode(obj.getGMNotes())
+    if notes ~= nil and notes.id == miniId then
+      local pos = mat.positionToWorld(Vector(-1.36, 0, -0.625)):setAt("y", 1.67)
+      obj.setPosition(pos)
+      zoneDecks["Minicard"] = nil
+      printToAll("Skipped minicard import", playerColor)
+      break
+    end
+  end
+
+  -- check for existing deck
+  local cardsInDeckArea = 0
+  for _, obj in pairs(playmatApi.getDeckAreaObjects(playerColor)) do
+    cardsInDeckArea = cardsInDeckArea + #obj.getObjects()
+  end
+
+  -- threshhold of 16 cards for skipping deck import to cover cases like Tekeli-li cards
+  if cardsInDeckArea > 16 then
+    for i = 1, 6 do
+      zoneDecks["SetAside" .. i] = nil
+      zoneDecks["Blank" .. i] = nil
+    end
+    zoneDecks["Deck"] = nil
+    printToAll("Skipped deck import", playerColor)
+  end
+end
+
 -- Check to see if the deck list has Ancestral Knowledge. If it does, move 5 random skills to SetAside3
 ---@param cardList table Deck list being created
 function handleAncestralKnowledge(cardList)
   local hasAncestralKnowledge = false
   local skillList = {}
+
   -- Have to process the entire list to check for Ancestral Knowledge and get all possible skills, so do both in one pass
   for i, card in ipairs(cardList) do
     if card.metadata.id == "07303" then
@@ -243,8 +488,8 @@ function handleAncestralKnowledge(cardList)
 
   if not hasAncestralKnowledge then return end
 
+  -- Move 5 random skills to SetAside3
   for i = 1, 5 do
-    -- Move 5 random skills to SetAside3
     local skillListIndex = math.random(#skillList)
     cardList[skillList[skillListIndex]].zone = "UnderSetAside3"
     table.remove(skillList, skillListIndex)
@@ -257,10 +502,10 @@ end
 function handleUnderworldMarket(cardList, playerColor)
   local hasMarket = false
   local illicitList = {}
+
   -- Process the entire list to check for Underworld Market and get all possible Illicit cards, doing both in one pass
   for i, card in ipairs(cardList) do
     if card.metadata.id == "09077" then
-      -- Underworld Market found
       hasMarket = true
       card.zone = "SetAside3"
     elseif card.metadata.traits ~= nil and string.find(card.metadata.traits, "Illicit", 1, true) and card.zone == "Deck" then
@@ -273,11 +518,9 @@ function handleUnderworldMarket(cardList, playerColor)
   if #illicitList < 10 then
     printToAll("Only " .. #illicitList .. " Illicit cards in your deck, you can't trigger Underworld Market's ability.", playerColor)
   else
-    -- Process cards to move them to the market deck. This is done in reverse
-    -- order because the sorting needs to be reversed (deck sorts for face down)
-    -- Performance here may be an issue, as table.remove() is an O(n) operation
-    -- which makes the full shift O(n^2). But keep it simple unless it becomes
-    -- a problem
+    -- Process cards to move them to the market deck. This is done in reverse order because the sorting needs
+    -- to be reversed (deck sorts for face down). Performance here may be an issue, as table.remove() is an O(n)
+    -- operation which makes the full shift O(n^2). But keep it simple unless it becomes a problem
     for i = #illicitList, 1, -1 do
       local moving = cardList[illicitList[i]]
       moving.zone = "UnderSetAside3"
@@ -294,8 +537,7 @@ function handleUnderworldMarket(cardList, playerColor)
 end
 
 -- If the investigator is Joe Diamond, extract all Insight events to SetAside5 to build the Hunch Deck
----@param investigatorId string ID for the deck's investigator card. Passed separately because the
----    investigator may not be included in the cardList
+---@param investigatorId string ID for the deck's investigator card
 ---@param cardList table Deck list being created
 ---@param playerColor string Color this deck is being loaded for
 function handleHunchDeck(investigatorId, cardList, bondedList, playerColor)
@@ -310,11 +552,9 @@ function handleHunchDeck(investigatorId, cardList, bondedList, playerColor)
       table.insert(insightList, i)
     end
   end
-  -- Process insights to move them to the hunch deck. This is done in reverse
-  -- order because the sorting needs to be reversed (deck sorts for face down)
-  -- Performance here may be an issue, as table.remove() is an O(n) operation
-  -- which makes the full shift O(n^2). But keep it simple unless it becomes
-  -- a problem
+    -- Process cards to move them to the hunch deck. This is done in reverse order because the sorting needs
+    -- to be reversed (deck sorts for face down). Performance here may be an issue, as table.remove() is an O(n)
+    -- operation which makes the full shift O(n^2). But keep it simple unless it becomes a problem
   for i = #insightList, 1, -1 do
     local moving = cardList[insightList[i]]
     moving.zone = "SetAside5"
@@ -332,8 +572,7 @@ function handleHunchDeck(investigatorId, cardList, bondedList, playerColor)
 end
 
 -- If the investigator is Parallel Jim Culver, extract all Ally assets to SetAside5 to build the Spirit Deck
----@param investigatorId string ID for the deck's investigator card. Passed separately because the
----    investigator may not be included in the cardList
+---@param investigatorId string ID for the deck's investigator card
 ---@param cardList table Deck list being created
 ---@param playerColor string Color this deck is being loaded for
 ---@param customizations table Additional deck information
@@ -362,11 +601,9 @@ function handleSpiritDeck(investigatorId, cardList, playerColor, customizations)
       end
     end
 
-    -- Process allies to move them to the spirit deck. This is done in reverse
-    -- order because the sorting needs to be reversed (deck sorts for face down)
-    -- Performance here may be an issue, as table.remove() is an O(n) operation
-    -- which makes the full shift O(n^2). But keep it simple unless it becomes
-    -- a problem
+    -- Process cards to move them to the spirit deck. This is done in reverse order because the sorting needs
+    -- to be reversed (deck sorts for face down). Performance here may be an issue, as table.remove() is an O(n)
+    -- operation which makes the full shift O(n^2). But keep it simple unless it becomes a problem
     for i = #spiritList, 1, -1 do
       local moving = cardList[spiritList[i]]
       moving.zone = "SetAside5"
@@ -395,11 +632,11 @@ function handleCustomizableUpgrades(cardList, customizations)
       local upgrades = customizations["cus_" .. baseId]
 
       if upgrades ~= nil then
-        -- initialize tables
-        -- markedBoxes: contains the amount of markedBoxes (left to right) per row (starting at row 1)
-        -- inputValues: contains the amount of inputValues per row (starting at row 0)
-        local selectedUpgrades = { }
-        local index_xp    = {}
+        -- contains the amount of markedBoxes (left to right) per row (starting at row 1)
+        local selectedUpgrades = {}
+
+        -- contains the amount of inputValues per row (starting at row 0)
+        local index_xp = {}
 
         -- get the index and xp values (looks like this: X|X,X|X, ..)
         -- input string from ArkhamDB is split by ","
@@ -455,18 +692,17 @@ function handleCustomizableUpgrades(cardList, customizations)
 end
 
 -- Handles cards that start in play under specific conditions for Ashcan Pete (Regular Pete - Duke, Parallel Pete - Guitar)
----@param investigatorId string ID for the deck's investigator card. Passed separately because the
----    investigator may not be included in the cardList
+---@param investigatorId string ID for the deck's investigator card
 ---@param cardList table Deck list being created
 function handlePeteSignatureAssets(investigatorId, cardList)
   if investigatorId == "02005" or investigatorId == "02005-pb" then -- regular Pete's front
-    for i, card in ipairs(cardList) do
+    for _, card in ipairs(cardList) do
       if card.metadata.id == "02014" then -- Duke
         card.zone = startsInPlayTracker()
       end
     end
   elseif investigatorId == "02005-p" or investigatorId == "02005-pf" then -- parallel Pete's front
-    for i, card in ipairs(cardList) do
+    for _, card in ipairs(cardList) do
       if card.metadata.id == "90047" then -- Pete's Guitar
         card.zone = startsInPlayTracker()
       end
@@ -488,5 +724,15 @@ function loadAltArt(card, loadAltInvestigator)
   elseif loadAltInvestigator == "promo" then
     local states = card.getStates()
     card.setState(#states)
+  end
+end
+
+-- updates the starting resources
+---@param playerColor string Color this deck is being loaded for
+---@param resourceModifier number Modifier for the starting resources
+function updateStartingResources(playerColor, resourceModifier)
+  if resourceModifier ~= 0 then
+    playmatApi.updateCounter(playerColor, "ResourceCounter", _, resourceModifier)
+    printToAll("Modified starting resources", playerColor)
   end
 end
