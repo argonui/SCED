@@ -261,6 +261,7 @@ function returnChaosTokens()
     if token ~= nil then chaosBag.putObject(token) end
   end
   chaosTokens = {}
+  isTokenXMLActive = false
 end
 
 -- returns a single chaos token to the bag and calls respective functions
@@ -283,11 +284,17 @@ function getTokenIndex(token)
   end
 end
 
-function makeButtonsToRedraw(player, tokenList, id)
-  -- passed from Nkosi, usually, bypassing XML buttons
-  if type(player) == "table" then
-    tokenList = player.tokenList
-    id = player.id
+function activeRedrawEffect(originParams)
+  triggeringCard = originParams.triggeringCard
+  redrawEligibilty = originParams.redrawEligibilty
+  redrawnTokenType = originParams.redrawnTokenType
+  tokenList = originParams.tokenList
+end
+
+function makeButtonsToRedraw()
+  if isTokenXMLActive == true then 
+    broadcastToAll("Clear already active buttons first, then try again", "Red")
+    return
   end
 
   local tokensInPlay = getChaosTokensinPlay()
@@ -295,35 +302,32 @@ function makeButtonsToRedraw(player, tokenList, id)
     broadcastToAll("No tokens found in play area", "Red")
     return
   end
+
   local chaosbag = findChaosBag()
   local matchingTokensInPlay = {}
   -- determine if only some tokens are able to be returned to the bag
-  if id == "ineligible" then
+  if redrawEligibilty == "ineligible" then
   -- create list of tokens that should not get an XML button
     for _, token in ipairs(tokensInPlay) do
       if string.find(tokenList, token.getName(), 1, true) == nil then
         matchingTokensInPlay[#matchingTokensInPlay + 1] = token
       end
     end
-    if #matchingTokensInPlay == 0 then
-      broadcastToAll("No eligible token found in play area", "Red")
-      return
-    end
-  elseif id == "all" then
-  -- for any cards that can replace any tokens
-    matchingTokensInPlay = tokensInPlay
-  else
+  elseif redrawEligibilty == "eligible" then
   -- cards that dictate only some tokens are eligible for replacement
     for _, token in ipairs(tokensInPlay) do
       if string.find(tokenList, token.getName()) then
         matchingTokensInPlay[#matchingTokensInPlay + 1] = token
       end
     end
+  else
+  -- for any cards that can replace any tokens
+    matchingTokensInPlay = tokensInPlay
+  end
 
-    if #matchingTokensInPlay == 0 then
-      broadcastToAll("No eligible token found in play area", "Red")
-      return
-    end
+  if #matchingTokensInPlay == 0 then
+    broadcastToAll("No eligible token found in play area", "Red")
+    return
   end
 
   if #matchingTokensInPlay > 1 then
@@ -342,7 +346,6 @@ function makeButtonsToRedraw(player, tokenList, id)
             position = "0 0 -15",
             color = "rgba(0,0,0,0.7)",
             onClick = "Global/returnAndRedraw(" .. token.getGUID() .. ")",
-            id = id
           },
           children = {
             {
@@ -367,19 +370,21 @@ function makeButtonsToRedraw(player, tokenList, id)
         }
       })
     end
+    isTokenXMLActive = true
   -- no need to make buttons if there is only one eligible token to return and redraw
   else
-    returnAndRedraw(_, matchingTokensInPlay[1].getGUID(), id)
+    returnAndRedraw(_, matchingTokensInPlay[1].getGUID())
   end
 end
 
-function returnAndRedraw(_, tokenGUID, id)
+function returnAndRedraw(_, tokenGUID)
   local indexOfReturnedToken
   local takeParameters = {}
   local returnedToken = getObjectFromGUID(tokenGUID)
   local matColor = playmatApi.getMatColorByPosition(returnedToken.getPosition())
   local mat = guidReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
   
+  isTokenXMLActive = false
   trackChaosToken(returnedToken.getName(), mat.getGUID(), true)
   indexOfReturnedToken = getTokenIndex(returnedToken)
   takeParameters.position = returnedToken.getPosition()
@@ -391,20 +396,26 @@ function returnAndRedraw(_, tokenGUID, id)
   end
 
   returnChaosTokenToBag(returnedToken)
-  if string.find("all|eligible|ineligible|falseCovenant", id) then
-     token = drawChaosToken({mat = mat, drawAdditional = true, takeParameters = takeParameters})
+  if redrawnTokenType == "random" then
+    token = drawChaosToken({mat = mat, drawAdditional = true, takeParameters = takeParameters})
   else
-    token = drawChaosToken({mat = mat, drawAdditional = true, takeParameters = takeParameters, tokenType = id})
+    token = drawChaosToken({mat = mat, drawAdditional = true, takeParameters = takeParameters, tokenType = redrawnTokenType})
   end
   
   chaosTokens[indexOfReturnedToken] = token
-  if id == "falseCovenant" then
+  if triggeringCard == "FalseCovenant" then
     blessCurseManagerApi.removeToken("Curse")
   end
   -- remove XML from tokens in play
   for _, token in ipairs(getChaosTokensinPlay()) do
       token.UI.setXml("")
   end
+
+  triggeringCard = nil
+  redrawEligibilty = nil
+  redrawnTokenType = nil
+  tokenList = nil
+  
 end
 
 -- Checks to see if the chaos bag can be manipulated.  If a player is searching the bag when tokens
