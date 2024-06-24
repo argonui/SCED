@@ -285,7 +285,7 @@ function getTokenIndex(token)
 end
 
 function activeRedrawEffect(originParams)
-  dataFromLastReplacementEffect = originParams
+  redrawData = originParams
   makeButtonsToRedraw()
 end
 
@@ -302,24 +302,19 @@ function makeButtonsToRedraw()
 
   local chaosbag = findChaosBag()
   local matchingTokensInPlay = {}
+
   -- determine if only some tokens are able to be returned to the bag
-  if dataFromLastReplacementEffect.redrawEligibilty == "ineligible" then
-  -- create list of tokens that should not get an XML button
-    for _, token in ipairs(chaosTokens) do
-      if not dataFromLastReplacementEffect.tokenList[getReadableTokenName(token.getName())] then
-        matchingTokensInPlay[#matchingTokensInPlay + 1] = token
-      end
+  for _, token in ipairs(chaosTokens) do
+    local tokenName = getReadableTokenName(token.getName())
+    -- nil handling
+    redrawData.VALID_TOKENS = redrawData.VALID_TOKENS or {}
+    redrawData.INVALID_TOKENS = redrawData.INVALID_TOKENS or {}
+  
+    -- allow valid tokens or not invalid tokens, also allow any token if both lists empty
+    if (redrawData.VALID_TOKENS[tokenName] and #redrawData.INVALID_TOKENS == 0) ~= nil or (isTableEmpty(redrawData.VALID_TOKENS) and not redrawData.INVALID_TOKENS[tokenName]) or
+    (isTableEmpty(redrawData.VALID_TOKENS) and isTableEmpty(redrawData.INVALID_TOKENS)) then
+      table.insert(matchingTokensInPlay, token)
     end
-  elseif dataFromLastReplacementEffect.redrawEligibilty == "eligible" then
-  -- cards that dictate only some tokens are eligible for replacement
-    for _, token in ipairs(chaosTokens) do
-      if dataFromLastReplacementEffect.tokenList[getReadableTokenName(token.getName())] then
-        matchingTokensInPlay[#matchingTokensInPlay + 1] = token
-      end
-    end
-  else
-  -- for any cards that can replace any tokens
-    matchingTokensInPlay = chaosTokens
   end
 
   if #matchingTokensInPlay == 0 then
@@ -392,14 +387,14 @@ function returnAndRedraw(_, tokenGUID)
   end
 
   returnChaosTokenToBag(returnedToken)
-  if dataFromLastReplacementEffect.redrawnTokenType == "random" then
+  if redrawData.redrawnTokenType == "random" then
     token = drawChaosToken({mat = mat, drawAdditional = true, takeParameters = takeParameters})
   else
-    token = drawChaosToken({mat = mat, drawAdditional = true, takeParameters = takeParameters, tokenType = dataFromLastReplacementEffect.redrawnTokenType})
+    token = drawChaosToken({mat = mat, drawAdditional = true, takeParameters = takeParameters, tokenType = redrawData.redrawnTokenType})
   end
   
   chaosTokens[indexOfReturnedToken] = token
-  if dataFromLastReplacementEffect.triggeringCard == "FalseCovenant" then
+  if redrawData.triggeringCard == "FalseCovenant" then
     blessCurseManagerApi.removeToken("Curse")
   end
   -- remove XML from tokens in play
@@ -407,8 +402,7 @@ function returnAndRedraw(_, tokenGUID)
       token.UI.setXml("")
   end
 
-  dataFromLastReplacementEffect = {}
-  
+  redrawData = {}
 end
 
 -- Checks to see if the chaos bag can be manipulated.  If a player is searching the bag when tokens
@@ -509,8 +503,8 @@ function drawChaosToken(params)
 
     if params.takeParameters then
       return token
-    else 
-      chaosTokens[#chaosTokens + 1] = token
+    else
+      table.insert(chaosTokens, token)
     end
   else
     returnChaosTokens()
@@ -1816,5 +1810,13 @@ function removeValueFromTable(t, val)
       table.remove(t, i)
       break
     end
+  end
+end
+
+function isTableEmpty(tbl)
+  if next(tbl) == nil then
+    return true
+  else
+    return false
   end
 end
