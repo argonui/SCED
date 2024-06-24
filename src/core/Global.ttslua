@@ -286,6 +286,7 @@ end
 
 function activeRedrawEffect(originParams)
   dataFromLastReplacementEffect = originParams
+  makeButtonsToRedraw()
 end
 
 function makeButtonsToRedraw()
@@ -294,8 +295,7 @@ function makeButtonsToRedraw()
     return
   end
 
-  local tokensInPlay = getChaosTokensinPlay()
-  if #tokensInPlay == 0 then
+  if #chaosTokens == 0 then
     broadcastToAll("No tokens found in play area", "Red")
     return
   end
@@ -305,21 +305,21 @@ function makeButtonsToRedraw()
   -- determine if only some tokens are able to be returned to the bag
   if dataFromLastReplacementEffect.redrawEligibilty == "ineligible" then
   -- create list of tokens that should not get an XML button
-    for _, token in ipairs(tokensInPlay) do
-      if string.find(dataFromLastReplacementEffect.tokenList, token.getName(), 1, true) == nil then
+    for _, token in ipairs(chaosTokens) do
+      if not dataFromLastReplacementEffect.tokenList[getReadableTokenName(token.getName())] then
         matchingTokensInPlay[#matchingTokensInPlay + 1] = token
       end
     end
   elseif dataFromLastReplacementEffect.redrawEligibilty == "eligible" then
   -- cards that dictate only some tokens are eligible for replacement
-    for _, token in ipairs(tokensInPlay) do
-      if string.find(dataFromLastReplacementEffect.tokenList, token.getName()) then
+    for _, token in ipairs(chaosTokens) do
+      if dataFromLastReplacementEffect.tokenList[getReadableTokenName(token.getName())] then
         matchingTokensInPlay[#matchingTokensInPlay + 1] = token
       end
     end
   else
   -- for any cards that can replace any tokens
-    matchingTokensInPlay = tokensInPlay
+    matchingTokensInPlay = chaosTokens
   end
 
   if #matchingTokensInPlay == 0 then
@@ -375,7 +375,6 @@ function makeButtonsToRedraw()
 end
 
 function returnAndRedraw(_, tokenGUID)
-  local indexOfReturnedToken
   local takeParameters = {}
   local returnedToken = getObjectFromGUID(tokenGUID)
   local matColor = playmatApi.getMatColorByPosition(returnedToken.getPosition())
@@ -383,7 +382,7 @@ function returnAndRedraw(_, tokenGUID)
   
   isTokenXMLActive = false
   trackChaosToken(returnedToken.getName(), mat.getGUID(), true)
-  indexOfReturnedToken = getTokenIndex(returnedToken)
+  local indexOfReturnedToken = getTokenIndex(returnedToken)
   takeParameters.position = returnedToken.getPosition()
 
   if #chaosTokens > indexOfReturnedToken then
@@ -400,7 +399,7 @@ function returnAndRedraw(_, tokenGUID)
   end
   
   chaosTokens[indexOfReturnedToken] = token
-  if triggeringCard == "FalseCovenant" then
+  if dataFromLastReplacementEffect.triggeringCard == "FalseCovenant" then
     blessCurseManagerApi.removeToken("Curse")
   end
   -- remove XML from tokens in play
@@ -463,8 +462,8 @@ function drawChaosToken(params)
   if params.drawAdditional or #chaosTokens == 0 then
     local chaosBag = findChaosBag()
     if #chaosBag.getObjects() == 0 then return end
+    chaosBag.shuffle()
 
-    local indexOfReturnedToken
     local takeParameters = {}
 
     -- add the token to the list, compute new position based on list length
@@ -477,7 +476,6 @@ function drawChaosToken(params)
       takeParameters.rotation = params.mat.getRotation()
     end
 
-    chaosBag.shuffle()
     local token
     
     if params.guidToBeResolved then
