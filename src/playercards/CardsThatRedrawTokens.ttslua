@@ -3,30 +3,27 @@ This file is used to add an XML button to a card, turned on via context menu.
 Valid options modify the appearance of the XML button, as well as the
 behavior of the return and redraw function. Set options before requiring this file.
 
-originParams{}   --@type table
-  - includes parameters for the return and redraw functions. Typically set VALID_TOKENS
-    or INVALID_TOKENS, not both. If there are no restrictions on which tokens can be redrawn
-    (e.g. Wendy Adams), do not include either parameter.
-  * VALID_TOKENS --@type table
-    - keyed table which lists all tokens that can be redrawn by the card
-    - example usage: "False Covenant"
-    > VALID_TOKENS = {
-    >   ["Curse"]       = true
-    > }
-  
-  * INVALID_TOKENS  --@type table
-    - keyed table which lists all tokens that cannot be redrawn by the card
-    - example usage: "Custom Ammunition"
-    > INVALID_TOKENS = {
-    >   ["Auto-fail"]       = true
-    > }
+Parameters for the return and redraw functions. Typically set VALID_TOKENS or INVALID_TOKENS, not both.
+If there are no restrictions on which tokens can be redrawn (e.g. Wendy Adams), keep both empty.
+* VALID_TOKENS --@type table
+  - keyed table which lists all tokens that can be redrawn by the card
+  - example usage: "False Covenant"
+  > VALID_TOKENS = {
+  >   ["Curse"]       = true
+  > }
 
-  * redrawnTokenType --@type string ("random" or name of token)
-    - determines which kind of token is drawn from the bag. Typically "random"
-      but could be a set token name (e.g. Nkosi Mabati)
+* INVALID_TOKENS  --@type table
+  - keyed table which lists all tokens that cannot be redrawn by the card
+  - example usage: "Custom Ammunition"
+  > INVALID_TOKENS = {
+  >   ["Auto-fail"]       = true
+  > }
 
-  * triggeringCard --@type string (name of card button is on)
-    - allows for the name of the card to be passed onto Global for any special handling
+* DRAW_SPECIFIC_TOKEN --@type string (name of token or nil)
+  - if set, will attempt to draw that specific token
+
+* RETURN_TO_POOL --@type string
+  - allows for the name of the card to be passed onto Global for any special handling
 
 The following parameters modify the appearence of the XML button and are not listed as part of a table.
  - buttonHeight (default is 450)
@@ -34,7 +31,7 @@ The following parameters modify the appearence of the XML button and are not lis
  - buttonPosition (default is "0 -55 -22")
  - buttonFontSize (default is 250)
  - buttonRotation (change if button is placed on an investigator cards)
- - buttonValue (to change the label of the button, default is "Redraw Token")
+ - buttonLabel (default is "Redraw Token")
  - buttonIcon (to add an icon to the right)
  - buttonColor (default is "#77674DE6")
 
@@ -47,64 +44,64 @@ As a nice reminder the XML button takes on the Frost color and icon with the tex
   > buttonColor = "#404450E6"
   > buttonFontSize = 300
 
-  > originParams = {
-  >   triggeringCard = "ClaypoolsFurs",
-  >   redrawnTokenType = "random",
-  >   VALID_TOKENS = {
-  >     ["Frost"] = true
-  >   }
+  > VALID_TOKENS = {
+  >   ["Frost"] = true
   > }
+  >
   > require...
 ----------------------------------------------------------]]
-local turnOnHelper
+
+local isHelperEnabled = false
 
 function onSave()
-  return JSON.encode(turnOnHelper)
+  return JSON.encode(isHelperEnabled)
 end
 
 function onLoad(savedData)
-  self.addContextMenuItem("Enable Helper", makeXMLButton)
+  createHelperXML()
 
   if savedData and savedData ~= "" then
-    turnOnHelper = JSON.decode(savedData)
-    if turnOnHelper == true then
-      makeXMLButton()
-    end
+    isHelperEnabled = JSON.decode(savedData)
   end
+
+  updateDisplay()
 end
 
-function makeXMLButton()
-  turnOnHelper = true
+function createHelperXML()
+  isHelperEnabled = true
   self.clearContextMenu()
   self.addContextMenuItem("Clear Helper", deleteButton)
-  local xmlTable = {{
-      tag = "Button",
-      attributes = {
-          height = buttonHeight or 450,
-          width = buttonWidth or 1400,
-          rotation = buttonRotation or "0 0 180",
-          scale = "0.1 0.1 1",
-          position = buttonPosition or "0 -55 -22",
-          padding = "50 50 50 50",
-          font = "font_teutonic-arkham",
-          fontSize = buttonFontSize or 250,
-          onClick = "triggerXMLTokenLabelCreation()",
-          color = buttonColor or "#77674DE6",
-          textColor = "White"
-      },
-      value = buttonValue or "Redraw Token"
-    }}
+  local xmlTable = { {
+    tag = "Button",
+    attributes = {
+      height = buttonHeight or 450,
+      width = buttonWidth or 1400,
+      rotation = buttonRotation or "0 0 180",
+      scale = "0.1 0.1 1",
+      position = buttonPosition or "0 -55 -22",
+      padding = "50 50 50 50",
+      font = "font_teutonic-arkham",
+      fontSize = buttonFontSize or 250,
+      onClick = "triggerXMLTokenLabelCreation",
+      color = buttonColor or "#77674DE6",
+      textColor = "White"
+    },
+    value = buttonLabel or "Redraw Token"
+  } }
   if buttonIcon then
-      xmlTable[1].attributes.iconWidth = "400"
-      xmlTable[1].attributes.iconAlignment = "Right"
-      xmlTable[1].attributes.icon = buttonIcon
+    xmlTable[1].attributes.iconWidth = "400"
+    xmlTable[1].attributes.iconAlignment = "Right"
+    xmlTable[1].attributes.icon = buttonIcon
   end
   self.UI.setXmlTable(xmlTable)
 end
 
 function triggerXMLTokenLabelCreation()
-  -- needs to be its own function in order to pass originParams as a table
-  Global.call("activeRedrawEffect", originParams)
+  Global.call("activeRedrawEffect", {
+    VALID_TOKENS = VALID_TOKENS,
+    INVALID_TOKENS = INVALID_TOKENS,
+    RETURN_TO_POOL = RETURN_TO_POOL
+  })
 end
 
 -- Delete button
@@ -112,5 +109,5 @@ function deleteButton()
   self.clearContextMenu()
   self.addContextMenuItem("Enable Helper", makeXMLButton)
   self.UI.setXml("")
-  turnOnHelper = false
+  isHelperEnabled = false
 end
