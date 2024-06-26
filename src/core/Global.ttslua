@@ -155,6 +155,7 @@ function onLoad(savedData)
   end, 1)
 end
 
+-- provides a random seed (from 1 to 999) to be used by "linked" objects like the action tokens
 function getRandomSeed()
   return math.random(999)
 end
@@ -255,6 +256,7 @@ function findChaosBag()
   printToAll("Chaos bag couldn't be found.", "Red")
 end
 
+-- returns all chaos tokens to the bag
 function returnChaosTokens()
   local chaosBag = findChaosBag()
   for _, token in pairs(chaosTokens) do
@@ -267,15 +269,15 @@ end
 -- returns a single chaos token to the bag and calls respective functions
 function returnChaosTokenToBag(token)
   local name = token.getName()
-  local guid = token.getGUID()
   local chaosBag = findChaosBag()
   chaosBag.putObject(token)
   tokenArrangerApi.layout()
   if name == "Bless" or name == "Curse" then
-    blessCurseManagerApi.releasedToken(name, guid, true)
+    blessCurseManagerApi.releasedToken(name, token.getGUID(), true)
   end
 end
 
+-- returns the index of a token in the chaosTokens table
 function getTokenIndex(token)
   for i, obj in ipairs(chaosTokens) do
     if obj == token then
@@ -284,12 +286,10 @@ function getTokenIndex(token)
   end
 end
 
-function activeRedrawEffect(originParams)
-  redrawData = originParams
-  makeButtonsToRedraw()
-end
+-- starts a redraw effect and displays buttons for a choice if needed
+function activeRedrawEffect(params)
+  redrawData = params
 
-function makeButtonsToRedraw()
   if isTokenXMLActive == true then
     broadcastToAll("Clear already active buttons first, then try again", "Red")
     return
@@ -300,39 +300,38 @@ function makeButtonsToRedraw()
     return
   end
 
-  local matchingTokensInPlay = {}
-
   -- nil handling
   redrawData.VALID_TOKENS = redrawData.VALID_TOKENS or {}
   redrawData.INVALID_TOKENS = redrawData.INVALID_TOKENS or {}
 
   -- determine if only some tokens are able to be returned to the bag
+  local matchingTokensInPlay = {}
   for _, token in ipairs(chaosTokens) do
     local tokenName = getReadableTokenName(token.getName())
-    
-  
+
     -- allow valid tokens or not invalid tokens, also allow any token if both lists empty
-    if (redrawData.VALID_TOKENS[tokenName] ~= nil and isTableEmpty(redrawData.INVALID_TOKENS)) or (isTableEmpty(redrawData.VALID_TOKENS) and not redrawData.INVALID_TOKENS[tokenName]) or
-    (isTableEmpty(redrawData.VALID_TOKENS) and isTableEmpty(redrawData.INVALID_TOKENS)) then
+    if (redrawData.VALID_TOKENS[tokenName] ~= nil and isTableEmpty(redrawData.INVALID_TOKENS)) or
+        (isTableEmpty(redrawData.VALID_TOKENS) and not redrawData.INVALID_TOKENS[tokenName]) or
+        (isTableEmpty(redrawData.VALID_TOKENS) and isTableEmpty(redrawData.INVALID_TOKENS)) then
       table.insert(matchingTokensInPlay, token)
     end
   end
 
+  -- proceed according to number of matching tokens
   if #matchingTokensInPlay == 0 then
     broadcastToAll("No eligible token found in play area", "Red")
-    return
-  end
-
-  if #matchingTokensInPlay > 1 then
+  elseif #matchingTokensInPlay == 1 then
+    returnAndRedraw(_, matchingTokensInPlay[1].getGUID())
+  else
+    -- draw XML to allow choosing the token to return to bag
+    isTokenXMLActive = true
     for _, token in ipairs(matchingTokensInPlay) do
-      -- draw XML to return token to bag
       token.UI.setXmlTable({
         {
           tag = "VerticalLayout",
           attributes = {
             height = 275,
             width = 275,
-            spacing = 0,
             padding = "0 0 20 25",
             scale = "0.4 0.4 1",
             rotation = "0 0 180",
@@ -363,44 +362,52 @@ function makeButtonsToRedraw()
         }
       })
     end
-    isTokenXMLActive = true
-  -- no need to make buttons if there is only one eligible token to return and redraw
-  else
-    returnAndRedraw(_, matchingTokensInPlay[1].getGUID())
   end
 end
 
--- returns a chaos token to the chaos bag and redraws another, always called by an XML button through makeButtonsToRedraw() above 
+-- returns a chaos token to the chaos bag and redraws another
 function returnAndRedraw(_, tokenGUID)
-  local takeParameters = {}
   local returnedToken = getObjectFromGUID(tokenGUID)
+  local tokenName = returnedToken.getName()
+  local indexOfReturnedToken = getTokenIndex(returnedToken)
   local matColor = playmatApi.getMatColorByPosition(returnedToken.getPosition())
   local mat = guidReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
-  
-  isTokenXMLActive = false
-  trackChaosToken(returnedToken.getName(), mat.getGUID(), true)
-  local indexOfReturnedToken = getTokenIndex(returnedToken)
-  takeParameters.position = returnedToken.getPosition()
+
+  local takeParameters = {
+    position = returnedToken.getPosition(),
+    rotation = returnedToken.getRotation()
+  }
 
   if #chaosTokens > indexOfReturnedToken then
-    takeParameters.rotation = mat.getRotation() + Vector(0, 0, -8)
-  else
-    takeParameters.rotation = returnedToken.getRotation()
+    takeParameters.rotation = takeParameters.rotation + Vector(0, 0, -8)
   end
 
+  -- perform the actual token replacing
+  trackChaosToken(tokenName, mat.getGUID(), true)
   returnChaosTokenToBag(returnedToken)
-  local params = { mat = mat,  drawAdditional = true,  takeParameters = takeParameters }
-  if redrawData.redrawnTokenType ~= "random" then
-    params.tokenType = redrawData.redrawnTokenType
-  end
-  chaosTokens[indexOfReturnedToken] = drawChaosToken(params)
 
-  if redrawData.triggeringCard == "FalseCovenant" then
-    blessCurseManagerApi.removeToken("Curse")
+  chaosTokens[indexOfReturnedToken] = drawChaosToken({
+    mat = mat,
+    drawAdditional = true,
+    tokenType = redrawData.DRAW_SPECIFIC_TOKEN, -- currently only used for Nkosi Mabati
+    takeParameters = takeParameters
+  })
+
+  -- remove these tokens from the bag
+  if redrawData.RETURN_TO_POOL then
+    -- let the bless/curse manager handle these
+    if tokenName == "Bless" or tokenName == "Curse" then
+      blessCurseManagerApi.removeToken(tokenName)
+    else
+      local invertedTable = createChaosTokenNameLookupTable()
+      removeChaosToken(invertedTable[tokenName])
+    end
   end
+
   -- remove XML from tokens in play
-  for _, token in ipairs(getChaosTokensinPlay()) do
-      token.UI.setXml("")
+  isTokenXMLActive = false
+  for _, token in ipairs(chaosTokens) do
+    token.UI.setXml("")
   end
 
   redrawData = {}
@@ -441,7 +448,6 @@ end
 function drawChaosToken(params)
   if not canTouchChaosTokens() then return end
 
-  local tokenOffset = { -1.55, 0.25, -0.58 }
   local matGUID = params.mat.getGUID()
 
   -- return token(s) on other playmat first
@@ -452,37 +458,30 @@ function drawChaosToken(params)
   end
 
   chaosTokensLastMatGUID = matGUID
-  
+
   -- if we have left clicked and have no tokens OR if we have right clicked
   if params.drawAdditional or #chaosTokens == 0 then
     local chaosBag = findChaosBag()
     if #chaosBag.getObjects() == 0 then return end
     chaosBag.shuffle()
 
-    local takeParameters = {}
-
     -- add the token to the list, compute new position based on list length
-    if params.takeParameters then
-      takeParameters.position = params.takeParameters.position
-      takeParameters.rotation = params.takeParameters.rotation
-    else
-      tokenOffset[1] = tokenOffset[1] + (0.17 * #chaosTokens)
-      takeParameters.position = params.mat.positionToWorld(tokenOffset)
-      takeParameters.rotation = params.mat.getRotation()
-    end
+    local tokenOffset = Vector(-1.55 + 0.17 * #chaosTokens, 0.25, -0.58)
+    local takeParameters = params.takeParameters or {}
+    takeParameters.position = takeParameters.position or params.mat.positionToWorld(tokenOffset)
+    takeParameters.rotation = takeParameters.rotation or params.mat.getRotation()
 
     local token
-    
     if params.guidToBeResolved then
       -- resolve a sealed token from a card
       token = getObjectFromGUID(params.guidToBeResolved)
       token.setPositionSmooth(takeParameters.position)
-      local guid = token.getGUID()
-      local tokenType = token.getName()
-      if tokenType == "Bless" or tokenType == "Curse" then
-        blessCurseManagerApi.releasedToken(tokenType, guid)
-      end
       tokenArrangerApi.layout()
+
+      local tokenName = token.getName()
+      if tokenName == "Bless" or tokenName == "Curse" then
+        blessCurseManagerApi.releasedToken(tokenName, token.getGUID())
+      end
     else
       -- take a token from the bag, either specified or random
       if params.tokenType then
@@ -494,7 +493,7 @@ function drawChaosToken(params)
       end
       token = chaosBag.takeObject(takeParameters)
     end
-    
+
     -- get data for token description
     local name = token.getName()
     local tokenData = mythosAreaApi.returnTokenData().tokenData or {}
@@ -502,12 +501,10 @@ function drawChaosToken(params)
     token.setDescription(specificData.description or "")
     trackChaosToken(name, matGUID)
 
-    if params.takeParameters then
-      return token
-    else
+    if not params.takeParameters then
       table.insert(chaosTokens, token)
-      return token
     end
+    return token
   else
     returnChaosTokens()
   end
@@ -533,9 +530,8 @@ function trackChaosToken(tokenName, matGUID, subtract)
   if not tokenDrawingStats[matGUID] then tokenDrawingStats[matGUID] = {} end
 
   -- increase stats by 1 (or decrease if token is returned)
-  local modifier = (subtract and -1 or 1)
-
-  local tokenName = getReadableTokenName(tokenName)
+  local modifier                          = (subtract and -1 or 1)
+  tokenName                               = getReadableTokenName(tokenName)
   tokenDrawingStats["Overall"][tokenName] = (tokenDrawingStats["Overall"][tokenName] or 0) + modifier
   tokenDrawingStats[matGUID][tokenName]   = (tokenDrawingStats[matGUID][tokenName] or 0) + modifier
 end
@@ -556,7 +552,6 @@ function handleStatTrackerClick(_, _, isRightClick)
         playerColor = "White"
         playerName = "Overall"
       else
-        -- get mat color
         local matColor = playmatApi.getMatColorByPosition(getObjectFromGUID(key).getPosition())
         playerColor = playmatApi.getPlayerColor(matColor)
         playerName = Player[playerColor].steam_name or playerColor
@@ -751,7 +746,7 @@ function getChaosTokensinPlay()
   return chaosTokens
 end
 
--- returns a Table List of chaos token ids in the current chaos bag
+-- returns a table of chaos token ids in the current chaos bag
 ---@api ChaosBag / ChaosBagApi
 function getChaosBagState()
   local tokens = {}
@@ -1491,7 +1486,9 @@ function playermatRemovalSelected(player, selectedIndex, id)
   if mat then
     -- confirmation dialog about deletion
     player.pingTable(mat.getPosition())
-    player.showConfirmDialog("Do you really want to remove " .. matColor .. "'s playermat and related objects? This can't be reversed.", function() removePlayermat(matColor) end)
+    player.showConfirmDialog(
+      "Do you really want to remove " .. matColor .. "'s playermat and related objects? This can't be reversed.",
+      function() removePlayermat(matColor) end)
   else
     -- info dialog that it is already deleted
     player.showInfoDialog(matColor .. "'s playermat has already been removed.")
@@ -1562,6 +1559,9 @@ function applyOptionPanelChange(id, state)
     local counter = guidReferenceApi.getObjectByOwnerAndType("Mythos", "MasterClueCounter")
     counter.setVar("useClickableCounters", state)
 
+  elseif id == "enableCardHelpers" then
+    toggleCardHelpers(state)
+
     -- option: Play area connection drawing
   elseif id == "playAreaConnections" then
     playAreaApi.setConnectionDrawState(state)
@@ -1577,7 +1577,7 @@ function applyOptionPanelChange(id, state)
 
     -- option: Show clean up helper
   elseif id == "showCleanUpHelper" then
-   spawnOrRemoveHelper(state, "Clean Up Helper", { -66, 1.53, 46 })
+    spawnOrRemoveHelper(state, "Clean Up Helper", { -66, 1.53, 46 })
 
     -- option: Show hand helper for each player
   elseif id == "showHandHelper" then
@@ -1686,6 +1686,7 @@ function onClick_defaultSettings()
   optionPanel = {
     cardLanguage = "en",
     changePlayAreaImage = false,
+    enableCardHelpers = false,
     playAreaConnectionColor = { a = 1, b = 0.4, g = 0.4, r = 0.4 },
     playAreaConnections = true,
     playAreaSnapTags = true,
@@ -1731,6 +1732,13 @@ function titleSplash(scenarioName)
     end, 4)
 
     soundCubeApi.playSoundByName("Deep Bell")
+  end
+end
+
+-- instructs all card helpers to update their visibility
+function toggleCardHelpers(state)
+  for _, obj in ipairs(getObjectsWithTag("CardWithHelper")) do
+    obj.call("setHelperState", state)
   end
 end
 
@@ -1806,6 +1814,7 @@ end
 -- Utility functions
 ---------------------------------------------------------
 
+-- removes a value from a table
 function removeValueFromTable(t, val)
   for i, v in ipairs(t) do
     if v == val then
@@ -1815,6 +1824,7 @@ function removeValueFromTable(t, val)
   end
 end
 
+-- checks if a table is empty
 function isTableEmpty(tbl)
   if next(tbl) == nil then
     return true

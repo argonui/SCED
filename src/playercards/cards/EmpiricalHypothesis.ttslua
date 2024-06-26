@@ -1,7 +1,5 @@
--- this helper creates buttons to help the user track which hypothesis has been chosen each round
--- (if user forgot to choose one at round start, the old one stays active)
+require("playercards/CardsWithHelper")
 local playmatApi                = require("playermat/PlaymatApi")
-local upgradeSheetLibrary       = require("playercards/customizable/UpgradeSheetLibrary")
 
 -- common button parameters
 local buttonParameters          = {}
@@ -21,7 +19,7 @@ initialButtonPosition           = buttonParameters.position.z
 local verticalOffset            = 0.325
 
 -- list of customizable labels
-local customizableList = {
+local customizableList          = {
   'Run out of cards in hand',
   'Take damage/horror',
   'Discard treachery/enemy',
@@ -29,24 +27,41 @@ local customizableList = {
 }
 
 -- index of the currently selected button (0-indexed from the top)
-local activeButtonIndex
+local activeButtonIndex         = -1
+local isHelperEnabled           = false
+local hypothesisList            = {}
 
-function onSave()
-  return JSON.encode(activeButtonIndex)
+function updateSave()
+  self.script_state = JSON.encode({
+    isHelperEnabled = isHelperEnabled,
+    activeButtonIndex = activeButtonIndex
+  })
 end
 
 function onLoad(savedData)
-  self.addContextMenuItem("Enable Helper", createButtons)
-  self.addContextMenuItem("Clear Helper", deleteButtons)
-
-  activeButtonIndex = JSON.decode(savedData)
-  if activeButtonIndex and activeButtonIndex ~= "" then
-    local tempButtonIndex = activeButtonIndex
-    createButtons()
-    if tempButtonIndex >= 0 then
-      selectButton(tempButtonIndex)
-    end
+  self.addTag("CardWithHelper")
+  if savedData and savedData ~= "" then
+    local loadedData = JSON.decode(savedData)
+    isHelperEnabled = loadedData.isHelperEnabled
+    activeButtonIndex = loadedData.activeButtonIndex
   end
+  checkOptionPanel()
+  updateDisplay()
+
+  if activeButtonIndex > 0 then
+    selectButton(activeButtonIndex)
+  end
+end
+
+function initialize()
+  createButtons()
+end
+
+function shutOff()
+  self.clearButtons()
+
+  -- reset the z position
+  buttonParameters.position.z = initialButtonPosition
 end
 
 -- marks a button as active
@@ -54,32 +69,19 @@ end
 function selectButton(index)
   local lastindex = #hypothesisList - 1
   for i = 0, lastindex do
-    local color = Color.Black
+    local buttonColor = Color.Black
     if i == index then
-      color = Color.Red
+      buttonColor = Color.Red
       activeButtonIndex = i
     end
-    self.editButton({ index = i, color = color })
+    self.editButton({ index = i, color = buttonColor })
   end
-end
-
-function deleteButtons()
-  self.clearButtons()
-  self.clearContextMenu()
-  self.addContextMenuItem("Enable Helper", createButtons)
-  buttonParameters.position.z = initialButtonPosition            -- reset the z position
 end
 
 -- Create buttons based on the button parameters
 function createButtons()
-  self.clearContextMenu()
-  self.addContextMenuItem("Clear Helper", deleteButtons)
-
   -- reset the list in case of addition of checkboxes or Refine
-  hypothesisList     = {
-    'Succeed by 3 or more',
-    'Fail by 2 or more'
-  }
+  hypothesisList = { 'Succeed by 3 or more', 'Fail by 2 or more' }
 
   -- set activeButtonIndex to restore state onLoad ("-1" -> nothing selected)
   activeButtonIndex = -1
@@ -95,9 +97,9 @@ function createButtons()
   end
 
   for i, label in ipairs(hypothesisList) do
+    buttonParameters.label = label
     buttonParameters.click_function = "selectButton" .. i
     self.setVar(buttonParameters.click_function, function() selectButton(i - 1) end)
-    buttonParameters.label = label
     self.createButton(buttonParameters)
     buttonParameters.position.z = buttonParameters.position.z + verticalOffset
   end
@@ -106,7 +108,7 @@ end
 function findUpgradeSheet()
   local matColor = playmatApi.getMatColorByPosition(self.getPosition())
   local result = playmatApi.searchAroundPlaymat(matColor, "isCard")
-  for j, card in ipairs(result) do
+  for _, card in ipairs(result) do
     local metadata = JSON.decode(card.getGMNotes()) or {}
     if metadata.id == "09041-c" then
       return card
