@@ -1,9 +1,8 @@
-local chaosBagApi      = require("chaosbag/ChaosBagApi")
-local guidReferenceApi = require("core/GUIDReferenceApi")
-local playermatApi       = require("playermat/PlayermatApi")
+require("playercards/CardsWithHelper")
+local chaosBagApi = require("chaosbag/ChaosBagApi")
 
 -- XML background color for each token
-local tokenColor       = {
+local tokenColor  = {
   ["Skull"] = "#4A0400E6",
   ["Cultist"] = "#173B0BE6",
   ["Tablet"] = "#1D2238E6",
@@ -89,11 +88,8 @@ function deleteButtons()
 end
 
 function resolveSigil()
-  local tokensInPlay = chaosBagApi.getTokensInPlay()
-  local chaosbag = chaosBagApi.findChaosBag()
-
   local match = false
-  for _, obj in ipairs(chaosbag.getObjects()) do
+  for _, obj in ipairs(chaosBagApi.findChaosBag().getObjects()) do
     -- if there are any sigils in the bag
     if obj.nickname == sigil then
       match = true
@@ -106,77 +102,12 @@ function resolveSigil()
     return
   end
 
-  local matchingSymbolsInPlay = {}
-
-  for _, token in ipairs(tokensInPlay) do
-    if (token.getName() == "Cultist"
-          or token.getName() == "Tablet"
-          or token.getName() == "Elder Thing")
-        and token.getName() ~= sigil then
-      matchingSymbolsInPlay[#matchingSymbolsInPlay + 1] = token
-    end
-  end
-
-  if #matchingSymbolsInPlay == 0 then
-    broadcastToAll("No eligible symbol token found in play area", "Red")
-    return
-  elseif #matchingSymbolsInPlay > 1 then
-    for _, token in ipairs(matchingSymbolsInPlay) do
-      -- draw XML to return token to bag
-      token.UI.setXmlTable({
-        {
-          tag = "VerticalLayout",
-          attributes = {
-            height = 275,
-            width = 275,
-            spacing = 0,
-            padding = "0 0 20 25",
-            scale = "0.4 0.4 1",
-            rotation = "0 0 180",
-            position = "0 0 -15",
-            color = "rgba(0,0,0,0.7)",
-            onClick = self.getGUID() .. "/drawSigil(" .. token.getGUID() .. ")"
-          },
-          children = {
-            {
-              tag = "Text",
-              attributes = {
-                fontSize = "100",
-                font = "font_teutonic-arkham",
-                color = "#ffffff",
-                text = "Nkosi"
-              }
-            },
-            {
-              tag = "Text",
-              attributes = {
-                fontSize = "125",
-                font = "font_arkhamicons",
-                color = "#ffffff",
-                text = "u"
-              }
-            }
-          }
-        }
-      })
-    end
-  else
-    drawSigil(_, matchingSymbolsInPlay[1].getGUID())
-  end
-end
-
-function drawSigil(player, tokenGUID)
-  local returnedToken = getObjectFromGUID(tokenGUID)
-  local matColor = playermatApi.getMatColorByPosition(returnedToken.getPosition())
-  local mat = guidReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
-  chaosBagApi.drawChaosToken(mat, true, sigil, _, returnedToken)
-
-  -- remove XML from tokens in play
-  for _, token in ipairs(chaosBagApi.getTokensInPlay()) do
-    if token.getName() == "Cultist"
-        or token.getName() == "Tablet"
-        or token.getName() == "Elder Thing" then
-      token.UI.setXml("")
-    end
-  end
+  Global.call("activeRedrawEffect", {
+    DRAW_SPECIFIC_TOKEN = sigil,
+    VALID_TOKENS = {
+      ["Tablet"] = true,
+      ["Elder Thing"] = true,
+      ["Cultist"] = true
+    }
+  })
 end
