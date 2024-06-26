@@ -1,35 +1,42 @@
+require("playercards/CardsWithHelper")
 local chaosBagApi      = require("chaosbag/ChaosBagApi")
 local guidReferenceApi = require("core/GUIDReferenceApi")
 local playmatApi       = require("playermat/PlaymatApi")
 
-function onLoad(savedData)
-  self.addContextMenuItem("Enable Helper", createButtons)
-  if savedData ~= "" then
-    local loadedData = JSON.decode(savedData)
-    if loadedData.loopId then
-      createButtons()
-    end
-  end
+local isHelperEnabled  = false
+local loopId
+
+function updateSave()
+  self.script_state = JSON.encode({
+    isHelperEnabled = isHelperEnabled,
+    loopId = loopId
+  })
 end
 
-function deleteButtons()
-  self.clearContextMenu()
-  self.addContextMenuItem("Enable Helper", createButtons)
-  self.UI.setAttribute("inactives", "active", false)
-  self.UI.setAttribute("actives", "active", false)
+function onLoad(savedData)
+  self.addTag("CardWithHelper")
+  if savedData and savedData ~= "" then
+    local loadedData = JSON.decode(savedData)
+    isHelperEnabled = loadedData.isHelperEnabled
+    loopId = loadedData.loopId
+  end
+  checkOptionPanel()
+  updateDisplay()
+end
+
+-- hide buttons and stop monitoring
+function shutOff()
+  self.UI.hide("Helper")
   if loopId then Wait.stop(loopId) end
   loopId = nil
-  self.script_state = JSON.encode({ loopId = loopId })
+  updateSave()
 end
 
--- create buttons and begin monitoring chaos bag for curse and bless tokens
-function createButtons()
-  self.clearContextMenu()
-  self.addContextMenuItem("Clear Helper", deleteButtons)
-  self.UI.setAttribute("inactives", "active", true)
-  self.UI.setAttribute("actives", "active", true)
+-- show buttons and begin monitoring chaos bag for curse and bless tokens
+function initialize()
+  self.UI.show("Helper")
   loopId = Wait.time(maybeUpdateButtonState, 1, -1)
-  self.script_state = JSON.encode({ loopId = loopId })
+  updateSave()
 end
 
 function resolveToken(player, _, tokenType)
