@@ -1,0 +1,1247 @@
+local chaosBagApi                 = require("chaosbag/ChaosBagApi")
+local deckLib                     = require("util/DeckLib")
+local guidReferenceApi            = require("core/GUIDReferenceApi")
+local mythosAreaApi               = require("core/MythosAreaApi")
+local navigationOverlayApi        = require("core/NavigationOverlayApi")
+local searchLib                   = require("util/SearchLib")
+local tokenChecker                = require("core/token/TokenChecker")
+local tokenManager                = require("core/token/TokenManager")
+
+-- we use this to turn off collision handling until onLoad() is complete
+local collisionEnabled            = false
+local currentlyEditingSlots       = false
+
+-- x-Values for discard buttons
+local DISCARD_BUTTON_X_START      = -1.365
+local DISCARD_BUTTON_X_OFFSET     = 0.455
+
+local SEARCH_AROUND_SELF_X_BUFFER = 8
+local SEARCH_AROUND_SELF_Z_BUFFER = 1.75
+
+-- defined areas for object searching
+local MAIN_PLAY_AREA              = {
+  upperLeft = { x = 1.98, z = 0.736 },
+  lowerRight = { x = -0.79, z = -0.39 }
+}
+local INVESTIGATOR_AREA           = {
+  upperLeft = { x = -1.084, z = 0.06517 },
+  lowerRight = { x = -1.258, z = -0.0805 }
+}
+local THREAT_AREA                 = {
+  upperLeft = { x = 1.53, z = -0.34 },
+  lowerRight = { x = -1.13, z = -0.92 }
+}
+local DECK_DISCARD_AREA           = {
+  upperLeft = { x = -1.62, z = 0.855 },
+  lowerRight = { x = -2.02, z = -0.245 },
+  center = { x = -1.82, y = 0.5, z = 0.305 },
+  size = { x = 0.4, y = 3, z = 1.1 }
+}
+
+-- local positions
+local DRAW_DECK_POSITION          = { x = -1.82, y = 0.1, z = 0 }
+local DISCARD_PILE_POSITION       = { x = -1.82, y = 0.1, z = 0.61 }
+local DRAWN_ENCOUNTER_POSITION    = { x = 1.365, y = 0.5, z = -0.625 }
+
+-- global position of encounter discard pile
+local ENCOUNTER_DISCARD_POSITION  = { x = -3.85, y = 1.5, z = 10.38 }
+
+-- used for the buttons on the right side of the playermat
+-- starts off with the data for the "Upkeep" button and will then be changed
+local buttonParameters            = {
+  label = "Upkeep",
+  click_function = "doUpkeep",
+  tooltip = "Right-click to change color",
+  function_owner = self,
+  position = { x = 1.82, y = 0.1, z = -0.45 },
+  scale = { 0.12, 0.12, 0.12 },
+  width = 1000,
+  height = 280,
+  font_size = 180
+}
+
+-- table of texture URLs
+local nameToTexture               = {
+  Guardian = "http://cloud-3.steamusercontent.com/ugc/2444972799638881117/169F4520A94FB186B54E0F2BF4BAC809844C923E/",
+  Mystic = "http://cloud-3.steamusercontent.com/ugc/2444972799638880413/B59966123EA41649EDCBD614167E590C8C105582/",
+  Neutral = "http://cloud-3.steamusercontent.com/ugc/2462982115659543571/5D778EA4BC682DAE97E8F59A991BCF8CB3979B04/",
+  Rogue = "http://cloud-3.steamusercontent.com/ugc/2444972799638880905/CFC02BF5A6140B9B4B92312AD6DC74D8DD61180B/",
+  Seeker = "http://cloud-3.steamusercontent.com/ugc/2444972799638881117/169F4520A94FB186B54E0F2BF4BAC809844C923E/",
+  Survivor = "http://cloud-3.steamusercontent.com/ugc/2444972799638880687/EEDF8F8BC3266069FECB09775845BE2501310C17/"
+}
+
+-- translation table for slot names to characters for special font
+local slotNameToChar              = {
+  ["any"] = "",
+  ["Accessory"] = "C",
+  ["Ally"] = "E",
+  ["Arcane"] = "G",
+  ["Body"] = "K",
+  ["Hand (right)"] = "M",
+  ["Hand (left)"] = "M",
+  ["Hand x2"] = "N",
+  ["Tarot"] = "A"
+}
+
+-- slot symbol for the respective slot (from top left to bottom right) - intentionally global!
+slotData                          = {}
+local defaultSlotData             = {
+  -- 1st row
+  "any", "any", "any", "Tarot", "Hand (left)", "Hand (right)", "Ally",
+
+  -- 2nd row
+  "any", "any", "any", "Accessory", "Arcane", "Arcane", "Body"
+}
+
+-- global variables for access
+activeInvestigatorClass           = "Neutral"
+activeInvestigatorId              = "00000"
+hasDES                            = false
+
+local isClassTextureEnabled       = true
+local isDrawButtonVisible         = false
+
+-- table of type-object reference pairs of all owned objects
+local ownedObjects                = {}
+local matColor                    = self.getMemo()
+
+function onSave()
+  return JSON.encode({
+    activeInvestigatorClass = activeInvestigatorClass,
+    activeInvestigatorId = activeInvestigatorId,
+    isClassTextureEnabled = isClassTextureEnabled,
+    isDrawButtonVisible = isDrawButtonVisible,
+    playerColor = playerColor,
+    slotData = slotData
+  })
+end
+
+function onLoad(savedData)
+  if savedData and savedData ~= "" then
+    local loadedData        = JSON.decode(savedData)
+    activeInvestigatorClass = loadedData.activeInvestigatorClass
+    activeInvestigatorId    = loadedData.activeInvestigatorId
+    isClassTextureEnabled   = loadedData.isClassTextureEnabled
+    isDrawButtonVisible     = loadedData.isDrawButtonVisible
+    playerColor             = loadedData.playerColor
+    slotData                = loadedData.slotData
+  end
+
+  self.interactable = false
+
+  -- get object references to owned objects
+  ownedObjects = guidReferenceApi.getObjectsByOwner(matColor)
+
+  -- discard button creation
+  for i = 1, 6 do
+    makeDiscardButton(i)
+  end
+
+  self.createButton({
+    click_function = "drawEncounterCard",
+    function_owner = self,
+    position = { -1.84, 0, -0.65 },
+    rotation = { 0, 80, 0 },
+    width = 265,
+    height = 190
+  })
+
+  self.createButton({
+    click_function = "drawChaosTokenButton",
+    function_owner = self,
+    position = { 1.85, 0, -0.74 },
+    rotation = { 0, -45, 0 },
+    width = 135,
+    height = 135
+  })
+
+  -- Upkeep button: can use the default parameters for this
+  self.createButton(buttonParameters)
+
+  -- Slot editing button: modified default data
+  buttonParameters.label = "Edit Slots"
+  buttonParameters.click_function = "toggleSlotEditing"
+  buttonParameters.tooltip = "Right-click to reset slot symbols"
+  buttonParameters.position.z = 0.92
+  self.createButton(buttonParameters)
+
+  showDrawButton(isDrawButtonVisible)
+  redrawSlotSymbols()
+  math.randomseed(os.time())
+  Wait.time(function() collisionEnabled = true end, 0.1)
+end
+
+---------------------------------------------------------
+-- utility functions
+---------------------------------------------------------
+
+-- searches an area and optionally filters the result
+function searchArea(origin, size, filter)
+  return searchLib.inArea(origin, self.getRotation(), size, filter)
+end
+
+-- finds all objects on the playermat and associated set aside zone.
+function searchAroundSelf(filter)
+  local scale = self.getScale()
+  local bounds = self.getBoundsNormalized()
+
+  -- Increase the width to cover the set aside zone
+  bounds.size.x = bounds.size.x + SEARCH_AROUND_SELF_X_BUFFER
+  bounds.size.y = 1
+  bounds.size.z = bounds.size.z + SEARCH_AROUND_SELF_Z_BUFFER
+
+  -- 'setAsideDirection' accounts for the set aside zone being on the left or right,
+  -- depending on the table position of the playermat
+  local setAsideDirection = bounds.center.z > 0 and 1 or -1
+
+  -- Since the cast is centered on the position, shift left or right to keep
+  -- the non-set aside edge of the cast at the edge of the playermat
+  local localCenter = self.positionToLocal(bounds.center)
+  localCenter.x = localCenter.x + setAsideDirection * SEARCH_AROUND_SELF_X_BUFFER / 2 / scale.x
+  localCenter.z = localCenter.z - SEARCH_AROUND_SELF_Z_BUFFER / 2 / scale.z
+  return searchArea(self.positionToWorld(localCenter), bounds.size, filter)
+end
+
+-- searches the area around the draw deck and discard pile
+function searchDeckAndDiscardArea(filter)
+  local pos = self.positionToWorld(DECK_DISCARD_AREA.center)
+  local scale = self.getScale()
+  local size = {
+    x = DECK_DISCARD_AREA.size.x * scale.x,
+    y = DECK_DISCARD_AREA.size.y,
+    z = DECK_DISCARD_AREA.size.z * scale.z
+  }
+  return searchArea(pos, size, filter)
+end
+
+-- rounds a number to the specified amount of decimal places
+---@param num number Initial value
+---@param numDecimalPlaces number Amount of decimal places
+---@return number: rounded number
+function round(num, numDecimalPlaces)
+  local mult = 10 ^ (numDecimalPlaces or 0)
+  return math.floor(num * mult + 0.5) / mult
+end
+
+-- edits the label of a button
+---@param oldLabel string Old label of the button
+---@param newLabel string New label of the button
+function editButtonLabel(oldLabel, newLabel)
+  local buttons = self.getButtons()
+  for i = 1, #buttons do
+    if buttons[i].label == oldLabel then
+      self.editButton({ index = buttons[i].index, label = newLabel })
+    end
+  end
+end
+
+-- updates the internal "messageColor" which is used for print/broadcast statements if no player is seated
+---@param clickedByColor string Colorstring of player who clicked a button
+function updateMessageColor(clickedByColor)
+  messageColor = Player[playerColor].seated and playerColor or clickedByColor
+end
+
+---------------------------------------------------------
+-- Discard buttons
+---------------------------------------------------------
+
+-- handles discarding for a list of objects
+---@param objList table List of objects to discard
+function discardListOfObjects(objList)
+  for _, obj in ipairs(objList) do
+    if obj.type == "Card" or obj.type == "Deck" then
+      if obj.hasTag("PlayerCard") then
+        deckLib.placeOrMergeIntoDeck(obj, returnGlobalDiscardPosition(), self.getRotation())
+      else
+        deckLib.placeOrMergeIntoDeck(obj, ENCOUNTER_DISCARD_POSITION, { x = 0, y = -90, z = 0 })
+      end
+
+    -- put chaos tokens back into bag (e.g. Unrelenting)
+    elseif tokenChecker.isChaosToken(obj) then
+      chaosBagApi.returnChaosTokenToBag(obj)
+
+    -- don't touch locked objects (like the table etc.) or specific objects (like key tokens)
+    elseif not obj.getLock() and not obj.hasTag("DontDiscard") then
+      ownedObjects.Trash.putObject(obj)
+    end
+  end
+end
+
+-- build a discard button to discard from searchPosition
+---@param id number Index of the discard button (from left to right, must be unique)
+function makeDiscardButton(id)
+  local xValue = DISCARD_BUTTON_X_START + (id - 1) * DISCARD_BUTTON_X_OFFSET
+  local position = { xValue, 0.1, -0.94 }
+  local searchPosition = { -position[1], position[2], position[3] + 0.32 }
+  local handlerName = 'handler' .. id
+  self.setVar(handlerName, function()
+    local cardSizeSearch = { 2, 1, 3.2 }
+    local globalSearchPosition = self.positionToWorld(searchPosition)
+    local searchResult = searchArea(globalSearchPosition, cardSizeSearch)
+    return discardListOfObjects(searchResult)
+  end)
+  self.createButton({
+    label = "Discard",
+    click_function = handlerName,
+    function_owner = self,
+    position = position,
+    scale = { 0.12, 0.12, 0.12 },
+    width = 900,
+    height = 350,
+    font_size = 220
+  })
+end
+
+---------------------------------------------------------
+-- Upkeep button
+---------------------------------------------------------
+
+-- calls the Upkeep function with correct parameter
+function doUpkeepFromHotkey(clickedByColor)
+  doUpkeep(_, clickedByColor)
+end
+
+function doUpkeep(_, clickedByColor, isRightClick)
+  if isRightClick then
+    changeColor(clickedByColor)
+    return
+  end
+
+  updateMessageColor(clickedByColor)
+
+  -- unexhaust cards in play zone, flip action tokens and find Forced Learning / Dream-Enhancing Serum
+  checkForDES()
+  local forcedLearning = false
+  local rot = self.getRotation()
+  for _, obj in ipairs(searchAroundSelf()) do
+    if obj.hasTag("UniversalToken") == true and obj.is_face_down then
+      obj.flip()
+    elseif obj.type == "Card" and not inArea(self.positionToLocal(obj.getPosition()), INVESTIGATOR_AREA) then
+      local cardMetadata = JSON.decode(obj.getGMNotes()) or {}
+      if not (obj.getVar("do_not_ready") or obj.hasTag("DoNotReady")) then
+        local cardRotation = round(obj.getRotation().y, 0) - rot.y
+        local yRotDiff = 0
+
+        if cardRotation < 0 then
+          cardRotation = cardRotation + 360
+        end
+
+        -- rotate cards to the next multiple of 90° towards 0°
+        if cardRotation > 90 and cardRotation <= 180 then
+          yRotDiff = 90
+        elseif cardRotation < 270 and cardRotation > 180 then
+          yRotDiff = 270
+        end
+
+        -- set correct rotation for face-down cards
+        rot.z = obj.is_face_down and 180 or 0
+        obj.setRotation({ rot.x, rot.y + yRotDiff, rot.z })
+      end
+
+      -- detect Forced Learning to handle card drawing accordingly
+      if cardMetadata.id == "08031" then
+        forcedLearning = true
+      end
+
+      -- maybe replenish uses on certain cards
+      if cardMetadata.uses ~= nil then
+        tokenManager.maybeReplenishCard(obj, cardMetadata.uses, self)
+      end
+    elseif obj.type == "Deck" and forcedLearning == false then
+      -- check decks for forced learning
+      for _, deepObj in ipairs(obj.getObjects()) do
+        local cardMetadata = JSON.decode(deepObj.gm_notes) or {}
+        if cardMetadata.id == "08031" then
+          forcedLearning = true
+        end
+      end
+    end
+  end
+
+  -- flip investigator mini-card and summoned servitor mini-card
+  -- (all characters allowed to account for custom IDs - e.g. 'Z0000' for TTS Zoop generated IDs)
+  local miniId = string.match(activeInvestigatorId, ".....") .. "-m"
+  for _, obj in ipairs(getObjects()) do
+    if obj.type == "Card" and obj.is_face_down then
+      local notes = JSON.decode(obj.getGMNotes())
+      if notes ~= nil and notes.type == "Minicard" and (notes.id == miniId or notes.id == "09080-m") then
+        obj.flip()
+      end
+    end
+  end
+
+  -- gain a resource (or two if playing Jenny Barnes)
+  if string.match(activeInvestigatorId, "%d%d%d%d%d") == "02003" then
+    updateCounter({ type = "ResourceCounter", modifier = 2 })
+    printToColor("Gaining 2 resources (Jenny)", messageColor)
+  else
+    updateCounter({ type = "ResourceCounter", modifier = 1 })
+  end
+
+  -- draw a card (with handling for Patrice and Forced Learning)
+  if activeInvestigatorId == "06005" then
+    if forcedLearning then
+      printToColor("Wow, did you really take 'Versatile' to play Patrice with 'Forced Learning'?"
+        .. " Choose which draw replacement effect takes priority and draw cards accordingly.", messageColor)
+    else
+      -- discards all non-weakness and non-hidden cards from hand first
+      local handCards = Player[playerColor].getHandObjects()
+      local cardsToDiscard = {}
+
+      for i = 1, #handCards do
+        local metadata = JSON.decode(handCards[i].getGMNotes())
+        if metadata ~= nil and (not metadata.weakness and not metadata.hidden) then
+          table.insert(cardsToDiscard, handCards[i])
+        end
+      end
+
+      local j = 0
+      local k = 0
+
+      for i = #cardsToDiscard, 1, -1 do
+        j = j + 1
+        Wait.time(function() deckLib.placeOrMergeIntoDeck(cardsToDiscard[i], returnGlobalDiscardPosition(), self.getRotation()) end, j * 0.1)
+      end
+
+      -- add some time if there are any cards to discard, if not, draw up to 5 immediately
+      if j > 0 then
+        k = 0.7 + (j * 0.1)
+      else
+        k = 0
+      end
+
+      Wait.time(function()
+        local handSize = #Player[playerColor].getHandObjects()
+        if handSize < 5 then
+          local cardsToDraw = 5 - handSize
+          printToColor("Drawing " .. cardsToDraw .. " cards (Patrice)", messageColor)
+          drawCardsWithReshuffle(cardsToDraw)
+        end
+      end, k)
+    end
+  elseif forcedLearning then
+    printToColor("Drawing 2 cards, discard 1 (Forced Learning)", messageColor)
+    drawCardsWithReshuffle(2)
+  elseif activeInvestigatorId == "89001" then
+    printToColor("Drawing 2 cards (Subject 5U-21)", messageColor)
+    drawCardsWithReshuffle(2)
+  else
+    drawCardsWithReshuffle(1)
+  end
+end
+
+-- click function for "draw 1 button" (that can be added via option panel)
+function doDrawOne(_, clickedByColor)
+  updateMessageColor(clickedByColor)
+  drawCardsWithReshuffle(1)
+end
+
+-- draws the specified amount of cards (and shuffles the discard if necessary)
+---@param numCards number Number of cards to draw
+function drawCardsWithReshuffle(numCards)
+  local deckAreaObjects = getDeckAreaObjects()
+
+  -- Norman Withers handling
+  local harbinger = false
+  if deckAreaObjects.topCard and deckAreaObjects.topCard.getName() == "The Harbinger" then
+    harbinger = true
+  elseif deckAreaObjects.draw and not deckAreaObjects.draw.is_face_down then
+    local cards = deckAreaObjects.draw.getObjects()
+    if cards[#cards].name == "The Harbinger" then
+      harbinger = true
+    end
+  end
+
+  if harbinger then
+    printToColor("The Harbinger is on top of your deck, not drawing cards", messageColor)
+    return
+  end
+
+  local topCardDetected = false
+  if deckAreaObjects.topCard ~= nil then
+    deckAreaObjects.topCard.deal(1, playerColor)
+    topCardDetected = true
+    numCards = numCards - 1
+    if numCards == 0 then
+      flipTopCardFromDeck()
+      return
+    end
+  end
+
+  local deckSize = 1
+  if deckAreaObjects.draw == nil then
+    deckSize = 0
+  elseif deckAreaObjects.draw.type == "Deck" then
+    deckSize = #deckAreaObjects.draw.getObjects()
+  end
+
+  if deckSize >= numCards then
+    drawCards(numCards)
+    -- flip top card again for Norman
+    if topCardDetected and string.match(activeInvestigatorId, "%d%d%d%d%d") == "08004" then
+      flipTopCardFromDeck()
+    end
+  else
+    drawCards(deckSize)
+    if deckAreaObjects.discard ~= nil then
+      shuffleDiscardIntoDeck()
+      Wait.time(function()
+        drawCards(numCards - deckSize)
+        -- flip top card again for Norman
+        if topCardDetected and string.match(activeInvestigatorId, "%d%d%d%d%d") == "08004" then
+          flipTopCardFromDeck()
+        end
+      end, 1)
+    end
+    printToColor("Take 1 horror (drawing card from empty deck)", messageColor)
+  end
+end
+
+-- get the draw deck and discard pile objects and returns the references
+---@return table: string-indexed table with references to the found objects
+function getDeckAreaObjects()
+  local deckAreaObjects = {}
+  for _, object in ipairs(searchDeckAndDiscardArea("isCardOrDeck")) do
+    if self.positionToLocal(object.getPosition()).z > 0.5 then
+      deckAreaObjects.discard = object
+      -- Norman Withers handling
+    elseif object.type == "Card" and not object.is_face_down then
+      deckAreaObjects.topCard = object
+    else
+      deckAreaObjects.draw = object
+    end
+  end
+  return deckAreaObjects
+end
+
+-- draws the specified number of cards (reshuffling of discard pile is handled separately)
+---@param numCards number Number of cards to draw
+function drawCards(numCards)
+  local deckAreaObjects = getDeckAreaObjects()
+  if deckAreaObjects.draw then
+    deckAreaObjects.draw.deal(numCards, playerColor)
+  end
+end
+
+function shuffleDiscardIntoDeck()
+  local deckAreaObjects = getDeckAreaObjects()
+  if not deckAreaObjects.discard.is_face_down then
+    deckAreaObjects.discard.flip()
+  end
+  deckAreaObjects.discard.shuffle()
+  deckAreaObjects.discard.setPositionSmooth(self.positionToWorld(DRAW_DECK_POSITION), false, false)
+end
+
+-- utility function for Norman Withers to flip the top card to the revealed side
+function flipTopCardFromDeck()
+  Wait.time(function()
+    local deckAreaObjects = getDeckAreaObjects()
+    if deckAreaObjects.topCard then
+    elseif deckAreaObjects.draw then
+      if deckAreaObjects.draw.type == "Card" then
+        deckAreaObjects.draw.flip()
+      else
+        -- get bounds to know the height of the deck
+        local bounds = deckAreaObjects.draw.getBounds()
+        local pos = bounds.center + Vector(0, bounds.size.y / 2 + 0.2, 0)
+        deckAreaObjects.draw.takeObject({ position = pos, flip = true })
+      end
+    end
+  end, 0.1)
+end
+
+-- discard a random non-hidden card from hand
+function doDiscardOne()
+  local hand = Player[playerColor].getHandObjects()
+  if #hand == 0 then
+    broadcastToColor("Cannot discard from empty hand!", messageColor, "Red")
+  else
+    local choices = {}
+    for i = 1, #hand do
+      local notes = JSON.decode(hand[i].getGMNotes())
+      if notes ~= nil then
+        if notes.hidden ~= true then
+          table.insert(choices, i)
+        end
+      else
+        table.insert(choices, i)
+      end
+    end
+
+    if #choices == 0 then
+      broadcastToColor("Hidden cards can't be randomly discarded.", messageColor, "Orange")
+      return
+    end
+
+    -- get a random non-hidden card (from the "choices" table)
+    local num = math.random(1, #choices)
+    deckLib.placeOrMergeIntoDeck(hand[choices[num]], returnGlobalDiscardPosition(), self.getRotation())
+
+    local playerName = Player[playerColor].steam_name or playerColor
+    broadcastToAll(playerName .. " randomly discarded card " .. choices[num] .. "/" .. #hand .. ".", "White")
+  end
+end
+
+-- checks if DES is present
+function checkForDES()
+  hasDES = false
+  for _, obj in ipairs(searchAroundSelf()) do
+    if obj.type == "Card" then
+      local cardMetadata = JSON.decode(obj.getGMNotes()) or {}
+
+      -- position is used to exclude deck / discard
+      local cardPos = self.positionToLocal(obj.getPosition())
+      if cardMetadata.id == "06159" and cardPos.x > -1 then
+        hasDES = true
+        break
+      end
+    end
+  end
+end
+
+---------------------------------------------------------
+-- slot symbol displaying
+---------------------------------------------------------
+
+-- this will redraw the XML for the slot symbols based on the slotData table
+function redrawSlotSymbols()
+  local xml = {}
+  local snapId = 0
+
+  -- use the snap point positions in the main play area for positions
+  for _, snap in ipairs(self.getSnapPoints()) do
+    if inArea(snap.position, MAIN_PLAY_AREA) then
+      snapId = snapId + 1
+      local slotName = slotData[snapId]
+
+      -- conversion from regular coordinates to XML
+      local x = snap.position.x * 100
+      local y = snap.position.z * 100
+
+      -- XML for a single slot (panel with text in the special font)
+      local slotXML = {
+        tag = "Panel",
+        attributes = {
+          id = "slotPanel" .. snapId,
+          scale = "0.1 0.1 1",
+          width = "175",
+          height = "175",
+          position = x .. " " .. y .. " -11"
+        },
+        children = {
+          {
+            tag = "Text",
+            attributes = {
+              id = "slot" .. snapId,
+              rotation = getSlotRotation(slotName),
+              fontSize = "145",
+              font = "font_arkhamicons",
+              color = "#414141CB",
+              text = slotNameToChar[slotName]
+            }
+          }
+        }
+      }
+      table.insert(xml, slotXML)
+    end
+  end
+
+  self.UI.setXmlTable(xml)
+end
+
+-- toggle the "slot editing mode"
+function toggleSlotEditing(_, clickedByColor, isRightClick)
+  if isRightClick then
+    resetSlotSymbols()
+    return
+  end
+
+  updateMessageColor(clickedByColor)
+
+  -- toggle internal variable
+  currentlyEditingSlots = not currentlyEditingSlots
+
+  if currentlyEditingSlots then
+    editButtonLabel("Edit Slots", "Stop editing")
+    broadcastToColor("Click on a slot symbol (or an empty slot) to edit it.", messageColor, "Orange")
+    addClickFunctionToSlots()
+  else
+    editButtonLabel("Stop editing", "Edit Slots")
+    redrawSlotSymbols()
+  end
+end
+
+-- click function for slot symbols during the "slot editing mode"
+function slotClickfunction(player, _, id)
+  local slotIndex = id:gsub("slotPanel", "")
+  slotIndex = tonumber(slotIndex)
+
+  -- make a list of the table keys as options for the dialog box
+  local slotNames = {}
+  for slotName, _ in pairs(slotNameToChar) do
+    table.insert(slotNames, slotName)
+  end
+
+  -- prompt player to choose symbol
+  player.showOptionsDialog("Choose Slot Symbol", slotNames, slotData[slotIndex],
+    function(chosenSlotName)
+      slotData[slotIndex] = chosenSlotName
+
+      -- update slot symbol
+      self.UI.setAttribute("slot" .. slotIndex, "text", slotNameToChar[chosenSlotName])
+
+      -- update slot rotation
+      self.UI.setAttribute("slot" .. slotIndex, "rotation", getSlotRotation(chosenSlotName))
+    end
+  )
+end
+
+-- helper function to rotate the left hand
+function getSlotRotation(slotName)
+  if slotName == "Hand (left)" then
+    return "0 180 180"
+  else
+    return "0 0 180"
+  end
+end
+
+-- reset the slot symbols by making a deep copy of the default data and redrawing
+function resetSlotSymbols()
+  slotData = {}
+  for _, slotName in ipairs(defaultSlotData) do
+    table.insert(slotData, slotName)
+  end
+
+  redrawSlotSymbols()
+
+  -- need to re-add the click functions if currently in edit mode
+  if currentlyEditingSlots then
+    addClickFunctionToSlots()
+  end
+end
+
+-- enables the click functions for editing
+function addClickFunctionToSlots()
+  for i = 1, #slotData do
+    self.UI.setAttribute("slotPanel" .. i, "onClick", "slotClickfunction")
+  end
+end
+
+---------------------------------------------------------
+-- color related functions
+---------------------------------------------------------
+
+-- changes the player color
+function changeColor(clickedByColor)
+  local colorList = Player.getColors()
+
+  -- remove existing colors from the list of choices
+  for _, existingColor in ipairs(Player.getAvailableColors()) do
+    for i, newColor in ipairs(colorList) do
+      if existingColor == newColor or newColor == "Black" or newColor == "Grey" then
+        table.remove(colorList, i)
+      end
+    end
+  end
+
+  -- show the option dialog for color selection to the player that triggered this
+  Player[clickedByColor].showOptionsDialog("Select a new color:", colorList, _, function(color)
+    -- update the color of the hand zone
+    local handZone = ownedObjects.HandZone
+    handZone.setValue(color)
+
+    -- if the seated player clicked this, reseat him to the new color
+    if clickedByColor == playerColor then
+      navigationOverlayApi.copyVisibility(playerColor, color)
+      Player[playerColor].changeColor(color)
+    end
+
+    -- update the internal variable
+    playerColor = color
+  end)
+end
+
+---------------------------------------------------------
+-- playermat token spawning
+---------------------------------------------------------
+
+-- Finds all customizable cards in this play area and updates their metadata based on the selections
+-- on the matching upgrade sheet.
+-- This method is theoretically O(n^2), and should be used sparingly.  In practice it will only be
+-- called when a checkbox is added or removed in-game (which should be rare), and is bounded by the
+-- number of customizable cards in play.
+function syncAllCustomizableCards()
+  for _, card in ipairs(searchAroundSelf("isCard")) do
+    syncCustomizableMetadata(card)
+  end
+end
+
+function syncCustomizableMetadata(card)
+  local cardMetadata = JSON.decode(card.getGMNotes()) or {}
+  if cardMetadata == nil or cardMetadata.customizations == nil then return end
+
+  for _, upgradeSheet in ipairs(searchAroundSelf("isCard")) do
+    local upgradeSheetMetadata = JSON.decode(upgradeSheet.getGMNotes()) or {}
+    if upgradeSheetMetadata.id == (cardMetadata.id .. "-c") then
+      for i, customization in ipairs(cardMetadata.customizations) do
+        if customization.replaces ~= nil and customization.replaces.uses ~= nil then
+          if upgradeSheet.call("isUpgradeActive", i) then
+            cardMetadata.uses = customization.replaces.uses
+            card.setGMNotes(JSON.encode(cardMetadata))
+          else
+            -- TODO: Get the original metadata to restore it... maybe.  This should only be
+            -- necessary in the very unlikely case that a user un-checks a previously-full upgrade
+            -- row while the card is in play.  It will be much easier once the AllPlayerCardsApi is
+            -- in place, so defer until it is
+          end
+        end
+      end
+    end
+  end
+end
+
+function spawnTokensFor(object)
+  local extraUses = {}
+  if activeInvestigatorId == "03004" then
+    extraUses["Charge"] = 1
+  end
+
+  tokenManager.spawnForCard(object, extraUses)
+end
+
+function onCollisionEnter(collisionInfo)
+  local object = collisionInfo.collision_object
+
+  -- only continue if loading is completed
+  if not collisionEnabled then return end
+
+  -- only continue for cards
+  if object.type ~= "Card" then return end
+
+  maybeUpdateActiveInvestigator(object)
+  syncCustomizableMetadata(object)
+
+  local localCardPos = self.positionToLocal(object.getPosition())
+  if inArea(localCardPos, DECK_DISCARD_AREA) then
+    tokenManager.resetTokensSpawned(object)
+    removeTokensFromObject(object)
+  elseif shouldSpawnTokens(object) then
+    spawnTokensFor(object)
+  end
+end
+
+-- checks if tokens should be spawned for the provided card
+function shouldSpawnTokens(card)
+  if card.is_face_down then
+    return false
+  end
+
+  local localCardPos = self.positionToLocal(card.getPosition())
+  local metadata = JSON.decode(card.getGMNotes())
+
+  -- If no metadata we don't know the type, so only spawn in the main area
+  if metadata == nil then
+    return inArea(localCardPos, MAIN_PLAY_AREA)
+  end
+
+  -- Spawn tokens for assets and events on the main area
+  if inArea(localCardPos, MAIN_PLAY_AREA)
+      and (metadata.type == "Asset"
+        or metadata.type == "Event") then
+    return true
+  end
+
+  -- Spawn tokens for all encounter types in the threat area
+  if inArea(localCardPos, THREAT_AREA)
+      and (metadata.type == "Treachery"
+        or metadata.type == "Enemy"
+        or metadata.weakness) then
+    return true
+  end
+
+  return false
+end
+
+function onObjectEnterContainer(container, object)
+  if object.type ~= "Card" then return end
+
+  local localCardPos = self.positionToLocal(object.getPosition())
+  if inArea(localCardPos, DECK_DISCARD_AREA) then
+    tokenManager.resetTokensSpawned(object)
+    removeTokensFromObject(object)
+  end
+end
+
+-- removes tokens from the provided card/deck
+function removeTokensFromObject(object)
+  if object.hasTag("CardThatSeals") then
+    local func = object.getVar("resetSealedTokens") -- check if function exists (it won't for older custom content)
+    if func ~= nil then
+      object.call("resetSealedTokens")
+    end
+  end
+
+  for _, obj in ipairs(searchLib.onObject(object)) do
+    if tokenChecker.isChaosToken(obj) then
+      chaosBagApi.returnChaosTokenToBag(obj)
+    elseif obj.getGUID() ~= "4ee1f2" and -- table
+        obj ~= self and
+        obj.type ~= "Deck" and
+        obj.type ~= "Card" and
+        obj.memo ~= nil and
+        obj.getLock() == false then
+      ownedObjects.Trash.putObject(obj)
+    end
+  end
+end
+
+---------------------------------------------------------
+-- investigator ID grabbing and skill tracker
+---------------------------------------------------------
+
+-- updates the internal investigator id and action tokens if an investigator card is detected
+---@param card tts__Object Card that might be an investigator
+function maybeUpdateActiveInvestigator(card)
+  if not inArea(self.positionToLocal(card.getPosition()), INVESTIGATOR_AREA) then return end
+
+  local notes = JSON.decode(card.getGMNotes())
+  local extraToken
+
+  if notes ~= nil and notes.type == "Investigator" and notes.id ~= nil then
+    if notes.id == activeInvestigatorId then return end
+    activeInvestigatorClass = notes.class
+    activeInvestigatorId = notes.id
+    extraToken = notes.extraToken
+    ownedObjects.InvestigatorSkillTracker.call("updateStats", {
+      notes.willpowerIcons,
+      notes.intellectIcons,
+      notes.combatIcons,
+      notes.agilityIcons
+    })
+    updateTexture()
+  elseif activeInvestigatorId ~= "00000" then
+    activeInvestigatorClass = "Neutral"
+    activeInvestigatorId = "00000"
+    ownedObjects.InvestigatorSkillTracker.call("updateStats", { 1, 1, 1, 1 })
+    updateTexture()
+  else
+    return
+  end
+
+  -- set proper scale for investigators
+  local cardData = card.getData()
+  if cardData["SidewaysCard"] == true then
+    -- 115% for easier readability
+    card.setScale({ 1.15, 1, 1.15 })
+  else
+    -- Zoop-exported investigators are horizontal cards and TTS scales them differently
+    card.setScale({ 0.8214, 1, 0.8214 })
+  end
+
+  -- remove old action tokens
+  for _, obj in ipairs(searchAroundSelf("isUniversalToken")) do
+    obj.destruct()
+  end
+
+  -- spawn three regular action tokens (investigator specific one in the bottom spot)
+  for i = 1, 3 do
+    local pos = self.positionToWorld(Vector(-1.54 + i * 0.17, 0, -0.28)):add(Vector(0, 0.2, 0))
+
+    tokenManager.spawnToken(pos, "universalActionAbility", self.getRotation(),
+      function(spawned)
+        spawned.call("updateClassAndSymbol", { class = activeInvestigatorClass, symbol = activeInvestigatorClass })
+      end)
+  end
+
+  -- spawn additional token (maybe specific for investigator)
+  if extraToken and extraToken ~= "None" then
+    -- local positions
+    local tokenSpawnPos = {
+      action = {
+        Vector(-0.86, 0, -0.28), -- left of the regular three actions
+        Vector(-1.54, 0, -0.28), -- right of the regular three actions
+      },
+      ability = {
+        Vector(-1, 0, 0.118),  -- bottom left corner of the investigator card
+        Vector(-1, 0, -0.118), -- top left corner of the investigator card
+      }
+    }
+
+    -- spawn tokens (split string by "|")
+    local count = { action = 0, ability = 0 }
+    for str in string.gmatch(extraToken, "([^|]+)") do
+      local type = "action"
+      if str == "FreeTrigger" or str == "Reaction" then
+        type = "ability"
+      end
+
+      count[type] = count[type] + 1
+      if count[type] > 2 then
+        printToColor("More than two extra tokens of the same type are not supported.", playerColor)
+      else
+        local localSpawnPos = tokenSpawnPos[type][count[type]]
+        local globalSpawnPos = self.positionToWorld(localSpawnPos):add(Vector(0, 0.2, 0))
+
+        tokenManager.spawnToken(globalSpawnPos, "universalActionAbility", self.getRotation(),
+          function(spawned)
+            spawned.call("updateClassAndSymbol", { class = activeInvestigatorClass, symbol = str })
+          end)
+      end
+    end
+  end
+end
+
+-- updates the texture of the playermat
+---@param overrideName? string Force a specific texture
+function updateTexture(overrideName)
+  local name = "Neutral"
+
+  -- use class specific texture if enabled
+  if isClassTextureEnabled then
+    name = activeInvestigatorClass
+  end
+
+  -- get new texture URL
+  local newUrl = nameToTexture[name]
+
+  -- override name if valid
+  if nameToTexture[overrideName] then
+    newUrl = nameToTexture[overrideName]
+  end
+
+  -- apply texture
+  local customInfo = self.getCustomObject()
+  if customInfo.image ~= newUrl then
+    -- temporarily lock objects so they don't fall through the mat
+    local objectsToUnlock = {}
+    for _, obj in ipairs(searchAroundSelf()) do
+      if not obj.getLock() then
+        obj.setLock(true)
+        table.insert(objectsToUnlock, obj)
+      end
+    end
+
+    self.script_state = onSave()
+    customInfo.image = newUrl
+    self.setCustomObject(customInfo)
+    local reloadedMat = self.reload()
+
+    -- unlock objects when mat is reloaded
+    Wait.condition(function()
+      for _, obj in ipairs(objectsToUnlock) do
+        obj.setLock(false)
+      end
+    end, function() return reloadedMat.loading_custom == false end)
+  end
+end
+
+---------------------------------------------------------
+-- manipulation of owned objects
+---------------------------------------------------------
+
+-- updates the specified owned counter
+---@param param table Contains the information to update:
+---   type: String Counter to target
+---   newValue: Number Value to set the counter to
+---   modifier: Number If newValue is not provided, the existing value will be adjusted by this modifier
+function updateCounter(param)
+  local counter = ownedObjects[param.type]
+  if counter ~= nil then
+    counter.call("updateVal", param.newValue or (counter.getVar("val") + param.modifier))
+  else
+    printToAll(param.type .. " for " .. matColor .. " could not be found.", "Yellow")
+  end
+end
+
+-- get the value the specified owned counter
+---@param type string Counter to target
+---@return number: Counter value
+function getCounterValue(type)
+  return ownedObjects[type].getVar("val")
+end
+
+-- set investigator skill tracker to "1, 1, 1, 1"
+function resetSkillTracker()
+  local obj = ownedObjects.InvestigatorSkillTracker
+  if obj ~= nil then
+    obj.call("updateStats", { 1, 1, 1, 1 })
+  else
+    printToAll("Skill tracker for " .. matColor .. " playermat could not be found.", "Yellow")
+  end
+end
+
+---------------------------------------------------------
+-- calls to 'Global' / functions for calls from outside
+---------------------------------------------------------
+
+function drawChaosTokenButton(_, _, isRightClick)
+  chaosBagApi.drawChaosToken(self, isRightClick)
+end
+
+function drawEncounterCard(_, _, isRightClick)
+  local drawPos = getEncounterCardDrawPosition(not isRightClick)
+  mythosAreaApi.drawEncounterCard(matColor, drawPos)
+end
+
+function returnGlobalDiscardPosition()
+  return self.positionToWorld(DISCARD_PILE_POSITION)
+end
+
+function returnGlobalDrawPosition()
+  return self.positionToWorld(DRAW_DECK_POSITION)
+end
+
+-- returns the position for encounter card drawing
+---@param stack boolean If true, returns the leftmost position instead of the first empty from the right
+function getEncounterCardDrawPosition(stack)
+  local drawPos = self.positionToWorld(DRAWN_ENCOUNTER_POSITION)
+
+  -- maybe override position with first empty slot in threat area (right to left)
+  if not stack then
+    local searchPos = Vector(-0.91, 0.5, -0.625)
+    for i = 1, 5 do
+      local globalSearchPos = self.positionToWorld(searchPos)
+      local searchResult = searchLib.atPosition(globalSearchPos, "isCardOrDeck")
+      if #searchResult == 0 then
+        drawPos = globalSearchPos
+        break
+      else
+        searchPos.x = searchPos.x + 0.455
+      end
+    end
+  end
+
+  return drawPos
+end
+
+-- creates / removes the draw 1 button
+---@param visible boolean Whether the draw 1 button should be visible
+function showDrawButton(visible)
+  isDrawButtonVisible = visible
+
+  if isDrawButtonVisible then
+    -- Draw 1 button: modified default data
+    buttonParameters.label = "Draw 1"
+    buttonParameters.click_function = "doDrawOne"
+    buttonParameters.tooltip = ""
+    buttonParameters.position.z = -0.35
+    self.createButton(buttonParameters)
+  else
+    local buttons = self.getButtons()
+    for i = 1, #buttons do
+      if buttons[i].label == "Draw 1" then
+        self.removeButton(buttons[i].index)
+      end
+    end
+  end
+end
+
+-- shows / hides a clickable clue counter for this playermat and sets the correct amount of clues
+---@param showCounter boolean Whether the clickable clue counter should be visible
+function clickableClues(showCounter)
+  local clickerPos = ownedObjects.ClickableClueCounter.getPosition()
+  local clueCount = 0
+
+  -- move clue counters
+  local modY = showCounter and 0.525 or -0.525
+  ownedObjects.ClickableClueCounter.setPosition(clickerPos + Vector(0, modY, 0))
+
+  if showCounter then
+    -- get current clue count
+    clueCount = ownedObjects.ClueCounter.getVar("exposedValue")
+
+    -- remove clues
+    ownedObjects.ClueCounter.call("removeAllClues", ownedObjects.Trash)
+
+    -- set value for clue clickers
+    ownedObjects.ClickableClueCounter.call("updateVal", clueCount)
+  else
+    -- get current clue count
+    clueCount = ownedObjects.ClickableClueCounter.getVar("val")
+
+    -- spawn clues
+    local pos = self.positionToWorld({ x = -1.12, y = 0.05, z = 0.7 })
+    for i = 1, clueCount do
+      pos.y = pos.y + 0.045 * i
+      tokenManager.spawnToken(pos, "clue", self.getRotation())
+    end
+  end
+end
+
+-- Toggles the use of class textures
+---@param state boolean Whether the class texture should be used or not
+function useClassTexture(state)
+  if state == isClassTextureEnabled then return end
+  isClassTextureEnabled = state
+  updateTexture()
+end
+
+-- removes all clues (moving tokens to the trash and setting counters to 0)
+function removeClues()
+  ownedObjects.ClueCounter.call("removeAllClues", ownedObjects.Trash)
+  ownedObjects.ClickableClueCounter.call("updateVal", 0)
+end
+
+-- reports the clue count
+---@param useClickableCounters boolean Controls which type of counter is getting checked
+function getClueCount(useClickableCounters)
+  if useClickableCounters then
+    return ownedObjects.ClickableClueCounter.getVar("val")
+  else
+    return ownedObjects.ClueCounter.getVar("exposedValue")
+  end
+end
+
+-- Sets this playermat's snap points to limit snapping to matching card types or not. If matchTypes
+-- is true, the main card slot snap points will only snap assets, while the investigator area point
+-- will only snap Investigators. If matchTypes is false, snap points will be reset to snap all cards.
+---@param matchTypes boolean Whether snap points should only snap for the matching card types.
+function setLimitSnapsByType(matchTypes)
+  local snaps = self.getSnapPoints()
+  for i, snap in ipairs(snaps) do
+    if inArea(snap.position, MAIN_PLAY_AREA) then
+      local snapTags = snaps[i].tags
+      if matchTypes then
+        if snapTags == nil then
+          snaps[i].tags = { "Asset" }
+        else
+          table.insert(snaps[i].tags, "Asset")
+        end
+      else
+        snaps[i].tags = nil
+      end
+    end
+    if inArea(snap.position, INVESTIGATOR_AREA) then
+      local snapTags = snaps[i].tags
+      if matchTypes then
+        if snapTags == nil then
+          snaps[i].tags = { "Investigator" }
+        else
+          table.insert(snaps[i].tags, "Investigator")
+        end
+      else
+        snaps[i].tags = nil
+      end
+    end
+  end
+  self.setSnapPoints(snaps)
+end
+
+-- Simple method to check if the given point is in a specified area. Local use only
+---@param point tts__Vector Point to check, only x and z values are relevant
+---@param bounds table Defined area to see if the point is within. See MAIN_PLAY_AREA for sample bounds definition.
+---@return boolean: True if the point is in the area defined by bounds
+function inArea(point, bounds)
+  return (point.x < bounds.upperLeft.x
+    and point.x > bounds.lowerRight.x
+    and point.z < bounds.upperLeft.z
+    and point.z > bounds.lowerRight.z)
+end
+
+-- called by custom data helpers to add player card data
+---@param args table Contains only one entry, the GUID of the custom data helper
+function updatePlayerCards(args)
+  local customDataHelper = getObjectFromGUID(args[1])
+  local playerCardData = customDataHelper.getTable("PLAYER_CARD_DATA")
+  tokenManager.addPlayerCardData(playerCardData)
+end

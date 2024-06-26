@@ -1,6 +1,7 @@
 local deckLib = require("util/DeckLib")
 local guidReferenceApi = require("core/GUIDReferenceApi")
 local playAreaApi = require("core/PlayAreaApi")
+local playermatApi = require("playermat/PlayermatApi")
 local searchLib = require("util/SearchLib")
 local tokenArrangerApi = require("accessories/TokenArrangerApi")
 local tokenChecker = require("core/token/TokenChecker")
@@ -8,11 +9,11 @@ local tokenSpawnTrackerApi = require("core/token/TokenSpawnTrackerApi")
 
 local ENCOUNTER_DECK_AREA = {
   upperLeft = { x = 0.9, z = 0.42 },
-  lowerRight = { x = 0.86, z = 0.38 },
+  lowerRight = { x = 0.86, z = 0.38 }
 }
 local ENCOUNTER_DISCARD_AREA = {
   upperLeft = { x = 1.62, z = 0.42 },
-  lowerRight = { x = 1.58, z = 0.38 },
+  lowerRight = { x = 1.58, z = 0.38 }
 }
 
 -- global position of encounter deck and discard pile
@@ -21,20 +22,6 @@ local ENCOUNTER_DISCARD_POSITION = { x = -3.85, y = 1, z = 10.38 }
 local isReshuffling = false
 local collisionEnabled = false
 local currentScenario, useFrontData, tokenData
-local TRASH, DATA_HELPER
-
-function onLoad(saveState)
-  if saveState ~= nil then
-    local loadedState = JSON.decode(saveState) or {}
-    currentScenario   = loadedState.currentScenario or ""
-    useFrontData      = loadedState.useFrontData or true
-    tokenData         = loadedState.tokenData or {}
-  end
-  TRASH = guidReferenceApi.getObjectByOwnerAndType("Mythos", "Trash")
-  DATA_HELPER = guidReferenceApi.getObjectByOwnerAndType("Mythos", "DataHelper")
-
-  Wait.time(function() collisionEnabled = true end, 0.1)
-end
 
 function onSave()
   return JSON.encode({
@@ -42,6 +29,16 @@ function onSave()
     useFrontData    = useFrontData,
     tokenData       = tokenData
   })
+end
+
+function onLoad(savedData)
+  if savedData and savedData ~= "" then
+    local loadedState = JSON.decode(savedData) or {}
+    currentScenario   = loadedState.currentScenario or ""
+    useFrontData      = loadedState.useFrontData or true
+    tokenData         = loadedState.tokenData or {}
+  end
+  Wait.time(function() collisionEnabled = true end, 0.1)
 end
 
 ---------------------------------------------------------
@@ -98,12 +95,13 @@ function onCollisionExit(collisionInfo)
   end
 end
 
--- Listens for cards entering the encounter deck or encounter discard, and resets the spawn state
--- for the cards when they do.
+-- Listens for cards entering the encounter deck or encounter discard, discards tokens on them,
+-- and resets the spawn state for the cards when they do.
 function onObjectEnterContainer(container, object)
   local localPos = self.positionToLocal(container.getPosition())
   if inArea(localPos, ENCOUNTER_DECK_AREA) or inArea(localPos, ENCOUNTER_DISCARD_AREA) then
     tokenSpawnTrackerApi.resetTokensSpawned(object.getGUID())
+    removeTokensFromObject(object)
   end
 end
 
@@ -151,71 +149,86 @@ end
 -- 'params' contains the position, rotation and a boolean to force a faceup draw
 function drawEncounterCard(params)
   local encounterDeck = getEncounterDeck()
+  local reshuffledAlready
 
   if encounterDeck then
     reshuffledAlready = false
-    local card
     if encounterDeck.type == "Deck" then
-      card = encounterDeck.takeObject()
+      actualEncounterCardDraw(encounterDeck.takeObject(), params)
     else
-      card = encounterDeck
+      actualEncounterCardDraw(encounterDeck, params)
     end
-    actualEncounterCardDraw(card, params)
   else
     -- nothing here, time to reshuffle
     if reshuffledAlready == true then
       reshuffledAlready = false
       return
     end
-    reshuffleEncounterDeck() -- if there is no discard pile either, reshuffleEncounterDeck will give an error message already
+
+    -- if there is no discard pile either, reshuffleEncounterDeck will give an error message already
+    local success = reshuffleEncounterDeck()
+
+    -- only continue if there was a discard pile
+    if not success then return end
     reshuffledAlready = true
     drawEncounterCard(params)
   end
 end
 
+-- draw the provided card to the requesting playermat
 function actualEncounterCardDraw(card, params)
+  local metadata = JSON.decode(card.getGMNotes()) or {}
+  local DATA_HELPER = guidReferenceApi.getObjectByOwnerAndType("Mythos", "DataHelper")
+
+  -- draw hidden cards facedown
   local faceUpRotation = 0
-  if not params.alwaysFaceUp then
-    local metadata = JSON.decode(card.getGMNotes()) or {}
-    if metadata.hidden or DATA_HELPER.call('checkHiddenCard', card.getName()) then
-      faceUpRotation = 180
-    end
+  if metadata.hidden or DATA_HELPER.call('checkHiddenCard', card.getName()) then
+    faceUpRotation = 180
   end
 
-  local DRAWN_ENCOUNTER_CARD_OFFSET = {1.365, 0.5, -0.625}
-  local pos = params.mat.positionToWorld(DRAWN_ENCOUNTER_CARD_OFFSET)
-  local rotY = params.mat.getRotation().y
-
-  deckLib.placeOrMergeIntoDeck(card, pos, { 0, rotY, faceUpRotation })
+  local rot = playermatApi.returnRotation(params.matColor):setAt("z", faceUpRotation)
+  deckLib.placeOrMergeIntoDeck(card, params.position, rot)
 end
 
+-- gets the discard pile and shuffles it into the encounter deck
+---@return boolean: Whether the operation was successfully performed
 function reshuffleEncounterDeck()
   -- flag to avoid multiple calls
-  if isReshuffling then return end
+  if isReshuffling then
+    return false
+  end
   isReshuffling = true
+
+  -- disable flag after 1s delay
+  Wait.time(function() isReshuffling = false end, 1)
+
   local encounterDeck = getEncounterDeck()
   local discardPile = searchLib.atPosition(ENCOUNTER_DISCARD_POSITION, "isCardOrDeck")
-    
+
   if #discardPile > 0 then
     local discardDeck = discardPile[1]
-    if not discardDeck.is_face_down then --flips discard pile
-      discardDeck.setRotation({0, -90, 180}) 
-    end 
+
+    -- flips discard pile
+    if not discardDeck.is_face_down then
+      discardDeck.setRotation({ 0, -90, 180 })
+    end
+
+    -- make a new encounter deck
     if encounterDeck == nil then
-      discardDeck.setPosition(Vector(ENCOUNTER_DECK_POS) + Vector({0, 1, 0}))
-      discardDeck.shuffle()
+      discardDeck.setPosition(Vector(ENCOUNTER_DECK_POS) + Vector({ 0, 1, 0 }))
+      encounterDeck = discardDeck
     else
       encounterDeck.putObject(discardDeck)
-      encounterDeck.shuffle()
     end
+    encounterDeck.shuffle()
     broadcastToAll("Shuffled encounter discard into deck.", "White")
+    return true
   else
     broadcastToAll("Encounter discard pile is already empty.", "Red")
+    return false
   end
-
-  -- disable flag
-  Wait.time(function() isReshuffling = false end, 1)
 end
+
 ---------------------------------------------------------
 -- helper functions
 ---------------------------------------------------------
@@ -233,6 +246,7 @@ end
 
 -- removes tokens from the provided card/deck
 function removeTokensFromObject(object)
+  local TRASH = guidReferenceApi.getObjectByOwnerAndType("Mythos", "Trash")
   for _, obj in ipairs(searchLib.onObject(object)) do
     if obj.getGUID() ~= "4ee1f2" and -- table
         obj ~= self and

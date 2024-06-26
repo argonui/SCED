@@ -1,16 +1,17 @@
 -- Cleans up the table for the next scenario in a campaign:
 -- sets counters to default values (resources and doom) or trauma values (health and sanity, if not disabled) from campaign log
--- puts everything on playmats and hands into respective trashcans
+-- puts everything on playermats and hands into respective trashcans
 -- use the IGNORE_TAG to exclude objects from tidying (default: "CleanUpHelper_Ignore")
 
-local blessCurseManagerApi = require("chaosbag/BlessCurseManagerApi")
-local chaosBagApi          = require("chaosbag/ChaosBagApi")
-local guidReferenceApi     = require("core/GUIDReferenceApi")
-local playAreaApi          = require("core/PlayAreaApi")
-local playmatApi           = require("playermat/PlaymatApi")
-local searchLib            = require("util/SearchLib")
-local soundCubeApi         = require("core/SoundCubeApi")
-local tokenSpawnTrackerApi = require("core/token/TokenSpawnTrackerApi")
+local blessCurseManagerApi      = require("chaosbag/BlessCurseManagerApi")
+local chaosBagApi               = require("chaosbag/ChaosBagApi")
+local guidReferenceApi          = require("core/GUIDReferenceApi")
+local mythosAreaApi             = require("core/MythosAreaApi")
+local playAreaApi               = require("core/PlayAreaApi")
+local playermatApi              = require("playermat/PlayermatApi")
+local searchLib                 = require("util/SearchLib")
+local soundCubeApi              = require("core/SoundCubeApi")
+local tokenSpawnTrackerApi      = require("core/token/TokenSpawnTrackerApi")
 
 -- objects with this tag will be ignored
 local IGNORE_TAG                = "CleanUpHelper_ignore"
@@ -26,6 +27,12 @@ local options                   = {}
 options["importTrauma"]         = true
 options["tidyPlayermats"]       = true
 options["removeDrawnLines"]     = false
+
+-- don't clean playermats for preludes
+local scenarioName
+local preludeList               = {
+  ["Prelude: Welcome to Hemlock Vale!"] = true
+}
 
 local buttonParameters          = {}
 buttonParameters.function_owner = self
@@ -109,6 +116,7 @@ function cleanUp(_, color)
   printToAll("Clean up started!", "Orange")
   printToAll("Resetting counters...", "White")
 
+  getScenarioName()
   soundCubeApi.playSoundByName("Vacuum")
   ignoreCustomDataHelper()
   getTrauma()
@@ -119,6 +127,7 @@ function cleanUp(_, color)
   resetDoomCounter()
   blessCurseManagerApi.removeAll(color)
   removeLines()
+  returnMiniCards()
   discardHands()
   chaosBagApi.returnChaosTokens()
   chaosBagApi.releaseAllSealedTokens(color)
@@ -132,14 +141,21 @@ end
 -- modular functions, called by other functions
 ---------------------------------------------------------
 
+function getScenarioName()
+  local tokenData = mythosAreaApi.returnTokenData()
+  scenarioName = tokenData.currentScenario
+end
+
 function updateCounters()
-  playmatApi.updateCounter("All", "ResourceCounter" , 5)
-  playmatApi.updateCounter("All", "ClickableClueCounter" , 0)
-  playmatApi.resetSkillTracker("All")
+  if not getOptionValue() then return end
+
+  playermatApi.updateCounter("All", "ResourceCounter", 5)
+  playermatApi.updateCounter("All", "ClickableClueCounter", 0)
+  playermatApi.resetSkillTracker("All")
 
   for i = 1, 4 do
-    playmatApi.updateCounter(COLORS[i], "DamageCounter", RESET_VALUES.Damage[i])
-    playmatApi.updateCounter(COLORS[i], "HorrorCounter", RESET_VALUES.Horror[i])
+    playermatApi.updateCounter(COLORS[i], "DamageCounter", RESET_VALUES.Damage[i])
+    playermatApi.updateCounter(COLORS[i], "HorrorCounter", RESET_VALUES.Horror[i])
   end
 end
 
@@ -196,7 +212,7 @@ function loadTrauma()
       if i < 5 then
         RESET_VALUES.Damage[i] = trauma[i]
       else
-        RESET_VALUES.Horror[i-4] = trauma[i]
+        RESET_VALUES.Horror[i - 4] = trauma[i]
       end
     end
     loadingFailedBefore = false
@@ -226,13 +242,37 @@ function removeLines()
   end
 end
 
+-- returns the mini cards back to the owning mat
+function returnMiniCards()
+  -- stop if playermats get tidied anyway
+  if getOptionValue() then return end
+
+  -- get mini cards in play
+  local miniCardIndex = {}
+  for _, obj in ipairs(getObjectsWithTag("Minicard")) do
+    local notes = JSON.decode(obj.getGMNotes())
+    if notes ~= nil and notes.id then
+      miniCardIndex[notes.id] = obj
+    end
+  end
+
+  -- move mini cards
+  for _, mat in pairs(guidReferenceApi.getObjectsByType("Playermat")) do
+    local miniId = mat.getVar("activeInvestigatorId") .. "-m"
+    if miniCardIndex[miniId] then
+      local pos = mat.positionToWorld(Vector(-1.36, 0, -0.625)):setAt("y", 1.67)
+      miniCardIndex[miniId].setPosition(pos)
+    end
+  end
+end
+
 -- discard all hand objects
 function discardHands()
-  if not options["tidyPlayermats"] then return end
+  if not getOptionValue() then return end
   for i = 1, 4 do
     local trash = guidReferenceApi.getObjectByOwnerAndType(COLORS[i], "Trash")
     if trash == nil then return end
-    local hand = Player[playmatApi.getPlayerColor(COLORS[i])].getHandObjects()
+    local hand = Player[playermatApi.getPlayerColor(COLORS[i])].getHandObjects()
     for j = #hand, 1, -1 do
       trash.putObject(hand[j])
     end
@@ -253,6 +293,11 @@ end
 
 -- clean up for play area
 function tidyPlayareaCoroutine()
+  -- small wait to allow other operations to finish
+  for k = 1, 10 do
+    coroutine.yield(0)
+  end
+
   local trash = guidReferenceApi.getObjectByOwnerAndType("Mythos", "Trash")
   local playAreaZone = guidReferenceApi.getObjectByOwnerAndType("Mythos", "PlayAreaZone")
 
@@ -286,14 +331,16 @@ function tidyPlayerMatCoroutine()
 
   for i = 1, 5 do
     -- only continue for playermat (1-4) if option enabled
-    if options["tidyPlayermats"] or i == 5 then
+    if getOptionValue() or i == 5 then
       -- delay for animation purpose
-      for k = 1, 30 do coroutine.yield(0) end
+      for k = 1, 30 do
+        coroutine.yield(0)
+      end
 
       -- get respective trash
       local trash = guidReferenceApi.getObjectByOwnerAndType(COLORS[i], "Trash")
       if trash == nil then
-        printToAll("Trashcan for " .. COLORS[i] .. " playmat could not be found! Skipping this playermat.", "Yellow")
+        printToAll("Trashcan for " .. COLORS[i] .. " playermat could not be found! Skipping this playermat.", "Yellow")
         goto continue
       end
 
@@ -304,7 +351,7 @@ function tidyPlayerMatCoroutine()
 
       local objList
       if i < 5 then
-        objList = playmatApi.searchAroundPlaymat(COLORS[i])
+        objList = playermatApi.searchAroundPlayermat(COLORS[i])
       else
         -- Victory Display + Mythos Area
         objList = searchLib.inArea({ -2, 2, 10 }, { 0, 270, 0 }, { 55, 1, 13.5 })
@@ -313,31 +360,11 @@ function tidyPlayerMatCoroutine()
       for _, obj in ipairs(objList) do
         -- ignore these elements
         if obj.hasTag(IGNORE_TAG) == false
-            and obj.getDescription() ~= "Action Token"
+            and obj.hasTag("UniversalToken") == false
             and obj.hasTag("chaosBag") == false
-            and obj.locked == false
+            and (obj.locked == false or obj.hasTag("Investigator"))
             and obj.interactable == true then
-          coroutine.yield(0)
           trash.putObject(obj)
-
-        -- action token handling
-        elseif obj.getDescription() == "Action Token" then
-          -- move the small action token to the proper position
-          if obj.getScale().x < 0.4 then
-            local pos = playmatApi.transformLocalPosition(Vector(-0.865, 0.1, -0.28), COLORS[i])
-            obj.setPosition(pos)
-          end
-
-          -- flip action tokens back to ready
-          if obj.is_face_down then
-            obj.flip()
-          end
-
-          -- reset action token state
-          local stateId = obj.getStateId()
-          if stateId ~= -1 and stateId ~= 6 then
-            obj.setState(6)
-          end
         end
       end
 
@@ -380,5 +407,15 @@ function getTekeliliHelper()
     if obj.getName() == "Tekeli-li Helper" then
       return obj
     end
+  end
+end
+
+-- get value with respect to override value
+function getOptionValue()
+  -- don't clean up playermats if playing a prelude from the list
+  if preludeList[scenarioName] then
+    return false
+  else
+    return options["tidyPlayermats"]
   end
 end

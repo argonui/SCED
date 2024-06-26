@@ -1,10 +1,8 @@
--- this script is shared between both the level 0 and the upgraded level 3 version of the card
-local playmatApi = require("playermat/PlaymatApi")
+require("playercards/CardsWithHelper")
+local playermatApi = require("playermat/PlayermatApi")
 
-local modValue, loopId
 local buttonParameters = {
-  click_function = "toggleCounter",
-  tooltip = "disable counter",
+  click_function = "shutOff",
   function_owner = self,
   position = { 0.88, 0.5, -1.33 },
   font_size = 150,
@@ -12,7 +10,11 @@ local buttonParameters = {
   height = 175
 }
 
-function onSave() return JSON.encode({ loopId = loopId }) end
+local modValue
+
+function updateSave()
+  self.script_state = JSON.encode({ isHelperEnabled = isHelperEnabled })
+end
 
 function onLoad(savedData)
   -- use metadata to detect level and adjust modValue accordingly
@@ -22,32 +24,30 @@ function onLoad(savedData)
     modValue = 4
   end
 
-  if savedData ~= "" then
+  self.addTag("CardWithHelper")
+  if savedData and savedData ~= "" then
     local loadedData = JSON.decode(savedData)
-    if loadedData.loopId then
-      self.createButton(buttonParameters)
-      loopId = Wait.time(updateDisplay, 2, -1)
-    end
+    isHelperEnabled = loadedData.isHelperEnabled
   end
-
-  self.addContextMenuItem("Toggle Counter", toggleCounter)
+  checkOptionPanel()
+  updateDisplay()
 end
 
-function toggleCounter()
-  if loopId ~= nil then
-    Wait.stop(loopId)
-    loopId = nil
-    self.clearButtons()
-  else
-    self.createButton(buttonParameters)
-    updateDisplay()
-    loopId = Wait.time(updateDisplay, 2, -1)
-  end
+function initialize()
+  self.clearButtons()
+  self.createButton(buttonParameters)
+  updateButton()
+  Wait.time(updateButton, 2, -1)
 end
 
-function updateDisplay()
-  local matColor = playmatApi.getMatColorByPosition(self.getPosition())
-  local resources = playmatApi.getCounterValue(matColor, "ResourceCounter")
+function shutOff()
+  self.clearButtons()
+  Wait.stopAll()
+end
+
+function updateButton()
+  local matColor = playermatApi.getMatColorByPosition(self.getPosition())
+  local resources = playermatApi.getCounterValue(matColor, "ResourceCounter")
   local count = tostring(math.floor(resources / modValue))
   self.editButton({ index = 0, label = count })
 end

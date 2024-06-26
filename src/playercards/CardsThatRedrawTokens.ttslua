@@ -1,0 +1,113 @@
+--[[ Library for cards that return and redraw tokens
+This file is used to add an XML button to a card, turned on via context menu.
+Valid options modify the appearance of the XML button, as well as the
+behavior of the return and redraw function. Set options before requiring this file.
+
+Parameters for the return and redraw functions. Typically set VALID_TOKENS or INVALID_TOKENS, not both.
+If there are no restrictions on which tokens can be redrawn (e.g. Wendy Adams), keep both empty.
+* VALID_TOKENS --@type table
+  - keyed table which lists all tokens that can be redrawn by the card
+  - example usage: "False Covenant"
+  > VALID_TOKENS = {
+  >   ["Curse"]       = true
+  > }
+
+* INVALID_TOKENS  --@type table
+  - keyed table which lists all tokens that cannot be redrawn by the card
+  - example usage: "Custom Ammunition"
+  > INVALID_TOKENS = {
+  >   ["Auto-fail"]       = true
+  > }
+
+* DRAW_SPECIFIC_TOKEN --@type string (name of token or nil)
+  - if set, will attempt to draw that specific token
+
+* RETURN_TO_POOL --@type string
+  - allows for the name of the card to be passed onto Global for any special handling
+
+The following parameters modify the appearence of the XML button and are not listed as part of a table.
+ - buttonHeight (default is 450)
+ - buttonWidth  (default is 1400)
+ - buttonPosition (default is "0 -55 -22")
+ - buttonFontSize (default is 250)
+ - buttonRotation (change if button is placed on an investigator cards)
+ - buttonLabel (default is "Redraw Token")
+ - buttonIcon (to add an icon to the right)
+ - buttonColor (default is "#77674DE6")
+
+----------------------------------------------------------
+EXAMPLE: Claypool's Furs
+This card can only redraw the Frost token, and is replaced with a random token from the bag.
+As a nice reminder the XML button takes on the Frost color and icon with the text "Cancel".
+  > buttonValue = "Cancel"
+  > buttonIcon = "token-frost"
+  > buttonColor = "#404450E6"
+  > buttonFontSize = 300
+
+  > VALID_TOKENS = {
+  >   ["Frost"] = true
+  > }
+  >
+  > require...
+----------------------------------------------------------]]
+
+local isHelperEnabled = false
+
+function updateSave()
+  self.script_state = JSON.encode({ isHelperEnabled = isHelperEnabled })
+end
+
+function onLoad(savedData)
+  self.addTag("CardWithHelper")
+  if savedData and savedData ~= "" then
+    local loadedData = JSON.decode(savedData)
+    isHelperEnabled = loadedData.isHelperEnabled
+  end
+  checkOptionPanel()
+  createHelperXML()
+  updateDisplay()
+end
+
+function createHelperXML()
+  local xmlTable = { {
+    tag = "Button",
+    attributes = {
+      active = "false",
+      id = "Helper",
+      height = buttonHeight or 450,
+      width = buttonWidth or 1400,
+      rotation = buttonRotation or "0 0 180",
+      scale = "0.1 0.1 1",
+      position = buttonPosition or "0 -55 -22",
+      padding = "50 50 50 50",
+      font = "font_teutonic-arkham",
+      fontSize = buttonFontSize or 250,
+      onClick = "triggerXMLTokenLabelCreation",
+      color = buttonColor or "#77674DE6",
+      textColor = "White"
+    },
+    value = buttonLabel or "Redraw Token"
+  } }
+  if buttonIcon then
+    xmlTable[1].attributes.iconWidth = "400"
+    xmlTable[1].attributes.iconAlignment = "Right"
+    xmlTable[1].attributes.icon = buttonIcon
+  end
+  self.UI.setXmlTable(xmlTable)
+end
+
+function shutOff()
+  self.UI.hide("Helper")
+end
+
+function initialize()
+  self.UI.show("Helper")
+end
+
+function triggerXMLTokenLabelCreation()
+  Global.call("activeRedrawEffect", {
+    VALID_TOKENS = VALID_TOKENS,
+    INVALID_TOKENS = INVALID_TOKENS,
+    RETURN_TO_POOL = RETURN_TO_POOL
+  })
+end

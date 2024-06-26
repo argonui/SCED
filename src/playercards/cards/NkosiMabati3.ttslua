@@ -1,0 +1,113 @@
+require("playercards/CardsWithHelper")
+local chaosBagApi = require("chaosbag/ChaosBagApi")
+
+-- XML background color for each token
+local tokenColor  = {
+  ["Skull"] = "#4A0400E6",
+  ["Cultist"] = "#173B0BE6",
+  ["Tablet"] = "#1D2238E6",
+  ["Elder Thing"] = "#4D2331E6",
+  ["Auto-fail"] = "#9B0004E6",
+  ["Bless"] = "#9D702CE6",
+  ["Curse"] = "#633A84E6",
+  ["Frost"] = "#404450E6",
+  [""] = "#77674DE6"
+}
+
+function onSave()
+  return JSON.encode(sigil)
+end
+
+function onLoad(savedData)
+  self.addContextMenuItem("Enable Helper", chooseSigil)
+  sigil = JSON.decode(savedData)
+  if sigil and sigil ~= nil then
+    makeXMLButton()
+    self.clearContextMenu()
+    self.addContextMenuItem("Clear Helper", deleteButtons)
+  end
+end
+
+function makeXMLButton()
+  -- get name of the icon for the sigil ("token" + lowercase name without space characters)
+  local sigilName = Global.call("getReadableTokenName", sigil)
+  local iconName = "token-" .. string.lower(sigilName)
+  iconName = iconName:gsub("%s", "-")
+
+  self.UI.setXmlTable({
+    {
+      tag = "Button",
+      attributes = {
+        height = 450,
+        width = 1400,
+        rotation = "0 0 180",
+        scale = "0.1 0.1 1",
+        position = "0 -55 -22",
+        padding = "50 50 50 50",
+        font = "font_teutonic-arkham",
+        fontSize = 300,
+        iconWidth = "400",
+        iconAlignment = "Right",
+        onClick = "resolveSigil",
+        icon = iconName,
+        color = tokenColor[sigil],
+        textColor = "White"
+      },
+      value = "Resolve"
+    }
+  }
+  )
+end
+
+-- Create dialog window to choose sigil and create sigil-drawing button
+function chooseSigil(playerColor)
+  self.clearContextMenu()
+  self.addContextMenuItem("Clear Helper", deleteButtons)
+
+  -- get list of readable names
+  local readableNames = {}
+  for token, _ in pairs(tokenColor) do
+    table.insert(readableNames, Global.call("getReadableTokenName", token))
+  end
+
+  -- prompt player to choose sigil
+  Player[playerColor].showOptionsDialog("Choose Sigil", readableNames, 1,
+    function(chosenToken)
+      sigil = Global.call("getChaosTokenName", chosenToken)
+      makeXMLButton()
+    end
+  )
+end
+
+-- Delete button and remove sigil
+function deleteButtons()
+  self.clearContextMenu()
+  self.addContextMenuItem("Enable Helper", chooseSigil)
+  self.UI.setXml("")
+  sigil = nil
+end
+
+function resolveSigil()
+  local match = false
+  for _, obj in ipairs(chaosBagApi.findChaosBag().getObjects()) do
+    -- if there are any sigils in the bag
+    if obj.nickname == sigil then
+      match = true
+      break
+    end
+  end
+
+  if not match then
+    broadcastToAll(Global.call("getReadableTokenName", sigil) .. " not found in chaos bag", "Red")
+    return
+  end
+
+  Global.call("activeRedrawEffect", {
+    DRAW_SPECIFIC_TOKEN = sigil,
+    VALID_TOKENS = {
+      ["Tablet"] = true,
+      ["Elder Thing"] = true,
+      ["Cultist"] = true
+    }
+  })
+end

@@ -6,8 +6,8 @@ local SPREAD_X_SHIFT = -3.66
 
 Spawner = { }
 
--- Spawns a list of cards at the given position/rotation.  This will separate cards by size -
--- investigator, standard, and mini, spawning them in that order with larger cards on bottom.  If
+-- Spawns a list of cards at the given position/rotation. This will separate cards by size -
+-- investigator, standard, and mini, spawning them in that order with larger cards on bottom. If
 -- there are different types, the provided callback will be called once for each type as it spawns
 -- either a card or deck.
 ---@param cardList table A list of Player Card data structures (data/metadata)
@@ -16,7 +16,7 @@ Spawner = { }
 ---@param sort boolean True if this list of cards should be sorted before spawning
 ---@param callback? function Callback to be called after the card/deck spawns.
 Spawner.spawnCards = function(cardList, pos, rot, sort, callback)
-  if (sort) then
+  if sort then
     table.sort(cardList, Spawner.cardComparator)
   end
 
@@ -25,16 +25,16 @@ Spawner.spawnCards = function(cardList, pos, rot, sort, callback)
   local investigatorCards = { }
 
   for _, card in ipairs(cardList) do
-    if (card.metadata.type == "Investigator") then
+    if card.metadata.type == "Investigator" then
       table.insert(investigatorCards, card)
-    elseif (card.metadata.type == "Minicard") then
+    elseif card.metadata.type == "Minicard" then
       table.insert(miniCards, card)
     else
       table.insert(standardCards, card)
     end
   end
-  -- Spawn each of the three types individually.  Each Y position shift accounts for the thickness
-  -- of the spawned deck
+
+  -- Spawn each of the three types individually. Y position accounts for the thickness of the spawned deck
   local position = { x = pos.x, y = pos.y, z = pos.z }
   Spawner.spawn(investigatorCards, position, rot, callback)
 
@@ -46,13 +46,13 @@ Spawner.spawnCards = function(cardList, pos, rot, sort, callback)
 end
 
 Spawner.spawnCardSpread = function(cardList, startPos, maxCols, rot, sort, callback)
-  if (sort) then
+  if sort then
     table.sort(cardList, Spawner.cardComparator)
   end
 
   local position = { x = startPos.x, y = startPos.y, z = startPos.z }
   -- Special handle the first row if we have less than a full single row, but only if there's a
-  -- reasonable max column count.  Single-row spreads will send a large value for maxCols
+  -- reasonable max column count. Single-row spreads will send a large value for maxCols
   if maxCols < 100 and #cardList < maxCols then
     position.z = startPos.z + ((maxCols - #cardList) / 2 * SPREAD_Z_SHIFT)
   end
@@ -75,7 +75,7 @@ Spawner.spawnCardSpread = function(cardList, startPos, maxCols, rot, sort, callb
   end
 end
 
--- Spawn a specific list of cards.  This method is for internal use and should not be called
+-- Spawn a specific list of cards. This method is for internal use and should not be called
 -- directly, use spawnCards instead.
 ---@param cardList table A list of Player Card data structures (data/metadata)
 ---@param pos table Position where the cards should be spawned (global)
@@ -90,25 +90,18 @@ Spawner.spawn = function(cardList, pos, rot, callback)
     if cardList[1].data.SidewaysCard then
       rot = { rot.x, rot.y - 90, rot.z }
     end
-    spawnObjectData({
+    return spawnObjectData({
       data = cardList[1].data,
       position = pos,
       rotation = rot,
       callback_function = callback
     })
-    return
   end
 
   -- For multiple cards, construct a deck and spawn that
-  local deck = Spawner.buildDeckDataTemplate()
-
-  -- Decks won't inherently scale to the cards in them.  The card list being spawned should be all
-  -- the same type/size by this point, so use the first card to set the size
-  deck.Transform = {
-    scaleX = cardList[1].data.Transform.scaleX,
-    scaleY = 1,
-    scaleZ = cardList[1].data.Transform.scaleZ
-  }
+  local deckScaleX = cardList[1].data.Transform.scaleX
+  local deckScaleZ = cardList[1].data.Transform.scaleZ
+  local deck = Spawner.buildDeckDataTemplate(deckScaleX, deckScaleZ)
 
   local sidewaysDeck = true
   for _, spawnCard in ipairs(cardList) do
@@ -123,7 +116,7 @@ Spawner.spawn = function(cardList, pos, rot, callback)
     rot = { rot.x, rot.y - 90, rot.z }
   end
 
-  spawnObjectData({
+  return spawnObjectData({
     data = deck,
     position = pos,
     rotation = rot,
@@ -131,12 +124,12 @@ Spawner.spawn = function(cardList, pos, rot, callback)
   })
 end
 
--- Inserts a card into the given deck.  This does three things:
+-- Inserts a card into the given deck. This does three things:
 --   1. Add the card's data to ContainedObjects
 --   2. Add the card's ID (the TTS CardID, not the Arkham ID) to the deck's
---      ID list.  Note that the deck's ID list is "DeckIDs" even though it
+--      ID list. Note that the deck's ID list is "DeckIDs" even though it
 --      contains a list of card Ids
---   3. Extract the card's CustomDeck table and add it to the deck.  The deck's
+--   3. Extract the card's CustomDeck table and add it to the deck. The deck's
 --      "CustomDeck" field is a list of all CustomDecks used by cards within the
 --      deck, keyed by the DeckID and referencing the custom deck table
 ---@param deck table TTS deck data structure to add to
@@ -176,20 +169,22 @@ end
 -- creates a new table on each call without using metatables or previous
 -- definitions because we can't be sure that TTS doesn't modify the structure
 ---@return table deck Table containing the minimal TTS deck data structure
-Spawner.buildDeckDataTemplate = function()
+Spawner.buildDeckDataTemplate = function(deckScaleX, deckScaleZ)
   local deck = {}
   deck.Name = "Deck"
 
-  -- Card data.  DeckIDs and CustomDeck entries will be built from the cards
+  -- Card data. DeckIDs and CustomDeck entries will be built from the cards
   deck.ContainedObjects = {}
   deck.DeckIDs = {}
   deck.CustomDeck = {}
 
   -- Transform is required, Position and Rotation will be overridden by the spawn call so can be omitted here
+  -- Decks won't inherently scale to the cards in them. The card list being spawned should be all
+  -- the same type/size by this point, so use the first card to set the size
   deck.Transform = {
-    scaleX = 1,
+    scaleX = deckScaleX or 1,
     scaleY = 1,
-    scaleZ = 1,
+    scaleZ = deckScaleZ or 1,
   }
 
   return deck
@@ -201,7 +196,7 @@ end
 ---@return string id >= startId
 Spawner.findNextAvailableId = function(objectTable, startId)
   local id = startId
-  while (objectTable[id] ~= nil) do
+  while objectTable[id] ~= nil do
     id = tostring(tonumber(id) + 1)
   end
   return id
@@ -220,14 +215,14 @@ Spawner.getpbcn = function(metadata)
   end
 end
 
--- Comparison function used to sort the cards in a deck.  Groups bonded or
+-- Comparison function used to sort the cards in a deck. Groups bonded or
 -- permanent cards first, then sorts within theose types by name/subname.
 -- Normal cards will sort in standard alphabetical order, while
 -- permanent/bonded/customizable will be in reverse alphabetical order.
 --
 -- Since cards spawn in the order provided by this comparator, with the first
 -- cards ending up at the bottom of a pile, this ordering will spawn in reverse
--- alphabetical order.  This presents the cards in order for non-face-down
+-- alphabetical order. This presents the cards in order for non-face-down
 -- areas, and presents them in order when Searching the face-down deck.
 Spawner.cardComparator = function(card1, card2)
   local pbcn1 = Spawner.getpbcn(card1.metadata)

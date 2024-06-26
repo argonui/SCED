@@ -1,43 +1,45 @@
+require("playercards/CardsWithHelper")
 local chaosBagApi      = require("chaosbag/ChaosBagApi")
 local guidReferenceApi = require("core/GUIDReferenceApi")
-local playmatApi       = require("playermat/PlaymatApi")
+local playermatApi       = require("playermat/PlayermatApi")
+
+local isHelperEnabled  = false
+
+function updateSave()
+  self.script_state = JSON.encode({ isHelperEnabled = isHelperEnabled })
+end
 
 function onLoad(savedData)
-  self.addContextMenuItem("Enable Helper", createButtons)
-  if savedData ~= "" then
+  self.addTag("CardWithHelper")
+  if savedData and savedData ~= "" then
     local loadedData = JSON.decode(savedData)
-    if loadedData.loopId then
-      createButtons()
-    end
+    isHelperEnabled = loadedData.isHelperEnabled
   end
+  checkOptionPanel()
+  updateDisplay()
 end
 
-function deleteButtons()
-  self.clearContextMenu()
-  self.addContextMenuItem("Enable Helper", createButtons)
-  self.UI.setAttribute("inactives", "active", false)
-  self.UI.setAttribute("actives", "active", false)
-  if loopId then Wait.stop(loopId) end
-  loopId = nil
-  self.script_state = JSON.encode({ loopId = loopId })
+-- hide buttons and stop monitoring
+function shutOff()
+  self.UI.hide("Helper")
+  Wait.stopAll()
+  updateSave()
 end
 
--- create buttons and begin monitoring chaos bag for curse and bless tokens
-function createButtons()
-  self.clearContextMenu()
-  self.addContextMenuItem("Clear Helper", deleteButtons)
-  self.UI.setAttribute("inactives", "active", true)
-  self.UI.setAttribute("actives", "active", true)
-  loopId = Wait.time(maybeUpdateButtonState, 1, -1)
-  self.script_state = JSON.encode({ loopId = loopId })
+-- show buttons and begin monitoring chaos bag for curse and bless tokens
+function initialize()
+  self.UI.show("Helper")
+  maybeUpdateButtonState()
+  Wait.time(maybeUpdateButtonState, 1, -1)
+  updateSave()
 end
 
 function resolveToken(player, _, tokenType)
   local matColor
   if player.color == "Black" then
-    matColor = playmatApi.getMatColorByPosition(self.getPosition())
+    matColor = playermatApi.getMatColorByPosition(self.getPosition())
   else
-    matColor = playmatApi.getMatColor(player.color)
+    matColor = playermatApi.getMatColor(player.color)
   end
 
   local mat = guidReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
@@ -65,10 +67,8 @@ function getBlessCurseInBag()
   local chaosBag = chaosBagApi.findChaosBag()
 
   for _, v in ipairs(chaosBag.getObjects()) do
-    if v.name == "Bless" then
-      numInBag.Bless = numInBag.Bless + 1
-    elseif v.name == "Curse" then
-      numInBag.Curse = numInBag.Curse + 1
+    if v.name == "Bless" or v.name == "Curse" then
+      numInBag[v.name] = numInBag[v.name] + 1
     end
   end
 
@@ -76,22 +76,14 @@ function getBlessCurseInBag()
 end
 
 function setUiState(params)
-  -- set bless state
-  if params.Bless then
-    self.UI.show("Bless")
-    self.UI.hide("inactiveBless")
-  else
-    self.UI.show("inactiveBless")
-    self.UI.hide("Bless")
-  end
-
-  -- set curse state
-  if params.Curse then
-    self.UI.show("Curse")
-    self.UI.hide("inactiveCurse")
-  else
-    self.UI.show("inactiveCurse")
-    self.UI.hide("Curse")
+  for _, tokenName in ipairs({ "Bless", "Curse" }) do
+    if params[tokenName] then
+      self.UI.show(tokenName)
+      self.UI.hide("inactive" .. tokenName)
+    else
+      self.UI.show("inactive" .. tokenName)
+      self.UI.hide(tokenName)
+    end
   end
 end
 
