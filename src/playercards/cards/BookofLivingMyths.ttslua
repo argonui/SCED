@@ -4,13 +4,9 @@ local guidReferenceApi = require("core/GUIDReferenceApi")
 local playmatApi       = require("playermat/PlaymatApi")
 
 local isHelperEnabled  = false
-local loopId
 
 function updateSave()
-  self.script_state = JSON.encode({
-    isHelperEnabled = isHelperEnabled,
-    loopId = loopId
-  })
+  self.script_state = JSON.encode({ isHelperEnabled = isHelperEnabled })
 end
 
 function onLoad(savedData)
@@ -18,7 +14,6 @@ function onLoad(savedData)
   if savedData and savedData ~= "" then
     local loadedData = JSON.decode(savedData)
     isHelperEnabled = loadedData.isHelperEnabled
-    loopId = loadedData.loopId
   end
   checkOptionPanel()
   updateDisplay()
@@ -27,15 +22,15 @@ end
 -- hide buttons and stop monitoring
 function shutOff()
   self.UI.hide("Helper")
-  if loopId then Wait.stop(loopId) end
-  loopId = nil
+  Wait.stopAll()
   updateSave()
 end
 
 -- show buttons and begin monitoring chaos bag for curse and bless tokens
 function initialize()
   self.UI.show("Helper")
-  loopId = Wait.time(maybeUpdateButtonState, 1, -1)
+  maybeUpdateButtonState()
+  Wait.time(maybeUpdateButtonState, 1, -1)
   updateSave()
 end
 
@@ -72,10 +67,8 @@ function getBlessCurseInBag()
   local chaosBag = chaosBagApi.findChaosBag()
 
   for _, v in ipairs(chaosBag.getObjects()) do
-    if v.name == "Bless" then
-      numInBag.Bless = numInBag.Bless + 1
-    elseif v.name == "Curse" then
-      numInBag.Curse = numInBag.Curse + 1
+    if v.name == "Bless" or v.name == "Curse" then
+      numInBag[v.name] = numInBag[v.name] + 1
     end
   end
 
@@ -83,22 +76,14 @@ function getBlessCurseInBag()
 end
 
 function setUiState(params)
-  -- set bless state
-  if params.Bless then
-    self.UI.show("Bless")
-    self.UI.hide("inactiveBless")
-  else
-    self.UI.show("inactiveBless")
-    self.UI.hide("Bless")
-  end
-
-  -- set curse state
-  if params.Curse then
-    self.UI.show("Curse")
-    self.UI.hide("inactiveCurse")
-  else
-    self.UI.show("inactiveCurse")
-    self.UI.hide("Curse")
+  for _, tokenName in ipairs({ "Bless", "Curse" }) do
+    if params[tokenName] then
+      self.UI.show(tokenName)
+      self.UI.hide("inactive" .. tokenName)
+    else
+      self.UI.show("inactive" .. tokenName)
+      self.UI.hide(tokenName)
+    end
   end
 end
 

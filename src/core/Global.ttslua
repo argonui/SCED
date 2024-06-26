@@ -189,15 +189,26 @@ function tryObjectEnterContainer(container, object)
 end
 
 -- TTS event for objects that enter zones
--- used to detect the "token discard zones" beneath the hand zones
-function onObjectEnterZone(zone, enteringObj)
-  if zone.getName() ~= "TokenDiscardZone" then return end
-  if tokenChecker.isChaosToken(enteringObj) then return end
-
-  if enteringObj.type == "Tile" and enteringObj.getMemo() and enteringObj.getLock() == false then
-    local matcolor = playmatApi.getMatColorByPosition(enteringObj.getPosition())
+function onObjectEnterZone(zone, object)
+  -- detect the "token discard zones" beneath the hand zones
+  if zone.getName() == "TokenDiscardZone" and
+      not tokenChecker.isChaosToken(object) and
+      object.type == "Tile" and
+      object.getMemo() and
+      not object.getLock() then
+    local matcolor = playmatApi.getMatColorByPosition(object.getPosition())
     local trash = guidReferenceApi.getObjectByOwnerAndType(matcolor, "Trash")
-    trash.putObject(enteringObj)
+    trash.putObject(object)
+  elseif zone.type == "Hand" and object.hasTag("CardWithHelper") then
+    object.clearContextMenu()
+    object.call("shutOff")
+  end
+end
+
+-- TTS event for objects that leave zones
+function onObjectLeaveZone(zone, object)
+  if zone.type == "Hand" and object.hasTag("CardWithHelper") then
+    object.call("updateDisplay")
   end
 end
 
@@ -1335,7 +1346,8 @@ function contentDownloadCallback(request, params)
     if pos then
       spawnTable.position = pos
     else
-      broadcastToAll("Please make space in the area below the tentacle stand in the upper middle of the table and try again.", "Red")
+      broadcastToAll(
+        "Please make space in the area below the tentacle stand in the upper middle of the table and try again.", "Red")
       return
     end
   end
@@ -1558,7 +1570,6 @@ function applyOptionPanelChange(id, state)
     -- update master clue counter
     local counter = guidReferenceApi.getObjectByOwnerAndType("Mythos", "MasterClueCounter")
     counter.setVar("useClickableCounters", state)
-
   elseif id == "enableCardHelpers" then
     toggleCardHelpers(state)
 
