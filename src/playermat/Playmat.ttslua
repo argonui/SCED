@@ -373,12 +373,40 @@ function doUpkeep(_, clickedByColor, isRightClick)
       printToColor("Wow, did you really take 'Versatile' to play Patrice with 'Forced Learning'?"
         .. " Choose which draw replacement effect takes priority and draw cards accordingly.", messageColor)
     else
-      local handSize = #Player[playerColor].getHandObjects()
-      if handSize < 5 then
-        local cardsToDraw = 5 - handSize
-        printToColor("Drawing " .. cardsToDraw .. " cards (Patrice)", messageColor)
-        drawCardsWithReshuffle(cardsToDraw)
+      -- discards all non-weakness and non-hidden cards from hand first
+      local handCards = Player[playerColor].getHandObjects()
+      local cardsToDiscard = {}
+
+      for i = 1, #handCards do
+        local metadata = JSON.decode(handCards[i].getGMNotes())
+        if metadata ~= nil and (not metadata.weakness and not metadata.hidden) then
+          table.insert(cardsToDiscard, handCards[i])
+        end
       end
+
+      local j = 0
+      local k = 0
+
+      for i = #cardsToDiscard, 1, -1 do
+        j = j + 1
+        Wait.time(function() deckLib.placeOrMergeIntoDeck(cardsToDiscard[i], returnGlobalDiscardPosition(), self.getRotation()) end, j * 0.1)
+      end
+      
+      --add some time if there are any cards to discard, if not, draw up to 5 immediately
+      if j > 0 then
+        k = 0.7 + (j * 0.1)
+      else
+        k = 0
+      end
+
+      Wait.time(function()
+        local handSize = #Player[playerColor].getHandObjects()
+        if handSize < 5 then
+          local cardsToDraw = 5 - handSize
+          printToColor("Drawing " .. cardsToDraw .. " cards (Patrice)", messageColor)
+          drawCardsWithReshuffle(cardsToDraw)
+        end
+      end, k)
     end
   elseif forcedLearning then
     printToColor("Drawing 2 cards, discard 1 (Forced Learning)", messageColor)
