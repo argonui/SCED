@@ -61,7 +61,7 @@ local buttonParameters            = {
 }
 
 -- table of texture URLs
-local nameToTexture = {
+local nameToTexture               = {
   Guardian = "http://cloud-3.steamusercontent.com/ugc/2444972799638881117/169F4520A94FB186B54E0F2BF4BAC809844C923E/",
   Mystic = "http://cloud-3.steamusercontent.com/ugc/2444972799638880413/B59966123EA41649EDCBD614167E590C8C105582/",
   Neutral = "http://cloud-3.steamusercontent.com/ugc/2462982115659543571/5D778EA4BC682DAE97E8F59A991BCF8CB3979B04/",
@@ -402,8 +402,8 @@ function doUpkeep(_, clickedByColor, isRightClick)
         j = j + 1
         Wait.time(function() deckLib.placeOrMergeIntoDeck(cardsToDiscard[i], returnGlobalDiscardPosition(), self.getRotation()) end, j * 0.1)
       end
-      
-      --add some time if there are any cards to discard, if not, draw up to 5 immediately
+
+      -- add some time if there are any cards to discard, if not, draw up to 5 immediately
       if j > 0 then
         k = 0.7 + (j * 0.1)
       else
@@ -1012,10 +1012,26 @@ function updateTexture(overrideName)
   -- apply texture
   local customInfo = self.getCustomObject()
   if customInfo.image ~= newUrl then
+    -- temporarily lock objects so they don't fall through the mat
+    local objectsToUnlock = {}
+    for _, obj in ipairs(searchAroundSelf()) do
+      if not obj.getLock() then
+        obj.setLock(true)
+        table.insert(objectsToUnlock, obj)
+      end
+    end
+
     self.script_state = onSave()
     customInfo.image = newUrl
     self.setCustomObject(customInfo)
-    self.reload()
+    local reloadedMat = self.reload()
+
+    -- unlock objects when mat is reloaded
+    Wait.condition(function()
+      for _, obj in ipairs(objectsToUnlock) do
+        obj.setLock(false)
+      end
+    end, function() return reloadedMat.loading_custom == false end)
   end
 end
 
