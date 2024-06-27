@@ -22,11 +22,12 @@ local campaignLog
 local RESET_VALUES              = {}
 local loadingFailedBefore       = false
 local optionsVisible            = false
-
-local options                   = {}
-options["importTrauma"]         = true
-options["tidyPlayermats"]       = true
-options["removeDrawnLines"]     = false
+local options                   = {
+  ["importTrauma"] = true,
+  ["tidyPlayermats"] = true,
+  ["removeDrawnLines"] = false
+}
+local removeIgnoreLater         = {}
 
 -- don't clean playermats for preludes
 local scenarioName
@@ -285,8 +286,8 @@ function maybeIgnoreTekeliliCards()
   local tekeliliHelper = getTekeliliHelper()
 
   if tekeliliHelper then
-    local searchResult = searchLib.onObject(tekeliliHelper, "isCardOrDeck")
-    for _, obj in ipairs(searchResult) do
+    removeIgnoreLater = searchLib.onObject(tekeliliHelper, "isCardOrDeck")
+    for _, obj in ipairs(removeIgnoreLater) do
       obj.addTag(IGNORE_TAG)
     end
   end
@@ -360,7 +361,7 @@ function tidyPlayerMatCoroutine()
       mat.setVar("activeInvestigatorClass", "Neutral")
       mat.call("updateTexture")
 
-      for k = 1, 10 do
+      for k = 1, 5 do
         coroutine.yield(0)
       end
 
@@ -381,11 +382,13 @@ function tidyPlayerMatCoroutine()
   end
 
   -- maybe remove ignore tag from cards / decks on the tekelili helper
-  if tekeliliHelper then
-    local searchResult = searchLib.onObject(tekeliliHelper, "isCardOrDeck")
-    for _, obj in ipairs(searchResult) do
-      obj.removeTag(IGNORE_TAG)
+  if removeIgnoreLater then
+    for _, obj in ipairs(removeIgnoreLater) do
+      if obj ~= nil then
+        obj.removeTag(IGNORE_TAG)
+      end
     end
+    removeIgnoreLater = {}
   end
 
   -- reset spawned data
@@ -402,10 +405,11 @@ end
 -- used to detect the "Tekeli-li Helper" for Edge of the Earth
 function getTekeliliHelper()
   for _, obj in ipairs(getObjects()) do
-    if obj.getName() == "Tekeli-li Helper" then
+    if obj ~= nil and obj.getName() == "Tekeli-li Helper" then
       return obj
     end
   end
+  return nil
 end
 
 function maybeTrashObject(obj, trash)
