@@ -5,6 +5,8 @@ local allCardsBagApi = require("playercards/AllCardsBagApi")
 local arkhamDb = require("arkhamdb/ArkhamDb")
 local spawnBag = require("playercards/SpawnBag")
 
+local lastWeaknessTrait = "Madness"
+
 -- Size and position information for the three rows of class buttons
 local CIRCLE_BUTTON_SIZE = 250
 local CLASS_BUTTONS_X_OFFSET = 0.1325
@@ -224,9 +226,10 @@ function createWeaknessButtons()
   weaknessButtonParams.tooltip = "All Weaknesses"
   weaknessButtonParams.position = buttonPos
   self.createButton(weaknessButtonParams)
+
   buttonPos.x = buttonPos.x + MISC_BUTTONS_X_OFFSET
   weaknessButtonParams.click_function = "spawnRandomWeakness"
-  weaknessButtonParams.tooltip = "Random Basic Weakness"
+  weaknessButtonParams.tooltip = "Random Basic Weakness\nRight-click to specify a trait"
   weaknessButtonParams.position = buttonPos
   self.createButton(weaknessButtonParams)
 end
@@ -361,9 +364,9 @@ function createXML(showOtherCardsButton)
           alignment = "MiddleLeft",
           horizontalOverflow = "wrap",
           text = "• Select a group to place cards\n" ..
-          "• Copy the cards you want for your deck\n" ..
-          "• Select a new group to clear the placed cards and see new ones\n" ..
-          "• Clear to remove all cards"
+              "• Copy the cards you want for your deck\n" ..
+              "• Select a new group to clear the placed cards and see new ones\n" ..
+              "• Clear to remove all cards"
         }
       }
     }
@@ -775,13 +778,32 @@ function spawnWeaknesses()
   })
 end
 
-function spawnRandomWeakness()
+function spawnRandomWeakness(_, playerColor, isRightClick)
   prepareToPlaceCards()
-  local weaknessId = allCardsBagApi.getRandomWeaknessId()
-  if (weaknessId == nil) then
-    broadcastToAll("All basic weaknesses are in play!", { 0.9, 0.2, 0.2 })
-    return
+
+  if not isRightClick then
+    local weaknessId = allCardsBagApi.getRandomWeaknessId()
+    if weaknessId == nil then
+      broadcastToAll("All basic weaknesses are in play!", { 0.9, 0.2, 0.2 })
+    else
+      spawnSingleWeakness(weaknessId)
+    end
+  else
+    Player[playerColor].showInputDialog("Specify a trait for the weakness (split multiple eligible traits with '|'):", lastWeaknessTrait,
+      function(text)
+        lastWeaknessTrait = text
+        local availableWeaknesses = allCardsBagApi.buildAvailableWeaknesses(text)
+        if #availableWeaknesses > 0 then
+          spawnSingleWeakness(availableWeaknesses[math.random(#availableWeaknesses)])
+        else
+          broadcastToAll("No matching weakness available!", { 0.9, 0.2, 0.2 })
+        end
+      end)
   end
+end
+
+-- spawn the random weakness
+function spawnSingleWeakness(weaknessId)
   spawnBag.spawn({
     name = "randomWeakness",
     cards = { weaknessId },
