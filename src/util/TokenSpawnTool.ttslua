@@ -1,3 +1,4 @@
+local guidReferenceApi = require("core/GUIDReferenceApi")
 local playermatApi = require("playermat/PlayermatApi")
 local searchLib = require("util/SearchLib")
 local tokenManager = require("core/token/TokenManager")
@@ -12,17 +13,6 @@ TOKEN_INDEX[7] = "doom"
 TOKEN_INDEX[8] = "clue"
 TOKEN_INDEX[9] = "resource"
 
-local stateTable = {
-  ["resource"] = 1,
-  ["ammo"]     = 2,
-  ["bounty"]   = 3,
-  ["charge"]   = 4,
-  ["evidence"] = 5,
-  ["secret"]   = 6,
-  ["supply"]   = 7,
-  ["offering"] = 8
-}
-
 ---@param index number Index of the pressed key
 ---@param playerColor string Color of the triggering player
 function onScriptingButtonDown(index, playerColor)
@@ -31,29 +21,36 @@ function onScriptingButtonDown(index, playerColor)
 
   local rotation = { x = 0, y = Player[playerColor].getPointerRotation(), z = 0 }
   local position = Player[playerColor].getPointerPosition() + Vector(0, 0.2, 0)
-  local subType = ""
-  local callback = nil
 
   -- check for subtype of resource based on card below
   if tokenType == "resource" then
-    for _, obj in ipairs(searchLib.belowPosition(position, "isCard")) do
-      if not obj.is_face_down then
-        local metadata = JSON.decode(obj.getGMNotes()) or {}
-        local uses = metadata.uses or {}
-        for _, useInfo in ipairs(uses) do
-          if useInfo.token == "resource" then
-            subType = useInfo.type
-            break
-          end
-        end
+    local card
+    local hoverObj = Player[playerColor].getHoverObject()
+    if hoverObj and hoverObj.type == "Card" then
+      card = hoverObj
+    elseif hoverObj then
+      -- use the first card below the hovered object if it's not a card1
+      for _, obj in ipairs(searchLib.belowPosition(position, "isCard")) do
+        card = obj
         break
       end
     end
 
-    -- this is used to load the correct state for additional resource tokens (e.g. "Ammo")
-    local stateID = stateTable[string.lower(subType)]
-    if stateID ~= nil and stateID ~= 1 then
-      callback = function(spawned) spawned.setState(stateID) end
+    -- get the metadata from the card and maybe replenish a use
+    if card and not card.is_face_down then
+      local metadata = JSON.decode(card.getGMNotes()) or {}
+      local uses = metadata.uses or {}
+      for _, useInfo in ipairs(uses) do
+        if useInfo.token == "resource" then
+          -- artifically create replenish data to re-use that existing functionality
+          uses[1].count = 999
+          uses[1].replenish = 1
+          local matColor = playermatApi.getMatColorByPosition(position)
+          local mat = guidReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
+          tokenManager.maybeReplenishCard(card, uses, mat)
+          return
+        end
+      end
     end
   -- check hovered object for "resourceCounter" tokens and increase them instead
   elseif tokenType == "resourceCounter" then
