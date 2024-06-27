@@ -211,8 +211,11 @@ do
     if tokenType == "clue" then
       offsets = internal.buildClueOffsets(card, tokenCount)
     else
-      -- only up to 12 offset tables defined
-      if tokenCount > 12 then return end
+      -- only up to 12 offset tables defined (TODO: stack more than 12 tokens and generate offsets dynamically)
+      if tokenCount > 12 then
+        printToAll("Spawning maximum of 12 tokens.")
+        tokenCount = 12
+      end
       for i = 1, tokenCount do
         offsets[i] = card.positionToWorld(PLAYER_CARD_TOKEN_OFFSETS[tokenCount][i])
         -- Fix the y-position for the spawn, since positionToWorld considers rotation which can
@@ -302,8 +305,7 @@ do
     end
   end
 
-  -- Delegate function to the token spawn tracker. Exists to avoid circular dependencies in some
-  -- callers.
+  -- Delegate function to the token spawn tracker. Exists to avoid circular dependencies in some callers
   ---@param card tts__Object Card object to reset the tokens for
   TokenManager.resetTokensSpawned = function(card)
     tokenSpawnTrackerApi.resetTokensSpawned(card.getGUID())
@@ -483,11 +485,6 @@ do
   ---@param uses table The already decoded metadata.uses (to avoid decoding again)
   ---@param mat tts__Object The playermat the card is placed on (for rotation and casting)
   internal.replenishTokens = function(card, uses, mat)
-    local cardPos = card.getPosition()
-
-    -- don't continue for cards on the deck (Norman) or in the discard pile
-    if mat.positionToLocal(cardPos).x < -1 then return end
-
     -- get current amount of resource tokens on the card
     local clickableResourceCounter = nil
     local foundTokens = 0
@@ -511,7 +508,7 @@ do
     -- if there are already more uses than the replenish amount, keep them
     if foundTokens > uses[1].count then
       newCount = foundTokens
-      -- only replenish up until the replenish amount
+    -- only replenish up until the replenish amount
     elseif newCount > uses[1].count then
       newCount = uses[1].count
     end
