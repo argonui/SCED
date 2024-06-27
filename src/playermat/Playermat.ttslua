@@ -46,7 +46,7 @@ local DRAWN_ENCOUNTER_POSITION    = { x = 1.365, y = 0.5, z = -0.625 }
 -- global position of encounter discard pile
 local ENCOUNTER_DISCARD_POSITION  = { x = -3.85, y = 1.5, z = 10.38 }
 
--- used for the buttons on the right side of the playmat
+-- used for the buttons on the right side of the playermat
 -- starts off with the data for the "Upkeep" button and will then be changed
 local buttonParameters            = {
   label = "Upkeep",
@@ -58,6 +58,16 @@ local buttonParameters            = {
   width = 1000,
   height = 280,
   font_size = 180
+}
+
+-- table of texture URLs
+local nameToTexture               = {
+  Guardian = "http://cloud-3.steamusercontent.com/ugc/2444972799638881117/169F4520A94FB186B54E0F2BF4BAC809844C923E/",
+  Mystic = "http://cloud-3.steamusercontent.com/ugc/2444972799638880413/B59966123EA41649EDCBD614167E590C8C105582/",
+  Neutral = "http://cloud-3.steamusercontent.com/ugc/2462982115659543571/5D778EA4BC682DAE97E8F59A991BCF8CB3979B04/",
+  Rogue = "http://cloud-3.steamusercontent.com/ugc/2444972799638880905/CFC02BF5A6140B9B4B92312AD6DC74D8DD61180B/",
+  Seeker = "http://cloud-3.steamusercontent.com/ugc/2444972799638881117/169F4520A94FB186B54E0F2BF4BAC809844C923E/",
+  Survivor = "http://cloud-3.steamusercontent.com/ugc/2444972799638880687/EEDF8F8BC3266069FECB09775845BE2501310C17/"
 }
 
 -- translation table for slot names to characters for special font
@@ -86,11 +96,10 @@ local defaultSlotData             = {
 -- global variables for access
 activeInvestigatorClass           = "Neutral"
 activeInvestigatorId              = "00000"
-
-local isDrawButtonVisible         = false
-
--- global variable to report "Dream-Enhancing Serum" status
 hasDES                            = false
+
+local isClassTextureEnabled       = true
+local isDrawButtonVisible         = false
 
 -- table of type-object reference pairs of all owned objects
 local ownedObjects                = {}
@@ -100,6 +109,7 @@ function onSave()
   return JSON.encode({
     activeInvestigatorClass = activeInvestigatorClass,
     activeInvestigatorId = activeInvestigatorId,
+    isClassTextureEnabled = isClassTextureEnabled,
     isDrawButtonVisible = isDrawButtonVisible,
     playerColor = playerColor,
     slotData = slotData
@@ -111,6 +121,7 @@ function onLoad(savedData)
     local loadedData        = JSON.decode(savedData)
     activeInvestigatorClass = loadedData.activeInvestigatorClass
     activeInvestigatorId    = loadedData.activeInvestigatorId
+    isClassTextureEnabled   = loadedData.isClassTextureEnabled
     isDrawButtonVisible     = loadedData.isDrawButtonVisible
     playerColor             = loadedData.playerColor
     slotData                = loadedData.slotData
@@ -169,7 +180,7 @@ function searchArea(origin, size, filter)
   return searchLib.inArea(origin, self.getRotation(), size, filter)
 end
 
--- finds all objects on the playmat and associated set aside zone.
+-- finds all objects on the playermat and associated set aside zone.
 function searchAroundSelf(filter)
   local scale = self.getScale()
   local bounds = self.getBoundsNormalized()
@@ -180,11 +191,11 @@ function searchAroundSelf(filter)
   bounds.size.z = bounds.size.z + SEARCH_AROUND_SELF_Z_BUFFER
 
   -- 'setAsideDirection' accounts for the set aside zone being on the left or right,
-  -- depending on the table position of the playmat
+  -- depending on the table position of the playermat
   local setAsideDirection = bounds.center.z > 0 and 1 or -1
 
   -- Since the cast is centered on the position, shift left or right to keep
-  -- the non-set aside edge of the cast at the edge of the playmat
+  -- the non-set aside edge of the cast at the edge of the playermat
   local localCenter = self.positionToLocal(bounds.center)
   localCenter.x = localCenter.x + setAsideDirection * SEARCH_AROUND_SELF_X_BUFFER / 2 / scale.x
   localCenter.z = localCenter.z - SEARCH_AROUND_SELF_Z_BUFFER / 2 / scale.z
@@ -391,8 +402,8 @@ function doUpkeep(_, clickedByColor, isRightClick)
         j = j + 1
         Wait.time(function() deckLib.placeOrMergeIntoDeck(cardsToDiscard[i], returnGlobalDiscardPosition(), self.getRotation()) end, j * 0.1)
       end
-      
-      --add some time if there are any cards to discard, if not, draw up to 5 immediately
+
+      -- add some time if there are any cards to discard, if not, draw up to 5 immediately
       if j > 0 then
         k = 0.7 + (j * 0.1)
       else
@@ -751,7 +762,7 @@ function changeColor(clickedByColor)
 end
 
 ---------------------------------------------------------
--- playmat token spawning
+-- playermat token spawning
 ---------------------------------------------------------
 
 -- Finds all customizable cards in this play area and updates their metadata based on the selections
@@ -907,10 +918,12 @@ function maybeUpdateActiveInvestigator(card)
       notes.combatIcons,
       notes.agilityIcons
     })
+    updateTexture()
   elseif activeInvestigatorId ~= "00000" then
     activeInvestigatorClass = "Neutral"
     activeInvestigatorId = "00000"
     ownedObjects.InvestigatorSkillTracker.call("updateStats", { 1, 1, 1, 1 })
+    updateTexture()
   else
     return
   end
@@ -964,7 +977,7 @@ function maybeUpdateActiveInvestigator(card)
 
       count[type] = count[type] + 1
       if count[type] > 2 then
-        print("More than two extra tokens of the same type are not supported.")
+        printToColor("More than two extra tokens of the same type are not supported.", playerColor)
       else
         local localSpawnPos = tokenSpawnPos[type][count[type]]
         local globalSpawnPos = self.positionToWorld(localSpawnPos):add(Vector(0, 0.2, 0))
@@ -975,6 +988,50 @@ function maybeUpdateActiveInvestigator(card)
           end)
       end
     end
+  end
+end
+
+-- updates the texture of the playermat
+---@param overrideName? string Force a specific texture
+function updateTexture(overrideName)
+  local name = "Neutral"
+
+  -- use class specific texture if enabled
+  if isClassTextureEnabled then
+    name = activeInvestigatorClass
+  end
+
+  -- get new texture URL
+  local newUrl = nameToTexture[name]
+
+  -- override name if valid
+  if nameToTexture[overrideName] then
+    newUrl = nameToTexture[overrideName]
+  end
+
+  -- apply texture
+  local customInfo = self.getCustomObject()
+  if customInfo.image ~= newUrl then
+    -- temporarily lock objects so they don't fall through the mat
+    local objectsToUnlock = {}
+    for _, obj in ipairs(searchAroundSelf()) do
+      if not obj.getLock() then
+        obj.setLock(true)
+        table.insert(objectsToUnlock, obj)
+      end
+    end
+
+    self.script_state = onSave()
+    customInfo.image = newUrl
+    self.setCustomObject(customInfo)
+    local reloadedMat = self.reload()
+
+    -- unlock objects when mat is reloaded
+    Wait.condition(function()
+      for _, obj in ipairs(objectsToUnlock) do
+        obj.setLock(false)
+      end
+    end, function() return reloadedMat.loading_custom == false end)
   end
 end
 
@@ -1009,7 +1066,7 @@ function resetSkillTracker()
   if obj ~= nil then
     obj.call("updateStats", { 1, 1, 1, 1 })
   else
-    printToAll("Skill tracker for " .. matColor .. " playmat could not be found.", "Yellow")
+    printToAll("Skill tracker for " .. matColor .. " playermat could not be found.", "Yellow")
   end
 end
 
@@ -1079,7 +1136,7 @@ function showDrawButton(visible)
   end
 end
 
--- shows / hides a clickable clue counter for this playmat and sets the correct amount of clues
+-- shows / hides a clickable clue counter for this playermat and sets the correct amount of clues
 ---@param showCounter boolean Whether the clickable clue counter should be visible
 function clickableClues(showCounter)
   local clickerPos = ownedObjects.ClickableClueCounter.getPosition()
@@ -1109,6 +1166,14 @@ function clickableClues(showCounter)
       tokenManager.spawnToken(pos, "clue", self.getRotation())
     end
   end
+end
+
+-- Toggles the use of class textures
+---@param state boolean Whether the class texture should be used or not
+function useClassTexture(state)
+  if state == isClassTextureEnabled then return end
+  isClassTextureEnabled = state
+  updateTexture()
 end
 
 -- removes all clues (moving tokens to the trash and setting counters to 0)

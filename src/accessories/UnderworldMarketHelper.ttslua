@@ -1,277 +1,275 @@
 local searchLib = require("util/SearchLib")
 
-function onload(savedData)
-    revealCardPositions = {
-        Vector(3.5, 0.25, 0),
-        Vector(-3.5, 0.25, 0)
-    }
-
-    revealCardPositionsSwap = {
-        Vector(-3.5, 0.25, 0),
-        Vector(3.5, 0.25, 0)
-    }
-
-    self.createButton({
-        label          = 'Underworld Market\nHelper',
-        click_function = "none",
-        function_owner = self,
-        position       = {0,-0.1,-1.6},
-        height         = 0,
-        width          = 0,
-        font_size      = 145,
-        font_color     = {1,1,1}
-    })
-
-    hiddenCards = 10
-    hiddenCardLabel = '-----'
-
-    isSetup = false
-    movingCards = false
-
-    self.addContextMenuItem('Reset helper', resetHelper)
-
-    if savedData ~= '' then
-        local loaded_data = JSON.decode(savedData)
-        hiddenCards = loaded_data.saved_hiddenCards
-
-        isSetup = true
-        refreshButtons()
-    end
+function onSave()
+  return JSON.encode({ saved_hiddenCards = hiddenCards })
 end
 
-function onSave()
-    return JSON.encode({
-        saved_hiddenCards = hiddenCards
-    })
+function onload(savedData)
+  revealCardPositions = {
+    Vector(3.5, 0.25, 0),
+    Vector(-3.5, 0.25, 0)
+  }
+
+  revealCardPositionsSwap = {
+    Vector(-3.5, 0.25, 0),
+    Vector(3.5, 0.25, 0)
+  }
+
+  self.createButton({
+    label          = 'Underworld Market\nHelper',
+    click_function = "none",
+    function_owner = self,
+    position       = { 0, -0.1, -1.6 },
+    height         = 0,
+    width          = 0,
+    font_size      = 145,
+    font_color     = { 1, 1, 1 }
+  })
+
+  hiddenCards = 10
+  hiddenCardLabel = '-----'
+
+  isSetup = false
+  movingCards = false
+
+  self.addContextMenuItem('Reset helper', resetHelper)
+
+  if savedData and savedData ~= '' then
+    local loaded_data = JSON.decode(savedData)
+    hiddenCards = loaded_data.saved_hiddenCards
+
+    isSetup = true
+    refreshButtons()
+  end
 end
 
 function onObjectEnterContainer(container, object)
-    if container ~= self then return end
+  if container ~= self then return end
 
-    if isSetup and object.tag == "Card" then
-        refreshButtons()
-    end
+  if isSetup and object.tag == "Card" then
+    refreshButtons()
+  end
 
-    if object.tag == "Deck" then
-        if validateDeck(object) then
-            takeDeckOut(object.getGUID(), self.getPosition() + Vector(0, 0.1, 0))
-            refreshButtons()
-            
-            isSetup = true
-        end
-    elseif object.tag ~= "Card" then
-        broadcastToAll("The 'Underworld Market Helper' is meant to be used for cards.", "White")
+  if object.tag == "Deck" then
+    if validateDeck(object) then
+      takeDeckOut(object.getGUID(), self.getPosition() + Vector(0, 0.1, 0))
+      refreshButtons()
+
+      isSetup = true
     end
+  elseif object.tag ~= "Card" then
+    broadcastToAll("The 'Underworld Market Helper' is meant to be used for cards.", "White")
+  end
 end
 
 function onObjectLeaveContainer(container, object)
-    if container ~= self then return end
-    
-    if isSetup then
-        refreshButtons()
-    end
+  if container ~= self then return end
+
+  if isSetup then
+    refreshButtons()
+  end
 end
 
 function validateDeck(deck)
-    if deck.getQuantity() ~= 10 then
-        print('Underworld Market Helper: Deck must include exactly 10 cards.')
-        return false
+  if deck.getQuantity() ~= 10 then
+    print('Underworld Market Helper: Deck must include exactly 10 cards.')
+    return false
+  end
+
+  local illicitCount = 0
+
+  for _, card in ipairs(deck.getObjects()) do
+    decodedGMNotes = JSON.decode(card.gm_notes)
+
+    if decodedGMNotes ~= nil and string.find(decodedGMNotes.traits, "Illicit", 1, true) then
+      illicitCount = illicitCount + 1
     end
+  end
 
-    local illicitCount = 0
+  if illicitCount ~= 10 then
+    print('Underworld Market Helper: Deck must include 10 Illicit cards.')
+    return false
+  end
 
-    for _, card in ipairs(deck.getObjects()) do
-        decodedGMNotes = JSON.decode(card.gm_notes)
-
-        if decodedGMNotes ~= nil and string.find(decodedGMNotes.traits, "Illicit", 1, true) then
-            illicitCount = illicitCount + 1
-        end
-    end
-
-    if illicitCount ~= 10 then
-        print('Underworld Market Helper: Deck must include 10 Illicit cards.')
-        return false
-    end
-
-    return true
+  return true
 end
 
 function refreshButtons()
-    local cardsList = ''
+  local cardsList = ''
 
-    for i, card in ipairs(self.getObjects()) do
-        local localCardName = card.name
+  for i, card in ipairs(self.getObjects()) do
+    local localCardName = card.name
 
-        if i <= hiddenCards then
-            localCardName = hiddenCardLabel
-        end
-
-        cardsList = cardsList .. localCardName .. '\n'
+    if i <= hiddenCards then
+      localCardName = hiddenCardLabel
     end
 
-    self.clearButtons()
+    cardsList = cardsList .. localCardName .. '\n'
+  end
 
-    self.createButton({
-        label          = 'Market Deck:',
-        click_function = "none",
-        function_owner = self,
-        position       = {0,-0.1,-1.6},
-        height         = 0,
-        width          = 0,
-        font_size      = 150,
-        font_color     = {1,1,1}
-    })
+  self.clearButtons()
 
-    self.createButton({
-        label          = cardsList,
-        click_function = "none",
-        function_owner = self,
-        position       = {0,-0.1,0.15},
-        height         = 0,
-        width          = 0,
-        font_size      = 115,
-        font_color     = {1,1,1}
-    })
+  self.createButton({
+    label          = 'Market Deck:',
+    click_function = "none",
+    function_owner = self,
+    position       = { 0, -0.1, -1.6 },
+    height         = 0,
+    width          = 0,
+    font_size      = 150,
+    font_color     = { 1, 1, 1 }
+  })
 
-    self.createButton({
-        click_function = 'revealFirstTwoCards',
-        function_owner = self,
-        label = 'Reveal',
-        position = {-0.85,0,1.6},
-        width = 375,
-        height = 175,
-        font_size = 90
-    })
+  self.createButton({
+    label          = cardsList,
+    click_function = "none",
+    function_owner = self,
+    position       = { 0, -0.1, 0.15 },
+    height         = 0,
+    width          = 0,
+    font_size      = 115,
+    font_color     = { 1, 1, 1 }
+  })
 
-    self.createButton({
-        click_function = 'swap',
-        function_owner = self,
-        label = 'Swap',
-        position = {0,0,1.6},
-        width = 375,
-        height = 175,
-        font_size = 90
-    })
+  self.createButton({
+    click_function = 'revealFirstTwoCards',
+    function_owner = self,
+    label = 'Reveal',
+    position = { -0.85, 0, 1.6 },
+    width = 375,
+    height = 175,
+    font_size = 90
+  })
 
-    self.createButton({
-        click_function = 'finish',
-        function_owner = self,
-        label = 'Finish',
-        position = {0.85,0,1.6},
-        width = 375,
-        height = 175,
-        font_size = 90
-    })
+  self.createButton({
+    click_function = 'swap',
+    function_owner = self,
+    label = 'Swap',
+    position = { 0, 0, 1.6 },
+    width = 375,
+    height = 175,
+    font_size = 90
+  })
+
+  self.createButton({
+    click_function = 'finish',
+    function_owner = self,
+    label = 'Finish',
+    position = { 0.85, 0, 1.6 },
+    width = 375,
+    height = 175,
+    font_size = 90
+  })
 end
 
 function takeDeckOut(guid, pos)
-    local deck = self.takeObject({ guid = guid, position = pos, smooth = false })
+  local deck = self.takeObject({ guid = guid, position = pos, smooth = false })
 
-    for i = 1, #deck.getObjects() do
-        self.putObject(deck.takeObject({ position = pos + Vector(0, 0.1 * i, 0), smooth = false }))
-    end
+  for i = 1, #deck.getObjects() do
+    self.putObject(deck.takeObject({ position = pos + Vector(0, 0.1 * i, 0), smooth = false }))
+  end
 
-    self.shuffle()
+  self.shuffle()
 end
 
 function getRevealedCards()
-    local revealedCards = {}
+  local revealedCards = {}
 
-    for _, pos in ipairs(revealCardPositions) do
-        for _, obj in ipairs(searchLib.atPosition(self.positionToWorld(pos), "isCard")) do
-            table.insert(revealedCards, obj.getGUID())
-        end
+  for _, pos in ipairs(revealCardPositions) do
+    for _, obj in ipairs(searchLib.atPosition(self.positionToWorld(pos), "isCard")) do
+      table.insert(revealedCards, obj.getGUID())
     end
+  end
 
-    return revealedCards
+  return revealedCards
 end
 
 function revealFirstTwoCards()
-    if movingCards or #getRevealedCards() > 0 then return end
+  if movingCards or #getRevealedCards() > 0 then return end
 
-    for i, card in ipairs(self.getObjects()) do
-        movingCards = true
+  for i, card in ipairs(self.getObjects()) do
+    movingCards = true
 
-        self.takeObject({
-            index = 0,
-            rotation = self.getRotation(),
-            position = self.positionToWorld(revealCardPositions[i]),
-            callback_function = function(obj)
-                obj.resting = true
-                movingCards = false
-            end
-        })
+    self.takeObject({
+      index = 0,
+      rotation = self.getRotation(),
+      position = self.positionToWorld(revealCardPositions[i]),
+      callback_function = function(obj)
+        obj.resting = true
+        movingCards = false
+      end
+    })
 
-        hiddenCards = hiddenCards - 1
+    hiddenCards = hiddenCards - 1
 
-        if i == 2 or #self.getObjects() == 0 then
-            break
-        end
+    if i == 2 or #self.getObjects() == 0 then
+      break
     end
+  end
 
-    refreshButtons()
+  refreshButtons()
 end
 
 function swap()
-    if movingCards then return end
+  if movingCards then return end
 
-    local revealedCards = getRevealedCards()
+  local revealedCards = getRevealedCards()
 
-    if #revealedCards == 2 then
-        for i, revealedCardGUID in ipairs(revealedCards) do
-            local revealedCard = getObjectFromGUID(revealedCardGUID)
+  if #revealedCards == 2 then
+    for i, revealedCardGUID in ipairs(revealedCards) do
+      local revealedCard = getObjectFromGUID(revealedCardGUID)
 
-            revealedCard.setPositionSmooth(self.positionToWorld(revealCardPositionsSwap[i]), false, false)
-        end
+      revealedCard.setPositionSmooth(self.positionToWorld(revealCardPositionsSwap[i]), false, false)
     end
+  end
 end
 
 function finish()
-    if movingCards then return end
+  if movingCards then return end
 
-    local revealedCards = getRevealedCards()
+  local revealedCards = getRevealedCards()
 
-    movingCards = true
+  movingCards = true
 
-    for i, revealedCardGUID in ipairs(revealedCards) do
-        self.putObject(getObjectFromGUID(revealedCardGUID))
-    end
+  for i, revealedCardGUID in ipairs(revealedCards) do
+    self.putObject(getObjectFromGUID(revealedCardGUID))
+  end
 
-    Wait.time(
-        function()
-            movingCards = false
-        end,
+  Wait.time(
+    function()
+      movingCards = false
+    end,
     0.75)
 end
 
 function resetHelper()
-    for i, card in ipairs(self.getObjects()) do
-        self.takeObject({
-            index = 0,
-            smooth = false,
-            rotation = self.getRotation(),
-            position = self.positionToWorld(revealCardPositions[2])
-        })
-    end
-
-    self.clearButtons()
-
-    self.createButton({
-        label          = 'Underworld Market\nHelper',
-        click_function = "none",
-        function_owner = self,
-        position       = {0,-0.1,-1.6},
-        height         = 0,
-        width          = 0,
-        font_size      = 145,
-        font_color     = {1,1,1}
+  for i, card in ipairs(self.getObjects()) do
+    self.takeObject({
+      index = 0,
+      smooth = false,
+      rotation = self.getRotation(),
+      position = self.positionToWorld(revealCardPositions[2])
     })
+  end
 
-    hiddenCards = 10
-    isSetup = false
-    movingCards = false
+  self.clearButtons()
 
-    self.reset()
+  self.createButton({
+    label          = 'Underworld Market\nHelper',
+    click_function = "none",
+    function_owner = self,
+    position       = { 0, -0.1, -1.6 },
+    height         = 0,
+    width          = 0,
+    font_size      = 145,
+    font_color     = { 1, 1, 1 }
+  })
 
-    print('Underworld Market Helper: Helper has been reset.')
+  hiddenCards = 10
+  isSetup = false
+  movingCards = false
+
+  self.reset()
+
+  print('Underworld Market Helper: Helper has been reset.')
 end
