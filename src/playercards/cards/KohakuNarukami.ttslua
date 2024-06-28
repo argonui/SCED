@@ -1,0 +1,120 @@
+require("playercards/CardsWithHelper")
+local blessCurseManagerApi      = require("chaosbag/BlessCurseManagerApi")
+local chaosBagApi      = require("chaosbag/ChaosBagApi")
+local guidReferenceApi = require("core/GUIDReferenceApi")
+local playermatApi       = require("playermat/PlayermatApi")
+local tokenManager = require("core/token/TokenManager")
+
+function updateSave()
+  self.script_state = JSON.encode({ isHelperEnabled = isHelperEnabled })
+end
+
+function onLoad(savedData)
+  self.addTag("CardWithHelper")
+  if savedData and savedData ~= "" then
+    local loadedData = JSON.decode(savedData)
+    isHelperEnabled = loadedData.isHelperEnabled
+  end
+  checkOptionPanel()
+  updateDisplay()
+end
+
+-- hide buttons and stop monitoring
+function shutOff()
+  self.UI.hide("Helper")
+  Wait.stopAll()
+  updateSave()
+end
+
+-- show buttons and begin monitoring chaos bag for curse and bless tokens
+function initialize()
+  self.UI.show("Helper")
+  maybeUpdateButtonState()
+  Wait.time(maybeUpdateButtonState, 1, -1)
+  updateSave()
+end
+
+function addTokenToBag(_, _, tokenType)
+  blessCurseManagerApi.addToken(tokenType)
+end
+
+function removeAndExtraAction()
+  blessCurseManagerApi.removeToken("Bless")
+  blessCurseManagerApi.removeToken("Bless")
+  blessCurseManagerApi.removeToken("Curse")
+  blessCurseManagerApi.removeToken("Curse")
+
+  local position = self.getPosition()
+  local matColor = playermatApi.getMatColorByPosition(position)
+  local mat = guidReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
+  local rotation = mat.getRotation()
+
+  -- spawn extra action token in the middle of investigator card with Temporary tag
+  callback = function(spawned) spawned.call("updateClassAndSymbol", { class = "Mystic", symbol = "Mystic" }) spawned.addTag("Temporary") end
+  tokenManager.spawnToken(position + Vector(0, 0.2, 0), "universalActionAbility", rotation, callback)
+end
+
+function elderSignAbility()
+  blessCurseManagerApi.addToken("Bless")
+  blessCurseManagerApi.addToken("Curse")
+end
+
+-- count tokens in the bag and show appropriate buttons
+function maybeUpdateButtonState()
+  local numInBag = getBlessCurseInBag()
+  local state = { Bless = false, Curse = false, Action = false, ElderSign = false }
+
+  if numInBag.Bless <= numInBag.Curse and numInBag.Bless < 10 then
+    state.Bless = true
+  end
+
+  if numInBag.Curse <= numInBag.Bless and numInBag.Curse < 10 then
+    state.Curse = true
+  end
+
+  if numInBag.Curse >= 2 and numInBag.Bless >= 2  then
+    state.Action = true
+  end
+
+  state.ElderSign = true
+
+  setUiState(state)
+end
+
+function getBlessCurseInBag()
+  local numInBag = { Bless = 0, Curse = 0 }
+  local chaosBag = chaosBagApi.findChaosBag()
+
+  for _, v in ipairs(chaosBag.getObjects()) do
+    if v.name == "Bless" or v.name == "Curse" then
+      numInBag[v.name] = numInBag[v.name] + 1
+    end
+  end
+
+  return numInBag
+end
+
+function setUiState(params)
+  for _, tokenName in ipairs({ "Bless", "Curse", "Action", "ElderSign" }) do
+    if params[tokenName] then
+      self.UI.show(tokenName)
+      self.UI.hide("inactive" .. tokenName)
+    else
+      self.UI.show("inactive" .. tokenName)
+      self.UI.hide(tokenName)
+    end
+  end
+end
+
+function errorMessage(_, _, triggeringButton)
+  local numInBag = getBlessCurseInBag()
+  if triggeringButton == "inactiveAction" then
+    broadcastToAll("There are not enough Blesses and/or Curses in the chaos bag.", "Red")
+  elseif numInBag.Bless == 10 and numInBag.Curse == 10 then
+    broadcastToAll("No more tokens can be added to the chaos bag.", "Red")
+  elseif numInBag.Bless < numInBag.Curse then
+    broadcastToAll("There are more Bless tokens than Curse tokens in the chaos bag.", "Red")
+  else
+    broadcastToAll("There are more Curse tokens than Bless tokens in the chaos bag.", "Red")
+  end
+end
