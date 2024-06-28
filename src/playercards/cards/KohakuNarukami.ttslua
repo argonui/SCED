@@ -3,6 +3,7 @@ local blessCurseManagerApi      = require("chaosbag/BlessCurseManagerApi")
 local chaosBagApi      = require("chaosbag/ChaosBagApi")
 local guidReferenceApi = require("core/GUIDReferenceApi")
 local playermatApi       = require("playermat/PlayermatApi")
+local searchLib        = require("util/SearchLib")
 local tokenManager = require("core/token/TokenManager")
 
 function updateSave()
@@ -49,9 +50,34 @@ function removeAndExtraAction()
   local mat = guidReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
   local rotation = mat.getRotation()
 
-  -- spawn extra action token in the middle of investigator card with Temporary tag
+  -- find empty action token slots
+  -- check snap point states
+  local snaps = mat.getSnapPoints()
+  
+  -- get first empty slot
+  local fullSlots = {}
+  local positions = {}
+  local j = 1
+  for i, snap in ipairs(snaps) do
+    if snaps[i].tags[1] == "UniversalToken" then
+      positions[j] = mat.positionToWorld(snap.position)
+      local searchResult = searchLib.atPosition(positions[j], "isUniversalToken")
+      fullSlots[j] = #searchResult > 0
+      j = j + 1
+    end
+  end
+
+  for i = 2, 6 do -- look at all 5 slots above investigator card
+    if fullSlots[i] ~= true then
+      callback = function(spawned) spawned.call("updateClassAndSymbol", { class = "Mystic", symbol = "Mystic" }) spawned.addTag("Temporary") end
+      tokenManager.spawnToken(positions[i] + Vector(0, 0.7, 0), "universalActionAbility", rotation, callback)
+      return
+    end
+  end
+
+  -- if all slots are full
   callback = function(spawned) spawned.call("updateClassAndSymbol", { class = "Mystic", symbol = "Mystic" }) spawned.addTag("Temporary") end
-  tokenManager.spawnToken(position + Vector(0, 0.2, 0), "universalActionAbility", rotation, callback)
+  tokenManager.spawnToken(position + Vector(0, 0.7, 0), "universalActionAbility", rotation, callback)
 end
 
 function elderSignAbility()
