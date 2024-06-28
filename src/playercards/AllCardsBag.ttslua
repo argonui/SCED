@@ -380,8 +380,9 @@ end
 
 -- Constructs a list of available basic weaknesses by starting with the full pool of basic
 -- weaknesses then removing any which are currently in the play or deck construction areas
+---@param traits? string Trait(s) to use as filter
 ---@return table: Array of weakness IDs which are valid to choose from
-function buildAvailableWeaknesses()
+function buildAvailableWeaknesses(traits)
   local weaknessesInPlay = {}
   local allObjects = getAllObjects()
   for _, object in ipairs(allObjects) do
@@ -399,7 +400,32 @@ function buildAvailableWeaknesses()
     if (weaknessesInPlay[weaknessId] ~= nil and weaknessesInPlay[weaknessId] > 0) then
       weaknessesInPlay[weaknessId] = weaknessesInPlay[weaknessId] - 1
     else
-      table.insert(availableWeaknesses, weaknessId)
+      if traits then
+        -- split the string into separate traits (separated by "|")
+        local allowedTraits = {}
+        for str in traits:gmatch("([^|]+)") do
+          -- remove dots
+          str = str:gsub("[%.]", "")
+
+          -- remove leading and trailing whitespace
+          str = str:match("^%s*(.-)%s*$")
+
+          -- make sure string ends with a dot
+          str = string.lower(str .. ".")
+          table.insert(allowedTraits, str)
+        end
+
+        -- make sure the trait is present on the weakness
+        local card = cardIdIndex[weaknessId]
+        for _, allowedTrait in ipairs(allowedTraits) do
+          if string.contains(string.lower(card.metadata.traits), allowedTrait) then
+            table.insert(availableWeaknesses, weaknessId)
+            break
+          end
+        end
+      else
+        table.insert(availableWeaknesses, weaknessId)
+      end
     end
   end
   return availableWeaknesses
