@@ -166,7 +166,7 @@ function onLoad(savedData)
   self.createButton(buttonParameters)
 
   showDrawButton(isDrawButtonVisible)
-  redrawSlotSymbols()
+  createXML()
   math.randomseed(os.time())
   Wait.time(function() collisionEnabled = true end, 0.1)
 end
@@ -255,13 +255,11 @@ function discardListOfObjects(objList)
       else
         deckLib.placeOrMergeIntoDeck(obj, ENCOUNTER_DISCARD_POSITION, { x = 0, y = -90, z = 0 })
       end
-
-    -- put chaos tokens back into bag (e.g. Unrelenting)
     elseif tokenChecker.isChaosToken(obj) then
+      -- put chaos tokens back into bag (e.g. Unrelenting)
       chaosBagApi.returnChaosTokenToBag(obj)
-
-    -- don't touch locked objects (like the table etc.) or specific objects (like key tokens)
     elseif not obj.getLock() and not obj.hasTag("DontDiscard") then
+      -- don't touch locked objects (like the table etc.) or specific objects (like key tokens)
       ownedObjects.Trash.putObject(obj)
     end
   end
@@ -395,19 +393,17 @@ function doUpkeep(_, clickedByColor, isRightClick)
         end
       end
 
-      local j = 0
-      local k = 0
-
-      for i = #cardsToDiscard, 1, -1 do
-        j = j + 1
-        Wait.time(function() deckLib.placeOrMergeIntoDeck(cardsToDiscard[i], returnGlobalDiscardPosition(), self.getRotation()) end, j * 0.1)
+      -- perform discarding 1 by 1
+      local pos = returnGlobalDiscardPosition()
+      local count = #cardsToDiscard
+      for i = count, 1, -1 do
+        Wait.time(function() deckLib.placeOrMergeIntoDeck(cardsToDiscard[i], pos, rot) end, (count - i + 1) * 0.1)
       end
 
       -- add some time if there are any cards to discard, if not, draw up to 5 immediately
-      if j > 0 then
-        k = 0.7 + (j * 0.1)
-      else
-        k = 0
+      local k = 0
+      if count > 0 then
+        k = 0.7 + (count * 0.1)
       end
 
       Wait.time(function()
@@ -600,15 +596,16 @@ function checkForDES()
 end
 
 ---------------------------------------------------------
--- slot symbol displaying
+-- XML creation and modifying
 ---------------------------------------------------------
 
--- this will redraw the XML for the slot symbols based on the slotData table
-function redrawSlotSymbols()
+-- initializes the XML
+function createXML()
   local xml = {}
-  local snapId = 0
 
+  -- create a panel for each slot symbol
   -- use the snap point positions in the main play area for positions
+  local snapId = 0
   for _, snap in ipairs(self.getSnapPoints()) do
     if inArea(snap.position, MAIN_PLAY_AREA) then
       snapId = snapId + 1
@@ -623,6 +620,8 @@ function redrawSlotSymbols()
         tag = "Panel",
         attributes = {
           id = "slotPanel" .. snapId,
+          raycastTarget = "false", -- this disables the click function temporarily
+          onClick = "slotClickFunction",
           scale = "0.1 0.1 1",
           width = "175",
           height = "175",
@@ -646,7 +645,25 @@ function redrawSlotSymbols()
     end
   end
 
+  -- create the personal option panel
+
   self.UI.setXmlTable(xml)
+end
+
+-- updates the XML for the slot symbols based on the slotData table
+function updateSlotSymbols()
+  for slotId, slotName in ipairs(slotData) do
+    -- update the symbol
+    self.UI.setAttributes("slot" .. slotId, {
+      rotation = getSlotRotation(slotName),
+      text = slotNameToChar[slotName]
+    })
+
+    -- update availability of the click function
+    self.UI.setAttribute("slotPanel" .. slotId, "raycastTarget", currentlyEditingSlots)
+  end
+
+  -- TODO: update the "edit slots button"?
 end
 
 -- toggle the "slot editing mode"
@@ -660,19 +677,15 @@ function toggleSlotEditing(_, clickedByColor, isRightClick)
 
   -- toggle internal variable
   currentlyEditingSlots = not currentlyEditingSlots
+  updateSlotSymbols()
 
   if currentlyEditingSlots then
-    editButtonLabel("Edit Slots", "Stop editing")
     broadcastToColor("Click on a slot symbol (or an empty slot) to edit it.", messageColor, "Orange")
-    addClickFunctionToSlots()
-  else
-    editButtonLabel("Stop editing", "Edit Slots")
-    redrawSlotSymbols()
   end
 end
 
 -- click function for slot symbols during the "slot editing mode"
-function slotClickfunction(player, _, id)
+function slotClickFunction(player, _, id)
   local slotIndex = id:gsub("slotPanel", "")
   slotIndex = tonumber(slotIndex)
 
@@ -686,12 +699,7 @@ function slotClickfunction(player, _, id)
   player.showOptionsDialog("Choose Slot Symbol", slotNames, slotData[slotIndex],
     function(chosenSlotName)
       slotData[slotIndex] = chosenSlotName
-
-      -- update slot symbol
-      self.UI.setAttribute("slot" .. slotIndex, "text", slotNameToChar[chosenSlotName])
-
-      -- update slot rotation
-      self.UI.setAttribute("slot" .. slotIndex, "rotation", getSlotRotation(chosenSlotName))
+      updateSlotSymbols()
     end
   )
 end
@@ -711,20 +719,7 @@ function resetSlotSymbols()
   for _, slotName in ipairs(defaultSlotData) do
     table.insert(slotData, slotName)
   end
-
-  redrawSlotSymbols()
-
-  -- need to re-add the click functions if currently in edit mode
-  if currentlyEditingSlots then
-    addClickFunctionToSlots()
-  end
-end
-
--- enables the click functions for editing
-function addClickFunctionToSlots()
-  for i = 1, #slotData do
-    self.UI.setAttribute("slotPanel" .. i, "onClick", "slotClickfunction")
-  end
+  updateSlotSymbols()
 end
 
 ---------------------------------------------------------
@@ -1023,6 +1018,7 @@ function updateTexture(overrideName)
 
     self.script_state = onSave()
     customInfo.image = newUrl
+    ---@diagnostic disable-next-line: param-type-mismatch
     self.setCustomObject(customInfo)
     local reloadedMat = self.reload()
 
