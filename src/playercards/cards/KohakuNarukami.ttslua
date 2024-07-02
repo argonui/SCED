@@ -1,10 +1,10 @@
 require("playercards/CardsWithHelper")
 local blessCurseManagerApi      = require("chaosbag/BlessCurseManagerApi")
-local chaosBagApi      = require("chaosbag/ChaosBagApi")
 local guidReferenceApi = require("core/GUIDReferenceApi")
 local playermatApi       = require("playermat/PlayermatApi")
 local searchLib        = require("util/SearchLib")
 local tokenManager = require("core/token/TokenManager")
+local updated
 
 function updateSave()
   self.script_state = JSON.encode({ isHelperEnabled = isHelperEnabled })
@@ -36,7 +36,10 @@ function initialize()
 end
 
 function addTokenToBag(_, _, tokenType)
+  if not updated then return end
   blessCurseManagerApi.addToken(tokenType)
+  updated = false
+  Wait.frames(maybeUpdateButtonState, 2)
 end
 
 function removeAndExtraAction()
@@ -57,13 +60,11 @@ function removeAndExtraAction()
   -- get first empty slot
   local fullSlots = {}
   local positions = {}
-  local j = 1
-  for i, snap in ipairs(snaps) do
-    if snaps[i].tags[1] == "UniversalToken" then
-      positions[j] = mat.positionToWorld(snap.position)
-      local searchResult = searchLib.atPosition(positions[j], "isUniversalToken")
-      fullSlots[j] = #searchResult > 0
-      j = j + 1
+  for _, snap in ipairs(snaps) do
+    if snap.tags[1] == "UniversalToken" then
+      table.insert(positions, mat.positionToWorld(snap.position))
+      local searchResult = searchLib.atPosition(positions[#positions], "isUniversalToken")
+      table.insert(fullSlots, #searchResult > 0)
     end
   end
 
@@ -87,7 +88,7 @@ end
 
 -- count tokens in the bag and show appropriate buttons
 function maybeUpdateButtonState()
-  local numInBag = getBlessCurseInBag()
+  local numInBag = blessCurseManagerApi.getBlessCurseInBag()
   local state = { Bless = false, Curse = false, Action = false, ElderSign = false }
 
   if numInBag.Bless <= numInBag.Curse and numInBag.Bless < 10 then
@@ -105,19 +106,7 @@ function maybeUpdateButtonState()
   state.ElderSign = true
 
   setUiState(state)
-end
-
-function getBlessCurseInBag()
-  local numInBag = { Bless = 0, Curse = 0 }
-  local chaosBag = chaosBagApi.findChaosBag()
-
-  for _, v in ipairs(chaosBag.getObjects()) do
-    if v.name == "Bless" or v.name == "Curse" then
-      numInBag[v.name] = numInBag[v.name] + 1
-    end
-  end
-
-  return numInBag
+  updated = true
 end
 
 function setUiState(params)
@@ -133,7 +122,7 @@ function setUiState(params)
 end
 
 function errorMessage(_, _, triggeringButton)
-  local numInBag = getBlessCurseInBag()
+  local numInBag = blessCurseManagerApi.getBlessCurseInBag()
   if triggeringButton == "inactiveAction" then
     broadcastToAll("There are not enough Blesses and/or Curses in the chaos bag.", "Red")
   elseif numInBag.Bless == 10 and numInBag.Curse == 10 then
