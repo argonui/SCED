@@ -256,13 +256,11 @@ function discardListOfObjects(objList)
       else
         deckLib.placeOrMergeIntoDeck(obj, ENCOUNTER_DISCARD_POSITION, { x = 0, y = -90, z = 0 })
       end
-
-    -- put chaos tokens back into bag (e.g. Unrelenting)
     elseif tokenChecker.isChaosToken(obj) then
+      -- put chaos tokens back into bag (e.g. Unrelenting)
       chaosBagApi.returnChaosTokenToBag(obj)
-
-    -- don't touch locked objects (like the table etc.) or specific objects (like key tokens)
     elseif not obj.getLock() and not obj.hasTag("DontDiscard") then
+      -- don't touch locked objects (like the table etc.) or specific objects (like key tokens)
       ownedObjects.Trash.putObject(obj)
     end
   end
@@ -390,8 +388,8 @@ function doUpkeep(_, clickedByColor, isRightClick)
       local cardsToDiscard = {}
 
       for i = 1, #handCards do
-        local metadata = JSON.decode(handCards[i].getGMNotes())
-        if metadata ~= nil and (not metadata.weakness and not metadata.hidden) then
+        local md = JSON.decode(handCards[i].getGMNotes())
+        if md ~= nil and (not md.weakness and not md.hidden and md.type ~= "Enemy") then
           table.insert(cardsToDiscard, handCards[i])
         end
       end
@@ -400,13 +398,14 @@ function doUpkeep(_, clickedByColor, isRightClick)
       local pos = returnGlobalDiscardPosition()
       local count = #cardsToDiscard
       for i = count, 1, -1 do
-        Wait.time(function() deckLib.placeOrMergeIntoDeck(cardsToDiscard[i], pos, rot) end, (count - i + 1) * 0.1)
+        Wait.time(function() deckLib.placeOrMergeIntoDeck(cardsToDiscard[i], pos, rot) end,
+          (count - i + 1) * 0.1)
       end
 
       -- add some time if there are any cards to discard, if not, draw up to 5 immediately
       local k = 0
       if count > 0 then
-        k = 1 + (count * 0.1)
+        k = 0.5 + (count * 0.1)
       end
 
       Wait.time(function()
@@ -575,7 +574,8 @@ function doDiscardOne()
     -- get a random non-hidden card (from the "choices" table)
     local num = math.random(1, #choices)
     deckLib.placeOrMergeIntoDeck(hand[choices[num]], returnGlobalDiscardPosition(), self.getRotation())
-    broadcastToAll(getColoredName(playerColor) .. " randomly discarded card " .. choices[num] .. "/" .. #hand .. ".", "White")
+    broadcastToAll(getColoredName(playerColor) .. " randomly discarded card "
+      .. choices[num] .. "/" .. #hand .. ".", "White")
   end
 end
 
