@@ -2,23 +2,25 @@ do
   local DeckLib = {}
   local searchLib = require("util/SearchLib")
 
-  -- places a card/deck at a position or merges into an existing deck
+  -- places a card/deck at a position or merges into an existing deck below
   ---@param obj tts__Object Object to move
   ---@param pos table New position for the object
   ---@param rot? table New rotation for the object
   ---@param below? boolean Should the object be placed below an existing deck?
   DeckLib.placeOrMergeIntoDeck = function(obj, pos, rot, below)
-    if obj == nil or pos == nil then return end
+    if obj == nil or obj.isDestroyed() or pos == nil then return end
 
     -- search the new position for existing card/deck
     local searchResult = searchLib.atPosition(pos, "isCardOrDeck")
+    local targetObj
 
     -- get new position
     local offset = 0.5
     local newPos = Vector(pos) + Vector(0, offset, 0)
 
     if #searchResult == 1 then
-      local bounds = searchResult[1].getBounds()
+      targetObj = searchResult[1]
+      local bounds = targetObj.getBounds()
       if below then
         newPos = Vector(pos):setAt("y", bounds.center.y - bounds.size.y / 2)
       else
@@ -26,7 +28,8 @@ do
       end
     end
 
-    -- allow moving the objects smoothly out of the hand
+    -- allow moving the objects smoothly out of the hand and temporarily lock it
+    obj.setLock(true)
     obj.use_hands = false
 
     if rot then
@@ -34,17 +37,17 @@ do
     end
     obj.setPositionSmooth(newPos, false, true)
 
-    -- continue if the card stops smooth moving
+    -- use putObject if the card stops smooth moving to avoid a TTS bug that merges unrelated cards that are not resting
+    -- pcall avoids errors (physics is sometimes too fast so the object doesn't exist for the put)
     Wait.condition(
-    function()
-      obj.use_hands = true
-      -- this avoids a TTS bug that merges unrelated cards that are not resting
-      if #searchResult == 1 and searchResult[1] ~= obj and searchResult[1] ~= nil then
-        -- call this with avoiding errors (physics is sometimes too fast so the object doesn't exist for the put)
-        pcall(function() searchResult[1].putObject(obj) end)
-      end
-    end,
-    function() return not obj.isSmoothMoving() end, 3)
+      pcall(function()
+        obj.setLock(false)
+        obj.use_hands = true
+        if #searchResult == 1 and targetObj ~= obj then
+          targetObj.putObject(obj)
+        end
+      end),
+      function() return not obj.isSmoothMoving() end, 3)
   end
 
   return DeckLib

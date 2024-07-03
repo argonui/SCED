@@ -1,12 +1,19 @@
 require("playercards/CardsWithHelper")
-local blessCurseManagerApi      = require("chaosbag/BlessCurseManagerApi")
-local guidReferenceApi = require("core/GUIDReferenceApi")
-local playermatApi       = require("playermat/PlayermatApi")
-local searchLib        = require("util/SearchLib")
-local tokenManager = require("core/token/TokenManager")
+local blessCurseManagerApi = require("chaosbag/BlessCurseManagerApi")
+local guidReferenceApi     = require("core/GUIDReferenceApi")
+local playermatApi         = require("playermat/PlayermatApi")
+local searchLib            = require("util/SearchLib")
+local tokenManager         = require("core/token/TokenManager")
 
-local isHelperEnabled  = false
+local isHelperEnabled      = false
 local updated
+
+local xmlData              = {
+  Action = { color = "#6D202CE6", onClick = "removeAndExtraAction" },
+  Bless = { color = "#9D702CE6", onClick = "addTokenToBag" },
+  Curse = { color = "#633A84E6", onClick = "addTokenToBag" },
+  ElderSign = { color = "#50A8CEE6", onClick = "elderSignAbility" }
+}
 
 function updateSave()
   self.script_state = JSON.encode({ isHelperEnabled = isHelperEnabled })
@@ -57,32 +64,29 @@ function removeAndExtraAction()
   local mat = guidReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
   local rotation = mat.getRotation()
 
-  -- find empty action token slots
-  -- check snap point states
+  -- find empty action token slots by checking snap points
   local snaps = mat.getSnapPoints()
-  
-  -- get first empty slot
-  local fullSlots = {}
-  local positions = {}
-  for _, snap in ipairs(snaps) do
-    if snap.tags[1] == "UniversalToken" then
-      table.insert(positions, mat.positionToWorld(snap.position))
-      local searchResult = searchLib.atPosition(positions[#positions], "isUniversalToken")
-      table.insert(fullSlots, #searchResult > 0)
+
+  -- get first empty slot in the top row (so the second empty slot because of the ability token)
+  local emptyPos = position -- default to card position
+  for i, snap in ipairs(snaps) do
+    if i > 1 then
+      if snap.tags[1] == "UniversalToken" then
+        local snapPos = mat.positionToWorld(snap.position)
+        local searchResult = searchLib.atPosition(snapPos, "isUniversalToken")
+        if #searchResult == 0 then
+          emptyPos = snapPos
+          break
+        end
+      end
     end
   end
 
-  for i = 2, 6 do -- look at all 5 slots above investigator card
-    if fullSlots[i] ~= true then
-      callback = function(spawned) spawned.call("updateClassAndSymbol", { class = "Mystic", symbol = "Mystic" }) spawned.addTag("Temporary") end
-      tokenManager.spawnToken(positions[i] + Vector(0, 0.7, 0), "universalActionAbility", rotation, callback)
-      return
-    end
+  callback = function(spawned)
+    spawned.call("updateClassAndSymbol", { class = "Mystic", symbol = "Mystic" })
+    spawned.addTag("Temporary")
   end
-
-  -- if all slots are full
-  callback = function(spawned) spawned.call("updateClassAndSymbol", { class = "Mystic", symbol = "Mystic" }) spawned.addTag("Temporary") end
-  tokenManager.spawnToken(position + Vector(0, 0.7, 0), "universalActionAbility", rotation, callback)
+  tokenManager.spawnToken(emptyPos + Vector(0, 0.7, 0), "universalActionAbility", rotation, callback)
 end
 
 function elderSignAbility()
@@ -97,37 +101,39 @@ function maybeUpdateButtonState()
 
   if numInBag.Bless <= numInBag.Curse and numInBag.Bless < 10 then
     state.Bless = true
+    state.ElderSign = true
   end
 
   if numInBag.Curse <= numInBag.Bless and numInBag.Curse < 10 then
     state.Curse = true
+    state.ElderSign = true
   end
 
-  if numInBag.Curse >= 2 and numInBag.Bless >= 2  then
+  if numInBag.Curse >= 2 and numInBag.Bless >= 2 then
     state.Action = true
   end
-
-  state.ElderSign = true
 
   setUiState(state)
   updated = true
 end
 
 function setUiState(params)
-  for _, tokenName in ipairs({ "Bless", "Curse", "Action", "ElderSign" }) do
-    if params[tokenName] then
-      self.UI.show(tokenName)
-      self.UI.hide("inactive" .. tokenName)
+  for buttonId, state in ipairs(params) do
+    if state then
+      self.UI.setAttribute(buttonId, "color", xmlData[buttonId].color)
+      self.UI.setAttribute(buttonId, "onClick", xmlData[buttonId].onClick)
+      self.UI.setAttribute(buttonId, "textColor", "white")
     else
-      self.UI.show("inactive" .. tokenName)
-      self.UI.hide(tokenName)
+      self.UI.setAttribute(buttonId, "color", "#353535E6")
+      self.UI.setAttribute(buttonId, "onClick", "errorMessage")
+      self.UI.setAttribute(buttonId, "textColor", "#A0A0A0")
     end
   end
 end
 
 function errorMessage(_, _, triggeringButton)
   local numInBag = blessCurseManagerApi.getBlessCurseInBag()
-  if triggeringButton == "inactiveAction" then
+  if triggeringButton == "Action" then
     broadcastToAll("There are not enough Blesses and/or Curses in the chaos bag.", "Red")
   elseif numInBag.Bless == 10 and numInBag.Curse == 10 then
     broadcastToAll("No more tokens can be added to the chaos bag.", "Red")
