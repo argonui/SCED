@@ -1,0 +1,139 @@
+require("playercards/CardsWithHelper")
+local blessCurseManagerApi      = require("chaosbag/BlessCurseManagerApi")
+local guidReferenceApi = require("core/GUIDReferenceApi")
+local playermatApi       = require("playermat/PlayermatApi")
+local searchLib        = require("util/SearchLib")
+local tokenManager = require("core/token/TokenManager")
+
+local isHelperEnabled  = false
+local updated
+
+function updateSave()
+  self.script_state = JSON.encode({ isHelperEnabled = isHelperEnabled })
+end
+
+function onLoad(savedData)
+  self.addTag("CardWithHelper")
+  if savedData and savedData ~= "" then
+    local loadedData = JSON.decode(savedData)
+    isHelperEnabled = loadedData.isHelperEnabled
+  end
+  checkOptionPanel()
+end
+
+-- hide buttons and stop monitoring
+function shutOff()
+  self.UI.hide("Helper")
+  Wait.stopAll()
+  updateSave()
+end
+
+-- show buttons and begin monitoring chaos bag for curse and bless tokens
+function initialize()
+  self.UI.show("Helper")
+  maybeUpdateButtonState()
+  Wait.time(maybeUpdateButtonState, 1, -1)
+  updateSave()
+end
+
+function addTokenToBag(_, _, tokenType)
+  if not updated then return end
+  blessCurseManagerApi.addToken(tokenType)
+  updated = false
+  Wait.frames(maybeUpdateButtonState, 2)
+end
+
+function removeAndExtraAction()
+  if not updated then return end
+  blessCurseManagerApi.removeToken("Bless")
+  blessCurseManagerApi.removeToken("Bless")
+  blessCurseManagerApi.removeToken("Curse")
+  blessCurseManagerApi.removeToken("Curse")
+  updated = false
+  Wait.frames(maybeUpdateButtonState, 2)
+
+  local position = self.getPosition()
+  local matColor = playermatApi.getMatColorByPosition(position)
+  local mat = guidReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
+  local rotation = mat.getRotation()
+
+  -- find empty action token slots
+  -- check snap point states
+  local snaps = mat.getSnapPoints()
+  
+  -- get first empty slot
+  local fullSlots = {}
+  local positions = {}
+  for _, snap in ipairs(snaps) do
+    if snap.tags[1] == "UniversalToken" then
+      table.insert(positions, mat.positionToWorld(snap.position))
+      local searchResult = searchLib.atPosition(positions[#positions], "isUniversalToken")
+      table.insert(fullSlots, #searchResult > 0)
+    end
+  end
+
+  for i = 2, 6 do -- look at all 5 slots above investigator card
+    if fullSlots[i] ~= true then
+      callback = function(spawned) spawned.call("updateClassAndSymbol", { class = "Mystic", symbol = "Mystic" }) spawned.addTag("Temporary") end
+      tokenManager.spawnToken(positions[i] + Vector(0, 0.7, 0), "universalActionAbility", rotation, callback)
+      return
+    end
+  end
+
+  -- if all slots are full
+  callback = function(spawned) spawned.call("updateClassAndSymbol", { class = "Mystic", symbol = "Mystic" }) spawned.addTag("Temporary") end
+  tokenManager.spawnToken(position + Vector(0, 0.7, 0), "universalActionAbility", rotation, callback)
+end
+
+function elderSignAbility()
+  blessCurseManagerApi.addToken("Bless")
+  blessCurseManagerApi.addToken("Curse")
+end
+
+-- count tokens in the bag and show appropriate buttons
+function maybeUpdateButtonState()
+  local numInBag = blessCurseManagerApi.getBlessCurseInBag()
+  local state = { Bless = false, Curse = false, Action = false, ElderSign = false }
+
+  if numInBag.Bless <= numInBag.Curse and numInBag.Bless < 10 then
+    state.Bless = true
+  end
+
+  if numInBag.Curse <= numInBag.Bless and numInBag.Curse < 10 then
+    state.Curse = true
+  end
+
+  if numInBag.Curse >= 2 and numInBag.Bless >= 2  then
+    state.Action = true
+  end
+
+  state.ElderSign = true
+
+  setUiState(state)
+  updated = true
+end
+
+function setUiState(params)
+  for _, tokenName in ipairs({ "Bless", "Curse", "Action", "ElderSign" }) do
+    if params[tokenName] then
+      self.UI.show(tokenName)
+      self.UI.hide("inactive" .. tokenName)
+    else
+      self.UI.show("inactive" .. tokenName)
+      self.UI.hide(tokenName)
+    end
+  end
+end
+
+function errorMessage(_, _, triggeringButton)
+  local numInBag = blessCurseManagerApi.getBlessCurseInBag()
+  if triggeringButton == "inactiveAction" then
+    broadcastToAll("There are not enough Blesses and/or Curses in the chaos bag.", "Red")
+  elseif numInBag.Bless == 10 and numInBag.Curse == 10 then
+    broadcastToAll("No more tokens can be added to the chaos bag.", "Red")
+  elseif numInBag.Bless < numInBag.Curse then
+    broadcastToAll("There are more Bless tokens than Curse tokens in the chaos bag.", "Red")
+  else
+    broadcastToAll("There are more Curse tokens than Bless tokens in the chaos bag.", "Red")
+  end
+end
