@@ -314,7 +314,7 @@ function doUpkeep(_, clickedByColor, isRightClick)
   local rot = self.getRotation()
   for _, obj in ipairs(searchAroundSelf()) do
     if obj.hasTag("Temporary") == true then
-      discardListOfObjects({obj})
+      discardListOfObjects({ obj })
     elseif obj.hasTag("UniversalToken") == true and obj.is_face_down then
       obj.flip()
     elseif obj.type == "Card" and not inArea(self.positionToLocal(obj.getPosition()), INVESTIGATOR_AREA) then
@@ -389,35 +389,32 @@ function doUpkeep(_, clickedByColor, isRightClick)
       local handCards = Player[playerColor].getHandObjects()
       local cardsToDiscard = {}
 
-      for i = 1, #handCards do
-        local md = JSON.decode(handCards[i].getGMNotes())
+      for _, card in ipairs(handCards) do
+        local md = JSON.decode(card.getGMNotes())
         if md ~= nil and (not md.weakness and not md.hidden and md.type ~= "Enemy") then
-          table.insert(cardsToDiscard, handCards[i])
+          table.insert(cardsToDiscard, card)
         end
       end
 
       -- perform discarding 1 by 1
       local pos = returnGlobalDiscardPosition()
-      local count = #cardsToDiscard
-      for i = count, 1, -1 do
-        Wait.time(function() deckLib.placeOrMergeIntoDeck(cardsToDiscard[i], pos, rot) end,
-          (count - i + 1) * 0.1)
-      end
+      deckLib.placeOrMergeIntoDeck(cardsToDiscard, pos, rot)
 
-      -- add some time if there are any cards to discard, if not, draw up to 5 immediately
+      -- add some time if there are any cards to discard
       local k = 0
-      if count > 0 then
-        k = 0.5 + (count * 0.1)
+      if #cardsToDiscard > 0 then
+        k = 1 + (#cardsToDiscard * 0.1)
       end
 
-      Wait.time(function()
-        local handSize = #Player[playerColor].getHandObjects()
-        if handSize < 5 then
-          local cardsToDraw = 5 - handSize
-          printToColor("Drawing " .. cardsToDraw .. " cards (Patrice)", messageColor)
-          drawCardsWithReshuffle(cardsToDraw)
-        end
-      end, k)
+      -- draw up to 5 cards
+      Wait.time(
+        function()
+          local cardsToDraw = 5 - #handCards + #cardsToDiscard
+          if cardsToDraw > 0 then
+            printToColor("Drawing " .. cardsToDraw .. " cards (Patrice)", messageColor)
+            drawCardsWithReshuffle(cardsToDraw)
+          end
+        end, k)
     end
   elseif forcedLearning then
     printToColor("Drawing 2 cards, discard 1 (Forced Learning)", messageColor)
