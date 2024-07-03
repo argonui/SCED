@@ -1,0 +1,3513 @@
+---@diagnostic disable
+function onload(saved_data)
+  sheetLocked = self.script_state.sheetLocked or false
+  local inverseScale = { x = math.floor(100 / self.getScale().x) / 100, y = math.floor(100 / self.getScale().z) / 100 }
+  scale = self.script_state.scale or inverseScale
+  flip = self.script_state.flip or "False"
+  fields = self.script_state.fields or {}
+  checks = self.script_state.checks or {}
+  decals = self.script_state.decals or {}
+  height = self.script_state.height or 0.5
+  locks = self.script_state.locks or { fields = false, checks = false, decals = false }
+  lookupInputIndexToInfo = {}
+  lookupButtonIndexToInfo = {}
+  lookupFieldIndices = {}
+  lookupCheckIndices = {}
+  lookupDecalIndices = {}
+  lookupSelectionButtonIndices = {}
+  lastFieldLockedMessage = 0
+  buttonIndex = 0
+  inputIndex = 0
+  if saved_data ~= "" then
+    local loadedData = JSON.decode(saved_data)
+    sheetLocked = loadedData.sheetLocked or false
+    flip = loadedData.flip or "False"
+    height = loadedData.height or 0.5
+    fields = loadedData.fields or {}
+    checks = loadedData.checks or {}
+    decals = loadedData.decals or {}
+    scale = loadedData.scale or inverseScale
+    locks = loadedData.locks or { fields = false, checks = false, decals = false }
+  end
+  if (not getCommited()) then
+    self.addContextMenuItem("Edit Layout", showEditPanel)
+    self.addContextMenuItem("Commit Layout", showCommitPanel)
+    nudgeDistance = self.script_state.nudgeDistance or 0.1
+    page = 1
+    editingSheet = false
+    selectedId = 0
+    selectedArrayId = 1
+    selectedType = ""
+    selectedMax = 5
+    creating = false
+  else
+    makeContextMenuItems()
+  end
+  createAll()
+end
+
+function makeContextMenuItems()
+  self.clearContextMenu()
+  if (not sheetLocked) then
+    local getLocked = function(element)
+      if (locks[element]) then return "◆ Lock" else return "◇ Lock" end
+    end
+    local allLocked = "Lock"
+    if (locks.fields and locks.checks and locks.decals) then allLocked = "Unlock" end
+    if (#fields > 0 and #checks > 0 and #decals > 0) then
+      self.addContextMenuItem(allLocked .. " everything", toggleAllLocks)
+    end
+    for k, v in pairs(fields) do
+      if (v.locked ~= "True") then
+        self.addContextMenuItem(getLocked("fields") .. " texts", toggleLockFields)
+        break
+      end
+    end
+    for k, v in pairs(checks) do
+      if (v.locked ~= "True") then
+        self.addContextMenuItem(getLocked("checks") .. " checkboxes", toggleLockChecks)
+        break
+      end
+    end
+    for k, v in pairs(decals) do
+      if (v.locked ~= "True") then
+        self.addContextMenuItem(getLocked("decals") .. " images", toggleLockDecals)
+        break
+      end
+    end
+  end
+end
+
+function toggleAllLocks(ply, pos, obj)
+  if (locks.fields and locks.checks and locks.decals) then
+    locks.fields = false
+    locks.checks = false
+    locks.decals = false
+    broadcastToColor("Unlocked everything", ply)
+  else
+    locks.fields = true
+    locks.checks = true
+    locks.decals = true
+    broadcastToColor("Locked everything", ply)
+  end
+  updateSave()
+  makeContextMenuItems()
+  refresh()
+end
+
+function toggleLockFields(ply, pos, obj)
+  if (locks.fields) then
+    locks.fields = false
+    broadcastToColor("Unlocked texts", ply)
+  else
+    locks.fields = true
+    broadcastToColor("Locked texts", ply)
+  end
+  updateSave()
+  makeContextMenuItems()
+  refresh()
+end
+
+function toggleLockChecks(ply, pos, obj)
+  if (locks.checks) then
+    locks.checks = false
+    broadcastToColor("Unlocked checkboxes", ply)
+  else
+    locks.checks = true
+    broadcastToColor("Locked checkboxes", ply)
+  end
+  updateSave()
+  makeContextMenuItems()
+  refresh()
+end
+
+function toggleLockDecals(ply, pos, obj)
+  if (locks.decals) then
+    locks.decals = false
+    broadcastToColor("Unlocked images", ply)
+  else
+    locks.decals = true
+    broadcastToColor("Locked images", ply)
+  end
+  updateSave()
+  makeContextMenuItems()
+  refresh()
+end
+
+function updateSave()
+  local data_to_save = {
+    scale = scale,
+    height = height,
+    fields = fields,
+    checks = checks,
+    decals = decals,
+    flip = flip,
+    sheetLocked = sheetLocked,
+    locks = locks
+  }
+  if (not getCommited()) then
+    data_to_save.nudgeDistance = nudgeDistance
+  else
+    data_to_save.nudgeDistance = nil
+  end
+  saved_data = JSON.encode(data_to_save)
+  self.script_state = saved_data
+end
+
+function null() end
+
+function refresh()
+  if (not creating) then
+    self.clearInputs()
+    self.clearButtons()
+    inputIndex = 0
+    buttonIndex = 0
+    if (editingSheet) then
+      createSelectionHighlight()
+    end
+    createAll()
+  end
+end
+
+function createAll()
+  lookupInputIndexToInfo = {}
+  lookupButtonIndexToInfo = {}
+  lookupFieldIndices = {}
+  lookupCheckIndices = {}
+  lookupDecalIndices = {}
+  startLuaCoroutine(self, "createAllCoroutine")
+end
+
+function createAllCoroutine()
+  if (not getCommited()) then
+    UI.setAttribute(getPanelId("Loading"), "active", "True")
+  end
+  coroutine.yield(0)
+  creating = true
+  for fieldID, field in pairs(fields) do
+    lookupFieldIndices[fieldID] = {
+      inputs = {},
+      totals = {},
+      counterButtons = {},
+      selectionButtons = {}
+    }
+    local posx = field.pos.x
+    local posy = field.pos.y
+    local func = "edit"
+    if (field.vsum == "True") then
+      func = 'MarumEditableRecalculateSum_' .. fieldID
+      _G[func] = function(obj, ply, input_value, selected)
+        local fID = fieldID
+        edit(obj, ply, input_value, selected)
+        obj.call("recalculateVSums", fID)
+      end
+    else
+      local iIndex = inputIndex
+      if (field.locked == "True" or sheetLocked or locks.fields) then
+        func = 'MarumEditableRevert_' .. fieldID
+        _G[func] = function(obj, ply, input_value, selected)
+          local fID = fieldID
+          local iID = iIndex
+          local sel = selected
+          obj.call("revertField", { fID, ply, iID, sel })
+        end
+      end
+    end
+
+    local fieldScale = { x = scale.x, y = 1, z = scale.y }
+    local rotation = { x = 0, y = 0, z = 0 }
+    local posMulx = 1
+    local flipped = 1
+    if (flip == "True") then
+      rotation.y = 180
+      flipped = -1
+    end
+    local upright = self.getTransformUp().y > 0
+    local shouldFlip = (field.locked == "True" or sheetLocked or locks.fields) and upright
+    local unlockedRotation = { x = rotation.x, y = rotation.y, z = rotation.z }
+    if (editingSheet or shouldFlip) then
+      rotation.z = 180
+      posMulx = -posMulx
+      fieldScale.x = -fieldScale.x
+    end
+    local vsum = 0
+    local fontSize = field.font
+    fontSize = math.min(field.size.y - 24, fontSize)
+    local color = getFieldTextColor(fieldID)
+    for x = 1, field.array.x do
+      vsum = 0
+      for y = 1, field.array.y do
+        local arrayID = x + (y - 1) * field.array.x
+        local pos = getFieldPosition(fieldID, x, y)
+        self.createInput({
+          value = field.value[arrayID],
+          tooltip = getFieldTooltip(fieldID, arrayID),
+          input_function = func,
+          function_owner = self,
+          alignment = field.align,
+          position = pos,
+          width = field.size.x,
+          height = field.size.y,
+          rotation = rotation,
+          font_size = fontSize,
+          scale = fieldScale,
+          font_color = color,
+          color = field.fieldColor,
+          tab = 2
+        })
+        if (field.counter == "True") then
+          local counterButtonWidth = fontSize * 0.75
+          _G['MarumEditableCounterIncrease_' .. fieldID .. '_' .. arrayID] = function(obj, ply, alt)
+            local fID = fieldID
+            local aID = arrayID
+            obj.call("increaseCounter", { fID, aID, ply })
+          end
+          buttonIndex = buttonIndex + 1
+          lookupButtonIndexToInfo[buttonIndex] = { type = "counter", id = fieldID }
+          table.insert(lookupFieldIndices[fieldID].counterButtons, { index = buttonIndex, x = x, y = y, side = 1 })
+          self.createButton({
+            click_function = 'MarumEditableCounterIncrease_' .. fieldID .. '_' .. arrayID,
+            tooltip = "↑ Increase ↑",
+            function_owner = self,
+            label = "[b]+[/b]",
+            position = { x = pos.x + (field.size.x + counterButtonWidth) / 1000 * fieldScale.x * posMulx * flipped, y = pos.y, z = pos.z },
+            rotation = unlockedRotation,
+            scale = fieldScale,
+            width = counterButtonWidth,
+            height = counterButtonWidth,
+            font_size = fontSize / 2,
+            font_color = color,
+            color = field.fieldColor,
+          })
+
+          _G['MarumEditableCounterDecrease_' .. fieldID .. '_' .. arrayID] = function(obj, ply, alt)
+            local fID = fieldID
+            local aID = arrayID
+            obj.call("decreaseCounter", { fID, aID, ply })
+          end
+          buttonIndex = buttonIndex + 1
+          table.insert(lookupFieldIndices[fieldID].counterButtons, { index = buttonIndex, x = x, y = y, side = -1 })
+          self.createButton({
+            click_function = 'MarumEditableCounterDecrease_' .. fieldID .. '_' .. arrayID,
+            tooltip = "↓ Decrease ↓",
+            function_owner = self,
+            label = "[b]-[/b]",
+            position = { x = pos.x - (field.size.x + counterButtonWidth) / 1000 * fieldScale.x * posMulx * flipped, y = pos.y, z = pos.z },
+            unlockedRotation = rotation,
+            scale = fieldScale,
+            width = counterButtonWidth,
+            height = counterButtonWidth,
+            font_size = fontSize / 2,
+            font_color = color,
+            color = field.fieldColor,
+          })
+        end
+        inputIndex = inputIndex + 1
+        lookupInputIndexToInfo[inputIndex] = { type = "field", id = fieldID, arrayID = arrayID }
+        table.insert(lookupFieldIndices[fieldID].inputs, { index = inputIndex, arrayID = arrayID, x = x, y = y })
+        if (field.vsum == "True") then
+          if (tonumber(field.value[arrayID])) then
+            vsum = vsum + tonumber(field.value[arrayID])
+          end
+        end
+
+        if (inputIndex % 10 == 0) then coroutine.yield(0) end
+      end
+
+      if (field.vsum == "True") then
+        local pos = getFieldPosition(fieldID, x, field.array.y + 1)
+        local func = 'MarumEditableRevertSum_' .. fieldID
+        _G[func] = function(obj, ply, input_value, selected)
+          obj.call("revertFieldSum", { fieldID, ply, iIndex, selected })
+        end
+        self.createInput({
+          value = "[u]" .. vsum .. "[/u]",
+          tooltip = "[Sum]",
+          input_function = func,
+          function_owner = self,
+          alignment = field.align,
+          position = pos,
+          width = field.size.x,
+          height = field.size.y,
+          rotation = { x = unlockedRotation.x, y = unlockedRotation.y, z = unlockedRotation.z + 180 },
+          font_size = fontSize,
+          scale = { x = -scale.x, y = 1, z = scale.y },
+          font_color = color,
+          color = field.fieldColor,
+          tab = 0
+        })
+        inputIndex = inputIndex + 1
+        table.insert(lookupFieldIndices[fieldID].totals, { index = inputIndex, x = x })
+      end
+    end
+  end
+
+  createDecals()
+  for decalID, decal in pairs(decals) do
+    lookupDecalIndices[decalID] = {
+      inputs = {},
+      selectionButtons = {}
+    }
+    local pos = getDecalPosition(decalID)
+    if (decal.locked ~= "True" and not sheetLocked and not locks.decals and not editingSheet) then
+      local func = 'MarumEditableSetURL_' .. decalID
+      _G[func] = function(obj, ply, alt)
+        obj.call("showImageURLPanel", { decalID, ply })
+      end
+      local tooltip = getDecalTooltip(decalID)
+      self.createButton({
+        value = decal.url,
+        tooltip = tooltip,
+        click_function = func,
+        function_owner = self,
+        position = pos,
+        width = 490,
+        height = 490,
+        rotation = { x = 0, y = 0, z = 0 },
+        font_size = 10,
+        scale = { x = decal.scale.x * scale.x, y = decal.scale.y * scale.y, z = decal.scale.y * scale.y },
+        font_color = { r = 0, g = 0, b = 0, a = 0 },
+        color = { r = 0, g = 0, b = 0, a = 0 },
+      })
+      buttonIndex = buttonIndex + 1
+      lookupButtonIndexToInfo[buttonIndex] = { type = "decal", id = decalID }
+      table.insert(lookupDecalIndices[decalID].inputs, { index = buttonIndex })
+    end
+
+    if (inputIndex % 10 == 0) then coroutine.yield(0) end
+  end
+
+  for checkID, check in pairs(checks) do
+    lookupCheckIndices[checkID] = {
+      buttons = {},
+      selectionButtons = {}
+    }
+    local rotationZ = 0
+    local checkScale = { x = scale.x * check.size.x, y = 1, z = scale.y * check.size.y }
+    local upright = self.getTransformUp().y > 0
+    local shouldFlip = (check.locked == "True" or sheetLocked or locks.checks) and upright
+    if (editingSheet or shouldFlip) then
+      checkScale.x = -checkScale.x
+      rotationZ = 180
+    end
+    for x = 1, check.array.x do
+      for y = 1, check.array.y do
+        local arrayID = x + (y - 1) * check.array.x
+        local func = "MarumEditableClickCheckbox_" .. checkID .. "_" .. arrayID
+        if (check.locked == "True" or sheetLocked or locks.checks) then
+          func = "null"
+        end
+        local rotationY = 0
+        local posMul = 1
+        if (flip == "True") then
+          rotationY = 180
+          posMul = -posMul
+        end
+        local pos = getCheckPosition(checkID, x, y)
+        local bindex = buttonIndex
+        _G['MarumEditableClickCheckbox_' .. checkID .. '_' .. arrayID] = function(obj, ply, alt)
+          local fID = checkID
+          local aID = arrayID
+          local bi = bindex
+          obj.call("clickcheck", { fID, aID, alt, bi, ply })
+        end
+
+        local tooltip = getCheckTooltip(checkID)
+        local label, color, alphaCorrectedColor = getCheckLabelAndColor(checkID, arrayID)
+        buttonIndex = buttonIndex + 1
+        lookupButtonIndexToInfo[buttonIndex] = { type = "check", id = checkID, arrayID = arrayID }
+        table.insert(lookupCheckIndices[checkID].buttons, { index = buttonIndex, x = x, y = y, arrayID = arrayID })
+        self.createButton({
+          label = label,
+          tooltip = tooltip,
+          click_function = func,
+          function_owner = self,
+          alignment = 3,
+          position = pos,
+          width = 250,
+          height = 250,
+          rotation = { x = 0, y = rotationY, z = rotationZ },
+          font_size = check.font,
+          scale = { x = checkScale.x, y = checkScale.y, z = checkScale.z },
+          font_color = alphaCorrectedColor,
+          color = check.checkColor,
+          tab = 0
+        })
+
+        if (buttonIndex % 10 == 0) then coroutine.yield(0) end
+      end
+    end
+  end
+  if (not getCommited() and editingSheet) then
+    createSelectionButtons()
+  end
+  creating = false
+  return 1
+end
+
+function revertField(args)
+  local fieldID = args[1]
+  local ply = args[2]
+  local selected = args[4]
+  if (not selected) then
+    Wait.frames(
+      function()
+        for k, v in pairs(lookupFieldIndices[fieldID].inputs) do
+          self.editInput({ index = v.index - 1, value = fields[fieldID].value[v.arrayID] })
+        end
+      end,
+      1
+    )
+  else
+    if (lastFieldLockedMessage ~= fieldID) then
+      broadcastToColor("This text is locked", ply, { r = 1, g = 0.5, b = 0 })
+      lastFieldLockedMessage = fieldID
+    end
+  end
+end
+
+function recalculateVSums(fieldID)
+  local field = fields[fieldID]
+  for k, v in pairs(lookupFieldIndices[fieldID].totals) do
+    local vsum = 0
+    for y = 1, field.array.y do
+      local arrayID = v.x + (y - 1) * field.array.x
+      if (tonumber(field.value[arrayID])) then
+        vsum = vsum + tonumber(field.value[arrayID])
+      end
+    end
+    self.editInput({ index = v.index - 1, value = "[u]" .. vsum .. "[/u]" })
+  end
+end
+
+function revertFieldSum(args)
+  local fieldID = args[1]
+  local ply = args[2]
+  local selected = args[4]
+  if (not selected) then
+    Wait.frames(
+      function()
+        recalculateVSums(fieldID)
+      end,
+      1
+    )
+  else
+    if (lastFieldLockedMessage ~= fieldID) then
+      broadcastToColor("This text is reserved for the total sum", ply, { r = 1, g = 1, b = 0 })
+      lastFieldLockedMessage = fieldID
+    end
+  end
+end
+
+function createDecals()
+  local decalParameters = {}
+  for decalID, decal in pairs(decals) do
+    local rotationAdd = 180
+    if (flip == "True") then
+      rotationAdd = 0
+    end
+    local pos = getDecalPosition(decalID)
+    table.insert(decalParameters, {
+      url = decal.url,
+      name = "Image #" .. decalID,
+      position = { x = -pos.x, y = pos.y, z = pos.z },
+      rotation = { x = 90, y = rotationAdd + decal.rotation, z = 0 },
+      scale = { x = decal.scale.x * scale.x, y = decal.scale.y * scale.y, z = 1 }
+    })
+  end
+  self.setDecals(decalParameters)
+end
+
+function getFieldPosition(fieldID, x, y)
+  local field = fields[fieldID]
+  local mul = 1
+  if (flip == "True") then mul = -1 end
+  return {
+    x = (field.pos.x + (x - 1) * field.distance.x) * scale.x * mul,
+    y = height + 0.002,
+    z = (field.pos.y + (y - 1) * field.distance.y) * scale.y * mul
+  }
+end
+
+function getFieldTooltip(fieldID, arrayID)
+  local field = fields[fieldID]
+  local tooltip = ""
+  if (not field.locked) then
+    if (field.tooltip == nil or field.tooltip:find("name")) then
+      tooltip = field.name or ""
+    elseif (field.tooltip:find("content")) then
+      tooltip = field.value[arrayID]
+    end
+  end
+  return tooltip
+end
+
+function getCheckPosition(checkID, x, y)
+  local check = checks[checkID]
+  local mul = 1
+  if (flip == "True") then mul = -1 end
+  return {
+    x = (check.pos.x + (x - 1) * check.distance.x) * mul * scale.x,
+    y = height + 0.002,
+    z = (check.pos.y + (y - 1) * check.distance.y) *
+        mul * scale.y
+  }
+end
+
+function getDecalPosition(decalID)
+  local decal = decals[decalID]
+  local mul = 1
+  if (flip == "True") then mul = -1 end
+  return { x = decal.pos.x * mul * scale.x, y = height + 0.005, z = decal.pos.y * mul * scale.y }
+end
+
+function getDecalTooltip(decalID)
+  local decal = decals[decalID]
+  local tooltip = ""
+  if (decal.tooltip == nil) then
+    tooltip = decal.name or ""
+  elseif (decal.tooltip:find("name")) then
+    tooltip = decal.name or ""
+  elseif (decal.tooltip:find("hint")) then
+    tooltip = "Click to change image"
+  end
+  return tooltip
+end
+
+function increaseCounter(args)
+  local fieldID = tonumber(args[1])
+  local arrayID = tonumber(args[2])
+  local ply = args[3]
+  local field = fields[fieldID]
+  if (field.value[arrayID] == nil or field.value[arrayID] == "") then
+    field.value[arrayID] = 0
+  end
+  if (tonumber(field.value[arrayID])) then
+    field.value[arrayID] = tonumber(field.value[arrayID]) + 1
+    updateFieldNameContentAndTooltip(fieldID)
+    if (field.vsum == "True") then
+      recalculateVSums(fieldID)
+    end
+    updateSave()
+  else
+    broadcastToColor("Field does not contain a valid number", ply)
+  end
+end
+
+function decreaseCounter(args)
+  local fieldID = tonumber(args[1])
+  local arrayID = tonumber(args[2])
+  local ply = args[3]
+  local field = fields[fieldID]
+  if (field.value[arrayID] == nil or field.value[arrayID] == "") then
+    field.value[arrayID] = 0
+  end
+  if (tonumber(field.value[arrayID])) then
+    field.value[arrayID] = tonumber(field.value[arrayID]) - 1
+    updateFieldNameContentAndTooltip(fieldID)
+    if (field.vsum == "True") then
+      recalculateVSums(fieldID)
+    end
+    updateSave()
+  else
+    broadcastToColor("Field does not contain a valid number", ply)
+  end
+end
+
+function edit(obj, ply, value, selected)
+  for k, v in pairs(obj.getInputs()) do
+    if (lookupInputIndexToInfo[k] ~= nil) then
+      if (lookupInputIndexToInfo[k].type == "field") then
+        local field = fields[lookupInputIndexToInfo[k].id]
+        if (v.value ~= field.value[lookupInputIndexToInfo[k].arrayID]) then
+          field.value[lookupInputIndexToInfo[k].arrayID] = v.value
+          if (field.tooltip ~= nil) then
+            if (field.tooltip:find("content")) then
+              self.editInput({ index = k - 1, tooltip = v.value })
+            end
+          end
+          if (field.role ~= nil) then
+            if (field.role:find("name")) then
+              self.setName(value)
+            elseif (field.role:find("description")) then
+              self.setDescription(value)
+            end
+          end
+          updateSave()
+          break
+        end
+      end
+    end
+  end
+end
+
+function editUrl(obj, ply, value, selected)
+  for k, v in pairs(obj.getInputs()) do
+    if (lookupInputIndexToInfo[k] ~= nil) then
+      if (lookupInputIndexToInfo[k].type == "decal") then
+        if (v.value ~= decals[lookupInputIndexToInfo[k].id].url) then
+          decals[lookupInputIndexToInfo[k].id].url = v.value
+          updateSave()
+          createDecals()
+          break
+        end
+      end
+    end
+  end
+end
+
+function clickcheck(args)
+  local checkID = tonumber(args[1])
+  local arrayID = tonumber(args[2])
+  local alt_click = args[3]
+  local buttonIndex = args[4]
+  local ply = args[5]
+  local check = checks[checkID]
+  local value = tonumber(check.value[arrayID])
+  if (value == nil) then value = 1 end
+  if (alt_click) then
+    if (value > 0) then
+      check.value[arrayID] = 0
+    else
+      check.value[arrayID] = 1
+    end
+  else
+    if (value == 1) then
+      check.value[arrayID] = 2
+    else
+      if (value == 2) then
+        check.value[arrayID] = 1
+      elseif (check.fillFromDisabled == "True") then
+        check.value[arrayID] = 2
+      else
+        broadcastToColor("This checkbox is disabled. You can enable/disable checkboxes with Right click.", ply)
+      end
+    end
+  end
+
+  local label, color, alphaCorrectedColor = getCheckLabelAndColor(checkID, arrayID)
+  self.editButton({ index = buttonIndex, label = label, font_color = alphaCorrectedColor })
+  updateSave()
+end
+
+function getFieldTextColor(fieldID)
+  local field = fields[fieldID]
+  local textAlpha = field.textColor.a
+  if (tonumber(field.fieldColor.a) > 0) then
+    textAlpha = tonumber(field.textColor.a) / tonumber(field.fieldColor.a)
+  else
+    textAlpha = tonumber(field.textColor.a) * 100
+  end
+  return { r = field.textColor.r, g = field.textColor.g, b = field.textColor.b, a = textAlpha }
+end
+
+function getCheckTooltip(checkID)
+  local check = checks[checkID]
+  local tooltip = ""
+  if (not check.locked) then
+    if (check.tooltip == nil or check.tooltip:find("name")) then
+      tooltip = check.name
+    elseif (check.tooltip:find("hint")) then
+      tooltip = "Left click to toggle, Right click to enable/disable"
+    end
+  end
+  return tooltip
+end
+
+function getCheckLabelAndColor(checkID, arrayID)
+  local check = checks[checkID]
+  local label = check.characters.empty
+  if (check.value[arrayID] == 0) then
+    label = check.characters.disabled
+  elseif (check.value[arrayID] == 2) then
+    label = check.characters.filled
+  end
+
+  local color = nil
+  if (check.separateColors == "True") then
+    if (check.value[arrayID] == 0) then
+      color = check.textColorDisabled or check.textColor
+    elseif (check.value[arrayID] == 1) then
+      color = check.textColorOff or check.textColor
+    elseif (check.value[arrayID] == 2) then
+      color = check.textColorOn or check.textColor
+    else
+      color = check.textColorOff or check.textColor
+    end
+  else
+    color = check.textColorOn or check.textColor
+  end
+
+  local alpha = 1
+  local checkAlpha = math.max(1 / 255, check.checkColor.a)
+  if (tonumber(check.checkColor.a) > 0) then
+    alpha = tonumber(color.a) / tonumber(checkAlpha)
+  else
+    alpha = tonumber(color.a) * 100
+  end
+  return label, color, { r = color.r, g = color.g, b = color.b, a = color.a * alpha }
+end
+
+function split(inputstr, sep)
+  if sep == nil then
+    sep = "%s"
+  end
+  local t = {}
+  for str in string.gmatch(inputstr, "([^" .. sep .. "]+)") do
+    table.insert(t, str)
+  end
+  return t
+end
+
+function onRotate(spin, flip, player_color, old_spin, old_flip)
+  updateLockedFieldOrientation(flip < 90)
+end
+
+function onDrop(ply)
+  updateLockedFieldOrientation(self.getTransformUp().y >= 0)
+end
+
+function updateLockedFieldOrientation(upright)
+  for k, v in pairs(fields) do
+    if (v.locked == "True" or sheetLocked or locks.fields or v.vsum == "True") then
+      local field = v
+      local fieldScale = { x = scale.x, y = 1, z = scale.y }
+      local rotation = { x = 0, y = 0, z = 0 }
+      if (flip == "True") then
+        rotation.y = 180
+      end
+      if (upright) then
+        rotation.z = 180
+        fieldScale.x = -scale.x
+      end
+      if (v.locked == "True" or sheetLocked or locks.fields) then
+        for arrayID, inp in pairs(lookupFieldIndices[k].inputs) do
+          self.editInput({ index = inp.index - 1, rotation = rotation, scale = fieldScale })
+        end
+      end
+      for arrayID, inp in pairs(lookupFieldIndices[k].totals) do
+        self.editInput({ index = inp.index - 1, rotation = rotation, scale = fieldScale })
+      end
+    end
+  end
+  for k, v in pairs(checks) do
+    if (v.locked == "True" or sheetLocked or locks.fields) then
+      local check = v
+      local rotationZ = 0
+      local checkScale = { x = scale.x * check.size.x, y = 1, z = scale.y * check.size.y }
+      if (upright) then
+        checkScale.x = -checkScale.x
+        rotationZ = 180
+      end
+      local rotationY = 0
+      if (flip == "True") then
+        rotationY = 180
+      end
+      for arrayID, inp in pairs(lookupCheckIndices[k].buttons) do
+        self.editButton({
+          index = inp.index - 1,
+          rotation = { x = 0, y = rotationY, z = rotationZ },
+          scale = checkScale
+        })
+      end
+    end
+  end
+end
+
+function showImageURLPanel(args)
+  local decalID = args[1]
+  local ply = args[2]
+  Player[ply].showInputDialog("Set image URL",
+    function(text, player_color)
+      decals[decalID].url = text
+      createDecals()
+    end
+  )
+end
+
+function updateFieldNameContentAndTooltip(fieldID)
+  local field = fields[fieldID]
+  for k, v in pairs(lookupFieldIndices[fieldID].inputs) do
+    self.editInput({
+      index = v.index - 1,
+      value = field.value[v.arrayID],
+      tooltip = getFieldTooltip(fieldID,
+        v.arrayID)
+    })
+  end
+  local name = "T" .. fieldID
+  local tooltip = "Select " .. (field.name or name)
+  for k, v in pairs(lookupFieldIndices[fieldID].selectionButtons) do
+    self.editButton({ index = v.index - 1, tooltip = tooltip })
+  end
+end
+
+function getCommited()
+  return true
+end
+
+--$
+
+function getCommited()
+  return false
+end
+
+function get_line_count(str)
+  local lines = 1
+  for i = 1, #str do
+    local c = str:sub(i, i)
+    if c == 'n' then lines = lines + 1 end
+  end
+  return lines
+end
+
+function createSelectionButtons()
+  coroutine.yield(0)
+  local rotation = { x = 0, y = 0, z = 0 }
+  if (flip == "True") then
+    rotation.y = 180
+  end
+
+  for fieldID, field in pairs(fields) do
+    local posx = field.pos.x
+    local posy = field.pos.y
+    local fieldScale = { x = scale.x, y = 1, z = scale.y }
+    local posMul = 1
+    if (flip == "True") then
+      posMul = -1
+    end
+
+    local fontSize = field.font
+    fontSize = math.min(field.size.y - 23, fontSize)
+    for x = 1, field.array.x do
+      for y = 1, field.array.y do
+        local name = "T" .. fieldID
+        local arrayID = x + (y - 1) * field.array.x
+        local tooltip = "Select " .. (field.name or name)
+        local pos = {
+          x = (posx + (x - 1) * field.distance.x) * fieldScale.x * posMul,
+          y = height + 0.005,
+          z = (posy + (y - 1) * field.distance.y) * fieldScale.z * posMul
+        }
+        buttonIndex = buttonIndex + 1
+        table.insert(lookupFieldIndices[fieldID].selectionButtons, { index = buttonIndex, x = x, y = y })
+        self.createButton({
+          click_function = 'MarumEditableSheet_SelectField/' .. fieldID .. '_' .. arrayID,
+          tooltip = tooltip,
+          function_owner = self,
+          label = "",
+          position = pos,
+          rotation = rotation,
+          scale = { x = fieldScale.x * 0.25, y = 1, z = fieldScale.z * 0.25 },
+          width = field.size.x * 4 + 200,
+          height = field.size.y * 4 + 200,
+          font_size = field.font,
+          font_color = { r = 1, g = 1, b = 1, a = 1 },
+          color = { r = 0, g = 0.5, b = 1, a = 0.5 },
+          hover_color = { r = 0, g = 0.5, b = 1, a = 0.8 }
+        })
+        _G['MarumEditableSheet_SelectField/' .. fieldID .. '_' .. arrayID] = function(obj, ply, alt)
+          obj.call("selectField", { id = fieldID, arrayId = arrayID })
+        end
+      end
+    end
+    if (buttonIndex % 10 == 0) then coroutine.yield(0) end
+  end
+
+  for decalID, decal in pairs(decals) do
+    local name = "D" .. decalID
+    local tooltip = "Select " .. (decal.name or name)
+    local pos = getDecalPosition(decalID)
+    buttonIndex = buttonIndex + 1
+    table.insert(lookupDecalIndices[decalID].selectionButtons, { index = buttonIndex, x = x, y = y })
+    self.createButton({
+      click_function = 'MarumEditableSheet_SelectDecal_' .. decalID,
+      tooltip = tooltip,
+      function_owner = self,
+      label = "",
+      position = pos,
+      rotation = rotation,
+      scale = { x = decal.scale.x * scale.x * 0.25, y = decal.scale.y * scale.y * 0.25, z = decal.scale.y * scale.y * 0.25 },
+      width = 2000,
+      height = 2000,
+      font_size = 100,
+      font_color = { r = 1, g = 1, b = 1, a = 1 },
+      color = { r = 0, g = 0.5, b = 1, a = 0.5 },
+      hover_color = { r = 0, g = 0.5, b = 1, a = 0.8 }
+    })
+    _G['MarumEditableSheet_SelectDecal_' .. decalID] = function(obj, ply, alt)
+      obj.call("selectDecal", decalID)
+    end
+    if (buttonIndex % 10 == 0) then coroutine.yield(0) end
+  end
+
+  for checkID, check in pairs(checks) do
+    local posx = check.pos.x
+    local posy = check.pos.y
+    local checkScale = { x = scale.x * check.size.x, y = 1, z = scale.y * check.size.y }
+    local name = "C" .. checkID
+    local tooltip = "Select " .. (check.name or name)
+    for x = 1, check.array.x do
+      for y = 1, check.array.y do
+        local arrayID = x + (y - 1) * check.array.x
+        local func = "MarumEditableClickCheckbox_" .. checkID .. '_' .. arrayID
+        local rotationAdd = 0
+        local posMul = 1
+        if (flip == "True") then
+          rotationAdd = 180
+          posMul = -1
+        end
+        local pos = {
+          x = (posx + (x - 1) * check.distance.x) * posMul * scale.x,
+          y = height + 0.002,
+          z = (posy + (y - 1) * check.distance.y) * posMul * scale.y
+        }
+        buttonIndex = buttonIndex + 1
+        table.insert(lookupCheckIndices[checkID].selectionButtons, {
+          index = buttonIndex,
+          x = x,
+          y = y,
+          arrayID = arrayID
+        })
+        self.createButton({
+          label = "",
+          tooltip = tooltip,
+          click_function = func,
+          function_owner = self,
+          alignment = 3,
+          position = pos,
+          width = 1000,
+          height = 1000,
+          rotation = { x = 0, y = rotationAdd, z = 0 },
+          font_size = check.font / 3,
+          scale = { x = checkScale.x * 0.25, y = checkScale.y, z = checkScale.z * 0.25 },
+          font_color = { r = 1, g = 1, b = 1, a = 1 },
+          color = { r = 0, g = 0.5, b = 1, a = 0.5 },
+          hover_color = { r = 0, g = 0.5, b = 1, a = 0.8 },
+          tab = 0
+        })
+        _G['MarumEditableClickCheckbox_' .. checkID .. '_' .. arrayID] = function(obj, ply, alt)
+          obj.call("selectCheck", { id = checkID, arrayId = arrayID })
+        end
+      end
+    end
+    if (buttonIndex % 10 == 0) then coroutine.yield(0) end
+  end
+
+  UI.setAttribute(getPanelId("Loading"), "active", "False")
+end
+
+function createSelectionHighlight(edit)
+  local topLeft = { x = 0, y = 0, z = 0 }
+  local topRight = { x = 0, y = 0, z = 0 }
+  local bottomLeft = { x = 0, y = 0, z = 0 }
+  local bottomRight = { x = 0, y = 0, z = 0 }
+  local scale = { x = scale.x, y = 1, z = scale.y }
+  local rotation = { x = 0, y = 0, z = 0 }
+  if (flip == "True") then
+    rotation.y = 180
+  end
+
+  if (selectedType == "field") then
+    local field = fields[selectedId]
+    local posx = field.pos.x
+    local posy = field.pos.y
+    local posMul = 1
+    if (flip == "True") then
+      posMul = -1
+      posy = posy - 0.1
+    end
+    local x = (selectedArrayId - 1) % field.array.x
+    local y = math.floor((selectedArrayId - 1) / field.array.x)
+    local gridpos = { x = x * field.distance.x, y = y * field.distance.y }
+    bottomLeft = {
+      x = (posx - field.size.x / 1000 - 0.1 + gridpos.x) * scale.x * posMul,
+      y = height + 0.005,
+      z = (posy + field.size.y / 1000 + 0.1 + gridpos.y) * scale.z * posMul
+    }
+    bottomRight = {
+      x = (posx + field.size.x / 1000 + 0.1 + gridpos.x) * scale.x * posMul,
+      y = height + 0.005,
+      z = (posy + field.size.y / 1000 + 0.1 + gridpos.y) * scale.z * posMul
+    }
+    topLeft = {
+      x = (posx - field.size.x / 1000 - 0.1 + gridpos.x) * scale.x * posMul,
+      y = height + 0.005,
+      z = (posy - field.size.y / 1000 + gridpos.y) * scale.z * posMul
+    }
+    topRight = {
+      x = (posx + field.size.x / 1000 + 0.1 + gridpos.x) * scale.x * posMul,
+      y = height + 0.005,
+      z = (posy - field.size.y / 1000 + gridpos.y) * scale.z * posMul
+    }
+  elseif (selectedType == "decal") then
+    local decal = decals[selectedId]
+    local posx = decal.pos.x
+    local posy = decal.pos.y
+    local posMul = 1
+    if (flip == "True") then
+      posMul = -1
+      posy = posy - 0.1
+    end
+    bottomLeft = {
+      x = (posx - decal.scale.x / 2 - 0.1) * scale.x * posMul,
+      y = height + 0.005,
+      z = (posy + decal.scale.y / 2 + 0.1) * scale.z * posMul
+    }
+    bottomRight = {
+      x = (posx + decal.scale.x / 2 + 0.1) * scale.x * posMul,
+      y = height + 0.005,
+      z = (posy + decal.scale.y / 2 + 0.1) * scale.z * posMul
+    }
+    topLeft = {
+      x = (posx - decal.scale.x / 2 - 0.1) * scale.x * posMul,
+      y = height + 0.005,
+      z = (posy - decal.scale.y / 2) * scale.z * posMul
+    }
+    topRight = {
+      x = (posx + decal.scale.x / 2 + 0.1) * scale.x * posMul,
+      y = height + 0.005,
+      z = (posy - decal.scale.y / 2) * scale.z * posMul
+    }
+  elseif (selectedType == "check") then
+    local check = checks[selectedId]
+    local posx = check.pos.x
+    local posy = check.pos.y
+    local posMul = 1
+    if (flip == "True") then
+      posMul = -1
+      posy = posy - 0.1
+    end
+    local x = (selectedArrayId - 1) % check.array.x
+    local y = math.floor((selectedArrayId - 1) / check.array.x)
+    local gridpos = { x = x * check.distance.x, y = y * check.distance.y }
+    bottomLeft = {
+      x = (posx - check.size.x * 0.25 - 0.1 + gridpos.x) * scale.x * posMul,
+      y = height + 0.005,
+      z = (posy + check.size.y * 0.25 + 0.1 + gridpos.y) * scale.z * posMul
+    }
+    bottomRight = {
+      x = (posx + check.size.x * 0.25 + 0.1 + gridpos.x) * scale.x * posMul,
+      y = height + 0.005,
+      z = (posy + check.size.y * 0.25 + 0.1 + gridpos.y) * scale.z * posMul
+    }
+    topLeft = {
+      x = (posx - check.size.x * 0.25 - 0.1 + gridpos.x) * scale.x * posMul,
+      y = height + 0.005,
+      z = (posy - check.size.y * 0.25 + gridpos.y) * scale.z * posMul
+    }
+    topRight = {
+      x = (posx + check.size.x * 0.25 + 0.1 + gridpos.x) * scale.x * posMul,
+      y = height + 0.005,
+      z = (posy - check.size.y * 0.25 + gridpos.y) * scale.z * posMul
+    }
+  end
+  if (edit) then
+    self.editButton({ index = 0, scale = scale, position = bottomLeft })
+    self.editButton({ index = 1, scale = scale, position = topLeft })
+    self.editButton({ index = 2, scale = scale, position = bottomRight })
+    self.editButton({ index = 3, scale = scale, position = topRight })
+  else
+    local label = "┗"
+    if (flip == "True") then label = "┓" end
+    self.createButton({
+      click_function = 'null',
+      function_owner = self,
+      label = label,
+      position = bottomLeft,
+      rotation = rotation,
+      scale = scale,
+      width = 0,
+      height = 0,
+      font_size = 200,
+      font_color = { r = 0, g = 0.5, b = 1, a = 100 },
+      color = { r = 0, g = 0, b = 0, a = 0.01 },
+    })
+    label = "┏"
+    if (flip == "True") then label = "┛" end
+    self.createButton({
+      click_function = 'null',
+      function_owner = self,
+      label = label,
+      position = topLeft,
+      rotation = rotation,
+      scale = scale,
+      width = 0,
+      height = 0,
+      font_size = 200,
+      font_color = { r = 0, g = 0.5, b = 1, a = 100 },
+      color = { r = 0, g = 0, b = 0, a = 0.01 },
+    })
+    label = "┛"
+    if (flip == "True") then label = "┏" end
+    self.createButton({
+      click_function = 'null',
+      function_owner = self,
+      label = label,
+      position = bottomRight,
+      rotation = rotation,
+      scale = scale,
+      width = 0,
+      height = 0,
+      font_size = 200,
+      font_color = { r = 0, g = 0.5, b = 1, a = 100 },
+      color = { r = 0, g = 0, b = 0, a = 0.01 },
+    })
+    label = "┓"
+    if (flip == "True") then label = "┗" end
+    self.createButton({
+      click_function = 'null',
+      function_owner = self,
+      label = label,
+      position = topRight,
+      rotation = rotation,
+      scale = scale,
+      width = 0,
+      height = 0,
+      font_size = 200,
+      font_color = { r = 0, g = 0.5, b = 1, a = 100 },
+      color = { r = 0, g = 0, b = 0, a = 0.01 },
+    })
+    buttonIndex = buttonIndex + 4
+  end
+end
+
+function selectField(args)
+  selectedId = args.id
+  selectedArrayId = args.arrayId
+  selectedType = "field"
+  createSelectionHighlight(true)
+  UI.hide(attrId("EmptyPrompt"))
+  UI.show(attrId("SelectionPanel"))
+  refreshEditPanel()
+end
+
+function selectDecal(id)
+  selectedId = id
+  selectedType = "decal"
+  createSelectionHighlight(true)
+  UI.hide(attrId("EmptyPrompt"))
+  UI.show(attrId("SelectionPanel"))
+  refreshEditPanel()
+end
+
+function selectCheck(args)
+  selectedId = args.id
+  selectedArrayId = args.arrayId
+  selectedType = "check"
+  createSelectionHighlight(true)
+  UI.hide(attrId("EmptyPrompt"))
+  UI.show(attrId("SelectionPanel"))
+  refreshEditPanel()
+end
+
+function refreshEditPanel()
+  local page = selectedId
+  local subpages = 0
+  if (selectedType == "field") then
+    local field = fields[selectedId]
+    local name = ""
+    if (field.name ~= "" and field.name ~= nil) then
+      name = " - " .. field.name
+    end
+    local value = field.value[selectedArrayId]
+    subpages = field.array.x * field.array.y
+    local sub = ""
+    if (subpages > 1) then
+      sub = ";" .. selectedArrayId
+    end
+    UI.setAttribute(attrId("Field/ID"), "text", "<b>Text #" .. tostring(selectedId) .. sub .. name .. "</b>")
+    UI.setAttribute(attrId("Field/name"), "text", field.name)
+    UI.setAttribute(attrId("Field/content"), "text", value or "")
+    UI.setAttribute(attrId("Field/font"), "text", field.font)
+    UI.setAttribute(attrId("Field/pos/x"), "text", field.pos.x)
+    UI.setAttribute(attrId("Field/pos/y"), "text", field.pos.y)
+    UI.setAttribute(attrId("Field/size/x"), "text", field.size.x)
+    UI.setAttribute(attrId("Field/size/y"), "text", field.size.y)
+    UI.setAttribute(attrId("Field/array/x"), "text", field.array.x)
+    UI.setAttribute(attrId("Field/array/y"), "text", field.array.y)
+    UI.setAttribute(attrId("Field/distance/x"), "text", field.distance.x)
+    UI.setAttribute(attrId("Field/distance/y"), "text", field.distance.y)
+
+    local textColor = "rgba(" .. field.textColor.r .. "," .. field.textColor.g .. "," .. field.textColor.b .. ",1)"
+    local textColor2 = "rgba(" ..
+        (field.textColor.r * 0.5 + 0.2) .. "," .. (field.textColor.g * 0.5 + 0.2) ..
+        "," .. (field.textColor.b * 0.5 + 0.2) .. ",1)"
+    UI.setAttribute(attrId("Field/textColor"), "colors", textColor ..
+      "|" .. textColor2 .. "|" .. textColor2 .. "|" .. textColor)
+    UI.setAttribute(attrId("Field/textColor/a"), "percentage", field.textColor.a * 100)
+
+    local fieldColor = "rgba(" .. field.fieldColor.r .. "," .. field.fieldColor.g .. "," .. field.fieldColor.b ..
+        ",1)"
+    local fieldColor2 = "rgba(" ..
+        (field.fieldColor.r * 0.5 + 0.2) .. "," .. (field.fieldColor.g * 0.5 + 0.2) ..
+        "," .. (field.fieldColor.b * 0.5 + 0.2) .. ",1)"
+    UI.setAttribute(attrId("Field/fieldColor"), "colors",
+      fieldColor .. "|" .. fieldColor2 .. "|" .. fieldColor2 .. "|" .. fieldColor)
+    UI.setAttribute(attrId("Field/fieldColor/a"), "percentage", field.fieldColor.a * 100)
+
+    UI.setAttribute(attrId("Field/counter"), "isOn", field.counter == "True")
+    UI.setAttribute(attrId("Field/vsum"), "isOn", field.vsum == "True")
+    UI.setAttribute(attrId("Field/locked"), "isOn", field.locked == "True")
+
+    local role = 0
+    if (field.role ~= nil) then
+      if (field.role:find("name")) then
+        role = 1
+      elseif (field.role:find("desc")) then
+        role = 2
+      end
+    end
+    UI.setAttribute(attrId("Field/role"), "value", role)
+
+    local tooltip = 0
+    if (field.tooltip ~= nil) then
+      if (field.tooltip:find("name")) then
+        tooltip = 1
+      elseif (field.tooltip:find("content")) then
+        tooltip = 2
+      end
+    end
+    UI.setAttribute(attrId("Field/tooltip"), "value", tooltip)
+
+    local align = 0
+    if (field.align == 3) then
+      align = 1
+    elseif (field.align == 4) then
+      align = 2
+    end
+    UI.setAttribute(attrId("Field/align"), "value", align)
+
+    UI.hide(attrId("CheckPanel"))
+    UI.hide(attrId("DecalPanel"))
+    UI.show(attrId("FieldPanel"))
+  elseif (selectedType == "check") then
+    local check = checks[selectedId]
+    local name = ""
+    if (check.name ~= "" and check.name ~= "") then
+      name = " - " .. check.name
+    end
+    subpages = check.array.x * check.array.y
+    local sub = ""
+    if (subpages > 1) then
+      sub = ";" .. selectedArrayId
+    end
+    UI.setAttribute(attrId("Check/ID"), "text", "<b>Checkbox #" .. tostring(selectedId) .. sub .. name .. "</b>")
+    UI.setAttribute(attrId("Check/name"), "text", check.name)
+    UI.setAttribute(attrId("Check/font"), "text", check.font)
+    UI.setAttribute(attrId("Check/pos/x"), "text", check.pos.x)
+    UI.setAttribute(attrId("Check/pos/y"), "text", check.pos.y)
+    UI.setAttribute(attrId("Check/size/x"), "text", check.size.x)
+    UI.setAttribute(attrId("Check/size/y"), "text", check.size.y)
+    UI.setAttribute(attrId("Check/array/x"), "text", check.array.x)
+    UI.setAttribute(attrId("Check/array/y"), "text", check.array.y)
+    UI.setAttribute(attrId("Check/distance/x"), "text", check.distance.x)
+    UI.setAttribute(attrId("Check/distance/y"), "text", check.distance.y)
+
+    local tc = check.textColorOn or check.textColor
+    local textColor = "rgba(" .. tc.r .. "," .. tc.g .. "," .. tc.b .. ",1)"
+    local textColor2 = "rgba(" .. (tc.r * 0.5 + 0.2) .. "," .. (tc.g * 0.5 + 0.2) .. "," .. (tc.b * 0.5 + 0.2) ..
+        ",1)"
+    UI.setAttribute(attrId("Check/textColorOn"), "colors",
+      textColor .. "|" .. textColor2 .. "|" .. textColor2 .. "|" .. textColor)
+    UI.setAttribute(attrId("Check/textColorOn/a"), "percentage", tc.a * 100)
+
+    local tc = check.textColorOff or check.textColor
+    local textColor = "rgba(" .. tc.r .. "," .. tc.g .. "," .. tc.b .. ",1)"
+    local textColor2 = "rgba(" .. (tc.r * 0.5 + 0.2) .. "," .. (tc.g * 0.5 + 0.2) .. "," .. (tc.b * 0.5 + 0.2) ..
+        ",1)"
+    UI.setAttribute(attrId("Check/textColorOff"), "colors",
+      textColor .. "|" .. textColor2 .. "|" .. textColor2 .. "|" .. textColor)
+    UI.setAttribute(attrId("Check/textColorOff/a"), "percentage", tc.a * 100)
+
+    local tc = check.textColorDisabled or check.textColor
+    local textColor = "rgba(" .. tc.r .. "," .. tc.g .. "," .. tc.b .. ",1)"
+    local textColor2 = "rgba(" .. (tc.r * 0.5 + 0.2) .. "," .. (tc.g * 0.5 + 0.2) .. "," .. (tc.b * 0.5 + 0.2) ..
+        ",1)"
+    UI.setAttribute(attrId("Check/textColorDisabled"), "colors",
+      textColor .. "|" .. textColor2 .. "|" .. textColor2 .. "|" .. textColor)
+    UI.setAttribute(attrId("Check/textColorDisabled/a"), "percentage", tc.a * 100)
+
+    local checkColor = "rgba(" .. check.checkColor.r .. "," .. check.checkColor.g .. "," .. check.checkColor.b ..
+        ",1)"
+    local checkColor2 = "rgba(" ..
+        (check.checkColor.r * 0.5 + 0.2) .. "," .. (check.checkColor.g * 0.5 + 0.2) ..
+        "," .. (check.checkColor.b * 0.5 + 0.2) .. ",1)"
+    UI.setAttribute(attrId("Check/checkColor"), "colors",
+      checkColor .. "|" .. checkColor2 .. "|" .. checkColor2 .. "|" .. checkColor)
+    UI.setAttribute(attrId("Check/checkColor/a"), "percentage", check.checkColor.a * 100)
+
+    UI.setAttribute(attrId("Check/characters/empty"), "text", check.characters.empty)
+    UI.setAttribute(attrId("Check/characters/filled"), "text", check.characters.filled)
+    UI.setAttribute(attrId("Check/characters/disabled"), "text", check.characters.disabled)
+
+    if (check.separateColors == "True") then
+      UI.setAttribute(attrId("CheckOnColorLabel"), "text", "On color")
+      UI.setAttribute(attrId("CheckOffColorRow"), "active", "True")
+      UI.setAttribute(attrId("CheckDisabledColorRow"), "active", "True")
+      UI.setAttribute(attrId("CheckSeparateColorsSpacer1"), "active", "False")
+      UI.setAttribute(attrId("CheckSeparateColorsSpacer2"), "active", "False")
+    else
+      UI.setAttribute(attrId("CheckOnColorLabel"), "text", "Color")
+      UI.setAttribute(attrId("CheckOffColorRow"), "active", "False")
+      UI.setAttribute(attrId("CheckDisabledColorRow"), "active", "False")
+      UI.setAttribute(attrId("CheckSeparateColorsSpacer1"), "active", "True")
+      UI.setAttribute(attrId("CheckSeparateColorsSpacer2"), "active", "True")
+    end
+    UI.setAttribute(attrId("Check/separateColors"), "isOn", check.separateColors == "True")
+    UI.setAttribute(attrId("Check/fillFromDisabled"), "isOn", check.fillFromDisabled == "True")
+
+    local option = 0
+    if (check.value[selectedArrayId] == 0) then option = 2 end
+    if (check.value[selectedArrayId] == 1) then option = 0 end
+    if (check.value[selectedArrayId] == 2) then option = 1 end
+    UI.setAttribute(attrId("Check/value"), "value", option)
+
+    local tooltip = 0
+    if (check.tooltip ~= nil) then
+      if (check.tooltip:find("name")) then
+        tooltip = 1
+      elseif (check.tooltip:find("hint")) then
+        tooltip = 2
+      end
+    end
+    UI.setAttribute(attrId("Check/tooltip"), "value", tooltip)
+    UI.setAttribute(attrId("Check/locked"), "isOn", check.locked == "True")
+
+    UI.hide(attrId("DecalPanel"))
+    UI.hide(attrId("FieldPanel"))
+    UI.show(attrId("CheckPanel"))
+
+    page = selectedId + #fields
+  elseif (selectedType == "decal") then
+    local decal = decals[selectedId]
+    local slot = 1
+    UI.setAttribute(attrId("Decal/ID"), "text", "<b>Decal #" .. tostring(selectedId) .. "</b>")
+    UI.setAttribute(attrId("Decal/name"), "text", decal.name)
+    UI.setAttribute(attrId("Decal/url"), "text", decal.url)
+    UI.setAttribute(attrId("Decal/pos/x"), "text", decal.pos.x)
+    UI.setAttribute(attrId("Decal/pos/y"), "text", decal.pos.y)
+    UI.setAttribute(attrId("Decal/scale/x"), "text", decal.scale.x)
+    UI.setAttribute(attrId("Decal/scale/y"), "text", decal.scale.y)
+    UI.setAttribute(attrId("Decal/rotation"), "text", decal.rotation)
+
+    UI.setAttribute(attrId("Decal/locked"), "isOn", decal.locked == "True")
+
+    local tooltip = 0
+    if (decal.tooltip ~= nil) then
+      if (decal.tooltip:find("name")) then
+        tooltip = 1
+      elseif (decal.tooltip:find("hint")) then
+        tooltip = 2
+      end
+    end
+    UI.setAttribute(attrId("Decal/tooltip"), "value", tooltip)
+
+    UI.hide(attrId("CheckPanel"))
+    UI.hide(attrId("FieldPanel"))
+    UI.show(attrId("DecalPanel"))
+    page = selectedId + #fields + #checks
+  else
+    UI.show(attrId("EmptyPrompt"))
+    UI.hide(attrId("SelectionPanel"))
+  end
+
+  -- Pages
+  local pageCount = getPageCount()
+  UI.setAttribute(attrId("LastPage"), "interactable", tostring(page < pageCount))
+  UI.setAttribute(attrId("NextPage"), "interactable", tostring(page < pageCount))
+  UI.setAttribute(attrId("PreviousPage"), "interactable", tostring(page > 1))
+  UI.setAttribute(attrId("FirstPage"), "interactable", tostring(page > 1))
+  if (subpages > 1) then
+    UI.setAttribute(attrId("Pages"), "text", page .. " (" .. selectedArrayId .. "/" .. subpages ..
+      ")  /  " .. pageCount)
+  else
+    UI.setAttribute(attrId("Pages"), "text", page .. " / " .. pageCount)
+  end
+end
+
+function commit(ply)
+  local codeSplit = split(self.script_code, "$")
+  local uncutLines = get_line_count(codeSplit[1])
+  local cutLines = get_line_count(codeSplit[2] .. codeSplit[3])
+  broadcastToColor("Layout commited. Code reduced from " .. (uncutLines + cutLines + 1) .. " lines to " .. uncutLines,
+    ply)
+  if (Global.getVar("MarumEditableSheetGUID", self.guid)) then
+    Global.setVar("MarumEditableSheetGUID", nil)
+  end
+  self.script_code = codeSplit[1]
+  self.reload()
+end
+
+function onToggleSheetLocked(obj, ply, value, selected)
+  sheetLocked = not sheetLocked
+  updateSave()
+end
+
+function closePanel(ply, value, id)
+  if (editingSheet) then
+    editingSheet = false
+    refresh()
+  end
+  UI.setAttribute(getPanelId("main"), "active", "False")
+end
+
+function forceClosePanel()
+  if (editingSheet) then
+    editingSheet = false
+    refresh()
+  end
+end
+
+function getPageCount()
+  return #fields + #checks + #decals
+end
+
+function getPanelId(panel)
+  return "MarumEditableSheet/" .. panel
+end
+
+function showEditPanel(ply, value, id)
+  createPanelIfNecessary(ply)
+  waitForUiLoaded(function()
+    UI.setAttribute(getPanelId("main"), "active", "True")
+    UI.setAttribute(getPanelId("main"), "visibility", ply)
+    if (selectedId == 0) then
+      UI.show(attrId("EmptyPrompt"))
+      UI.hide(attrId("SelectionPanel"))
+    else
+      UI.hide(attrId("EmptyPrompt"))
+      UI.show(attrId("SelectionPanel"))
+    end
+    editingSheet = true
+    local forcedSelectFirst = false
+    if (selectedId == 0) then
+      if (#fields > 0) then
+        selectedId = 1
+        selectedArrayId = 1
+        selectedType = "field"
+        forcedSelectFirst = true
+      elseif (#checks > 0) then
+        selectedId = 1
+        selectedArrayId = 1
+        selectedType = "check"
+        forcedSelectFirst = true
+      elseif (#decals > 0) then
+        selectedId = 1
+        selectedType = "decal"
+        forcedSelectFirst = true
+      end
+    end
+    refresh()
+    if (forcedSelectFirst) then
+      UI.hide(attrId("EmptyPrompt"))
+      UI.show(attrId("SelectionPanel"))
+    end
+    refreshEditPanel()
+  end)
+end
+
+function showCommitPanel(ply, value, id)
+  local previousGUID = Global.getVar("MarumEditableSheetGUID")
+  if (previousGUID) then
+    local obj = getObjectFromGUID(previousGUID)
+    if (obj ~= nil) then
+      getObjectFromGUID(previousGUID).call("closePanel")
+    end
+  end
+  Player[ply].showConfirmDialog(
+    "Do you want to lock the current layout and remove editing related code? You will still be able to change the contents of unlocked fields.",
+    commit)
+end
+
+function removeMESPanel()
+  local tbl = UI.getXmlTable()
+  local removing = false
+  local newTable = {}
+  for k, v in pairs(tbl) do
+    local isTag = false
+    if (v.attributes ~= nil) then
+      if (v.attributes.id == "MESStart") then
+        removing = true
+        isTag = true
+      elseif (v.attributes.id == "MESEnd") then
+        removing = false
+        isTag = true
+      end
+    end
+    if (not isTag and not removing) then
+      table.insert(newTable, v)
+    end
+  end
+  UI.setXmlTable({ newTable })
+end
+
+function createPanelIfNecessary(color)
+  local guid = self.getGUID()
+  local previousGUID = Global.getVar("MarumEditableSheetGUID")
+  if (guid ~= previousGUID) then
+    if (previousGUID ~= nil) then
+      local obj = getObjectFromGUID(previousGUID)
+      if (obj) then
+        getObjectFromGUID(previousGUID).call("forceClosePanel")
+      end
+      removeMESPanel()
+    end
+    waitForUiLoaded(createMainPanel)
+  end
+end
+
+function createMainPanel()
+  local guid = self.getGUID()
+  Global.setVar("MarumEditableSheetGUID", guid)
+  local xml = [[
+    <Panel id="MESStart"></Panel>
+    <Panel
+        color="#181818"
+        width="800"
+        height="700"
+        allowDragging="true"
+        returnToOriginalPositionWhenReleased="false"
+        restrictDraggingToParentBounds="false"
+        class="MarumEditableSheet"
+        rectAlignment="MiddleRight"
+        active="false"
+        id="]] .. getPanelId("main") .. [["
+    >
+        <Text
+            rectAlignment="UpperLeft"
+            offsetXY="-300 330"
+            color="#8b8b8b"
+        >Editable Sheet - by Marum</Text>
+
+        <Button
+            rectAlignment="UpperRight"
+            offsetXY="-20 -5"
+            height="30"
+            width="50"
+            textColor="#ffffff"
+            colors="#bf1f1f|#2f2f2f|#3f3f3f|#1f1f1f"
+            onClick="]] .. guid .. [[/closePanel"
+        >X</Button>
+
+        <Panel padding="10 10 40 10" color="#00000000">
+            <VerticalLayout spacing="15">
+                <TableLayout minHeight="30" spacing="3" cellBackgroundColor="#00000000" >
+                    <Row>
+                        <Cell columnSpan="4"><Text alignment="MiddleRight" color="#ffffff">Document settings: </Text></Cell>
+                        <Cell columnSpan="2"><Text alignment="MiddleRight" color="#ffffff">Height </Text></Cell>
+                        <Cell columnSpan="2"><InputField resizeTextForBestFit="True" onEndEdit="]] ..
+      guid ..
+      [[/onHeightChanged" tooltipPosition="Above" tooltip="How high the fields will appear" characterValidation="Decimal">]] ..
+      height .. [[</InputField></Cell>
+                        <Cell columnSpan="2"><Text alignment="MiddleRight" color="#ffffff">Scale </Text></Cell>
+                        <Cell columnSpan="2"><InputField id="]] ..
+      attrId("ScaleX") ..
+      [[" resizeTextForBestFit="True" onEndEdit="]] ..
+      guid ..
+      [[/onScaleChangedX" tooltipPosition="Above" tooltip="Horizontal scale" characterValidation="Decimal">]] ..
+      scale.x .. [[</InputField></Cell>
+                        <Cell columnSpan="2"><InputField id="]] ..
+      attrId("ScaleY") ..
+      [["  resizeTextForBestFit="True" onEndEdit="]] ..
+      guid ..
+      [[/onScaleChangedY" tooltipPosition="Above" tooltip="Vertical scale" characterValidation="Decimal">]] ..
+      scale.y .. [[</InputField></Cell>
+                        <Cell><Button fontSize="18" fontStyle="Bold" onClick="]] ..
+      guid ..
+      [[/onScaleReset" tooltipBackground="#000000" tooltipPosition="Above" tooltip="Reset scale to preserve aspect ratio on stretched objects">↺</Button></Cell>
+                        <Cell></Cell>
+                        <Cell columnSpan="4"><Toggle textColor="#ffffff" tooltip="Prevents users from changing any texts, images or check boxes" tooltipPosition="Above"  isOn="]] ..
+      tostring(sheetLocked) .. [[" onValueChanged="]] .. guid .. [[/onToggleSheetLocked">Lock everything</Toggle></Cell>
+                        <Cell columnSpan="2"><Toggle textColor="#ffffff" isOn="]] ..
+      tostring(flip) .. [[" onValueChanged="]] .. guid .. [[/onFlip">Flip</Toggle></Cell>
+                    </Row>
+                </TableLayout>
+
+                <HorizontalLayout>
+                    <Button
+                        textColor="#ffffff"
+                        colors="#1f1f1f|#2f2f2f|#3f3f3f|#1f1f1f"
+                        onClick="]] .. guid .. [[/addField"
+                        preferredHeight="45"
+                    >Add new Text</Button>
+                    <Button
+                        textColor="#ffffff"
+                        colors="#1f1f1f|#2f2f2f|#3f3f3f|#1f1f1f"
+                        onClick="]] .. guid .. [[/addCheck"
+                        preferredHeight="45"
+                    >Add new Checkbox</Button>
+                    <Button
+                        textColor="#ffffff"
+                        colors="#1f1f1f|#2f2f2f|#3f3f3f|#1f1f1f"
+                        onClick="]] .. guid .. [[/addDecal"
+                        preferredHeight="45"
+                    >Add new Image</Button>
+                </HorizontalLayout>
+
+                <HorizontalLayout preferredHeight="30">
+                    <Button
+                        id="]] .. attrId("FirstPage") .. [["
+                        colors="#ffffff|#bbbbbb|#666666|#888888"
+                        onClick="]] .. guid .. [[/firstPage"
+                        preferredHeight="30"
+                        preferredWidth="50"
+                        interactable="False"
+                    >↞ First</Button>
+                    <Button
+                        id="]] .. attrId("PreviousPage") .. [["
+                        colors="#ffffff|#bbbbbb|#666666|#888888"
+                        onClick="]] .. guid .. [[/previousPage"
+                        preferredHeight="30"
+                        preferredWidth="50"
+                        interactable="False"
+                    >← Previous</Button>
+                    <Text id="]] ..
+      attrId("Pages") ..
+      [[" alignment="MiddleCenter" color="#ffffff" preferredWidth="100">]] .. selectedId ..
+      " / " .. getPageCount() .. [[</Text>
+                    <Button
+                        id="]] .. attrId("NextPage") .. [["
+                        colors="#ffffff|#bbbbbb|#666666|#888888"
+                        onClick="]] .. guid .. [[/nextPage"
+                        preferredHeight="30"
+                        preferredWidth="50"
+                        interactable="False"
+                    >Next →</Button>
+                    <Button
+                        id="]] .. attrId("LastPage") .. [["
+                        colors="#ffffff|#bbbbbb|#666666|#888888"
+                        onClick="]] .. guid .. [[/lastPage"
+                        preferredHeight="30"
+                        preferredWidth="50"
+                        interactable="False"
+                    >Last ↠</Button>
+                </HorizontalLayout>
+
+                <Text color="#ffffff" id="]] ..
+      attrId("EmptyPrompt") ..
+      [[" preferredHeight="600">Add a new element using the buttons above. You can then select elements by clicking on them on the sheet, or with the navigation buttons above.</Text>
+
+                <Panel id="]] .. attrId("SelectionPanel") .. [[" color="#00000000" preferredHeight="600">
+                    ]] .. getFieldPanel() .. [[
+                    ]] .. getCheckPanel() .. [[
+                    ]] .. getDecalPanel() .. [[
+                </Panel>
+            </VerticalLayout>
+        </Panel>
+        <Panel
+            id="]] .. getPanelId("loading") .. [["
+            color="#181818a0"
+            width="800"
+            height="700"
+            raycastTarget="True"
+            active="False"
+        >
+            <Text color="#ffffff" fontSize="30">Loading...</Text>
+        </Panel>
+    </Panel>
+    <Panel id="MESEnd"></Panel>
+    ]]
+  UI.setXml(UI.getXml() .. xml)
+end
+
+function onScaleReset()
+  scale = { x = math.floor(100 / self.getScale().x) / 100, y = math.floor(100 / self.getScale().z) / 100 }
+  UI.setAttribute(attrId("ScaleX"), "text", scale.x)
+  UI.setAttribute(attrId("ScaleY"), "text", scale.y)
+  refreshAllPositionsAndSize()
+  refreshEditPanel()
+end
+
+function firstPage()
+  if (#fields > 0) then
+    selectField({ id = 1, arrayId = 1 })
+  elseif (#checks > 0) then
+    selectCheck({ id = 1, arrayId = 1 })
+  elseif (#decals > 0) then
+    selectDecal(1)
+  end
+end
+
+function previousPage()
+  if (selectedType == "decal") then
+    if (selectedId > 1) then
+      selectedId = selectedId - 1
+      selectDecal(selectedId)
+    else
+      if (#checks > 0) then
+        selectedType = "check"
+        selectedId = #checks
+        selectCheck({ id = selectedId, arrayId = checks[selectedId].array.x * checks[selectedId].array.y })
+      elseif (#fields > 0) then
+        selectedType = "field"
+        selectedId = #fields
+        selectField({ id = selectedId, arrayId = fields[selectedId].array.x * fields[selectedId].array.y })
+      end
+    end
+  elseif (selectedType == "check") then
+    if (selectedArrayId > 1) then
+      selectedArrayId = selectedArrayId - 1
+      selectCheck({ id = selectedId, arrayId = selectedArrayId })
+    elseif (selectedId > 1) then
+      selectedId = selectedId - 1
+      selectCheck({ id = selectedId, arrayId = checks[selectedId].array.x * checks[selectedId].array.y })
+    else
+      if (#fields > 0) then
+        selectedType = "field"
+        selectedId = #fields
+        selectField({ id = selectedId, arrayId = fields[selectedId].array.x * fields[selectedId].array.y })
+      end
+    end
+  elseif (selectedType == "field") then
+    if (selectedArrayId > 1) then
+      selectedArrayId = selectedArrayId - 1
+      selectField({ id = selectedId, arrayId = selectedArrayId })
+    elseif (selectedId > 1) then
+      selectedId = selectedId - 1
+      selectField({ id = selectedId, arrayId = fields[selectedId].array.x * fields[selectedId].array.y })
+    end
+  end
+end
+
+function nextPage()
+  if (selectedType == "field") then
+    if (fields[selectedId].array.x * fields[selectedId].array.y > selectedArrayId) then
+      selectedArrayId = selectedArrayId + 1
+      selectField({ id = selectedId, arrayId = selectedArrayId })
+    elseif (#fields > selectedId) then
+      selectedId = selectedId + 1
+      selectField({ id = selectedId, arrayId = 1 })
+    else
+      if (#checks > 0) then
+        selectedType = "check"
+        selectedId = 1
+        selectCheck({ id = selectedId, arrayId = 1 })
+      elseif (#decals > 0) then
+        selectedType = "decal"
+        selectedId = 1
+        selectDecal(1)
+      end
+    end
+  elseif (selectedType == "check") then
+    if (checks[selectedId].array.x * checks[selectedId].array.y > selectedArrayId) then
+      selectedArrayId = selectedArrayId + 1
+      selectCheck({ id = selectedId, arrayId = selectedArrayId })
+    elseif (#checks > selectedId) then
+      selectedId = selectedId + 1
+      selectCheck({ id = selectedId, arrayId = 1 })
+    else
+      if (#decals > 0) then
+        selectedType = "decal"
+        selectedId = 1
+        selectDecal(1)
+      end
+    end
+  elseif (selectedType == "decal") then
+    if (#decals > selectedId) then
+      selectedId = selectedId + 1
+      selectDecal(selectedId)
+    end
+  end
+end
+
+function lastPage()
+  if (#decals > 0) then
+    selectDecal(#decals)
+  elseif (#checks > 0) then
+    local last = checks[#checks]
+    selectCheck({ id = #checks, arrayId = last.array.x * last.array.y })
+  elseif (#fields > 0) then
+    local last = fields[#fields]
+    selectField({ id = #fields, arrayId = last.array.x * last.array.y })
+  end
+end
+
+function onNudgeChanged(ply, value, id)
+  nudgeDistance = value
+  UI.setAttribute(attrId("Field_nudge"), "text", nudgeDistance)
+  UI.setAttribute(attrId("Check_nudge"), "text", nudgeDistance)
+  UI.setAttribute(attrId("Decal_nudge"), "text", nudgeDistance)
+  updateSave()
+end
+
+function compareString(str, list)
+  for k, v in pairs(list) do
+    if (str == v) then return true end
+  end
+end
+
+function onValueEdited(ply, value, id)
+  local spl = split(id, "/")
+  local parameter = spl[2]
+  local tbl = nil
+  if (selectedType == "field") then tbl = fields end
+  if (selectedType == "check") then tbl = checks end
+  if (selectedType == "decal") then tbl = decals end
+  if (parameter == "content") then
+    tbl[selectedId].value[selectedArrayId] = value
+  else
+    if (#spl > 2) then
+      tbl[selectedId][parameter][spl[3]] = value
+    else
+      tbl[selectedId][parameter] = value
+    end
+  end
+  updateSave()
+
+  if (selectedType == "field") then
+    if (compareString(parameter, { "pos", "distance", "size" })) then
+      updateFieldPositionAndSize(selectedId)
+    elseif (compareString(parameter, { "name", "content", "tooltip" })) then
+      updateFieldNameContentAndTooltip(selectedId)
+    elseif (parameter == "font") then
+      updateFieldFontAndColor(selectedId)
+    else
+      refresh()
+    end
+  elseif (selectedType == "check") then
+    if (compareString(parameter, { "pos", "distance", "size" })) then
+      updateCheckPositionAndSize(selectedId)
+    elseif (parameter == "name") then
+      updateCheckNameContentAndTooltip(selectedId)
+    elseif (parameter == "font") then
+      updateCheckFontAndColor(selectedId)
+    else
+      refresh()
+    end
+  elseif (selectedType == "decal") then
+    if (compareString(parameter, { "pos", "scale", "rotation" })) then
+      updateDecalPositionAndSize(selectedId)
+    elseif (parameter == "url") then
+      createDecals()
+    else
+      refresh()
+    end
+  end
+end
+
+function updateFieldPositionAndSize(fieldID)
+  local field = fields[fieldID]
+  local lookup = lookupFieldIndices[fieldID]
+  local fieldScale = { x = -scale.x, y = 1, z = scale.y }
+  local flipped = 1
+  local rotation = { x = 0, y = 0, z = 180 }
+  if (flip == "True") then
+    rotation.y = 180
+    flipped = -1
+  end
+  local fontSize = math.min(field.size.y - 24, field.font)
+  for k, v in pairs(lookup.inputs) do
+    local pos = getFieldPosition(fieldID, v.x, v.y)
+    self.editInput({
+      index = v.index - 1,
+      position = pos,
+      scale = fieldScale,
+      width = field.size.x,
+      height = field.size.y,
+      font_size = fontSize,
+      rotation = rotation
+    })
+  end
+  for k, v in pairs(lookup.totals) do
+    local pos = getFieldPosition(fieldID, v.x, field.array.y + 1)
+    self.editInput({
+      index = v.index - 1,
+      position = pos,
+      scale = fieldScale,
+      width = field.size.x,
+      height = field.size.y,
+      rotation = rotation,
+      font_size = fontSize
+    })
+  end
+  for k, v in pairs(lookup.counterButtons) do
+    local pos = getFieldPosition(fieldID, v.x, v.y)
+    local offset = (field.size.x + fontSize * 0.75) / 1000 * scale.x
+    self.editButton({
+      index = v.index - 1,
+      position = { x = pos.x + offset * v.side * flipped, y = pos.y, z = pos.z },
+      scale = fieldScale,
+      rotation = rotation
+    })
+  end
+  for k, v in pairs(lookup.selectionButtons) do
+    local pos = getFieldPosition(fieldID, v.x, v.y)
+    self.editButton({
+      index = v.index - 1,
+      position = pos,
+      scale = { x = scale.x * 0.25, y = 1, z = scale.y * 0.25 },
+      width = field.size.x * 4 + 200,
+      height = field.size.y * 4 + 200
+    })
+  end
+  createSelectionHighlight(true)
+end
+
+function updateFieldFontAndColor(fieldID)
+  local field = fields[fieldID]
+  local fontColor = getFieldTextColor(fieldID)
+  local fontSize = math.min(field.size.y - 24, field.font)
+  local lookup = lookupFieldIndices[fieldID]
+  for k, v in pairs(lookup.inputs) do
+    -- Do not question the ways of the tabletop, as if it requests for font_color to be assigned twice, then it shall be so
+    self.editInput({
+      index = v.index - 1,
+      font_color = fontColor
+    })
+    self.editInput({
+      index = v.index - 1,
+      font_size = fontSize,
+      color = field.fieldColor,
+      font_color = fontColor
+    })
+    self.editInput({
+      index = v.index - 1
+    })
+  end
+  for k, v in pairs(lookup.counterButtons) do
+    self.editButton({
+      index = v.index - 1,
+      color = field.fieldColor,
+      font_color = fontColor,
+      font_size = fontSize / 2
+    })
+  end
+  for k, v in pairs(lookup.totals) do
+    self.editInput({
+      index = v.index - 1,
+      font_size = fontSize,
+      color = field.fieldColor,
+      font_color = fontColor
+    })
+  end
+end
+
+function updateCheckNameContentAndTooltip(checkID)
+  local check = checks[checkID]
+  for k, v in pairs(lookupCheckIndices[checkID].buttons) do
+    local label = getCheckLabelAndColor(checkID, v.arrayID)
+    self.editButton({ index = v.index - 1, label = label, tooltip = getCheckTooltip(checkID) })
+  end
+  local name = "C" .. checkID
+  local tooltip = "Select " .. (check.name or name)
+  for k, v in pairs(lookupCheckIndices[checkID].selectionButtons) do
+    self.editButton({ index = v.index - 1, tooltip = tooltip })
+  end
+end
+
+function updateCheckPositionAndSize(checkID)
+  local check = checks[checkID]
+  local lookup = lookupCheckIndices[checkID]
+  local rotation = { x = 0, y = 0, z = 0 }
+  if (flip == "True") then
+    rotation.y = 180
+  end
+  for k, v in pairs(lookup.buttons) do
+    local pos = getCheckPosition(checkID, v.x, v.y)
+    local checkScale = { x = scale.x * check.size.x, y = 1, z = scale.y * check.size.y }
+    self.editButton({ index = v.index - 1, position = pos, scale = checkScale, rotation = rotation })
+  end
+  for k, v in pairs(lookup.selectionButtons) do
+    local pos = getCheckPosition(checkID, v.x, v.y)
+    local checkScale = { x = scale.x * check.size.x * 0.25, y = 1, z = scale.y * check.size.y * 0.25 }
+    self.editButton({ index = v.index - 1, position = pos, scale = checkScale })
+  end
+  createSelectionHighlight(true)
+end
+
+function updateCheckFontAndColor(checkID)
+  local check = checks[checkID]
+  for k, v in pairs(lookupCheckIndices[checkID].buttons) do
+    local label, color, alphaCorrectedColor = getCheckLabelAndColor(checkID, v.arrayID)
+    -- Do not question the ways of the tabletop, as if it requests for font_color to be assigned twice, then it shall be so
+    self.editButton({
+      index = v.index - 1,
+      font_size = check.font,
+      color = check.checkColor,
+      font_color = alphaCorrectedColor
+    })
+  end
+end
+
+function updateDecalPositionAndSize(decalID)
+  local decal = decals[decalID]
+  local lookup = lookupDecalIndices[decalID]
+  local decalScale = {
+    x = decal.scale.x * scale.x * 0.25,
+    y = decal.scale.y * scale.y * 0.25,
+    z = decal.scale.y *
+        scale.y * 0.25
+  }
+  for k, v in pairs(lookup.inputs) do
+    local pos = getDecalPosition(decalID, v.x, v.y)
+    self.editInput({ index = v.index - 1, position = pos, scale = decalScale, rotation = decal.rotation })
+  end
+  for k, v in pairs(lookup.selectionButtons) do
+    local pos = getDecalPosition(decalID, v.x, v.y)
+    self.editButton({ index = v.index - 1, position = pos, scale = decalScale })
+  end
+  createSelectionHighlight(true)
+  createDecals()
+end
+
+function onCheckValueEdited(ply, value, id)
+  local spl = split(id, "/")
+  local checkParameter = spl[2]
+  if (#spl > 2) then
+    checks[selectedId][checkParameter][spl[3]] = value
+  else
+    checks[selectedId][checkParameter] = value
+  end
+
+  if (compareString(checkParameter, { "pos", "size" })) then
+    updateCheckPositionAndSize(selectedId)
+  elseif (checkParameter == "characters") then
+    updateCheckNameContentAndTooltip(selectedId)
+  else
+    refresh()
+  end
+
+  updateSave()
+end
+
+function onDecalValueEdited(ply, value, id)
+  local spl = split(id, "/")
+  local decalID = tonumber(spl[1])
+  local decalParameter = spl[2]
+  if (#spl > 2) then
+    decals[decalID][decalParameter][spl[3]] = value
+  else
+    decals[decalID][decalParameter] = value
+  end
+
+  updateSave()
+  refresh()
+end
+
+function onToggleChanged(ply, value, id)
+  local spl = split(id, "/")
+  local tbl = nil
+  if (selectedType == "field") then tbl = fields end
+  if (selectedType == "check") then tbl = checks end
+  if (selectedType == "decal") then tbl = decals end
+  tbl[selectedId][spl[2]] = value
+  if (spl[2] == "separateColors") then
+    updateCheckFontAndColor(selectedId)
+    refreshEditPanel()
+  else
+    if (not compareString(spl[2], { "locked", "fillFromDisabled" })) then
+      refresh()
+    end
+  end
+  updateSave()
+end
+
+function onFieldDropdownSelected(ply, option, id)
+  local spl = split(id, "/")
+  local parameterID = spl[2]
+  local shouldRefresh = false
+  if (parameterID == "align") then
+    shouldRefresh = true
+    if (option == "Auto") then
+      option = 1
+    elseif (option == "Left") then
+      option = 2
+    elseif (option == "Center") then
+      option = 3
+    elseif (option == "Right") then
+      option = 4
+    elseif (option == "Justified") then
+      option = 5
+    end
+  end
+  fields[selectedId][parameterID] = option
+  updateFieldFontAndColor(selectedId)
+  updateSave()
+  if (shouldRefresh) then
+    -- I did my best to not refresh here, but it seems like editInput doesn't care about alignment
+    refresh()
+  end
+end
+
+function onCheckDropdownSelected(ply, option, id)
+  local spl = split(id, "/")
+  local parameterID = spl[2]
+  if (parameterID == "value") then
+    local value = 0
+    if (option == "Off") then value = 1 elseif (option == "On") then value = 2 end
+    local check = checks[selectedId]
+    check.value[selectedArrayId] = value
+    updateCheckNameContentAndTooltip(selectedId)
+    updateCheckFontAndColor(selectedId)
+    updateSave()
+  elseif (parameterID == "tooltip") then
+    checks[selectedId].tooltip = option
+    updateSave()
+  else
+    checks[selectedId][parameterID] = option
+    updateSave()
+    refresh()
+  end
+end
+
+function onDecalDropdownSelected(ply, option, id)
+  local spl = split(id, "/")
+  local parameterID = spl[2]
+  if (parameterID == "tooltip") then
+    decals[selectedId].tooltip = option
+    updateSave()
+  else
+    decals[selectedId][parameterID] = option
+    updateSave()
+    refresh()
+  end
+end
+
+function onColorButtonPressed(ply, value, id)
+  local spl = split(id, "/")
+  local parameterID = spl[2]
+  local tbl = nil
+  if (selectedType == "field") then tbl = fields end
+  if (selectedType == "check") then tbl = checks end
+  local startingColor = tbl[selectedId][parameterID]
+  if (startingColor == nil) then
+    if (parameterID:find("textColor")) then
+      startingColor = tbl[selectedId].textColor
+    end
+  end
+
+  ply.showColorDialog(startingColor,
+    function(color, player_color)
+      tbl[selectedId][parameterID] = color
+      if (selectedType == "field") then
+        updateFieldFontAndColor(selectedId)
+      elseif (selectedType == "check") then
+        updateCheckFontAndColor(selectedId)
+      end
+      local c = "rgba(" .. color.r .. "," .. color.g .. "," .. color.b .. ",1)"
+      local c2 = "rgba(" .. (color.r * 0.5 + 0.2) .. "," .. (color.g * 0.5 + 0.2) .. "," ..
+          (color.b * 0.5 + 0.2) .. ",1)"
+      UI.setAttribute(id, "colors", c .. "|" .. c2 .. "|" .. c2 .. "|" .. c)
+      UI.setAttribute(id .. "/a", "percentage", color.a * 100)
+      updateSave()
+    end
+  )
+end
+
+function refreshAllPositionsAndSize()
+  for k, v in pairs(fields) do
+    updateFieldPositionAndSize(k)
+  end
+  for k, v in pairs(checks) do
+    updateCheckPositionAndSize(k)
+  end
+  for k, v in pairs(decals) do
+    updateDecalPositionAndSize(k)
+  end
+end
+
+function onScaleChangedX(ply, value)
+  scale.x = value
+  updateSave()
+  refreshAllPositionsAndSize()
+end
+
+function onScaleChangedY(ply, value)
+  scale.y = value
+  updateSave()
+  refreshAllPositionsAndSize()
+end
+
+function onHeightChanged(ply, value)
+  height = value
+  updateSave()
+  refreshAllPositionsAndSize()
+end
+
+function onFlip(ply, value)
+  flip = value
+  updateSave()
+  refreshAllPositionsAndSize()
+  local label = "┗"
+  if (flip == "True") then label = "┓" end
+  self.editButton({ index = 0, label = label })
+  label = "┏"
+  if (flip == "True") then label = "┛" end
+  self.editButton({ index = 1, label = label })
+  label = "┛"
+  if (flip == "True") then label = "┏" end
+  self.editButton({ index = 2, label = label })
+  label = "┓"
+  if (flip == "True") then label = "┗" end
+  self.editButton({ index = 3, label = label })
+end
+
+function onCheckToggleChanged(ply, value, id)
+  local spl = split(id, "/")
+  local checkID = tonumber(spl[1])
+  checks[checkID][spl[2]] = value
+
+  updateSave()
+  refresh()
+end
+
+function onDecalToggleChanged(ply, value, id)
+  local spl = split(id, "/")
+  local decalID = tonumber(spl[1])
+  decals[decalID][spl[2]] = value
+
+  updateSave()
+  refresh()
+end
+
+function getDeselectButton(panelID)
+  if (selectedId > 0) then
+    return [[<Row preferredHeight="50"><Button onClick="]] ..
+        self.getGUID() .. [[/deselect">Deselect</Button></Row>]]
+  end
+  return ""
+end
+
+function deselect()
+  selectedId = 0
+  selectedType = ""
+  refresh()
+end
+
+function correctCheckboxesAndDecals()
+  for decalID, decal in pairs(decals) do
+    decal.pos.x = decal.pos.x / scale.x
+    decal.pos.y = decal.pos.y / scale.y
+  end
+  for checkID, check in pairs(checks) do
+    check.pos.x = check.pos.x / scale.x
+    check.pos.y = check.pos.y / scale.y
+    check.distance.x = check.distance.x / scale.x
+    check.distance.y = check.distance.y / scale.y
+  end
+  refresh()
+end
+
+function attrId(str)
+  return "MarumEditorSheetAttribute_" .. str
+end
+
+function getFieldPanel()
+  local guid = self.getGUID()
+  return [[
+    <Panel color="#282828" id="]] .. attrId("FieldPanel") .. [[" active="False" padding="12 12 4 4">
+        <VerticalLayout>
+            <TableLayout preferredHeight="60" cellBackgroundColor="#00000000" padding="0 0 4 30" cellSpacing="5">
+                <Row>
+                    <Cell columnSpan="3">
+                        <Text alignment="MiddleLeft" color="#ffffff" id="]] .. attrId("Field/ID") .. [[">Text ?</Text>
+                    </Cell>
+                    <Cell>
+                        <Button id="]] ..
+      attrId("Field/duplicate") .. [[" onClick="]] .. guid .. [[/duplicateField">Duplicate</Button>
+                    </Cell>
+                    <Cell>
+                        <Button id="]] ..
+      attrId("Field/delete") .. [[" onClick="]] .. guid .. [[/deleteField">Delete</Button>
+                    </Cell>
+                </Row>
+            </TableLayout>
+            <HorizontalLayout preferredHeight="450" spacing="50">
+                <TableLayout cellBackgroundColor="#00000000" cellPadding="0 0 4 4">
+
+                    <Row preferredHeight="24">
+                        <Cell columnSpan="3" dontUseTableCellBackground="True" color="#555555">
+                            <Text alignment="MiddleCenter" color="#ffffff">Text</Text>
+                        </Cell>
+                    </Row>
+                    <Row>
+                        <Cell>
+                            <Text alignment="MiddleLeft" color="#ffffff">Name</Text>
+                        </Cell>
+                        <Cell columnSpan="2">
+                            <InputField id="]] ..
+      attrId("Field/name") ..
+      [[" onEndEdit="]] ..
+      guid ..
+      [[/onValueEdited" textColor="#000000" tooltipBackgroundColor="#000000" tooltipPosition="Above" placeholder="Title"></InputField>
+                        </Cell>
+                    </Row>
+
+                    <Row preferredHeight="75">
+                        <Cell>
+                            <Text alignment="MiddleLeft" color="#ffffff">Content</Text>
+                        </Cell>
+                        <Cell columnSpan="2">
+                            <InputField tooltipPosition="Above" lineType="MultiLineNewLine" id="]] ..
+      attrId("Field/content") ..
+      [[" onEndEdit="]] .. guid .. [[/onValueEdited" textColor="#000000" placeholder="Text content"></InputField>
+                        </Cell>
+                    </Row>
+
+                    <Row>
+                        <Cell>
+                            <Text alignment="MiddleLeft" color="#ffffff">Tooltip</Text>
+                        </Cell>
+                        <Cell columnSpan="2">
+                            <Dropdown id="]] ..
+      attrId("Field/tooltip") .. [[" onValueChanged="]] .. guid .. [[/onFieldDropdownSelected">
+                                <Option>None</Option>
+                                <Option>Use name as tooltip</Option>
+                                <Option>Use content as tooltip</Option>
+                            </Dropdown>
+                        </Cell>
+                    </Row>
+
+                    <Row>
+                        <Cell>
+                            <Text alignment="MiddleLeft" color="#ffffff">On edit</Text>
+                        </Cell>
+                        <Cell columnSpan="2">
+                        <Dropdown id="]] ..
+      attrId("Field/role") .. [[" onValueChanged="]] .. guid .. [[/onFieldDropdownSelected">
+                            <Option>Nothing</Option>
+                            <Option>Set object's name</Option>
+                            <Option>Set object's description</Option>
+                        </Dropdown>
+                        </Cell>
+                    </Row>
+
+                    <Row preferredHeight="40"></Row>
+                    <Row preferredHeight="24">
+                        <Cell columnSpan="3" dontUseTableCellBackground="True" color="#555555">
+                            <Text alignment="MiddleCenter" color="#ffffff">Font and color</Text>
+                        </Cell>
+                    </Row>
+                    <Row>
+                        <Cell>
+                            <Text alignment="MiddleLeft" color="#ffffff">Font size</Text>
+                        </Cell>
+                        <Cell columnSpan="2">
+                            <InputField id="]] ..
+      attrId("Field/font") ..
+      [[" onEndEdit="]] .. guid .. [[/onValueEdited" textColor="#000000" characterValidation="Decimal"></InputField>
+                        </Cell>
+                    </Row>
+
+                    <Row>
+                        <Cell>
+                            <Text alignment="MiddleLeft" color="#ffffff">Align</Text>
+                        </Cell>
+                        <Cell columnSpan="2">
+                            <Dropdown id="]] ..
+      attrId("Field/align") .. [[" tooltip="Field's tooltip" onValueChanged="]] .. guid .. [[/onFieldDropdownSelected">
+                                <Option>Left</Option>
+                                <Option>Center</Option>
+                                <Option>Right</Option>
+                            </Dropdown>
+                        </Cell>
+                    </Row>
+
+                    <Row>
+                        <Cell>
+                            <Text alignment="MiddleLeft" color="#ffffff">Text color</Text>
+                        </Cell>
+                        <Cell columnSpan="2">
+                            <VerticalLayout>
+                                <Button preferredHeight="400" id="]] ..
+      attrId("Field/textColor") .. [[" onClick="]] .. guid .. [[/onColorButtonPressed"></Button>
+                                <ProgressBar id="]] ..
+      attrId("Field/textColor/a") ..
+      [[" color="#000000" fillImageColor="#FFFFFF" showPercentageText="False"></ProgressBar>
+                            </VerticalLayout>
+                        </Cell>
+                    </Row>
+
+                    <Row>
+                        <Cell>
+                            <Text alignment="MiddleLeft" color="#ffffff">Background Color</Text>
+                        </Cell>
+                        <Cell columnSpan="2">
+                            <VerticalLayout>
+                                <Button preferredHeight="400" id="]] ..
+      attrId("Field/fieldColor") .. [[" onClick="]] .. guid .. [[/onColorButtonPressed"></Button>
+                                <ProgressBar id="]] ..
+      attrId("Field/fieldColor/a") ..
+      [[" color="#000000" fillImageColor="#FFFFFF" showPercentageText="False"></ProgressBar>
+                            </VerticalLayout>
+                        </Cell>
+                    </Row>
+                </TableLayout>
+
+                <TableLayout cellBackgroundColor="#00000000" cellPadding="0 0 4 4">
+                    <Row preferredHeight="24">
+                        <Cell columnSpan="6" dontUseTableCellBackground="True" color="#555555">
+                            <Text alignment="MiddleCenter" color="#ffffff">Position and Size</Text>
+                        </Cell>
+                    </Row>
+                    <Row preferredHeight="100">
+                        <Cell columnSpan="6">
+                            <HorizontalLayout>
+                                <TableLayout cellBackgroundColor="#00000000">
+                                    <Row>
+                                        <Cell columnSpan="4">
+                                            <Text alignment="MiddleCenter" color="#ffffff">Nudge</Text>
+                                        </Cell>
+                                    </Row>
+                                    <Row>
+                                        <Cell columnSpan="4">
+                                            <InputField id="]] ..
+      attrId("Field_nudge") ..
+      [[" onEndEdit="]] ..
+      guid ..
+      [[/onNudgeChanged" textColor="#000000" tooltipBackgroundColor="#000000" tooltipPosition="Above" tooltip="Nudge distance" characterValidation="Decimal">]] ..
+      nudgeDistance .. [[</InputField>
+                                        </Cell>
+                                    </Row>
+                                    <Row>
+                                        <Cell>
+                                            <Button onClick="]] .. guid .. [[/nudgeSet1">1</Button>
+                                        </Cell>
+                                        <Cell>
+                                            <Button onClick="]] .. guid .. [[/nudgeSet01">0.1</Button>
+                                        </Cell>
+                                        <Cell>
+                                            <Button onClick="]] .. guid .. [[/nudgeSet001">0.01</Button>
+                                        </Cell>
+                                        <Cell>
+                                            <Button onClick="]] .. guid .. [[/nudgeSet0001">.001</Button>
+                                        </Cell>
+                                    </Row>
+                                </TableLayout>
+                                <TableLayout cellBackgroundColor="#00000000">
+                                    <Row>
+                                        <Cell columnSpan="2"></Cell>
+                                        <Cell columnSpan="2"><Button id="]] ..
+      attrId("Field/nudgeUp") ..
+      [[" onClick="]] .. guid .. [[/nudgeUp" tooltip="Nudge up" tooltipPosition="Above">▲</Button></Cell>
+                                        <Cell columnSpan="2"></Cell>
+                                    </Row>
+                                    <Row>
+                                        <Cell></Cell>
+                                        <Cell columnSpan="2"><Button id="]] ..
+      attrId("Field/nudgeLeft") ..
+      [[" onClick="]] .. guid .. [[/nudgeLeft" tooltip="Nudge left" tooltipPosition="Left">◀</Button></Cell>
+                                        <Cell columnSpan="2"><Button id="]] ..
+      attrId("Field/nudgeRight") ..
+      [[" onClick="]] .. guid .. [[/nudgeRight" tooltip="Nudge right" tooltipPosition="Right">▶</Button></Cell>
+                                        <Cell></Cell>
+                                    </Row>
+                                    <Row>
+                                        <Cell columnSpan="2"></Cell>
+                                        <Cell columnSpan="2"><Button id="]] ..
+      attrId("Field/nudgeDown") ..
+      [[" onClick="]] .. guid .. [[/nudgeDown" tooltip="Nudge down" tooltipPosition="Below">▼</Button></Cell>
+                                        <Cell columnSpan="2"></Cell>
+                                    </Row>
+                                </TableLayout>
+                            </HorizontalLayout>
+                        </Cell>
+                    </Row>
+                    <Row>
+                        <Cell columnSpan="2">
+                            <Text alignment="MiddleLeft" color="#ffffff">Pos</Text>
+                        </Cell>
+                        <Cell columnSpan="2">
+                            <InputField id="]] ..
+      attrId("Field/pos/x") ..
+      [[" onEndEdit="]] ..
+      guid ..
+      [[/onValueEdited" textColor="#000000" tooltipBackgroundColor="#000000" tooltipPosition="Above" tooltip="X" characterValidation="Decimal"></InputField>
+                        </Cell>
+                        <Cell columnSpan="2">
+                            <InputField id="]] ..
+      attrId("Field/pos/y") ..
+      [[" onEndEdit="]] ..
+      guid ..
+      [[/onValueEdited" textColor="#000000" tooltipBackgroundColor="#000000" tooltipPosition="Above" tooltip="Y" characterValidation="Decimal"></InputField>
+                        </Cell>
+                    </Row>
+                    <Row>
+                        <Cell columnSpan="2">
+                            <Text alignment="MiddleLeft" color="#ffffff">Size</Text>
+                        </Cell>
+                        <Cell columnSpan="2">
+                            <InputField id="]] ..
+      attrId("Field/size/x") ..
+      [[" onEndEdit="]] ..
+      guid ..
+      [[/onValueEdited" textColor="#000000" tooltipBackgroundColor="#000000" tooltipPosition="Above" tooltip="Width" characterValidation="Decimal"></InputField>
+                        </Cell>
+                        <Cell columnSpan="2">
+                            <InputField id="]] ..
+      attrId("Field/size/y") ..
+      [[" onEndEdit="]] ..
+      guid ..
+      [[/onValueEdited" textColor="#000000" tooltipBackgroundColor="#000000" tooltipPosition="Above" tooltip="Height" characterValidation="Decimal"></InputField>
+                        </Cell>
+                    </Row>
+
+                    <Row preferredHeight="40"></Row>
+                    <Row preferredHeight="24">
+                        <Cell columnSpan="6" dontUseTableCellBackground="True" color="#555555">
+                            <Text alignment="MiddleCenter" color="#ffffff">Array</Text>
+                        </Cell>
+                    </Row>
+                    <Row>
+                        <Cell columnSpan="2">
+                            <Text alignment="MiddleLeft" color="#ffffff">Columns/Rows</Text>
+                        </Cell>
+                        <Cell columnSpan="2">
+                            <InputField id="]] ..
+      attrId("Field/array/x") ..
+      [[" onEndEdit="]] ..
+      guid ..
+      [[/onValueEdited" textColor="#000000" tooltipBackgroundColor="#000000" tooltipPosition="Above" tooltip="Columns" characterValidation="Integer"></InputField>
+                        </Cell>
+                        <Cell columnSpan="2">
+                            <InputField id="]] ..
+      attrId("Field/array/y") ..
+      [[" onEndEdit="]] ..
+      guid ..
+      [[/onValueEdited" textColor="#000000" tooltipBackgroundColor="#000000" tooltipPosition="Above" tooltip="Rows" characterValidation="Integer"></InputField>
+                        </Cell>
+                    </Row>
+                    <Row>
+                        <Cell columnSpan="2">
+                            <Text alignment="MiddleLeft" color="#ffffff">Spacing</Text>
+                        </Cell>
+                        <Cell columnSpan="2">
+                            <InputField id="]] ..
+      attrId("Field/distance/x") ..
+      [[" onEndEdit="]] ..
+      guid ..
+      [[/onValueEdited" textColor="#000000" tooltipBackgroundColor="#000000" tooltipPosition="Above" tooltip="Horizontal" characterValidation="Decimal"></InputField>
+                        </Cell>
+                        <Cell columnSpan="2">
+                            <InputField id="]] ..
+      attrId("Field/distance/y") ..
+      [[" onEndEdit="]] ..
+      guid ..
+      [[/onValueEdited" textColor="#000000" tooltipBackgroundColor="#000000" tooltipPosition="Above" tooltip="Vertical" characterValidation="Decimal"></InputField>
+                        </Cell>
+                    </Row>
+
+                    <Row preferredHeight="40"></Row>
+                    <Row preferredHeight="24">
+                        <Cell columnSpan="6" dontUseTableCellBackground="True" color="#555555">
+                            <Text alignment="MiddleCenter" color="#ffffff">Toggles</Text>
+                        </Cell>
+                    </Row>
+                    <Row>
+                        <Cell columnSpan="2">
+                            <Toggle id="]] ..
+      attrId("Field/counter") ..
+      [[" textColor="#ffffff" tooltipPosition="Below" tooltip="Adds buttons to increase or decrease the value by one" tooltipBackground="#000000" isOn="False" onValueChanged="]] ..
+      guid .. [[/onToggleChanged">Counter</Toggle>
+                        </Cell>
+                        <Cell columnSpan="2">
+                            <Toggle id="]] ..
+      attrId("Field/vsum") ..
+      [[" textColor="#ffffff" tooltipPosition="Below" tooltip="Add an extra row that sums up the column's total" tooltipBackground="#000000" isOn="False" onValueChanged="]] ..
+      guid .. [[/onToggleChanged">Total sum</Toggle>
+                        </Cell>
+                        <Cell columnSpan="2">
+                            <Toggle id="]] ..
+      attrId("Field/locked") ..
+      [[" textColor="#ffffff" tooltip="Prevents users from changing this text" tooltipBackground="#000000" isOn="False" onValueChanged="]] ..
+      guid .. [[/onToggleChanged">Lock</Toggle>
+                        </Cell>
+                    </Row>
+                </TableLayout>
+            </HorizontalLayout>
+        </VerticalLayout>
+    </Panel>
+    ]]
+end
+
+function getCheckPanel()
+  local guid = self.getGUID()
+  return [[
+        <Panel color="#282828" id="]] .. attrId("CheckPanel") .. [[" active="False" padding="12 12 4 4">
+        <VerticalLayout>
+            <TableLayout preferredHeight="60" cellBackgroundColor="#00000000" padding="0 0 4 30" cellSpacing="5">
+                <Row>
+                    <Cell columnSpan="3">
+                        <Text alignment="MiddleLeft" color="#ffffff" id="]] .. attrId("Check/ID") ..
+      [[">Checkbox ?</Text>
+                    </Cell>
+                    <Cell>
+                        <Button id="]] ..
+      attrId("Check/duplicate") .. [[" onClick="]] .. guid .. [[/duplicateCheck">Duplicate</Button>
+                    </Cell>
+                    <Cell>
+                        <Button id="]] ..
+      attrId("Check/delete") .. [[" onClick="]] .. guid .. [[/deleteCheck">Delete</Button>
+                    </Cell>
+                </Row>
+            </TableLayout>
+            <HorizontalLayout preferredHeight="450" spacing="50">
+                <TableLayout cellBackgroundColor="#00000000" cellPadding="0 0 2 2">
+
+                    <Row preferredHeight="24">
+                        <Cell columnSpan="3" dontUseTableCellBackground="True" color="#555555">
+                            <Text alignment="MiddleCenter" color="#ffffff">Checkbox</Text>
+                        </Cell>
+                    </Row>
+                    <Row>
+                        <Cell>
+                            <Text alignment="MiddleLeft" color="#ffffff">Name</Text>
+                        </Cell>
+                        <Cell columnSpan="2">
+                            <InputField id="]] ..
+      attrId("Check/name") ..
+      [[" onEndEdit="]] ..
+      guid ..
+      [[/onValueEdited" textColor="#000000" tooltipBackgroundColor="#000000" tooltipPosition="Above" placeholder="Title"></InputField>
+                        </Cell>
+                    </Row>
+
+                    <Row>
+                        <Cell>
+                            <Text alignment="MiddleLeft" color="#ffffff">State</Text>
+                        </Cell>
+                        <Cell columnSpan="2">
+                            <Dropdown id="]] ..
+      attrId("Check/value") .. [[" onValueChanged="]] .. guid .. [[/onCheckDropdownSelected">
+                                <Option>Off</Option>
+                                <Option>On</Option>
+                                <Option>Disabled</Option>
+                            </Dropdown>
+                        </Cell>
+                    </Row>
+
+                    <Row>
+                        <Cell>
+                            <Text alignment="MiddleLeft" color="#ffffff">Tooltip</Text>
+                        </Cell>
+                        <Cell columnSpan="2">
+                            <Dropdown id="]] ..
+      attrId("Check/tooltip") .. [[" onValueChanged="]] .. guid .. [[/onCheckDropdownSelected">
+                                <Option>None</Option>
+                                <Option>Use name as tooltip</Option>
+                                <Option>Show controls hint as tooltip</Option>
+                            </Dropdown>
+                        </Cell>
+                    </Row>
+
+                    <Row preferredHeight="65">
+                        <Cell columnSpan="3">
+                            <TableLayout cellBackgroundColor="#00000000" cellPadding="2 0 4 0">
+                                <Row>
+                                    <Cell>
+                                        <Text alignment="MiddleRight" color="#ffffff">Off</Text>
+                                    </Cell>
+                                    <Cell>
+                                        <InputField id="]] ..
+      attrId("Check/characters/empty") ..
+      [[" onEndEdit="]] ..
+      guid ..
+      [[/onCheckValueEdited" resizeTextForBestFit="True" resizeTextMaxSize="35" textColor="#000000" tooltipBackgroundColor="#000000" tooltipPosition="Above" placeholder=" "> </InputField>
+                                    </Cell>
+                                    <Cell>
+                                        <Text alignment="MiddleRight" color="#ffffff">On</Text>
+                                    </Cell>
+                                    <Cell>
+                                        <InputField id="]] ..
+      attrId("Check/characters/filled") ..
+      [[" onEndEdit="]] ..
+      guid ..
+      [[/onCheckValueEdited" resizeTextForBestFit="True" resizeTextMaxSize="35" textColor="#000000" tooltipBackgroundColor="#000000" tooltipPosition="Above" placeholder=" "> </InputField>
+                                    </Cell>
+                                    <Cell>
+                                        <Text alignment="MiddleRight" color="#ffffff">Disabled</Text>
+                                    </Cell>
+                                    <Cell>
+                                        <InputField id="]] ..
+      attrId("Check/characters/disabled") ..
+      [[" onEndEdit="]] ..
+      guid ..
+      [[/onCheckValueEdited" resizeTextForBestFit="True" resizeTextMaxSize="35" textColor="#000000" tooltipBackgroundColor="#000000" tooltipPosition="Above" placeholder=" "> </InputField>
+                                    </Cell>
+                                </Row>
+                            </TableLayout>
+                        </Cell>
+                    </Row>
+                    <Row>
+                        <Button onClick="]] .. guid .. [[/onCheckPresetButton">Checkbox presets</Button>
+                    </Row>
+                    <Row>
+                        <Cell>
+                            <Text alignment="MiddleLeft" color="#ffffff">Font size</Text>
+                        </Cell>
+                        <Cell columnSpan="2">
+                            <InputField id="]] ..
+      attrId("Check/font") ..
+      [[" onEndEdit="]] .. guid .. [[/onValueEdited" textColor="#000000" characterValidation="Decimal"></InputField>
+                        </Cell>
+                    </Row>
+                    <Row preferredHeight="25">
+                        <Cell columnSpan="3">
+                            <Toggle id="]] ..
+      attrId("Check/separateColors") ..
+      [[" textColor="#ffffff" tooltipPosition="Above" tooltipBackgroundColor="#000000" tooltip="Use a different color for the On, Off and Disabled states" isOn="False" onValueChanged="]] ..
+      guid .. [[/onToggleChanged">Separate colors</Toggle>
+                        </Cell>
+                    </Row>
+                    <Row id="]] .. attrId("CheckOnColorRow") .. [[">
+                        <Cell>
+                            <Text id="]] ..
+      attrId("CheckOnColorLabel") .. [[" alignment="MiddleLeft" color="#ffffff">On color</Text>
+                        </Cell>
+                        <Cell columnSpan="2">
+                            <VerticalLayout>
+                                <Button preferredHeight="400" id="]] ..
+      attrId("Check/textColorOn") .. [[" onClick="]] .. guid .. [[/onColorButtonPressed"></Button>
+                                <ProgressBar id="]] ..
+      attrId("Check/textColorOn/a") ..
+      [[" color="#000000" fillImageColor="#FFFFFF" showPercentageText="False"></ProgressBar>
+                            </VerticalLayout>
+                        </Cell>
+                    </Row>
+                    <Row id="]] .. attrId("CheckOffColorRow") .. [[">
+                        <Cell>
+                            <Text alignment="MiddleLeft" color="#ffffff">Off color</Text>
+                        </Cell>
+                        <Cell columnSpan="2">
+                            <VerticalLayout>
+                                <Button preferredHeight="400" id="]] ..
+      attrId("Check/textColorOff") .. [[" onClick="]] .. guid .. [[/onColorButtonPressed"></Button>
+                                <ProgressBar id="]] ..
+      attrId("Check/textColorOff/a") ..
+      [[" color="#000000" fillImageColor="#FFFFFF" showPercentageText="False"></ProgressBar>
+                            </VerticalLayout>
+                        </Cell>
+                    </Row>
+                    <Row id="]] .. attrId("CheckDisabledColorRow") .. [[">
+                        <Cell>
+                            <Text alignment="MiddleLeft" color="#ffffff">Disabled color</Text>
+                        </Cell>
+                        <Cell columnSpan="2">
+                            <VerticalLayout>
+                                <Button preferredHeight="400" id="]] ..
+      attrId("Check/textColorDisabled") .. [[" onClick="]] .. guid .. [[/onColorButtonPressed"></Button>
+                                <ProgressBar id="]] ..
+      attrId("Check/textColorDisabled/a") ..
+      [[" color="#000000" fillImageColor="#FFFFFF" showPercentageText="False"></ProgressBar>
+                            </VerticalLayout>
+                        </Cell>
+                    </Row>
+                    <Row>
+                        <Cell>
+                            <Text alignment="MiddleLeft" color="#ffffff">Background Color</Text>
+                        </Cell>
+                        <Cell columnSpan="2">
+                            <VerticalLayout>
+                                <Button preferredHeight="400" id="]] ..
+      attrId("Check/checkColor") .. [[" onClick="]] .. guid .. [[/onColorButtonPressed"></Button>
+                                <ProgressBar id="]] ..
+      attrId("Check/checkColor/a") ..
+      [[" color="#000000" fillImageColor="#FFFFFF" showPercentageText="False"></ProgressBar>
+                            </VerticalLayout>
+                        </Cell>
+                    </Row>
+                    <Row id="]] .. attrId("CheckSeparateColorsSpacer1") .. [["></Row>
+                    <Row id="]] .. attrId("CheckSeparateColorsSpacer2") .. [["></Row>
+                </TableLayout>
+
+                <TableLayout cellBackgroundColor="#00000000" cellPadding="0 0 4 4">
+                    <Row preferredHeight="24">
+                        <Cell columnSpan="6" dontUseTableCellBackground="True" color="#555555">
+                            <Text alignment="MiddleCenter" color="#ffffff">Position and Scale</Text>
+                        </Cell>
+                    </Row>
+                    <Row preferredHeight="100">
+                        <Cell columnSpan="6">
+                            <HorizontalLayout>
+                                <TableLayout cellBackgroundColor="#00000000">
+                                    <Row>
+                                        <Cell columnSpan="4">
+                                            <Text alignment="MiddleCenter" color="#ffffff">Nudge</Text>
+                                        </Cell>
+                                    </Row>
+                                    <Row>
+                                        <Cell columnSpan="4">
+                                            <InputField id="]] ..
+      attrId("Check_nudge") ..
+      [[" onEndEdit="]] ..
+      guid ..
+      [[/onNudgeChanged" textColor="#000000" tooltipBackgroundColor="#000000" tooltipPosition="Above" tooltip="Nudge distance" characterValidation="Decimal">]] ..
+      nudgeDistance .. [[</InputField>
+                                        </Cell>
+                                    </Row>
+                                    <Row>
+                                        <Cell>
+                                            <Button onClick="]] .. guid .. [[/nudgeSet1">1</Button>
+                                        </Cell>
+                                        <Cell>
+                                            <Button onClick="]] .. guid .. [[/nudgeSet01">0.1</Button>
+                                        </Cell>
+                                        <Cell>
+                                            <Button onClick="]] .. guid .. [[/nudgeSet001">0.01</Button>
+                                        </Cell>
+                                        <Cell>
+                                            <Button onClick="]] .. guid .. [[/nudgeSet0001">.001</Button>
+                                        </Cell>
+                                    </Row>
+                                </TableLayout>
+                                <TableLayout cellBackgroundColor="#00000000">
+                                    <Row>
+                                        <Cell columnSpan="2"></Cell>
+                                        <Cell columnSpan="2"><Button id="]] ..
+      attrId("Check/nudgeUp") ..
+      [[" onClick="]] .. guid .. [[/nudgeCheckUp" tooltip="Nudge up" tooltipPosition="Above">▲</Button></Cell>
+                                        <Cell columnSpan="2"></Cell>
+                                    </Row>
+                                    <Row>
+                                        <Cell></Cell>
+                                        <Cell columnSpan="2"><Button id="]] ..
+      attrId("Check/nudgeLeft") ..
+      [[" onClick="]] .. guid .. [[/nudgeCheckLeft" tooltip="Nudge left" tooltipPosition="Left">◀</Button></Cell>
+                                        <Cell columnSpan="2"><Button id="]] ..
+      attrId("Check/nudgeRight") ..
+      [[" onClick="]] .. guid .. [[/nudgeCheckRight" tooltip="Nudge right" tooltipPosition="Right">▶</Button></Cell>
+                                        <Cell></Cell>
+                                    </Row>
+                                    <Row>
+                                        <Cell columnSpan="2"></Cell>
+                                        <Cell columnSpan="2"><Button id="]] ..
+      attrId("Check/nudgeDown") ..
+      [[" onClick="]] .. guid .. [[/nudgeCheckDown" tooltip="Nudge down" tooltipPosition="Below">▼</Button></Cell>
+                                        <Cell columnSpan="2"></Cell>
+                                    </Row>
+                                </TableLayout>
+                            </HorizontalLayout>
+                        </Cell>
+                    </Row>
+                    <Row>
+                        <Cell columnSpan="2">
+                            <Text alignment="MiddleLeft" color="#ffffff">Pos</Text>
+                        </Cell>
+                        <Cell columnSpan="2">
+                            <InputField id="]] ..
+      attrId("Check/pos/x") ..
+      [[" onEndEdit="]] ..
+      guid ..
+      [[/onValueEdited" textColor="#000000" tooltipBackgroundColor="#000000" tooltipPosition="Above" tooltip="X" characterValidation="Decimal"></InputField>
+                        </Cell>
+                        <Cell columnSpan="2">
+                            <InputField id="]] ..
+      attrId("Check/pos/y") ..
+      [[" onEndEdit="]] ..
+      guid ..
+      [[/onValueEdited" textColor="#000000" tooltipBackgroundColor="#000000" tooltipPosition="Above" tooltip="Y" characterValidation="Decimal"></InputField>
+                        </Cell>
+                    </Row>
+                    <Row>
+                        <Cell columnSpan="2">
+                            <Text alignment="MiddleLeft" color="#ffffff">Scale</Text>
+                        </Cell>
+                        <Cell columnSpan="2">
+                            <InputField id="]] ..
+      attrId("Check/size/x") ..
+      [[" onEndEdit="]] ..
+      guid ..
+      [[/onValueEdited" textColor="#000000" tooltipBackgroundColor="#000000" tooltipPosition="Above" tooltip="Width" characterValidation="Decimal"></InputField>
+                        </Cell>
+                        <Cell columnSpan="2">
+                            <InputField id="]] ..
+      attrId("Check/size/y") ..
+      [[" onEndEdit="]] ..
+      guid ..
+      [[/onValueEdited" textColor="#000000" tooltipBackgroundColor="#000000" tooltipPosition="Above" tooltip="Height" characterValidation="Decimal"></InputField>
+                        </Cell>
+                    </Row>
+
+                    <Row preferredHeight="40"></Row>
+                    <Row preferredHeight="24">
+                        <Cell columnSpan="6" dontUseTableCellBackground="True" color="#555555">
+                            <Text alignment="MiddleCenter" color="#ffffff">Array</Text>
+                        </Cell>
+                    </Row>
+                    <Row>
+                        <Cell columnSpan="2">
+                            <Text alignment="MiddleLeft" color="#ffffff">Columns/Rows</Text>
+                        </Cell>
+                        <Cell columnSpan="2">
+                            <InputField id="]] ..
+      attrId("Check/array/x") ..
+      [[" onEndEdit="]] ..
+      guid ..
+      [[/onValueEdited" textColor="#000000" tooltipBackgroundColor="#000000" tooltipPosition="Above" tooltip="Columns" characterValidation="Integer"></InputField>
+                        </Cell>
+                        <Cell columnSpan="2">
+                            <InputField id="]] ..
+      attrId("Check/array/y") ..
+      [[" onEndEdit="]] ..
+      guid ..
+      [[/onValueEdited" textColor="#000000" tooltipBackgroundColor="#000000" tooltipPosition="Above" tooltip="Rows" characterValidation="Integer"></InputField>
+                        </Cell>
+                    </Row>
+                    <Row>
+                        <Cell columnSpan="2">
+                            <Text alignment="MiddleLeft" color="#ffffff">Spacing</Text>
+                        </Cell>
+                        <Cell columnSpan="2">
+                            <InputField id="]] ..
+      attrId("Check/distance/x") ..
+      [[" onEndEdit="]] ..
+      guid ..
+      [[/onValueEdited" textColor="#000000" tooltipBackgroundColor="#000000" tooltipPosition="Above" tooltip="Horizontal" characterValidation="Decimal"></InputField>
+                        </Cell>
+                        <Cell columnSpan="2">
+                            <InputField id="]] ..
+      attrId("Check/distance/y") ..
+      [[" onEndEdit="]] ..
+      guid ..
+      [[/onValueEdited" textColor="#000000" tooltipBackgroundColor="#000000" tooltipPosition="Above" tooltip="Vertical" characterValidation="Decimal"></InputField>
+                        </Cell>
+                    </Row>
+
+                    <Row preferredHeight="40"></Row>
+                    <Row preferredHeight="24">
+                        <Cell columnSpan="6" dontUseTableCellBackground="True" color="#555555">
+                            <Text alignment="MiddleCenter" color="#ffffff">Toggles</Text>
+                        </Cell>
+                    </Row>
+                    <Row>
+                        <Cell columnSpan="3">
+                            <Toggle id="]] ..
+      attrId("Check/fillFromDisabled") ..
+      [[" textColor="#ffffff" tooltipBackground="#000000" tooltipPosition="Below" tooltip="Makes it so that you can left click on this checkbox to fill it, even if it is disabled" isOn="False" onValueChanged="]] ..
+      guid .. [[/onToggleChanged">Can fill even if disabled</Toggle>
+                        </Cell>
+                        <Cell columnSpan="3">
+                            <Toggle id="]] ..
+      attrId("Check/locked") ..
+      [[" textColor="#ffffff" tooltipBackground="#000000" tooltip="Prevents users from toggling this checkbox" isOn="False" onValueChanged="]] ..
+      guid .. [[/onToggleChanged">Lock</Toggle>
+                        </Cell>
+                    </Row>
+                </TableLayout>
+            </HorizontalLayout>
+        </VerticalLayout>
+    </Panel>
+    ]]
+end
+
+function getDecalPanel()
+  local guid = self.getGUID()
+  return [[
+    <Panel color="#282828" id="]] .. attrId("DecalPanel") .. [[" active="False" padding="12 12 4 4">
+        <VerticalLayout>
+            <TableLayout preferredHeight="60" cellBackgroundColor="#00000000" padding="0 0 4 30" cellSpacing="5">
+                <Row>
+                    <Cell columnSpan="3">
+                        <Text alignment="MiddleLeft" color="#ffffff" id="]] .. attrId("Decal/ID") .. [[">Image ?</Text>
+                    </Cell>
+                    <Cell>
+                        <Button id="]] ..
+      attrId("Decal/duplicate") .. [[" onClick="]] .. guid .. [[/duplicateDecal">Duplicate</Button>
+                    </Cell>
+                    <Cell>
+                        <Button id="]] ..
+      attrId("Decal/delete") .. [[" onClick="]] .. guid .. [[/deleteDecal">Delete</Button>
+                    </Cell>
+                </Row>
+            </TableLayout>
+            <HorizontalLayout preferredHeight="450" spacing="50">
+                <TableLayout cellBackgroundColor="#00000000" cellPadding="0 0 4 4">
+
+                    <Row preferredHeight="24">
+                        <Cell columnSpan="3" dontUseTableCellBackground="True" color="#555555">
+                            <Text alignment="MiddleCenter" color="#ffffff">Image</Text>
+                        </Cell>
+                    </Row>
+
+                    <Row>
+                        <Cell>
+                            <Text alignment="MiddleLeft" color="#ffffff">Name</Text>
+                        </Cell>
+                        <Cell columnSpan="2">
+                            <InputField tooltipPosition="Above" tooltipBackgroundColor="#000000" id="]] ..
+      attrId("Decal/name") ..
+      [[" onEndEdit="]] .. guid .. [[/onValueEdited" textColor="#000000" placeholder="Image URL"></InputField>
+                        </Cell>
+                    </Row>
+
+                    <Row>
+                        <Cell>
+                            <Text alignment="MiddleLeft" color="#ffffff">URL</Text>
+                        </Cell>
+                        <Cell columnSpan="2">
+                            <InputField tooltipPosition="Above" tooltipBackgroundColor="#000000" id="]] ..
+      attrId("Decal/url") ..
+      [[" onEndEdit="]] .. guid .. [[/onValueEdited" textColor="#000000" placeholder="Image URL"></InputField>
+                        </Cell>
+                    </Row>
+
+                    <Row>
+                        <Cell>
+                            <Text alignment="MiddleLeft" color="#ffffff">Tooltip</Text>
+                        </Cell>
+                        <Cell columnSpan="2">
+                            <Dropdown id="]] ..
+      attrId("Decal/tooltip") .. [[" onValueChanged="]] .. guid .. [[/onDecalDropdownSelected">
+                                <Option>None</Option>
+                                <Option>Use name as tooltip</Option>
+                                <Option>Show controls hint as tooltip</Option>
+                            </Dropdown>
+                        </Cell>
+                    </Row>
+
+                    <Row preferredHeight="300"></Row>
+                </TableLayout>
+
+                <TableLayout cellBackgroundColor="#00000000" cellPadding="0 0 4 4">
+                    <Row preferredHeight="24">
+                        <Cell columnSpan="6" dontUseTableCellBackground="True" color="#555555">
+                            <Text alignment="MiddleCenter" color="#ffffff">Position and Scale</Text>
+                        </Cell>
+                    </Row>
+                    <Row preferredHeight="100">
+                        <Cell columnSpan="6">
+                            <HorizontalLayout>
+                                <TableLayout cellBackgroundColor="#00000000">
+                                    <Row>
+                                        <Cell columnSpan="4">
+                                            <Text alignment="MiddleCenter" color="#ffffff">Nudge</Text>
+                                        </Cell>
+                                    </Row>
+                                    <Row>
+                                        <Cell columnSpan="4">
+                                            <InputField id="]] ..
+      attrId("Decal_nudge") ..
+      [[" onEndEdit="]] ..
+      guid ..
+      [[/onNudgeChanged" textColor="#000000" tooltipBackgroundColor="#000000" tooltipPosition="Above" tooltip="Nudge distance" characterValidation="Decimal">]] ..
+      nudgeDistance .. [[</InputField>
+                                        </Cell>
+                                    </Row>
+                                    <Row>
+                                        <Cell>
+                                            <Button onClick="]] .. guid .. [[/nudgeSet1">1</Button>
+                                        </Cell>
+                                        <Cell>
+                                            <Button onClick="]] .. guid .. [[/nudgeSet01">0.1</Button>
+                                        </Cell>
+                                        <Cell>
+                                            <Button onClick="]] .. guid .. [[/nudgeSet001">0.01</Button>
+                                        </Cell>
+                                        <Cell>
+                                            <Button onClick="]] .. guid .. [[/nudgeSet0001">.001</Button>
+                                        </Cell>
+                                    </Row>
+                                </TableLayout>
+                                <TableLayout cellBackgroundColor="#00000000">
+                                    <Row>
+                                        <Cell columnSpan="2"></Cell>
+                                        <Cell columnSpan="2"><Button id="]] ..
+      attrId("Decal/nudgeUp") ..
+      [[" onClick="]] .. guid .. [[/nudgeDecalUp" tooltip="Nudge up" tooltipPosition="Above">▲</Button></Cell>
+                                        <Cell columnSpan="2"></Cell>
+                                    </Row>
+                                    <Row>
+                                        <Cell></Cell>
+                                        <Cell columnSpan="2"><Button id="]] ..
+      attrId("Decal/nudgeLeft") ..
+      [[" onClick="]] .. guid .. [[/nudgeDecalLeft" tooltip="Nudge left" tooltipPosition="Left">◀</Button></Cell>
+                                        <Cell columnSpan="2"><Button id="]] ..
+      attrId("Decal/nudgeRight") ..
+      [[" onClick="]] .. guid .. [[/nudgeDecalRight" tooltip="Nudge right" tooltipPosition="Right">▶</Button></Cell>
+                                        <Cell></Cell>
+                                    </Row>
+                                    <Row>
+                                        <Cell columnSpan="2"></Cell>
+                                        <Cell columnSpan="2"><Button id="]] ..
+      attrId("Decal/nudgeDown") ..
+      [[" onClick="]] .. guid .. [[/nudgeDecalDown" tooltip="Nudge down" tooltipPosition="Below">▼</Button></Cell>
+                                        <Cell columnSpan="2"></Cell>
+                                    </Row>
+                                </TableLayout>
+                            </HorizontalLayout>
+                        </Cell>
+                    </Row>
+                    <Row>
+                        <Cell columnSpan="2">
+                            <Text alignment="MiddleLeft" color="#ffffff">Pos</Text>
+                        </Cell>
+                        <Cell columnSpan="2">
+                            <InputField id="]] ..
+      attrId("Decal/pos/x") ..
+      [[" onEndEdit="]] ..
+      guid ..
+      [[/onValueEdited" textColor="#000000" tooltipBackgroundColor="#000000" tooltipPosition="Above" tooltip="X" characterValidation="Decimal"></InputField>
+                        </Cell>
+                        <Cell columnSpan="2">
+                            <InputField id="]] ..
+      attrId("Decal/pos/y") ..
+      [[" onEndEdit="]] ..
+      guid ..
+      [[/onValueEdited" textColor="#000000" tooltipBackgroundColor="#000000" tooltipPosition="Above" tooltip="Y" characterValidation="Decimal"></InputField>
+                        </Cell>
+                    </Row>
+                    <Row>
+                        <Cell columnSpan="2">
+                            <Text alignment="MiddleLeft" color="#ffffff">Scale</Text>
+                        </Cell>
+                        <Cell columnSpan="2">
+                            <InputField id="]] ..
+      attrId("Decal/scale/x") ..
+      [[" onEndEdit="]] ..
+      guid ..
+      [[/onValueEdited" textColor="#000000" tooltipBackgroundColor="#000000" tooltipPosition="Above" tooltip="Width" characterValidation="Decimal"></InputField>
+                        </Cell>
+                        <Cell columnSpan="2">
+                            <InputField id="]] ..
+      attrId("Decal/scale/y") ..
+      [[" onEndEdit="]] ..
+      guid ..
+      [[/onValueEdited" textColor="#000000" tooltipBackgroundColor="#000000" tooltipPosition="Above" tooltip="Height" characterValidation="Decimal"></InputField>
+                        </Cell>
+                    </Row>
+                    <Row>
+                        <Cell columnSpan="2">
+                            <Text alignment="MiddleLeft" color="#ffffff">Rotation</Text>
+                        </Cell>
+                        <Cell columnSpan="4">
+                            <InputField id="]] ..
+      attrId("Decal/rotation") ..
+      [[" onEndEdit="]] ..
+      guid ..
+      [[/onValueEdited" textColor="#000000" tooltipBackgroundColor="#000000" tooltipPosition="Above" tooltip="Height" characterValidation="Decimal"></InputField>
+                        </Cell>
+                    </Row>
+
+                    <Row preferredHeight="40"></Row>
+                    <Row preferredHeight="24">
+                        <Cell columnSpan="6" dontUseTableCellBackground="True" color="#555555">
+                            <Text alignment="MiddleCenter" color="#ffffff">Toggles</Text>
+                        </Cell>
+                    </Row>
+                    <Row>
+                        <Cell columnSpan="3">
+                            <Toggle id="]] ..
+      attrId("Decal/locked") ..
+      [[" textColor="#ffffff" tooltipBackground="#000000" tooltip="Prevents users from interacting with this image" isOn="False" onValueChanged="]] ..
+      guid .. [[/onToggleChanged">Lock</Toggle>
+                        </Cell>
+                    </Row>
+                    <Row preferredHeight="90"></Row>
+                </TableLayout>
+            </HorizontalLayout>
+        </VerticalLayout>
+    </Panel>
+    ]]
+end
+
+function onCheckPresetButton(ply, value, id)
+  local pres = { "◌ ○ ●", "  ◇ ◆", "  □ ■", "/ △ ▴", "  ◎ ◉", "-   x", "  ◾ ✦", "  x ♥" }
+  ply.showOptionsDialog("Select checkbox preset", pres, 1,
+    function(text, index, player_color)
+      local disabled = pres[index]:sub(1, 1)
+      local empty = pres[index]:sub(3, 3)
+      local filled = pres[index]:sub(5, 5)
+      checks[selectedId].characters.disabled = disabled
+      checks[selectedId].characters.empty = empty
+      checks[selectedId].characters.filled = filled
+      updateCheckNameContentAndTooltip(selectedId)
+      refreshEditPanel()
+      updateSave()
+    end)
+end
+
+function nudgeSet1() updateNudgeDistance(1) end
+
+function nudgeSet01() updateNudgeDistance(0.1) end
+
+function nudgeSet001() updateNudgeDistance(0.01) end
+
+function nudgeSet0001() updateNudgeDistance(0.001) end
+
+function updateNudgeDistance(value)
+  nudgeDistance = value
+  UI.setAttribute(attrId("Field_nudge"), "text", nudgeDistance)
+  UI.setAttribute(attrId("Check_nudge"), "text", nudgeDistance)
+  UI.setAttribute(attrId("Decal_nudge"), "text", nudgeDistance)
+  updateSave()
+end
+
+function nudgeLeft(obj, value, id)
+  local newX = fields[selectedId].pos.x - tonumber(nudgeDistance)
+  UI.setAttribute(attrId("Field/pos/x"), "text", newX)
+  fields[selectedId].pos.x = newX
+  updateFieldPositionAndSize(selectedId)
+  updateSave()
+end
+
+function nudgeUp(obj, value, id)
+  local newY = fields[selectedId].pos.y - tonumber(nudgeDistance)
+  UI.setAttribute(attrId("Field/pos/y"), "text", newY)
+  fields[selectedId].pos.y = newY
+  updateFieldPositionAndSize(selectedId)
+  updateSave()
+end
+
+function nudgeRight(obj, value, id)
+  local newX = fields[selectedId].pos.x + tonumber(nudgeDistance)
+  UI.setAttribute(attrId("Field/pos/x"), "text", newX)
+  fields[selectedId].pos.x = newX
+  updateFieldPositionAndSize(selectedId)
+  updateSave()
+end
+
+function nudgeDown(obj, value, id)
+  local newY = fields[selectedId].pos.y + tonumber(nudgeDistance)
+  UI.setAttribute(attrId("Field/pos/y"), "text", newY)
+  fields[selectedId].pos.y = newY
+  updateFieldPositionAndSize(selectedId)
+  updateSave()
+end
+
+function nudgeDecalLeft(obj, value, id)
+  local newX = decals[selectedId].pos.x - tonumber(nudgeDistance)
+  UI.setAttribute(attrId("Decal/pos/x"), "text", newX)
+  decals[selectedId].pos.x = newX
+  updateDecalPositionAndSize(selectedId)
+  updateSave()
+end
+
+function nudgeDecalUp(obj, value, id)
+  local newY = decals[tonumber(selectedId)].pos.y - tonumber(nudgeDistance)
+  UI.setAttribute(attrId("Decal/pos/y"), "text", newY)
+  decals[tonumber(selectedId)].pos.y = newY
+  updateDecalPositionAndSize(selectedId)
+  updateSave()
+end
+
+function nudgeDecalRight(obj, value, id)
+  local newX = decals[tonumber(selectedId)].pos.x + tonumber(nudgeDistance)
+  UI.setAttribute(attrId("Decal/pos/x"), "text", newX)
+  decals[tonumber(selectedId)].pos.x = newX
+  updateDecalPositionAndSize(selectedId)
+  updateSave()
+end
+
+function nudgeDecalDown(obj, value, id)
+  local newY = decals[tonumber(selectedId)].pos.y + tonumber(nudgeDistance)
+  UI.setAttribute(attrId("Decal/pos/y"), "text", newY)
+  decals[tonumber(selectedId)].pos.y = newY
+  updateDecalPositionAndSize(selectedId)
+  updateSave()
+end
+
+function nudgeCheckLeft(obj, value, id)
+  local newX = checks[tonumber(selectedId)].pos.x - tonumber(nudgeDistance)
+  UI.setAttribute(attrId("Check/pos/x"), "text", newX)
+  checks[tonumber(selectedId)].pos.x = newX
+  updateCheckPositionAndSize(selectedId)
+  updateSave()
+end
+
+function nudgeCheckUp(obj, value, id)
+  local newY = checks[tonumber(selectedId)].pos.y - tonumber(nudgeDistance)
+  UI.setAttribute(attrId("Check/pos/y"), "text", newY)
+  checks[tonumber(selectedId)].pos.y = newY
+  updateCheckPositionAndSize(selectedId)
+  updateSave()
+end
+
+function nudgeCheckRight(obj, value, id)
+  local newX = checks[tonumber(selectedId)].pos.x + tonumber(nudgeDistance)
+  UI.setAttribute(attrId("Check/pos/x"), "text", newX)
+  checks[tonumber(selectedId)].pos.x = newX
+  updateCheckPositionAndSize(selectedId)
+  updateSave()
+end
+
+function nudgeCheckDown(obj, value, id)
+  local newY = checks[tonumber(selectedId)].pos.y + tonumber(nudgeDistance)
+  UI.setAttribute(attrId("Check/pos/y"), "text", newY)
+  checks[tonumber(selectedId)].pos.y = newY
+  updateCheckPositionAndSize(selectedId)
+  updateSave()
+end
+
+function showEmptyPrompt()
+  selectedId = 0
+  selectedType = ""
+  refreshEditPanel()
+end
+
+function duplicateField(ply, value, id)
+  broadcastToColor("Text duplicated", ply.color)
+  local newField = JSON.decode(JSON.encode(fields[tonumber(selectedId)]))
+  table.insert(fields, newField)
+  updateSave()
+  selectField({ id = #fields, arrayId = 1 })
+  refresh()
+end
+
+function deleteField(ply, value, id)
+  broadcastToColor("Text deleted", ply.color)
+  table.remove(fields, tonumber(selectedId))
+  updateSave()
+  if (#fields > 0) then
+    selectField({ id = math.max(selectedId - 1, 1), arrayId = 1 })
+  else
+    if (#checks > 0) then
+      selectCheck({ id = 1, arrayId = 1 })
+    elseif (#decals > 0) then
+      selectDecal(1)
+    else
+      showEmptyPrompt()
+    end
+  end
+  refresh()
+end
+
+function duplicateCheck(ply, value, id)
+  broadcastToColor("Check duplicated", ply.color)
+  local newCheck = JSON.decode(JSON.encode(checks[tonumber(selectedId)]))
+  table.insert(checks, newCheck)
+  updateSave()
+  selectCheck({ id = #checks, arrayId = 1 })
+  refresh()
+end
+
+function deleteCheck(ply, value, id)
+  broadcastToColor("Check deleted", ply.color)
+  table.remove(checks, tonumber(selectedId))
+  updateSave()
+  if (#checks > 0) then
+    selectCheck({ id = math.max(selectedId - 1, 1), arrayId = 1 })
+  else
+    if (#fields > 0) then
+      selectField({ id = 1, arrayId = 1 })
+    elseif (#decals > 0) then
+      selectDecal(1)
+    else
+      showEmptyPrompt()
+    end
+  end
+  refresh()
+end
+
+function duplicateDecal(ply, value, id)
+  broadcastToColor("Image duplicated", ply.color)
+  local newDecal = JSON.decode(JSON.encode(decals[tonumber(selectedId)]))
+  table.insert(decals, newDecal)
+  updateSave()
+  selectDecal(#decals)
+  refresh()
+end
+
+function deleteDecal(ply, value, id)
+  broadcastToColor("Image deleted", ply.color)
+  table.remove(decals, tonumber(selectedId))
+  updateSave()
+  if (#decals > 0) then
+    selectDecal(math.max(selectedId - 1, 1))
+  else
+    if (#fields > 0) then
+      selectField({ id = 1, arrayId = 1 })
+    elseif (#checks > 0) then
+      selectCheck({ id = 1, arrayId = 1 })
+    else
+      showEmptyPrompt()
+    end
+  end
+  refresh()
+end
+
+function addField(obj, player_clicker_color, alt_click)
+  local newField = {
+    value = { "?" },
+    name = "",
+    tooltip = "name",
+    role = "Normal Field",
+    textColor = { r = 0, g = 0, b = 0, a = 1 },
+    fieldColor = { r = 1, g = 1, b = 1, a = 1 },
+    font = 150,
+    align = 3,
+    pos = { x = 0, y = 0 },
+    size = { x = 250, y = 250 },
+    array = { x = 1, y = 1 },
+    distance = { x = 1, y = 1 },
+    locked = false
+  }
+  table.insert(fields, newField)
+  selectField({ id = #fields, arrayId = 1 })
+  updateSave()
+  refresh()
+end
+
+function addCheck(obj, player_clicker_color, alt_click)
+  local newCheck = {
+    name = "",
+    tooltip = "hint",
+    value = { 1 },
+    characters = { disabled = "◌", empty = "○", filled = "●" },
+    textColor = { r = 0, g = 0, b = 0, a = 1 },
+    textColorOff = { r = 0, g = 0, b = 0, a = 1 },
+    textColorDisabled = { r = 0.5, g = 0.5, b = 0.5, a = 1 },
+    separateColors = false,
+    fillFromDisabled = false,
+    checkColor = { r = 1, g = 1, b = 1, a = 1 },
+    pos = { x = 0, y = 0 },
+    size = { x = 1, y = 1 },
+    array = { x = 1, y = 1 },
+    distance = { x = 1, y = 1 },
+    font = 500,
+    locked = false
+  }
+  table.insert(checks, newCheck)
+  selectCheck({ id = #checks, arrayId = 1 })
+  updateSave()
+  refresh()
+end
+
+function addDecal(obj, player_clicker_color, alt_click)
+  local newDecal = {
+    name = "",
+    url = "https://api.tabletopsimulator.com/img/TSIcon.png",
+    tooltip = "name",
+    pos = { x = 0, y = 0 },
+    rotation = 0,
+    scale = { x = 1, y = 1 },
+    locked = false
+  }
+  table.insert(decals, newDecal)
+  selectDecal(#decals)
+  updateSave()
+  refresh()
+end
+
+function onDestroy()
+  closePanel()
+end
+
+function cutAtWord(inputStr, delimiter)
+  local t = {}
+  local pattern = "(.-)" .. delimiter
+  for str in inputStr:gmatch(pattern) do
+    table.insert(t, str)
+  end
+  if (#t > 0) then
+    return t[1]
+  else
+    return false
+  end
+end
+
+function waitForUiLoaded(callback)
+  if UI.loading == false then
+    callback()
+    return nil
+  end
+
+  return Wait.condition(
+    function()
+      callback()
+    end,
+    function()
+      return UI.loading == false
+    end
+  )
+end
