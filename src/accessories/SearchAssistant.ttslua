@@ -124,22 +124,17 @@ function startSearch(messageColor, number)
   end
 
   -- get position and rotation for set aside cards
-  local handData     = Player[handColor].getHandTransform()
-  local handCards    = Player[handColor].getHandObjects()
-  setAsidePosition   = handData.position + offset * handData.right
-  setAsideRotation   = { handData.rotation.x, handData.rotation.y + 180, 180 }
+  local handData   = Player[handColor].getHandTransform()
+  local handCards  = Player[handColor].getHandObjects()
+  setAsidePosition = (handData.position + offset * handData.right):setAt("y", 1.5)
+  setAsideRotation = { handData.rotation.x, handData.rotation.y + 180, 180 }
 
-  -- set y-value
-  setAsidePosition.y = 1.5
-
-  for i = #handCards, 1, -1 do
-    handCards[i].setPosition(setAsidePosition + Vector(0, (#handCards - i) * 0.1, 0))
-    handCards[i].setRotation(setAsideRotation)
-  end
+  -- place hand cards set aside
+  deckLib.placeOrMergeIntoDeck(handCards, setAsidePosition, setAsideRotation)
 
   -- handling for Norman Withers
   if deckAreaObjects.topCard then
-    deckAreaObjects.topCard.flip()
+    deckAreaObjects.topCard.setRotation(setAsideRotation)
     topCardDetected = true
   end
 
@@ -155,35 +150,36 @@ end
 function endSearch(_, _, isRightClick)
   local handCards = Player[handColor].getHandObjects()
 
-  local j = 0
-  for i = #handCards, 1, -1 do
-    j = j + 1
-    Wait.time(function() deckLib.placeOrMergeIntoDeck(handCards[i], drawDeckPosition, setAsideRotation) end, j * 0.1)
-  end
+  -- place cards on deck
+  deckLib.placeOrMergeIntoDeck(handCards, drawDeckPosition, setAsideRotation)
 
   -- draw set aside cards (from the ground!)
+  Wait.time(drawSetAsideCards, 0.5 + #handCards * 0.1)
+
+  normalView()
+
+  Wait.time(function()
+    -- maybe shuffle deck
+    if not isRightClick then
+      local deckAreaObjects = playermatApi.getDeckAreaObjects(matColor)
+      if deckAreaObjects.draw then
+        deckAreaObjects.draw.shuffle()
+      end
+    end
+
+    -- Norman Withers handling
+    if topCardDetected then
+      playermatApi.flipTopCardFromDeck(matColor)
+    end
+  end, 1 + #handCards * 0.1)
+end
+
+function drawSetAsideCards()
   for _, obj in ipairs(searchLib.atPosition(setAsidePosition, "isCardOrDeck")) do
     local count = 1
     if obj.type == "Deck" then
       count = #obj.getObjects()
     end
-    Wait.time(function() obj.deal(count, handColor) end, 1)
-  end
-
-  normalView()
-
-  -- delay is to wait for cards to enter deck
-  if not isRightClick then
-    Wait.time(function()
-      local deckAreaObjects = playermatApi.getDeckAreaObjects(matColor)
-      if deckAreaObjects.draw then
-        deckAreaObjects.draw.shuffle()
-      end
-    end, #handCards * 0.3 + 0.5)
-  end
-
-  -- Norman Withers handling
-  if topCardDetected then
-    Wait.time(function() playermatApi.flipTopCardFromDeck(matColor) end, #handCards * 0.3 + 0.75)
+    obj.deal(count, handColor)
   end
 end

@@ -199,14 +199,20 @@ function onObjectEnterZone(zone, object)
     local matcolor = playermatApi.getMatColorByPosition(object.getPosition())
     local trash = guidReferenceApi.getObjectByOwnerAndType(matcolor, "Trash")
     trash.putObject(object)
-  elseif zone.type == "Hand" and object.hasTag("CardWithHelper") then
-    object.clearContextMenu()
-    object.call("shutOff")
+  elseif zone.type == "Hand" and object.type == "Card" then
+    if object.is_face_down then
+      object.flip()
+    end
+    if object.hasTag("CardWithHelper") then
+      object.clearContextMenu()
+      object.call("shutOff")
+    end
   end
 end
 
 -- TTS event for objects that leave zones
 function onObjectLeaveZone(zone, object)
+  if zone.isDestroyed() or object.isDestroyed() then return end
   if zone.type == "Hand" and object.hasTag("CardWithHelper") then
     object.call("updateDisplay")
   end
@@ -236,6 +242,23 @@ function onObjectNumberTyped(hoveredObject, playerColor, number)
       return true
     end
   end
+end
+
+-- TTS event, used to redraw the playermat slot symbols after a small delay to account for the custom font loading
+function onPlayerConnect()
+  Wait.time(function() playermatApi.redrawSlotSymbols("All") end, 0.2)
+end
+
+function onPlayerAction(player, action, targets)
+  if action == Player.Action.Delete and player.admin == false then
+    for _, target in ipairs(targets) do
+      local matColor = playermatApi.getMatColorByPosition(target.getPosition())
+      local trash = guidReferenceApi.getObjectByOwnerAndType(matColor, "Trash")
+      trash.putObject(target)
+    end
+    return false
+  end
+  return true
 end
 
 ---------------------------------------------------------
@@ -1443,7 +1466,7 @@ function onClick_toggleOption(_, _, id)
   local currentState = optionPanel[id]
   local newState = not currentState
   applyOptionPanelChange(id, newState)
-  UI.setAttribute(id, "image", newState and "option-on" or "option-off")
+  UI.setAttribute(id, "image", newState and "option_on" or "option_off")
 end
 
 -- color selection for playArea
@@ -1537,9 +1560,9 @@ function updateOptionPanelState()
     elseif (type(optionValue) == "boolean" and optionValue)
         or (type(optionValue) == "string" and optionValue)
         or (type(optionValue) == "table" and #optionValue ~= 0) then
-      UI.setAttribute(id, "image", "option-on")
+      UI.setAttribute(id, "image", "option_on")
     else
-      UI.setAttribute(id, "image", "option-off")
+      UI.setAttribute(id, "image", "option_off")
     end
   end
 end

@@ -2,23 +2,33 @@ do
   local DeckLib = {}
   local searchLib = require("util/SearchLib")
 
-  -- places a card/deck at a position or merges into an existing deck
-  ---@param obj tts__Object Object to move
+  -- places a card/deck at a position or merges into an existing deck below
+  ---@param objOrTable tts__Object|table Object or table of objects to move
   ---@param pos table New position for the object
   ---@param rot? table New rotation for the object
   ---@param below? boolean Should the object be placed below an existing deck?
-  DeckLib.placeOrMergeIntoDeck = function(obj, pos, rot, below)
-    if obj == nil or pos == nil then return end
+  DeckLib.placeOrMergeIntoDeck = function(objOrTable, pos, rot, below)
+    if objOrTable == nil or pos == nil then return end
+
+    -- handle 'objOrTable' parameter
+    local objects = {}
+    if type(objOrTable) == "table" then
+      objects = objOrTable
+    else
+      table.insert(objects, objOrTable)
+    end
 
     -- search the new position for existing card/deck
     local searchResult = searchLib.atPosition(pos, "isCardOrDeck")
+    local targetObj
 
     -- get new position
     local offset = 0.5
     local newPos = Vector(pos) + Vector(0, offset, 0)
 
     if #searchResult == 1 then
-      local bounds = searchResult[1].getBounds()
+      targetObj = searchResult[1]
+      local bounds = targetObj.getBounds()
       if below then
         newPos = Vector(pos):setAt("y", bounds.center.y - bounds.size.y / 2)
       else
@@ -26,25 +36,39 @@ do
       end
     end
 
-    -- allow moving the objects smoothly out of the hand
-    obj.use_hands = false
+    -- process objects in reverse order
+    for i = #objects, 1, -1 do
+      local obj = objects[i]
+      -- add a 0.1 delay for each object (for animation purposes)
+      Wait.time(function()
+        -- allow moving smoothly out of hand and temporarily lock it
+        obj.setLock(true)
+        obj.use_hands = false
 
-    if rot then
-      obj.setRotationSmooth(rot, false, true)
+        if rot then
+          obj.setRotationSmooth(rot, false, true)
+        end
+        obj.setPositionSmooth(newPos, false, true)
+
+        -- wait for object to finish movement (or 2 seconds)
+        Wait.condition(
+          function()
+            -- revert toggles
+            obj.setLock(false)
+            obj.use_hands = true
+
+            -- use putObject to avoid a TTS bug that merges unrelated cards that are not resting
+            if #searchResult == 1 and targetObj ~= obj and not targetObj.isDestroyed() and not obj.isDestroyed() then
+              targetObj = targetObj.putObject(obj)
+            else
+              targetObj = obj
+            end
+          end,
+          -- check state of the object (make sure it's not moving)
+          function() return obj.isDestroyed() or not obj.isSmoothMoving() end,
+          2)
+      end, (#objects- i) * 0.1)
     end
-    obj.setPositionSmooth(newPos, false, true)
-
-    -- continue if the card stops smooth moving
-    Wait.condition(
-    function()
-      obj.use_hands = true
-      -- this avoids a TTS bug that merges unrelated cards that are not resting
-      if #searchResult == 1 and searchResult[1] ~= obj then
-        -- call this with avoiding errors (physics is sometimes too fast so the object doesn't exist for the put)
-        pcall(function() searchResult[1].putObject(obj) end)
-      end
-    end,
-    function() return not obj.isSmoothMoving() end, 3)
   end
 
   return DeckLib

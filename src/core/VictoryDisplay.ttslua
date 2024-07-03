@@ -1,7 +1,8 @@
-local searchLib        = require("util/SearchLib")
 local chaosBagApi      = require("chaosbag/ChaosBagApi")
+local deckLib          = require("util/DeckLib")
 local guidReferenceApi = require("core/GUIDReferenceApi")
 local playAreaApi      = require("core/PlayAreaApi")
+local searchLib        = require("util/SearchLib")
 local tokenChecker     = require("core/token/TokenChecker")
 
 local pendingCall      = false
@@ -234,28 +235,30 @@ end
 
 -- places the provided card in the first empty spot
 function placeCard(card)
-  local trash = guidReferenceApi.getObjectByOwnerAndType("Mythos", "Trash")
+  local name = card.getName() or "Unnamed card"
 
-  -- check snap point states
+  -- get sorted list of snap points to check slots
   local snaps = self.getSnapPoints()
   table.sort(snaps, function(a, b) return a.position.x > b.position.x end)
   table.sort(snaps, function(a, b) return a.position.z < b.position.z end)
 
   -- get first empty slot
-  local fullSlots = {}
-  local positions = {}
+  local emptyIndex, emptyPos
   for i, snap in ipairs(snaps) do
-    positions[i] = self.positionToWorld(snap.position)
-    local searchResult = searchLib.atPosition(positions[i], "isCardOrDeck")
-    fullSlots[i] = #searchResult > 0
+    local snapPos = self.positionToWorld(snap.position)
+    local searchResult = searchLib.atPosition(snapPos, "isCardOrDeck")
+    if #searchResult == 0 then
+      emptyPos = snapPos
+      emptyIndex = i
+      break
+    end
   end
 
   -- remove tokens from the card
-  for _, obj in ipairs(searchLib.onObject(card)) do
-    -- don't touch decks / cards
-    if obj.type == "Deck" or obj.type == "Card" then
+  local trash = guidReferenceApi.getObjectByOwnerAndType("Mythos", "Trash")
+  for _, obj in ipairs(searchLib.onObject(card, "isTileOrToken")) do
+    if tokenChecker.isChaosToken(obj) then
       -- put chaos tokens back into bag
-    elseif tokenChecker.isChaosToken(obj) then
       local chaosBag = chaosBagApi.findChaosBag()
       chaosBag.putObject(obj)
     elseif obj.memo ~= nil and obj.getLock() == false then
@@ -263,18 +266,15 @@ function placeCard(card)
     end
   end
 
-  -- place the card
-  local name = card.getName() or "Unnamed card"
-  for i = 1, 10 do
-    if fullSlots[i] ~= true then
-      local rot = { 0, 270, card.getRotation().z }
-      card.setPositionSmooth(positions[i], false, true)
-      card.setRotation(rot)
-      broadcastToAll("Victory Display: " .. name .. " placed into slot " .. i .. ".", "Green")
-      return
-    end
-  end
+  -- use the first snap position in case all slots are full
+  local pos = emptyPos or self.positionToWorld(snaps[1].position)
+  local rot = card.getRotation():setAt("x", 0):setAt("y", 270)
+  deckLib.placeOrMergeIntoDeck(card, pos, rot)
 
-  broadcastToAll("Victory Display is full! " .. name .. " placed into slot 1.", "Orange")
-  card.setPositionSmooth(positions[1], false, true)
+  -- give a feedback message
+  if emptyPos then
+    broadcastToAll("Victory Display: " .. name .. " placed into slot " .. emptyIndex .. ".", "Green")
+  else
+    broadcastToAll("Victory Display is full! " .. name .. " placed into slot 1.", "Orange")
+  end
 end

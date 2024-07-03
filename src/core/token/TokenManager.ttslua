@@ -211,10 +211,11 @@ do
     if tokenType == "clue" then
       offsets = internal.buildClueOffsets(card, tokenCount)
     else
-      -- only up to 12 offset tables defined (TODO: stack more than 12 tokens and generate offsets dynamically)
+      -- only up to 12 offset tables defined
       if tokenCount > 12 then
-        printToAll("Spawning maximum of 12 tokens.")
-        tokenCount = 12
+        printToAll("Attempting to spawn " .. tokenCount .. " tokens. Spawning clickable counter instead.")
+        TokenManager.spawnResourceCounterToken(card, tokenCount)
+        return
       end
       for i = 1, tokenCount do
         offsets[i] = card.positionToWorld(PLAYER_CARD_TOKEN_OFFSETS[tokenCount][i])
@@ -297,18 +298,11 @@ do
   -- Checks a card for metadata to maybe replenish it
   ---@param card tts__Object Card object to be replenished
   ---@param uses table The already decoded metadata.uses (to avoid decoding again)
-  ---@param mat tts__Object The playermat the card is placed on (for rotation and casting)
-  TokenManager.maybeReplenishCard = function(card, uses, mat)
+  TokenManager.maybeReplenishCard = function(card, uses)
     -- TODO: support for cards with multiple uses AND replenish (as of yet, no official card needs that)
     if uses[1].count and uses[1].replenish then
-      internal.replenishTokens(card, uses, mat)
+      internal.replenishTokens(card, uses)
     end
-  end
-
-  -- Delegate function to the token spawn tracker. Exists to avoid circular dependencies in some callers
-  ---@param card tts__Object Card object to reset the tokens for
-  TokenManager.resetTokensSpawned = function(card)
-    tokenSpawnTrackerApi.resetTokensSpawned(card.getGUID())
   end
 
   -- Pushes new player card data into the local copy of the Data Helper player data.
@@ -483,16 +477,16 @@ do
 
   ---@param card tts__Object Card object to be replenished
   ---@param uses table The already decoded metadata.uses (to avoid decoding again)
-  ---@param mat tts__Object The playermat the card is placed on (for rotation and casting)
-  internal.replenishTokens = function(card, uses, mat)
-    -- get current amount of resource tokens on the card
+  internal.replenishTokens = function(card, uses)
+    -- get current amount of matching resource tokens on the card
     local clickableResourceCounter = nil
     local foundTokens = 0
+    local searchType = string.lower(uses[1].type)
 
     for _, obj in ipairs(searchLib.onObject(card, "isTileOrToken")) do
       local memo = obj.getMemo()
 
-      if (stateTable[memo] or 0) > 0 then
+      if searchType == memo then
         foundTokens = foundTokens + math.abs(obj.getQuantity())
         obj.destruct()
       elseif memo == "resourceCounter" then

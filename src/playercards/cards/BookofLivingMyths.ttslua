@@ -1,9 +1,11 @@
 require("playercards/CardsWithHelper")
+local blessCurseManagerApi      = require("chaosbag/BlessCurseManagerApi")
 local chaosBagApi      = require("chaosbag/ChaosBagApi")
 local guidReferenceApi = require("core/GUIDReferenceApi")
 local playermatApi       = require("playermat/PlayermatApi")
 
 local isHelperEnabled  = false
+local updated
 
 function updateSave()
   self.script_state = JSON.encode({ isHelperEnabled = isHelperEnabled })
@@ -16,7 +18,6 @@ function onLoad(savedData)
     isHelperEnabled = loadedData.isHelperEnabled
   end
   checkOptionPanel()
-  updateDisplay()
 end
 
 -- hide buttons and stop monitoring
@@ -35,6 +36,7 @@ function initialize()
 end
 
 function resolveToken(player, _, tokenType)
+  if not updated then return end
   local matColor
   if player.color == "Black" then
     matColor = playermatApi.getMatColorByPosition(self.getPosition())
@@ -44,11 +46,13 @@ function resolveToken(player, _, tokenType)
 
   local mat = guidReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
   chaosBagApi.drawChaosToken(mat, true, tokenType)
+  updated = false
+  Wait.frames(maybeUpdateButtonState, 2)
 end
 
 -- count tokens in the bag and show appropriate buttons
 function maybeUpdateButtonState()
-  local numInBag = getBlessCurseInBag()
+  local numInBag = blessCurseManagerApi.getBlessCurseInBag()
   local state = { Bless = false, Curse = false }
 
   if numInBag.Bless >= numInBag.Curse and numInBag.Bless > 0 then
@@ -60,19 +64,7 @@ function maybeUpdateButtonState()
   end
 
   setUiState(state)
-end
-
-function getBlessCurseInBag()
-  local numInBag = { Bless = 0, Curse = 0 }
-  local chaosBag = chaosBagApi.findChaosBag()
-
-  for _, v in ipairs(chaosBag.getObjects()) do
-    if v.name == "Bless" or v.name == "Curse" then
-      numInBag[v.name] = numInBag[v.name] + 1
-    end
-  end
-
-  return numInBag
+  updated = true
 end
 
 function setUiState(params)
@@ -88,7 +80,7 @@ function setUiState(params)
 end
 
 function errorMessage()
-  local numInBag = getBlessCurseInBag()
+  local numInBag = blessCurseManagerApi.getBlessCurseInBag()
 
   if numInBag.Bless == 0 and numInBag.Curse == 0 then
     broadcastToAll("There are no Bless or Curse tokens in the chaos bag.", "Red")

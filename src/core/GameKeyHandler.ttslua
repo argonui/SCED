@@ -1,5 +1,6 @@
 local blessCurseManagerApi = require("chaosbag/BlessCurseManagerApi")
 local guidReferenceApi = require("core/GUIDReferenceApi")
+local mythosAreaApi = require("core/MythosAreaApi")
 local navigationOverlayApi = require("core/NavigationOverlayApi")
 local optionPanelApi = require("core/OptionPanelApi")
 local playermatApi = require("playermat/PlayermatApi")
@@ -15,6 +16,7 @@ function onLoad()
   addHotkey("Move card to Victory Display", moveCardToVictoryDisplay)
   addHotkey("Place card into threat area", takeCardIntoThreatArea)
   addHotkey("Remove a use", removeOneUse)
+  addHotkey("Reshuffle encounter deck", mythosAreaApi.reshuffleEncounterDeck)
   addHotkey("Switch seat clockwise", switchSeatClockwise)
   addHotkey("Switch seat counter-clockwise", switchSeatCounterClockwise)
   addHotkey("Take clue from location", takeClueFromLocation)
@@ -122,10 +124,15 @@ function takeCardIntoThreatArea(playerColor, hoveredObject)
   end
 end
 
--- discard the hovered object to the respective trashcan and discard tokens on it if it was a card
+-- discard the hovered or selected objects to the respective trashcan and discard tokens on it if it was a card
 function discardObject(playerColor, hoveredObject)
+  -- if more than one object is selected, discard them all, one at a time
+  local selectedObjects = Player[playerColor].getSelectedObjects()
+  if #selectedObjects > 0 then
+    discardGroup(playerColor, selectedObjects)
+    return
   -- only continue if an unlocked card, deck or tile was hovered
-  if hoveredObject == nil
+  elseif hoveredObject == nil
       or (hoveredObject.type ~= "Card" and hoveredObject.type ~= "Deck" and hoveredObject.type ~= "Tile")
       or hoveredObject.locked then
     broadcastToColor("Hover a token/tile or a card/deck and try again.", playerColor, "Yellow")
@@ -133,11 +140,15 @@ function discardObject(playerColor, hoveredObject)
   end
 
   -- These should probably not be discarded normally. Ask player for confirmation.
-  if hoveredObject.type == "Deck" or hoveredObject.hasTag("Location") then
-    local suspect = (hoveredObject.type == "Deck") and "Deck" or "Location"
-    Player[playerColor].showConfirmDialog("Discard " .. suspect .. "?",
-      function() performDiscard(playerColor, hoveredObject) end)
-    return
+  local tokenData = mythosAreaApi.returnTokenData()
+  local scenarioName = tokenData.currentScenario
+  if scenarioName ~= "Lost in Time and Space" and scenarioName ~= "The Secret Name" then
+    if hoveredObject.type == "Deck" or hoveredObject.hasTag("Location") then
+      local suspect = (hoveredObject.type == "Deck") and "Deck" or "Location"
+      Player[playerColor].showConfirmDialog("Discard " .. suspect .. "?",
+        function() performDiscard(playerColor, hoveredObject) end)
+      return
+    end
   end
 
   performDiscard(playerColor, hoveredObject)
@@ -157,6 +168,18 @@ function performDiscard(playerColor, hoveredObject)
 
   local discardForMatColor = getColorToDiscardFor(hoveredObject, playerColor)
   playermatApi.discardListOfObjects(discardForMatColor, discardTheseObjects)
+end
+
+function discardGroup(playerColor, selectedObjects)
+  local count = #selectedObjects
+  -- discarding one at a time avoids an error with cards in the discard pile losing the 'hands' toggle and uses multiple mats
+  for i = count, 1, -1 do
+    Wait.time(function() 
+      if (selectedObjects[i].type == "Card" or selectedObjects[i].type ~= "Deck" or selectedObjects[i].type == "Tile") then
+        performDiscard(playerColor, selectedObjects[i]) 
+      end
+      end, (count - i + 1) * 0.1)
+  end
 end
 
 -- discard the top card of hovered deck, calling discardObject function
@@ -282,8 +305,7 @@ function removeOneUse(playerColor, hoveredObject)
     end
   end
 
-  local playerName = Player[playerColor].steam_name
-  broadcastToAll(playerName .. " removed a token: " .. tokenName, playerColor)
+  broadcastToAll(getColoredName(playerColor) .. " removed a token: " .. tokenName, playerColor)
 
   local discardForMatColor = getColorToDiscardFor(hoveredObject, playerColor)
   playermatApi.discardListOfObjects(discardForMatColor, { targetObject })
@@ -404,12 +426,10 @@ function takeClueFromLocation(playerColor, hoveredObject)
   local clickableClues = optionPanelApi.getOptions()["useClueClickers"]
 
   -- handling for calling this for a specific mat via hotkey
-  local playerName, matColor, pos
+  local matColor, pos
   if Player[playerColor] and Player[playerColor].seated then
-    playerName = Player[playerColor].steam_name
     matColor = playermatApi.getMatColor(playerColor)
   else
-    playerName = playerColor
     matColor = playerColor
   end
 
@@ -431,9 +451,9 @@ function takeClueFromLocation(playerColor, hoveredObject)
   end
 
   if cardName then
-    broadcastToAll(playerName .. " took one clue from " .. cardName .. ".", "White")
+    broadcastToAll(getColoredName(playerColor) .. " took one clue from " .. cardName .. ".", "White")
   else
-    broadcastToAll(playerName .. " took one clue.", "White")
+    broadcastToAll(getColoredName(playerColor) .. " took one clue.", "White")
   end
 
   victoryDisplayApi.update()
@@ -471,4 +491,15 @@ function getFirstSeatedPlayer()
   for _, color in ipairs(getSeatedPlayers()) do
     return color
   end
+end
+
+-- returns the colored steam name or color
+function getColoredName(playerColor)
+  local displayName = playerColor
+  if Player[playerColor].steam_name then
+    displayName = Player[playerColor].steam_name
+  end
+
+  -- add bb-code
+  return "[" .. Color.fromString(playerColor):toHex() .. "]" .. displayName .. "[-]"
 end

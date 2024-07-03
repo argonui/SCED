@@ -6,6 +6,7 @@ local navigationOverlayApi        = require("core/NavigationOverlayApi")
 local searchLib                   = require("util/SearchLib")
 local tokenChecker                = require("core/token/TokenChecker")
 local tokenManager                = require("core/token/TokenManager")
+local tokenSpawnTrackerApi        = require("core/token/TokenSpawnTrackerApi")
 
 -- option panel data
 local availableOptions            = {
@@ -75,12 +76,12 @@ local buttonParameters            = {
 
 -- table of texture URLs
 local nameToTexture               = {
-  Guardian = "http://cloud-3.steamusercontent.com/ugc/2444972799638881117/169F4520A94FB186B54E0F2BF4BAC809844C923E/",
-  Mystic = "http://cloud-3.steamusercontent.com/ugc/2444972799638880413/B59966123EA41649EDCBD614167E590C8C105582/",
+  Guardian = "http://cloud-3.steamusercontent.com/ugc/2501268517203536128/853B9CD08FC14A8B2A08C73D8ED77E0FE235CCCB/",
+  Mystic = "http://cloud-3.steamusercontent.com/ugc/2501268517203536470/11C99488B9CA9236059A5F02E4A852A7C77B42A6/",
   Neutral = "http://cloud-3.steamusercontent.com/ugc/2462982115659543571/5D778EA4BC682DAE97E8F59A991BCF8CB3979B04/",
-  Rogue = "http://cloud-3.steamusercontent.com/ugc/2444972799638880905/CFC02BF5A6140B9B4B92312AD6DC74D8DD61180B/",
-  Seeker = "http://cloud-3.steamusercontent.com/ugc/2444972799638881117/169F4520A94FB186B54E0F2BF4BAC809844C923E/",
-  Survivor = "http://cloud-3.steamusercontent.com/ugc/2444972799638880687/EEDF8F8BC3266069FECB09775845BE2501310C17/"
+  Rogue = "http://cloud-3.steamusercontent.com/ugc/2501268517203536767/587791B327255DB8F953B27BB9E4DE602FA32B64/",
+  Seeker = "http://cloud-3.steamusercontent.com/ugc/2501268517203537098/EFD9FC4CCDB105EFFDFF7A57C915CD984865760D/",
+  Survivor = "http://cloud-3.steamusercontent.com/ugc/2501268517203537426/14EF780606D9A449F31A007226CB48D05AA820FF/"
 }
 
 -- translation table for slot names to characters for special font
@@ -325,7 +326,9 @@ function doUpkeep(_, clickedByColor, isRightClick)
   local forcedLearning = false
   local rot = self.getRotation()
   for _, obj in ipairs(searchAroundSelf()) do
-    if obj.hasTag("UniversalToken") == true and obj.is_face_down then
+    if obj.hasTag("Temporary") == true then
+      discardListOfObjects({ obj })
+    elseif obj.hasTag("UniversalToken") == true and obj.is_face_down then
       obj.flip()
     elseif obj.type == "Card" and not inArea(self.positionToLocal(obj.getPosition()), INVESTIGATOR_AREA) then
       local cardMetadata = JSON.decode(obj.getGMNotes()) or {}
@@ -355,7 +358,7 @@ function doUpkeep(_, clickedByColor, isRightClick)
       end
 
       -- maybe replenish uses on certain cards (don't continue for cards on the deck (Norman) or in the discard pile)
-      if cardMetadata.uses ~= nil and self.positionToLocal(obj.getPosition()).x < -1 then
+      if cardMetadata.uses ~= nil and self.positionToLocal(obj.getPosition()).x > -1 then
         tokenManager.maybeReplenishCard(obj, cardMetadata.uses, self)
       end
     elseif obj.type == "Deck" and forcedLearning == false then
@@ -399,34 +402,29 @@ function doUpkeep(_, clickedByColor, isRightClick)
       local handCards = Player[playerColor].getHandObjects()
       local cardsToDiscard = {}
 
-      for i = 1, #handCards do
-        local metadata = JSON.decode(handCards[i].getGMNotes())
-        if metadata ~= nil and (not metadata.weakness and not metadata.hidden) then
-          table.insert(cardsToDiscard, handCards[i])
+      for _, card in ipairs(handCards) do
+        local md = JSON.decode(card.getGMNotes())
+        if md ~= nil and (not md.weakness and not md.hidden and md.type ~= "Enemy") then
+          table.insert(cardsToDiscard, card)
         end
       end
 
       -- perform discarding 1 by 1
       local pos = returnGlobalDiscardPosition()
-      local count = #cardsToDiscard
-      for i = count, 1, -1 do
-        Wait.time(function() deckLib.placeOrMergeIntoDeck(cardsToDiscard[i], pos, rot) end, (count - i + 1) * 0.1)
-      end
+      deckLib.placeOrMergeIntoDeck(cardsToDiscard, pos, self.getRotation())
 
-      -- add some time if there are any cards to discard, if not, draw up to 5 immediately
-      local k = 0
-      if count > 0 then
-        k = 0.7 + (count * 0.1)
-      end
+      -- draw up to 5 cards
+      local cardsToDraw = 5 - #handCards + #cardsToDiscard
+      if cardsToDraw > 0 then
+        printToColor("Discarding " .. #cardsToDiscard .. " and drawing " .. cardsToDraw .. " card(s). (Patrice)", messageColor)
 
-      Wait.time(function()
-        local handSize = #Player[playerColor].getHandObjects()
-        if handSize < 5 then
-          local cardsToDraw = 5 - handSize
-          printToColor("Drawing " .. cardsToDraw .. " cards (Patrice)", messageColor)
-          drawCardsWithReshuffle(cardsToDraw)
+        -- add some time if there are any cards to discard
+        local k = 0
+        if #cardsToDiscard > 0 then
+          k = 0.8 + (#cardsToDiscard * 0.1)
         end
-      end, k)
+        Wait.time(function() drawCardsWithReshuffle(cardsToDraw) end, k)
+      end
     end
   elseif forcedLearning then
     printToColor("Drawing 2 cards, discard 1 (Forced Learning)", messageColor)
@@ -585,9 +583,8 @@ function doDiscardOne()
     -- get a random non-hidden card (from the "choices" table)
     local num = math.random(1, #choices)
     deckLib.placeOrMergeIntoDeck(hand[choices[num]], returnGlobalDiscardPosition(), self.getRotation())
-
-    local playerName = Player[playerColor].steam_name or playerColor
-    broadcastToAll(playerName .. " randomly discarded card " .. choices[num] .. "/" .. #hand .. ".", "White")
+    broadcastToAll(getColoredName(playerColor) .. " randomly discarded card "
+      .. choices[num] .. "/" .. #hand .. ".", "White")
   end
 end
 
@@ -974,7 +971,7 @@ function onCollisionEnter(collisionInfo)
 
   local localCardPos = self.positionToLocal(object.getPosition())
   if inArea(localCardPos, DECK_DISCARD_AREA) then
-    tokenManager.resetTokensSpawned(object)
+    tokenSpawnTrackerApi.resetTokensSpawned(object)
     removeTokensFromObject(object)
   elseif shouldSpawnTokens(object) then
     spawnTokensFor(object)
@@ -1018,7 +1015,7 @@ function onObjectEnterContainer(container, object)
 
   local localCardPos = self.positionToLocal(object.getPosition())
   if inArea(localCardPos, DECK_DISCARD_AREA) then
-    tokenManager.resetTokensSpawned(object)
+    tokenSpawnTrackerApi.resetTokensSpawned(object)
     removeTokensFromObject(object)
   end
 end
@@ -1396,4 +1393,15 @@ function updatePlayerCards(args)
   local customDataHelper = getObjectFromGUID(args[1])
   local playerCardData = customDataHelper.getTable("PLAYER_CARD_DATA")
   tokenManager.addPlayerCardData(playerCardData)
+end
+
+-- returns the colored steam name or color
+function getColoredName(playerColor)
+  local displayName = playerColor
+  if Player[playerColor].steam_name then
+    displayName = Player[playerColor].steam_name
+  end
+
+  -- add bb-code
+  return "[" .. Color.fromString(playerColor):toHex() .. "]" .. displayName .. "[-]"
 end
