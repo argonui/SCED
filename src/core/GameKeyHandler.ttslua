@@ -1,11 +1,11 @@
 local blessCurseManagerApi = require("chaosbag/BlessCurseManagerApi")
-local guidReferenceApi = require("core/GUIDReferenceApi")
-local mythosAreaApi = require("core/MythosAreaApi")
+local guidReferenceApi     = require("core/GUIDReferenceApi")
+local mythosAreaApi        = require("core/MythosAreaApi")
 local navigationOverlayApi = require("core/NavigationOverlayApi")
-local optionPanelApi = require("core/OptionPanelApi")
-local playermatApi = require("playermat/PlayermatApi")
-local searchLib = require("util/SearchLib")
-local victoryDisplayApi = require("core/VictoryDisplayApi")
+local optionPanelApi       = require("core/OptionPanelApi")
+local playermatApi         = require("playermat/PlayermatApi")
+local searchLib            = require("util/SearchLib")
+local victoryDisplayApi    = require("core/VictoryDisplayApi")
 
 function onLoad()
   addHotkey("Add doom to agenda", addDoomToAgenda)
@@ -75,15 +75,19 @@ function takeCardIntoThreatArea(playerColor, hoveredObject)
   local mat = guidReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
 
   -- do not continue if the threat area is already full
-  if playermatApi.getEncounterCardDrawPosition(matColor, false) == playermatApi.getEncounterCardDrawPosition(matColor, true) then
+  local threatAreaPos = playermatApi.getEncounterCardDrawPosition(matColor, false)
+  if threatAreaPos == playermatApi.getEncounterCardDrawPosition(matColor, true) then
     broadcastToColor("Threat area is full.", playerColor, "Yellow")
     return
   end
 
-  -- initialize list of objects to move
-  local moveTheseObjects = {}
+  -- initialize list of objects to move (and store local positions)
+  local additionalObjects = {}
   for _, obj in ipairs(searchLib.onObject(hoveredObject, "isTileOrToken")) do
-    table.insert(moveTheseObjects, obj)
+    local data = {}
+    data.object = obj
+    data.localPos = hoveredObject.positionToLocal(obj.getPosition())
+    table.insert(additionalObjects, data)
   end
 
   -- find out if the original card is on the green or red playermats
@@ -97,29 +101,25 @@ function takeCardIntoThreatArea(playerColor, hoveredObject)
     modifierY = -90
   end
 
-  -- store local positions of objects
-  local localPositions = {}
-  for i, obj in ipairs(moveTheseObjects) do
-    local localPos = hoveredObject.positionToLocal(obj.getPosition())
-    localPositions[i] = localPos
-  end
-
-  -- move the main card
-  local pos = playermatApi.getEncounterCardDrawPosition(matColor, false)
-  hoveredObject.setPosition(pos)
-  hoveredObject.setRotation(hoveredObject.getRotation() - Vector(0, 270 - mat.getRotation().y - modifierY, 0))
-
   local cardName = hoveredObject.getName()
-  if cardName == nil or cardName == "" then
-    cardName = "card(s)"
-  end
-  broadcastToAll("Placed " .. cardName .. " into threat area.", "White")
+  if cardName == "" then cardName = "card" end
+  broadcastToAll("Moved " .. cardName .. " to " .. getColoredName(playerColor) .. "'s threat area.", "White")
 
-  for i, obj in ipairs(moveTheseObjects) do
-    if not obj.locked then
-      local globalPos = hoveredObject.positionToWorld(localPositions[i])
-      obj.setPosition(globalPos)
-      obj.setRotation(obj.getRotation() - Vector(0, 270 - mat.getRotation().y - modifierY, 0))
+  -- get new rotation (rounded)
+  local cardRot = hoveredObject.getRotation()
+  local roundedRotY = roundToMultiple(cardRot.y, 45)
+  local deltaRotY = 270 - mat.getRotation().y - modifierY
+  local newCardRot = cardRot:setAt("y", roundedRotY - deltaRotY)
+
+  -- move the main card to threat area
+  hoveredObject.setRotation(newCardRot)
+  hoveredObject.setPosition(threatAreaPos)
+
+  -- move tokens/tiles (to new global position)
+  for _, data in ipairs(additionalObjects) do
+    if not data.object.locked then
+      data.object.setPosition(hoveredObject.positionToWorld(data.localPos))
+      data.object.setRotation(data.object.getRotation() - Vector(0, deltaRotY, 0))
     end
   end
 end
@@ -131,7 +131,7 @@ function discardObject(playerColor, hoveredObject)
   if #selectedObjects > 0 then
     discardGroup(playerColor, selectedObjects)
     return
-  -- only continue if an unlocked card, deck or tile was hovered
+    -- only continue if an unlocked card, deck or tile was hovered
   elseif hoveredObject == nil
       or (hoveredObject.type ~= "Card" and hoveredObject.type ~= "Deck" and hoveredObject.type ~= "Tile")
       or hoveredObject.locked then
@@ -174,11 +174,11 @@ function discardGroup(playerColor, selectedObjects)
   local count = #selectedObjects
   -- discarding one at a time avoids an error with cards in the discard pile losing the 'hands' toggle and uses multiple mats
   for i = count, 1, -1 do
-    Wait.time(function() 
+    Wait.time(function()
       if (selectedObjects[i].type == "Card" or selectedObjects[i].type ~= "Deck" or selectedObjects[i].type == "Tile") then
-        performDiscard(playerColor, selectedObjects[i]) 
+        performDiscard(playerColor, selectedObjects[i])
       end
-      end, (count - i + 1) * 0.1)
+    end, (count - i + 1) * 0.1)
   end
 end
 
@@ -502,4 +502,8 @@ function getColoredName(playerColor)
 
   -- add bb-code
   return "[" .. Color.fromString(playerColor):toHex() .. "]" .. displayName .. "[-]"
+end
+
+function roundToMultiple(num, mult)
+  return math.floor((num + mult / 2) / mult) * mult
 end
