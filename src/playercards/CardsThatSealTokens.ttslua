@@ -17,14 +17,22 @@ SHOW_SINGLE_RELEASE --@type: boolean
   - this entry allows releasing a single token
   - example usage: "Holy Spear" (to keep the other tokens and just release one)
 
+SHOW_UP_TO_MULTI_RELEASE  --@type: number (maximum amount of tokens to release at once)
+  - enables an entry in the context menu
+  - this entry allows releasing of multiple tokens at once, to the maximum number
+  - does not fail if there are fewer than the maximum sealed
+  - example usage: "Nephthys" (to release up to 3 bless tokens at once)  
+
 SHOW_MULTI_RELEASE  --@type: number (amount of tokens to release at once)
   - enables an entry in the context menu
   - this entry allows releasing of multiple tokens at once
-  - example usage: "Nephthys" (to release 3 bless tokens at once)
+  - fails if not enough tokens are sealed
+  - example usage: Maybe a Custom Card?
 
 SHOW_MULTI_RETURN   --@type: number (amount of tokens to return to pool at once)
   - enables an entry in the context menu
   - this entry allows returning tokens to the token pool
+  - fails if not enough tokens are sealed
   - example usage: "Nephthys" (to return 3 bless tokens at once)
 
 SHOW_MULTI_SEAL     --@type: number (amount of tokens to seal at once)
@@ -79,9 +87,24 @@ local guidReferenceApi = require("core/GUIDReferenceApi")
 local playermatApi = require("playermat/PlayermatApi")
 local tokenArrangerApi = require("accessories/TokenArrangerApi")
 
+local MAX_SEALED = MAX_SEALED or nil
 local sealedTokens = {}
 local ID_URL_MAP = {}
 local tokensInBag = {}
+
+-- XML background color for each token for label when stacked
+local tokenColor  = {
+  ["Skull"] = "#4A0400E6",
+  ["Cultist"] = "#173B0BE6",
+  ["Tablet"] = "#1D2238E6",
+  ["Elder Thing"] = "#4D2331E6",
+  ["Auto-fail"] = "#9B0004E6",
+  ["Bless"] = "#9D702CE6",
+  ["Curse"] = "#633A84E6",
+  ["Frost"] = "#404450E6",
+  ["Elder Sign"] = "#50A8CEE6",
+  [""] = "#77674DE6"
+}
 
 function onSave() return JSON.encode(sealedTokens) end
 
@@ -95,12 +118,15 @@ end
 -- builds the context menu
 function generateContextMenu()
   -- conditional single or multi release options
-  if SHOW_SINGLE_RELEASE then
-    self.addContextMenuItem("Release token", releaseOneToken)
+  if MAX_SEALED > 1 then
+    self.addContextMenuItem("Release one token", releaseOneToken)
+  end
+  if SHOW_UP_TO_MULTI_RELEASE then
+    self.addContextMenuItem("Release max " .. SHOW_UP_TO_MULTI_RELEASE .. " tokens", releaseUpToMultipleTokens)
   elseif SHOW_MULTI_RELEASE then
     self.addContextMenuItem("Release " .. SHOW_MULTI_RELEASE .. " token(s)", releaseMultipleTokens)
   else
-    self.addContextMenuItem("Release token(s)", releaseAllTokens)
+    self.addContextMenuItem("Release all tokens", releaseAllTokens)
   end
 
   if RESOLVE_TOKEN then
@@ -175,6 +201,10 @@ end
 
 -- seals the named token on this card
 function sealToken(name, playerColor)
+  if #sealedTokens == MAX_SEALED then
+    printToColor("Cannot seal any more tokens on this card", playerColor, "Red")
+    return
+  end
   if not chaosBagApi.canTouchChaosTokens() then return end
   local chaosbag = chaosBagApi.findChaosBag()
   for i, obj in ipairs(chaosbag.getObjects()) do
@@ -190,7 +220,9 @@ function sealToken(name, playerColor)
           tokenArrangerApi.layout()
           if name == "Bless" or name == "Curse" then
             blessCurseManagerApi.sealedToken(name, guid)
-            addStackSize(token, name)
+          end
+          if MAX_SEALED > 1 then
+            updateStackSize(token, name)
           end
         end
       })
@@ -220,6 +252,26 @@ function releaseMultipleTokens(playerColor)
     printToColor("Releasing " .. SHOW_MULTI_RELEASE .. " tokens", playerColor)
   else
     printToColor("Not enough tokens sealed.", playerColor)
+  end
+end
+
+-- release up to multiple tokens at once with no minimum
+function releaseUpToMultipleTokens(playerColor)
+  if #sealedTokens == 0 then
+    printToColor("Not enough tokens sealed.", playerColor)
+    return
+  end
+  if #sealedTokens < SHOW_UP_TO_MULTI_RELEASE then
+    local numRemoved = #sealedTokens
+    for i = 1, #sealedTokens do
+      putTokenAway(table.remove(sealedTokens))
+    end
+    printToColor("Releasing " .. numRemoved .. " tokens", playerColor)
+  else
+    for i = 1, SHOW_UP_TO_MULTI_RELEASE do
+      putTokenAway(table.remove(sealedTokens))
+    end
+    printToColor("Releasing " .. SHOW_UP_TO_MULTI_RELEASE .. " tokens", playerColor)
   end
 end
 
@@ -289,12 +341,7 @@ function resolveSealed()
   chaosBagApi.drawChaosToken(mat, true, _, guidToBeResolved)
 end
 
-function addStackSize(token, name)
-  if name == "Bless" then
-    labelColor = "#9D702CE6"
-  else
-    labelColor = "#633A84E6"
-  end
+function updateStackSize(token, name)
   token.UI.setXmlTable({
     {
       tag = "Panel",
@@ -304,7 +351,7 @@ function addStackSize(token, name)
         rotation = "0 0 180",
         scale = "0.2 0.2 1",
         position = "0 0 -12",
-        color = labelColor
+        color = tokenColor[name] or "#77674DE6"
       },
       children = {
         tag = "Text",
@@ -314,7 +361,7 @@ function addStackSize(token, name)
           color = "#ffffff",
           outline = "#000000",
           outlineSize = "8 -8",
-          text = #sealedTokens
+          text = "x" .. #sealedTokens
         }
       }
     }
