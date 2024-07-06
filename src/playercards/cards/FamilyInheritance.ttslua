@@ -1,26 +1,23 @@
+require("playercards/CardsWithHelper")
 local playermatApi = require("playermat/PlayermatApi")
 local searchLib = require("util/SearchLib")
 local tokenManager = require("core/token/TokenManager")
 
+local isHelperEnabled      = false
 local clickableResourceCounter = nil
 local foundTokens = 0
 
+function updateSave()
+  self.script_state = JSON.encode({ isHelperEnabled = isHelperEnabled })
+end
+
 function onLoad()
-  self.addContextMenuItem("Add 4 resources",
-    function(playerColor)
-      Player[playerColor].clearSelectedObjects()
-      add4(playerColor)
-    end)
-  self.addContextMenuItem("Take all resources",
-    function(playerColor)
-      Player[playerColor].clearSelectedObjects()
-      takeAll(playerColor)
-    end)
-  self.addContextMenuItem("Discard all resources",
-    function(playerColor)
-      Player[playerColor].clearSelectedObjects()
-      loseAll(playerColor)
-    end)
+  self.addTag("CardWithHelper")
+  if savedData and savedData ~= "" then
+    local loadedData = JSON.decode(savedData)
+    isHelperEnabled = loadedData.isHelperEnabled
+  end
+  checkOptionPanel()
 end
 
 function searchSelf()
@@ -40,7 +37,7 @@ function searchSelf()
   end
 end
 
-function add4(playerColor)
+function add4()
   searchSelf()
 
   local newCount = foundTokens + 4
@@ -51,7 +48,7 @@ function add4(playerColor)
   end
 end
 
-function takeAll(playerColor)
+function takeAll(player)
   searchSelf()
   local matColor = playermatApi.getMatColorByPosition(self.getPosition())
   playermatApi.updateCounter(matColor, "ResourceCounter", _, foundTokens)
@@ -59,14 +56,25 @@ function takeAll(playerColor)
   if clickableResourceCounter then
     clickableResourceCounter.call("updateVal", 0)
   end
-  printToColor("Moved " .. foundTokens .. " resource(s) to " .. matColor .. "'s resource pool.", playerColor)
+  printToColor("Moved " .. foundTokens .. " resource(s) to " .. matColor .. "'s resource pool.", player.color)
 end
 
-function loseAll(playerColor)
+function loseAll(player)
   searchSelf()
-
   if clickableResourceCounter then
     clickableResourceCounter.call("updateVal", 0)
   end
-  printToColor("Discarded " .. foundTokens .. " resource(s).", playerColor)
+  printToColor("Discarded " .. foundTokens .. " resource(s).", player.color)
+end
+
+-- hide buttons
+function shutOff()
+  self.UI.hide("Helper")
+  updateSave()
+end
+
+-- show buttons
+function initialize()
+  self.UI.show("Helper")
+  updateSave()
 end
