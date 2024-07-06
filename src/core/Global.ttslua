@@ -212,10 +212,14 @@ end
 
 -- TTS event for objects that leave zones
 function onObjectLeaveZone(zone, object)
-  if zone.isDestroyed() or object.isDestroyed() then return end
-  if zone.type == "Hand" and object.hasTag("CardWithHelper") then
-    object.call("updateDisplay")
-  end
+  -- 1 frame delay to avoid error messages when exiting the game
+  Wait.frames(
+    function()
+      if zone.isDestroyed() or object.isDestroyed() then return end
+      if zone.type == "Hand" and object.hasTag("CardWithHelper") then
+        object.call("updateDisplay")
+      end
+    end, 1)
 end
 
 -- handle card drawing via number typing for multihanded gameplay
@@ -223,15 +227,6 @@ end
 function onObjectNumberTyped(hoveredObject, playerColor, number)
   -- only continue for decks or cards
   if hoveredObject.type ~= "Deck" and hoveredObject.type ~= "Card" then return end
-
-  -- check whether the hovered object is part of a players draw objects
-  for _, color in ipairs(playermatApi.getUsedMatColors()) do
-    local deckAreaObjects = playermatApi.getDeckAreaObjects(color)
-    if deckAreaObjects.topCard == hoveredObject or deckAreaObjects.draw == hoveredObject then
-      playermatApi.drawCardsWithReshuffle(color, number)
-      return true
-    end
-  end
 
   -- check if this is a card with states (and then change state instead of drawing it)
   local states = hoveredObject.getStates()
@@ -242,6 +237,15 @@ function onObjectNumberTyped(hoveredObject, playerColor, number)
       return true
     end
   end
+
+  -- check whether the hovered object is part of a players draw objects
+  for _, color in ipairs(playermatApi.getUsedMatColors()) do
+    local deckAreaObjects = playermatApi.getDeckAreaObjects(color)
+    if deckAreaObjects.topCard == hoveredObject or deckAreaObjects.draw == hoveredObject then
+      playermatApi.drawCardsWithReshuffle(color, number)
+      return true
+    end
+  end
 end
 
 -- TTS event, used to redraw the playermat slot symbols after a small delay to account for the custom font loading
@@ -249,8 +253,9 @@ function onPlayerConnect()
   Wait.time(function() playermatApi.redrawSlotSymbols("All") end, 0.2)
 end
 
+-- disable delete action (only applies to promoted players) and discard objects instead
 function onPlayerAction(player, action, targets)
-  if action == Player.Action.Delete and player.admin == false then
+  if action == Player.Action.Delete and not player.admin then
     for _, target in ipairs(targets) do
       local matColor = playermatApi.getMatColorByPosition(target.getPosition())
       local trash = guidReferenceApi.getObjectByOwnerAndType(matColor, "Trash")
@@ -1364,7 +1369,8 @@ function contentDownloadCallback(request, params)
     if pos then
       spawnTable.position = pos
     else
-      broadcastToAll("Please make space in the area below the tentacle stand in the upper middle of the table and try again.", "Red")
+      broadcastToAll(
+      "Please make space in the area below the tentacle stand in the upper middle of the table and try again.", "Red")
       return
     end
   end
@@ -1515,10 +1521,11 @@ function playermatRemovalSelected(player, selectedIndex, id)
   if mat then
     -- confirmation dialog about deletion
     player.pingTable(mat.getPosition())
-    player.showConfirmDialog("Do you really want to remove " .. matColor .. "'s playermat and related objects? This can't be reversed.",
-    function()
-      removePlayermat(matColor)
-    end)
+    player.showConfirmDialog(
+      "Do you really want to remove " .. matColor .. "'s playermat and related objects? This can't be reversed.",
+      function()
+        removePlayermat(matColor)
+      end)
   else
     -- info dialog that it is already deleted
     player.showInfoDialog(matColor .. "'s playermat has already been removed.")
@@ -1593,6 +1600,7 @@ function applyOptionPanelChange(id, state)
     local counter = guidReferenceApi.getObjectByOwnerAndType("Mythos", "MasterClueCounter")
     counter.setVar("useClickableCounters", state)
 
+    -- option: Enable card helpers
   elseif id == "enableCardHelpers" then
     toggleCardHelpers(state)
 

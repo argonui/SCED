@@ -284,7 +284,6 @@ end
 -- maybe ignore cards / decks on the tekelili helper
 function maybeIgnoreTekeliliCards()
   local tekeliliHelper = getTekeliliHelper()
-
   if tekeliliHelper then
     removeIgnoreLater = searchLib.onObject(tekeliliHelper, "isCardOrDeck")
     for _, obj in ipairs(removeIgnoreLater) do
@@ -295,10 +294,7 @@ end
 
 -- clean up for play area
 function tidyPlayareaCoroutine()
-  -- small wait to allow other operations to finish
-  for k = 1, 10 do
-    coroutine.yield(0)
-  end
+  coWaitFrames(10)
 
   local trash = guidReferenceApi.getObjectByOwnerAndType("Mythos", "Trash")
   local playAreaZone = guidReferenceApi.getObjectByOwnerAndType("Mythos", "PlayAreaZone")
@@ -333,43 +329,46 @@ function tidyPlayerMatCoroutine()
 
   if getOptionValue() then
     for _, color in ipairs(COLORS) do
-      -- delay for animation purpose
-      for k = 1, 20 do
-        coroutine.yield(0)
-      end
-
-      -- get respective trash
       local trash = guidReferenceApi.getObjectByOwnerAndType(color, "Trash")
       if trash == nil then
         printToAll("Trashcan for " .. color .. " playermat could not be found! Skipping this playermat.", "Yellow")
-        goto continue
-      end
+      else
+        coWaitFrames(20)
 
-      -- maybe store tekelili cards
-      if tekeliliHelper then
-        tekeliliHelper.call("storeTekelili", color)
-      end
+        -- maybe store tekelili cards
+        if tekeliliHelper then
+          tekeliliHelper.call("storeTekelili", color)
+        end
 
-      -- remove objects (with exceptions)
-      for _, obj in ipairs(playermatApi.searchAroundPlayermat(color)) do
-        maybeTrashObject(obj, trash)
-      end
+        -- parse playermat objects
+        for _, obj in ipairs(playermatApi.searchAroundPlayermat(color)) do
+          -- reset action tokens
+          if obj.hasTag("UniversalToken") and obj.is_face_down then
+            obj.flip()
+          end
 
-      -- reset "activeInvestigatorId" and "...class"
-      local mat = guidReferenceApi.getObjectByOwnerAndType(color, "Playermat")
-      mat.setVar("activeInvestigatorId", "00000")
-      mat.setVar("activeInvestigatorClass", "Neutral")
-      mat.call("updateTexture")
+          -- get rid of temporary tokens
+          if obj.hasTag("Temporary") then
+            trash.putObject(obj)
+          end
 
-      for k = 1, 5 do
-        coroutine.yield(0)
-      end
+          -- remove objects (with exceptions)
+          maybeTrashObject(obj, trash)
+        end
 
-      -- maybe respawn tekelili cards
-      if tekeliliHelper then
-        tekeliliHelper.call("spawnStoredTekelili", color)
+        -- reset "activeInvestigatorId" and "...class"
+        local mat = guidReferenceApi.getObjectByOwnerAndType(color, "Playermat")
+        mat.setVar("activeInvestigatorId", "00000")
+        mat.setVar("activeInvestigatorClass", "Neutral")
+        mat.call("updateTexture")
+
+        coWaitFrames(5)
+
+        -- maybe respawn tekelili cards
+        if tekeliliHelper then
+          tekeliliHelper.call("spawnStoredTekelili", color)
+        end
       end
-      ::continue::
     end
   end
 
@@ -429,5 +428,12 @@ function getOptionValue()
     return false
   else
     return options["tidyPlayermats"]
+  end
+end
+
+-- pauses the current coroutine for 'frameCount' frames
+function coWaitFrames(frameCount)
+  for k = 1, frameCount do
+    coroutine.yield(0)
   end
 end
