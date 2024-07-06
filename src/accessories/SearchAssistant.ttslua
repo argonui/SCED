@@ -34,6 +34,7 @@ inputParameters.validation      = 2
 
 function onLoad()
   normalView()
+  self.max_typed_number = 9999
 end
 
 -- regular view with search box
@@ -89,6 +90,10 @@ function updateSearchNumber(_, _, input)
   inputParameters.value = tonumber(input)
 end
 
+function onNumberTyped(player_color, number)
+  startSearch(player_color, number)
+end
+
 -- starts the search with the number from the input field
 function searchCustom(_, messageColor)
   local number = inputParameters.value
@@ -130,7 +135,31 @@ function startSearch(messageColor, number)
   setAsideRotation = { handData.rotation.x, handData.rotation.y + 180, 180 }
 
   -- place hand cards set aside
-  deckLib.placeOrMergeIntoDeck(handCards, setAsidePosition, setAsideRotation)
+  if #handCards > 0 then
+    deckLib.placeOrMergeIntoDeck(handCards, setAsidePosition, setAsideRotation)
+  else
+    oldVectorLines = Global.getVectorLines()
+    lines = {}
+    local pos = setAsidePosition
+    if matColor == "Green" or matColor == "Red" then
+      pointsLine1 = { { pos.x - 0.5, pos.y, pos.z + 1 }, { pos.x + 0.5, pos.y, pos.z - 1 } }
+      pointsLine2 = { { pos.x - 0.5, pos.y, pos.z - 1 }, { pos.x + 0.5, pos.y, pos.z + 1 } }
+    else
+      pointsLine1 = { { pos.x - 1, pos.y, pos.z + 0.5 }, { pos.x + 1, pos.y, pos.z - 0.5 } }
+      pointsLine2 = { { pos.x - 1, pos.y, pos.z - 0.5 }, { pos.x + 1, pos.y, pos.z + 0.5 } }
+    end
+
+    table.insert(lines, {
+      points = pointsLine1,
+      color = Color.fromString(matColor)
+    })
+    table.insert(lines, {
+      points = pointsLine2,
+      color = Color.fromString(matColor)
+    })
+
+    Global.setVectorLines(lines)
+  end
 
   -- handling for Norman Withers
   if deckAreaObjects.topCard then
@@ -179,6 +208,9 @@ function drawSetAsideCards()
     local count = 1
     if obj.type == "Deck" then
       count = #obj.getObjects()
+    else
+      -- "erase" the X marking the spot to put the set aside deck
+      Global.setVectorLines(oldVectorLines)
     end
     obj.deal(count, handColor)
   end
