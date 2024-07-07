@@ -1,6 +1,15 @@
 --[[ Library for cards that seal tokens
 This file is used to add sealing option to cards' context menu.
+NOTE: all cards are allowed to release a single token to enable Hallow and A Watchful Peace,
+and to release all sealed tokens to allow for cards that might leave play with sealed tokens on them.
 Valid options (set before requiring this file):
+
+MAX_SEALED          --@type: number (maximum number of tokens allowable by the card to be sealed)
+  - required for all cards
+  - if MAX_SEALED is more than 1, then an XML label is created for the topmost token indicating the number of sealed tokens
+  - gives an error if user tries to seal additional tokens on the card
+  - example usage: "The Chthonian Stone"
+    > MAX_SEALED = 1
 
 UPDATE_ON_HOVER     --@type: boolean
   - automatically updates the context menu options when the card is hovered
@@ -12,22 +21,11 @@ KEEP_OPEN           --@type: boolean
 - makes the context menu stay open after selecting an option
 - example usage: "Unrelenting"
 
-SHOW_SINGLE_RELEASE --@type: boolean
-  - enables an entry in the context menu
-  - this entry allows releasing a single token
-  - example usage: "Holy Spear" (to keep the other tokens and just release one)
-
-SHOW_UP_TO_MULTI_RELEASE  --@type: number (maximum amount of tokens to release at once)
+SHOW_MULTI_RELEASE  --@type: number (maximum amount of tokens to release at once)
   - enables an entry in the context menu
   - this entry allows releasing of multiple tokens at once, to the maximum number
   - does not fail if there are fewer than the maximum sealed
   - example usage: "Nephthys" (to release up to 3 bless tokens at once)  
-
-SHOW_MULTI_RELEASE  --@type: number (amount of tokens to release at once)
-  - enables an entry in the context menu
-  - this entry allows releasing of multiple tokens at once
-  - fails if not enough tokens are sealed
-  - example usage: Maybe a Custom Card?
 
 SHOW_MULTI_RETURN   --@type: number (amount of tokens to return to pool at once)
   - enables an entry in the context menu
@@ -66,6 +64,7 @@ Thus it should be implemented like this:
   >   ["+1"] = true,
   >   ["Elder Sign"] = true
   > }
+  > MAX_SEALED = 1
   > require...
 ----------------------------------------------------------
 Example 2: Holy Spear
@@ -76,8 +75,8 @@ Thus it should be implemented like this:
   > VALID_TOKENS = {
   >   ["Bless"] = true
   > }
-  > SHOW_SINGLE_RELEASE = true
   > SHOW_MULTI_SEAL = 2
+  > MAX_SEALED = 10
   > require...
 ----------------------------------------------------------]]
 
@@ -117,16 +116,16 @@ end
 
 -- builds the context menu
 function generateContextMenu()
-  -- conditional single or multi release options
+  
+  self.addContextMenuItem("Release one token", releaseOneToken)
+
+  -- conditional release options
   if MAX_SEALED > 1 then
-    self.addContextMenuItem("Release one token", releaseOneToken)
-  end
-  if SHOW_UP_TO_MULTI_RELEASE then
-    self.addContextMenuItem("Release max " .. SHOW_UP_TO_MULTI_RELEASE .. " tokens", releaseUpToMultipleTokens)
-  elseif SHOW_MULTI_RELEASE then
-    self.addContextMenuItem("Release " .. SHOW_MULTI_RELEASE .. " token(s)", releaseMultipleTokens)
-  else
     self.addContextMenuItem("Release all tokens", releaseAllTokens)
+  end
+
+  if SHOW_MULTI_RELEASE then
+    self.addContextMenuItem("Release " .. SHOW_MULTI_RELEASE .. " token(s)", releaseMultipleTokens)
   end
 
   if RESOLVE_TOKEN then
@@ -246,35 +245,23 @@ function releaseOneToken(playerColor)
   end
 end
 
--- release multiple tokens at once
-function releaseMultipleTokens(playerColor)
-  if SHOW_MULTI_RELEASE <= #sealedTokens then
-    for i = 1, SHOW_MULTI_RELEASE do
-      putTokenAway(table.remove(sealedTokens))
-    end
-    printToColor("Releasing " .. SHOW_MULTI_RELEASE .. " tokens", playerColor)
-  else
-    printToColor("Not enough tokens sealed.", playerColor)
-  end
-end
-
 -- release up to multiple tokens at once with no minimum
-function releaseUpToMultipleTokens(playerColor)
+function releaseMultipleTokens(playerColor)
   if #sealedTokens == 0 then
     printToColor("Not enough tokens sealed.", playerColor)
     return
   end
-  if #sealedTokens < SHOW_UP_TO_MULTI_RELEASE then
+  if #sealedTokens < SHOW_MULTI_RELEASE then
     local numRemoved = #sealedTokens
-    for i = 1, #sealedTokens do
+    for i = 1, numRemoved do
       putTokenAway(table.remove(sealedTokens))
     end
     printToColor("Releasing " .. numRemoved .. " tokens", playerColor)
   else
-    for i = 1, SHOW_UP_TO_MULTI_RELEASE do
+    for i = 1, SHOW_MULTI_RELEASE do
       putTokenAway(table.remove(sealedTokens))
     end
-    printToColor("Releasing " .. SHOW_UP_TO_MULTI_RELEASE .. " tokens", playerColor)
+    printToColor("Releasing " .. SHOW_MULTI_RELEASE .. " tokens", playerColor)
   end
 end
 
@@ -341,19 +328,20 @@ function resolveSealed()
   local closestMatColor = playermatApi.getMatColorByPosition(self.getPosition())
   local mat = guidReferenceApi.getObjectByOwnerAndType(closestMatColor, "Playermat")
   local guidToBeResolved = table.remove(sealedTokens)
-  local token = getObjectFromGUID(guidToBeResolved)
-  token.UI.setXml("")
+  local resolvedToken = getObjectFromGUID(guidToBeResolved)
+  resolvedToken.UI.setXml("")
   updateStackSize()
   chaosBagApi.drawChaosToken(mat, true, _, guidToBeResolved)
 end
 
 function updateStackSize()
   if MAX_SEALED == 1 then return end
+  if #sealedTokens == 0 then return end
   -- get topmost sealed token
-  local token = getObjectFromGUID(sealedTokens[#sealedTokens])
-  local name = token.getName()
+  local topToken = getObjectFromGUID(sealedTokens[#sealedTokens])
+  local name = topToken.getName()
 
-  token.UI.setXmlTable({
+  topToken.UI.setXmlTable({
     {
       tag = "Panel",
       attributes = {
