@@ -221,9 +221,12 @@ function sealToken(name, playerColor)
           if name == "Bless" or name == "Curse" then
             blessCurseManagerApi.sealedToken(name, guid)
           end
-          if MAX_SEALED > 1 then
-            updateStackSize(token, name)
+          --destroy XML on just covered token
+          if #sealedTokens > 1 then
+            local coveredToken = getObjectFromGUID(sealedTokens[#sealedTokens - 1])
+            coveredToken.UI.setXml("")
           end
+          updateStackSize()
         end
       })
       return
@@ -313,6 +316,7 @@ function putTokenAway(guid)
   if name == "Bless" or name == "Curse" then
     blessCurseManagerApi.releasedToken(name, guid)
   end
+  updateStackSize()
 end
 
 -- returns the token to the pool (== removes it)
@@ -325,6 +329,7 @@ function returnToken(guid)
   if name == "Bless" or name == "Curse" then
     blessCurseManagerApi.returnedToken(name, guid)
   end
+  updateStackSize()
 end
 
 -- resolves sealed token as if it came from the chaos bag
@@ -338,10 +343,16 @@ function resolveSealed()
   local guidToBeResolved = table.remove(sealedTokens)
   local token = getObjectFromGUID(guidToBeResolved)
   token.UI.setXml("")
+  updateStackSize()
   chaosBagApi.drawChaosToken(mat, true, _, guidToBeResolved)
 end
 
-function updateStackSize(token, name)
+function updateStackSize()
+  if MAX_SEALED == 1 then return end
+  -- get topmost sealed token
+  local token = getObjectFromGUID(sealedTokens[#sealedTokens])
+  local name = token.getName()
+
   token.UI.setXmlTable({
     {
       tag = "Panel",
