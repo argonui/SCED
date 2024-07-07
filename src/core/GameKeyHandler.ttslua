@@ -5,6 +5,7 @@ local navigationOverlayApi = require("core/NavigationOverlayApi")
 local optionPanelApi       = require("core/OptionPanelApi")
 local playermatApi         = require("playermat/PlayermatApi")
 local searchLib            = require("util/SearchLib")
+local tokenChecker         = require("core/token/TokenChecker")
 local victoryDisplayApi    = require("core/VictoryDisplayApi")
 
 function onLoad()
@@ -265,13 +266,22 @@ function removeOneUse(playerColor, hoveredObject)
     for _, obj in ipairs(searchLib.onObject(hoveredObject, "isTileOrToken")) do
       if not obj.locked and obj.memo ~= "resourceCounter" then
         -- check for matching object, otherwise use the first hit
-        if obj.memo == searchForType then
+        if obj.memo and obj.memo == searchForType then
           targetObject = obj
           break
         elseif not targetObject then
           targetObject = obj
         end
       end
+    end
+  end
+
+  -- release sealed token if card has one and no uses
+  if tokenChecker.isChaosToken(targetObject) and hoveredObject.hasTag("CardThatSeals") then
+    local func = hoveredObject.getVar("releaseOneToken") -- check if function exists
+    if func ~= nil then
+      hoveredObject.call("releaseOneToken", playerColor)
+      return
     end
   end
 
