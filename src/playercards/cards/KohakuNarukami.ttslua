@@ -5,8 +5,10 @@ local playermatApi         = require("playermat/PlayermatApi")
 local searchLib            = require("util/SearchLib")
 local tokenManager         = require("core/token/TokenManager")
 
-local isHelperEnabled      = false
-local updated
+-- intentionally global
+hasXML                     = true
+isHelperEnabled            = false
+local updated, loopId
 
 local xmlData              = {
   Action = { color = "#6D202CE6", onClick = "removeAndExtraAction" },
@@ -16,31 +18,31 @@ local xmlData              = {
 }
 
 function updateSave()
-  self.script_state = JSON.encode({ isHelperEnabled = isHelperEnabled })
+  self.script_state = JSON.encode({
+    isHelperEnabled = isHelperEnabled,
+    loopId = loopId
+  })
 end
 
 function onLoad(savedData)
-  self.addTag("CardWithHelper")
   if savedData and savedData ~= "" then
     local loadedData = JSON.decode(savedData)
     isHelperEnabled = loadedData.isHelperEnabled
+    loopId = loadedData.loopId
   end
-  checkOptionPanel()
+  syncDisplayWithOptionPanel()
 end
 
--- hide buttons and stop monitoring
-function shutOff()
-  self.UI.hide("Helper")
-  Wait.stopAll()
-  updateSave()
-end
-
--- show buttons and begin monitoring chaos bag for curse and bless tokens
 function initialize()
-  self.UI.show("Helper")
   maybeUpdateButtonState()
-  Wait.time(maybeUpdateButtonState, 1, -1)
-  updateSave()
+  loopId = Wait.time(maybeUpdateButtonState, 1, -1)
+end
+
+function shutOff()
+  if loopId then
+    Wait.stop(loopId)
+    loopId = nil
+  end
 end
 
 function addTokenToBag(_, _, tokenType)
