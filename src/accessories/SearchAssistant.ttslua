@@ -4,6 +4,7 @@ local searchLib                 = require("util/SearchLib")
 
 -- forward declaration of variables that are used across functions
 local matColor, handColor, setAsidePosition, setAsideRotation, drawDeckPosition, topCardDetected
+local addedVectorLines, addedSnapPoint
 
 local quickParameters           = {}
 quickParameters.function_owner  = self
@@ -34,6 +35,7 @@ inputParameters.validation      = 2
 
 function onLoad()
   normalView()
+  self.max_typed_number = 9999
 end
 
 -- regular view with search box
@@ -89,6 +91,10 @@ function updateSearchNumber(_, _, input)
   inputParameters.value = tonumber(input)
 end
 
+function onNumberTyped(playerColor, number)
+  startSearch(playerColor, number)
+end
+
 -- starts the search with the number from the input field
 function searchCustom(_, messageColor)
   local number = inputParameters.value
@@ -115,7 +121,7 @@ function startSearch(messageColor, number)
   -- get bounds to know the height of the deck
   local bounds = deckAreaObjects.draw.getBounds()
   drawDeckPosition = bounds.center + Vector(0, bounds.size.y / 2 + 0.2, 0)
-  printToColor("Place target(s) of search on set aside hand.", messageColor, "Green")
+  printToColor("Place target(s) of search on set aside spot.", messageColor, "Green")
 
   -- get playermat orientation
   local offset = -15
@@ -127,10 +133,28 @@ function startSearch(messageColor, number)
   local handData   = Player[handColor].getHandTransform()
   local handCards  = Player[handColor].getHandObjects()
   setAsidePosition = (handData.position + offset * handData.right):setAt("y", 1.5)
-  setAsideRotation = { handData.rotation.x, handData.rotation.y + 180, 180 }
+  setAsideRotation = Vector(handData.rotation.x, handData.rotation.y + 180, 180)
 
   -- place hand cards set aside
-  deckLib.placeOrMergeIntoDeck(handCards, setAsidePosition, setAsideRotation)
+  if #handCards > 0 then
+    deckLib.placeOrMergeIntoDeck(handCards, setAsidePosition, setAsideRotation)
+  end
+
+  -- add a temporary snap point for the set aside spot
+  addedSnapPoint = { position = setAsidePosition, rotation = setAsideRotation }
+  local snapPoints = Global.getSnapPoints() or {}
+  table.insert(snapPoints, addedSnapPoint)
+  Global.setSnapPoints(snapPoints)
+
+  -- add a temporary box for the set aside spot
+  local vectorLines = Global.getVectorLines() or {}
+  local boxSize = Vector(2.5, 0, 3.5)
+  addedVectorLines = generateBoxData(setAsidePosition, boxSize, setAsideRotation.y, handColor)
+
+  for _, line in ipairs(addedVectorLines) do
+    table.insert(vectorLines, line)
+  end
+  Global.setVectorLines(vectorLines)
 
   -- handling for Norman Withers
   if deckAreaObjects.topCard then
@@ -182,4 +206,77 @@ function drawSetAsideCards()
     end
     obj.deal(count, handColor)
   end
+  removeAddedSnapAndLines()
+end
+
+function removeAddedSnapAndLines()
+  local vectorLines = Global.getVectorLines() or {}
+  local snapPoints = Global.getSnapPoints() or {}
+
+  -- look for previously added data and remove it (iterate in reverse because we're removing entries)
+  for i = #vectorLines, 1, -1 do
+    for _, boxLine in ipairs(addedVectorLines) do
+      if vectorLines[i].points[1] == boxLine.points[1] and vectorLines[i].points[2] == boxLine.points[2] then
+        table.remove(vectorLines, i)
+        break
+      end
+    end
+  end
+
+  for i = #snapPoints, 1, -1 do
+    if snapPoints[i].position == addedSnapPoint.position then
+      table.remove(snapPoints, i)
+      break
+    end
+  end
+
+  Global.setVectorLines(vectorLines)
+  Global.setSnapPoints(snapPoints)
+end
+
+-- generates the lines data for a rectangular box
+---@param center tts__Vector Center of the box
+---@param size tts__Vector X and Z dimension of the box
+---@param rotation number Rotation around the Y-axis for the box
+---@param boxColor string Color for the box
+---@return table lines Vector line data for the box
+function generateBoxData(center, size, rotation, boxColor)
+  local halfWidth = size.x / 2
+  local halfDepth = size.z / 2
+
+  -- corners of the box in local coordinates
+  local corners = {
+    Vector(-halfWidth, 0, -halfDepth),
+    Vector(halfWidth, 0, -halfDepth),
+    Vector(halfWidth, 0, halfDepth),
+    Vector(-halfWidth, 0, halfDepth)
+  }
+
+  -- translate corners to global coordinates
+  for i, cornerVec in ipairs(corners) do
+    local rotatedCornerVec = cornerVec:rotateOver('y', rotation)
+    corners[i] = rotatedCornerVec + center
+  end
+
+  -- generate the lines data
+  local lines = {
+    {
+      points = { corners[1], corners[2] },
+      color = boxColor
+    },
+    {
+      points = { corners[2], corners[3] },
+      color = boxColor
+    },
+    {
+      points = { corners[3], corners[4] },
+      color = boxColor
+    },
+    {
+      points = { corners[4], corners[1] },
+      color = boxColor
+    }
+  }
+
+  return lines
 end
