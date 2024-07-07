@@ -86,7 +86,6 @@ local guidReferenceApi = require("core/GUIDReferenceApi")
 local playermatApi = require("playermat/PlayermatApi")
 local tokenArrangerApi = require("accessories/TokenArrangerApi")
 
-local MAX_SEALED = MAX_SEALED or nil
 local sealedTokens = {}
 local ID_URL_MAP = {}
 local tokensInBag = {}
@@ -116,7 +115,6 @@ end
 
 -- builds the context menu
 function generateContextMenu()
-  
   self.addContextMenuItem("Release one token", releaseOneToken)
 
   -- conditional release options
@@ -200,7 +198,7 @@ end
 
 -- seals the named token on this card
 function sealToken(name, playerColor)
-  if #sealedTokens == MAX_SEALED then
+  if #sealedTokens >= MAX_SEALED then
     printToColor("Cannot seal any more tokens on this card", playerColor, "Red")
     return
   end
@@ -220,10 +218,14 @@ function sealToken(name, playerColor)
           if name == "Bless" or name == "Curse" then
             blessCurseManagerApi.sealedToken(name, guid)
           end
-          --destroy XML on just covered token
+          -- destroy XML on just covered token
           if #sealedTokens > 1 then
             local coveredToken = getObjectFromGUID(sealedTokens[#sealedTokens - 1])
-            coveredToken.UI.setXml("")
+            if coveredToken ~= nil then
+              coveredToken.UI.setXml("")
+            else
+              table.remove(sealedTokens, #sealedTokens - 1)
+            end
           end
           updateStackSize()
         end
@@ -253,16 +255,13 @@ function releaseMultipleTokens(playerColor)
   end
   if #sealedTokens < SHOW_MULTI_RELEASE then
     local numRemoved = #sealedTokens
-    for i = 1, numRemoved do
-      putTokenAway(table.remove(sealedTokens))
-    end
-    printToColor("Releasing " .. numRemoved .. " tokens", playerColor)
   else
-    for i = 1, SHOW_MULTI_RELEASE do
-      putTokenAway(table.remove(sealedTokens))
-    end
-    printToColor("Releasing " .. SHOW_MULTI_RELEASE .. " tokens", playerColor)
+    local numRemoved = SHOW_MULTI_RELEASE
   end
+  for i = 1, numRemoved do
+    putTokenAway(table.remove(sealedTokens))
+  end
+  printToColor("Releasing " .. numRemoved .. " tokens", playerColor)
 end
 
 -- releases all sealed tokens
