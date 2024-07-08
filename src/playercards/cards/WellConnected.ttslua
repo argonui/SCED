@@ -1,5 +1,11 @@
 require("playercards/CardsWithHelper")
-local playermatApi = require("playermat/PlayermatApi")
+local playermatApi     = require("playermat/PlayermatApi")
+
+-- intentionally global
+hasXML                 = false
+isHelperEnabled        = false
+
+local modValue, loopId
 
 local buttonParameters = {
   click_function = "shutOff",
@@ -10,13 +16,20 @@ local buttonParameters = {
   height = 175
 }
 
-local modValue
-
 function updateSave()
-  self.script_state = JSON.encode({ isHelperEnabled = isHelperEnabled })
+  self.script_state = JSON.encode({
+    isHelperEnabled = isHelperEnabled,
+    loopId = loopId
+  })
 end
 
 function onLoad(savedData)
+  if savedData and savedData ~= "" then
+    local loadedData = JSON.decode(savedData)
+    isHelperEnabled = loadedData.isHelperEnabled
+    loopId = loadedData.loopId
+  end
+
   -- use metadata to detect level and adjust modValue accordingly
   if JSON.decode(self.getGMNotes()).level == 0 then
     modValue = 5
@@ -24,25 +37,22 @@ function onLoad(savedData)
     modValue = 4
   end
 
-  self.addTag("CardWithHelper")
-  if savedData and savedData ~= "" then
-    local loadedData = JSON.decode(savedData)
-    isHelperEnabled = loadedData.isHelperEnabled
-  end
-  checkOptionPanel()
-  updateDisplay()
+  syncDisplayWithOptionPanel()
 end
 
 function initialize()
   self.clearButtons()
   self.createButton(buttonParameters)
   updateButton()
-  Wait.time(updateButton, 2, -1)
+  loopId = Wait.time(updateButton, 2, -1)
 end
 
 function shutOff()
   self.clearButtons()
-  Wait.stopAll()
+  if loopId then
+    Wait.stop(loopId)
+    loopId = nil
+  end
 end
 
 function updateButton()
