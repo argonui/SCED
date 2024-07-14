@@ -299,9 +299,10 @@ do
   ---@param card tts__Object Card object to be replenished
   ---@param uses table The already decoded metadata.uses (to avoid decoding again)
   TokenManager.maybeReplenishCard = function(card, uses)
-    -- TODO: support for cards with multiple uses AND replenish (as of yet, no official card needs that)
-    if uses[1].count and uses[1].replenish then
-      internal.replenishTokens(card, uses)
+    for _, useInfo in ipairs(uses) do
+      if useInfo.count and useInfo.replenish then
+        internal.replenishTokens(card, useInfo)
+      end
     end
   end
 
@@ -459,59 +460,76 @@ do
     return nil
   end
 
-  -- Dynamically create positions for clues on a card.
+  -- Dynamically create positions for clues on a card
   ---@param card tts__Object Card the clues will be placed on
   ---@param count number How many clues?
   ---@return table: Array of global positions to spawn the clues at
   internal.buildClueOffsets = function(card, count)
+    -- make sure clues always spawn from left to right
+    local modifier = -1
+    if card.is_face_down then
+      modifier = 1
+    end
+
     local cluePositions = {}
     for i = 1, count do
       local row = math.floor(1 + (i - 1) / 4)
       local column = (i - 1) % 4
-      local cluePos = card.positionToWorld(Vector(-0.825 + 0.55 * column, 0, -1.5 + 0.55 * row))
-      cluePos.y = cluePos.y + 0.05
+      local localPos = Vector((-0.825 + 0.55 * column) * modifier, 0, -1.5 + 0.55 * row)
+      local cluePos = card.positionToWorld(localPos) + Vector(0, 0.03, 0)
       table.insert(cluePositions, cluePos)
     end
     return cluePositions
   end
 
   ---@param card tts__Object Card object to be replenished
-  ---@param uses table The already decoded metadata.uses (to avoid decoding again)
-  internal.replenishTokens = function(card, uses)
+  ---@param useInfo table The already decoded subtable of metadata.uses (to avoid decoding again)
+  internal.replenishTokens = function(card, useInfo)
     -- get current amount of matching resource tokens on the card
     local clickableResourceCounter = nil
     local foundTokens = 0
-    local searchType = string.lower(uses[1].type)
 
-    for _, obj in ipairs(searchLib.onObject(card, "isTileOrToken")) do
-      local memo = obj.getMemo()
-
-      if searchType == memo then
+    if useInfo.token == "clue" then
+      for _, obj in ipairs(searchLib.onObject(card, "isClue")) do
         foundTokens = foundTokens + math.abs(obj.getQuantity())
         obj.destruct()
-      elseif memo == "resourceCounter" then
-        foundTokens = obj.getVar("val")
-        clickableResourceCounter = obj
-        break
+      end
+    elseif useInfo.token == "doom" then
+      for _, obj in ipairs(searchLib.onObject(card, "isDoom")) do
+        foundTokens = foundTokens + math.abs(obj.getQuantity())
+        obj.destruct()
+      end
+    else
+      local searchType = string.lower(useInfo.type)
+      for _, obj in ipairs(searchLib.onObject(card, "isTileOrToken")) do
+        local memo = obj.getMemo()
+        if searchType == memo then
+          foundTokens = foundTokens + math.abs(obj.getQuantity())
+          obj.destruct()
+        elseif memo == "resourceCounter" then
+          foundTokens = obj.getVar("val")
+          clickableResourceCounter = obj
+          break
+        end
       end
     end
 
     -- this is the theoretical new amount of uses (to be checked below)
-    local newCount = foundTokens + uses[1].replenish
+    local newCount = foundTokens + useInfo.replenish
 
     -- if there are already more uses than the replenish amount, keep them
-    if foundTokens > uses[1].count then
+    if foundTokens > useInfo.count then
       newCount = foundTokens
     -- only replenish up until the replenish amount
-    elseif newCount > uses[1].count then
-      newCount = uses[1].count
+    elseif newCount > useInfo.count then
+      newCount = useInfo.count
     end
 
     -- update the clickable counter or spawn a group of tokens
     if clickableResourceCounter then
       clickableResourceCounter.call("updateVal", newCount)
     else
-      TokenManager.spawnTokenGroup(card, uses[1].token, newCount, _, uses[1].type)
+      TokenManager.spawnTokenGroup(card, useInfo.token, newCount, _, useInfo.type)
     end
   end
 
