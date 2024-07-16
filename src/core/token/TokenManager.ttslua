@@ -495,15 +495,16 @@ do
     local clickableResourceCounter = nil
     local foundTokens = 0
 
+    local maybeDeleteThese = {}
     if useInfo.token == "clue" then
       for _, obj in ipairs(searchLib.onObject(card, "isClue")) do
         foundTokens = foundTokens + math.abs(obj.getQuantity())
-        obj.destruct()
+        table.insert(maybeDeleteThese, obj)
       end
     elseif useInfo.token == "doom" then
       for _, obj in ipairs(searchLib.onObject(card, "isDoom")) do
         foundTokens = foundTokens + math.abs(obj.getQuantity())
-        obj.destruct()
+        table.insert(maybeDeleteThese, obj)
       end
     else
       -- search for the token instead if there's no special resource state for it
@@ -516,7 +517,7 @@ do
         local memo = obj.getMemo()
         if searchType == memo then
           foundTokens = foundTokens + math.abs(obj.getQuantity())
-          obj.destruct()
+          table.insert(maybeDeleteThese, obj)
         elseif memo == "resourceCounter" then
           foundTokens = obj.getVar("val")
           clickableResourceCounter = obj
@@ -540,6 +541,12 @@ do
     if clickableResourceCounter then
       clickableResourceCounter.call("updateVal", newCount)
     else
+      -- delete existing tokens
+      for _, obj in ipairs(maybeDeleteThese) do
+        obj.destruct()
+      end
+
+      -- spawn new token group
       TokenManager.spawnTokenGroup(card, useInfo.token, newCount, _, useInfo.type)
     end
   end
