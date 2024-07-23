@@ -219,9 +219,6 @@ do
       end
       for i = 1, tokenCount do
         offsets[i] = card.positionToWorld(PLAYER_CARD_TOKEN_OFFSETS[tokenCount][i])
-        -- Fix the y-position for the spawn, since positionToWorld considers rotation which can
-        -- have bad results for face up/down differences
-        offsets[i].y = card.getPosition().y + 0.15
       end
     end
 
@@ -250,7 +247,6 @@ do
     elseif tokenType == "universalActionAbility" then
       local matColor = playermatApi.getMatColorByPosition(card.getPosition())
       local class = playermatApi.returnInvestigatorClass(matColor)
-
       callback = function(spawned) spawned.call("updateClassAndSymbol", { class = class, symbol = subType or class }) end
     end
 
@@ -299,9 +295,10 @@ do
   ---@param card tts__Object Card object to be replenished
   ---@param uses table The already decoded metadata.uses (to avoid decoding again)
   TokenManager.maybeReplenishCard = function(card, uses)
-    -- TODO: support for cards with multiple uses AND replenish (as of yet, no official card needs that)
-    if uses[1].count and uses[1].replenish then
-      internal.replenishTokens(card, uses)
+    for _, useInfo in ipairs(uses) do
+      if useInfo.count and useInfo.replenish then
+        internal.replenishTokens(card, useInfo)
+      end
     end
   end
 
@@ -459,59 +456,98 @@ do
     return nil
   end
 
-  -- Dynamically create positions for clues on a card.
+  -- Dynamically create positions for clues on a card
   ---@param card tts__Object Card the clues will be placed on
   ---@param count number How many clues?
   ---@return table: Array of global positions to spawn the clues at
   internal.buildClueOffsets = function(card, count)
+    -- make sure clues always spawn from left to right
+    local modifier = card.is_face_down and 1 or -1
+
     local cluePositions = {}
     for i = 1, count do
-      local row = math.floor(1 + (i - 1) / 4)
-      local column = (i - 1) % 4
-      local cluePos = card.positionToWorld(Vector(-0.825 + 0.55 * column, 0, -1.5 + 0.55 * row))
-      cluePos.y = cluePos.y + 0.05
+      -- get the set number (1 for clue 1-16, 2 for 17-32 etc.)
+      local set = math.floor((i - 1) / 16) + 1
+
+      -- get the local index (always number from 1-16)
+      local localIndex = (i - 1) % 16
+
+      -- get row and column for this clue
+      local row = math.floor(localIndex / 4) + 1
+      local column = localIndex % 4
+
+      -- calculate local position
+      local localPos = Vector((-0.825 + 0.55 * column) * modifier, 0, -1.5 + 0.55 * row)
+
+      -- get the global clue position (higher y-position for each set)
+      local cluePos = card.positionToWorld(localPos) + Vector(0, 0.03 + 0.103 * (set - 1), 0)
+
+      -- add position to table
       table.insert(cluePositions, cluePos)
     end
     return cluePositions
   end
 
   ---@param card tts__Object Card object to be replenished
-  ---@param uses table The already decoded metadata.uses (to avoid decoding again)
-  internal.replenishTokens = function(card, uses)
+  ---@param useInfo table The already decoded subtable of metadata.uses (to avoid decoding again)
+  internal.replenishTokens = function(card, useInfo)
     -- get current amount of matching resource tokens on the card
     local clickableResourceCounter = nil
     local foundTokens = 0
-    local searchType = string.lower(uses[1].type)
 
-    for _, obj in ipairs(searchLib.onObject(card, "isTileOrToken")) do
-      local memo = obj.getMemo()
-
-      if searchType == memo then
+    local maybeDeleteThese = {}
+    if useInfo.token == "clue" then
+      for _, obj in ipairs(searchLib.onObject(card, "isClue")) do
         foundTokens = foundTokens + math.abs(obj.getQuantity())
-        obj.destruct()
-      elseif memo == "resourceCounter" then
-        foundTokens = obj.getVar("val")
-        clickableResourceCounter = obj
-        break
+        table.insert(maybeDeleteThese, obj)
+      end
+    elseif useInfo.token == "doom" then
+      for _, obj in ipairs(searchLib.onObject(card, "isDoom")) do
+        foundTokens = foundTokens + math.abs(obj.getQuantity())
+        table.insert(maybeDeleteThese, obj)
+      end
+    else
+      -- search for the token instead if there's no special resource state for it
+      local searchType = string.lower(useInfo.type)
+      if stateTable[searchType] == nil then
+        searchType = useInfo.token
+      end
+
+      for _, obj in ipairs(searchLib.onObject(card, "isTileOrToken")) do
+        local memo = obj.getMemo()
+        if searchType == memo then
+          foundTokens = foundTokens + math.abs(obj.getQuantity())
+          table.insert(maybeDeleteThese, obj)
+        elseif memo == "resourceCounter" then
+          foundTokens = obj.getVar("val")
+          clickableResourceCounter = obj
+          break
+        end
       end
     end
 
     -- this is the theoretical new amount of uses (to be checked below)
-    local newCount = foundTokens + uses[1].replenish
+    local newCount = foundTokens + useInfo.replenish
 
     -- if there are already more uses than the replenish amount, keep them
-    if foundTokens > uses[1].count then
+    if foundTokens > useInfo.count then
       newCount = foundTokens
     -- only replenish up until the replenish amount
-    elseif newCount > uses[1].count then
-      newCount = uses[1].count
+    elseif newCount > useInfo.count then
+      newCount = useInfo.count
     end
 
     -- update the clickable counter or spawn a group of tokens
     if clickableResourceCounter then
       clickableResourceCounter.call("updateVal", newCount)
     else
-      TokenManager.spawnTokenGroup(card, uses[1].token, newCount, _, uses[1].type)
+      -- delete existing tokens
+      for _, obj in ipairs(maybeDeleteThese) do
+        obj.destruct()
+      end
+
+      -- spawn new token group
+      TokenManager.spawnTokenGroup(card, useInfo.token, newCount, _, useInfo.type)
     end
   end
 
