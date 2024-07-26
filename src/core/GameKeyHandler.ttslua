@@ -3,6 +3,7 @@ local guidReferenceApi     = require("core/GUIDReferenceApi")
 local mythosAreaApi        = require("core/MythosAreaApi")
 local navigationOverlayApi = require("core/NavigationOverlayApi")
 local optionPanelApi       = require("core/OptionPanelApi")
+local playAreaApi          = require("core/PlayAreaApi")
 local playermatApi         = require("playermat/PlayermatApi")
 local searchLib            = require("util/SearchLib")
 local tokenChecker         = require("core/token/TokenChecker")
@@ -132,7 +133,8 @@ function discardObject(playerColor, hoveredObject)
   if #selectedObjects > 0 then
     discardGroup(playerColor, selectedObjects)
     return
-    -- only continue if an unlocked card, deck or tile was hovered
+
+  -- only continue if an unlocked card, deck or tile was hovered
   elseif hoveredObject == nil
       or (hoveredObject.type ~= "Card" and hoveredObject.type ~= "Deck" and hoveredObject.type ~= "Tile")
       or hoveredObject.locked then
@@ -140,7 +142,7 @@ function discardObject(playerColor, hoveredObject)
     return
   end
 
-  -- These should probably not be discarded normally. Ask player for confirmation.
+  -- these should probably not be discarded normally: ask player for confirmation
   local tokenData = mythosAreaApi.returnTokenData()
   local scenarioName = tokenData.currentScenario
   if scenarioName ~= "Lost in Time and Space" and scenarioName ~= "The Secret Name" then
@@ -165,6 +167,11 @@ function performDiscard(playerColor, hoveredObject)
     for _, obj in ipairs(searchLib.onObject(hoveredObject, "isTileOrToken")) do
       table.insert(discardTheseObjects, obj)
     end
+  end
+
+  -- update playarea connections
+  if hoveredObject.type == "Card" then
+    playAreaApi.maybeUntrackLocation(hoveredObject)
   end
 
   local discardForMatColor = getColorToDiscardFor(hoveredObject, playerColor)
@@ -237,7 +244,10 @@ end
 
 -- moves the hovered card to the victory display
 function moveCardToVictoryDisplay(_, hoveredObject)
-  victoryDisplayApi.placeCard(hoveredObject)
+  if hoveredObject then
+    playAreaApi.maybeUntrackLocation(hoveredObject)
+    victoryDisplayApi.placeCard(hoveredObject)
+  end
 end
 
 -- removes a use from a card (or a token if hovered)
