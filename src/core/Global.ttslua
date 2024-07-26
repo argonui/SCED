@@ -76,11 +76,11 @@ local RESOURCE_OPTIONS = {
 ---------------------------------------------------------
 
 TOKEN_DATA = {
-  damage   = { image = "http://cloud-3.steamusercontent.com/ugc/1758068501357115146/903D11AAE7BD5C254C8DC136E9202EE516289DEA/", scale = { 0.17, 0.17, 0.17 } },
-  horror   = { image = "http://cloud-3.steamusercontent.com/ugc/1758068501357163535/6D9E0756503664D65BDB384656AC6D4BD713F5FC/", scale = { 0.17, 0.17, 0.17 } },
-  resource = { image = "http://cloud-3.steamusercontent.com/ugc/1758068501357192910/11DDDC7EF621320962FDCF3AE3211D5EDC3D1573/", scale = { 0.17, 0.17, 0.17 } },
+  damage   = { image = "https://steamusercontent-a.akamaihd.net/ugc/1758068501357115146/903D11AAE7BD5C254C8DC136E9202EE516289DEA/", scale = { 0.17, 0.17, 0.17 } },
+  horror   = { image = "https://steamusercontent-a.akamaihd.net/ugc/1758068501357163535/6D9E0756503664D65BDB384656AC6D4BD713F5FC/", scale = { 0.17, 0.17, 0.17 } },
+  resource = { image = "https://steamusercontent-a.akamaihd.net/ugc/1758068501357192910/11DDDC7EF621320962FDCF3AE3211D5EDC3D1573/", scale = { 0.17, 0.17, 0.17 } },
   doom     = { image = "https://i.imgur.com/EoL7yaZ.png", scale = { 0.17, 0.17, 0.17 } },
-  clue     = { image = "http://cloud-3.steamusercontent.com/ugc/1758068501357164917/1D06F1DC4D6888B6F57124BD2AFE20D0B0DA15A8/", scale = { 0.15, 0.15, 0.15 } }
+  clue     = { image = "https://steamusercontent-a.akamaihd.net/ugc/1758068501357164917/1D06F1DC4D6888B6F57124BD2AFE20D0B0DA15A8/", scale = { 0.15, 0.15, 0.15 } }
 }
 
 ID_URL_MAP = {
@@ -100,9 +100,9 @@ ID_URL_MAP = {
   ['tablet']  = { name = "Tablet", url = 'https://i.imgur.com/1plY463.png' },
   ['elder']   = { name = "Elder Thing", url = 'https://i.imgur.com/ttnspKt.png' },
   ['red']     = { name = "Auto-fail", url = 'https://i.imgur.com/lns4fhz.png' },
-  ['bless']   = { name = "Bless", url = 'http://cloud-3.steamusercontent.com/ugc/1655601092778627699/339FB716CB25CA6025C338F13AFDFD9AC6FA8356/' },
-  ['curse']   = { name = "Curse", url = 'http://cloud-3.steamusercontent.com/ugc/1655601092778636039/2A25BD38E8C44701D80DD96BF0121DA21843672E/' },
-  ['frost']   = { name = "Frost", url = 'http://cloud-3.steamusercontent.com/ugc/1858293462583104677/195F93C063A8881B805CE2FD4767A9718B27B6AE/' }
+  ['bless']   = { name = "Bless", url = 'https://steamusercontent-a.akamaihd.net/ugc/1655601092778627699/339FB716CB25CA6025C338F13AFDFD9AC6FA8356/' },
+  ['curse']   = { name = "Curse", url = 'https://steamusercontent-a.akamaihd.net/ugc/1655601092778636039/2A25BD38E8C44701D80DD96BF0121DA21843672E/' },
+  ['frost']   = { name = "Frost", url = 'https://steamusercontent-a.akamaihd.net/ugc/1858293462583104677/195F93C063A8881B805CE2FD4767A9718B27B6AE/' }
 }
 
 ---------------------------------------------------------
@@ -185,6 +185,11 @@ end
 -- This requires the try method as cards won't exist any more after they enter a deck, so the lines
 -- can't be cleared.
 function tryObjectEnterContainer(container, object)
+  -- stop mini cards from forming decks
+  if object.hasTag("Minicard") and container.hasTag("Minicard") then
+    return false
+  end
+
   playAreaApi.tryObjectEnterContainer(container, object)
   return true
 end
@@ -201,15 +206,19 @@ function onObjectEnterZone(zone, object)
     local trash = guidReferenceApi.getObjectByOwnerAndType(matcolor, "Trash")
     trash.putObject(object)
   elseif zone.type == "Hand" and object.type == "Card" then
+    -- make sure the card is face-up
     if object.is_face_down then
       object.flip()
     end
+
+    -- disable any helpers on the card
     if object.hasTag("CardWithHelper") then
-      object.clearContextMenu()
-      object.call("shutOff")
+      object.call("setHelperState", false)
     end
+
+    -- maybe reset data about sealed tokens (if that function exists)
     if object.hasTag("CardThatSeals") then
-      local func = object.getVar("resetSealedTokens") -- check if function exists (it won't for older custom content)
+      local func = object.getVar("resetSealedTokens")
       if func ~= nil then
         object.call("resetSealedTokens")
       end
@@ -222,9 +231,12 @@ function onObjectLeaveZone(zone, object)
   -- 1 frame delay to avoid error messages when exiting the game
   Wait.frames(
     function()
+      -- end here if one of the objects doesn't exist
       if zone.isDestroyed() or object.isDestroyed() then return end
+
+      -- resync the state of the helper on the card with the option panel
       if zone.type == "Hand" and object.hasTag("CardWithHelper") then
-        object.call("updateDisplay")
+        object.call("syncDisplayWithOptionPanel")
       end
     end, 1)
 end
@@ -1100,7 +1112,7 @@ function onClick_spawnPlaceholder(player)
   local meshTable = {
     big = "https://raw.githubusercontent.com/RobMayer/TTSLibrary/master/advboxes/core_h_MSH.obj",
     small = "https://raw.githubusercontent.com/RobMayer/TTSLibrary/master/advboxes/tuckbox_h_MSH.obj",
-    wide = "http://cloud-3.steamusercontent.com/ugc/2278324073260846176/33EFCAF30567F8756F665BE5A2A6502E9C61C7F7/"
+    wide = "https://steamusercontent-a.akamaihd.net/ugc/2278324073260846176/33EFCAF30567F8756F665BE5A2A6502E9C61C7F7/"
   }
 
   local scaleTable = {
@@ -1218,12 +1230,12 @@ end
 function updatePreviewWindow()
   local item = library[contentToShow][currentListItem]
   local tempImage =
-  "http://cloud-3.steamusercontent.com/ugc/2115061845788345842/2CD6ABC551555CCF58F9D0DDB7620197BA398B06/"
+  "https://steamusercontent-a.akamaihd.net/ugc/2115061845788345842/2CD6ABC551555CCF58F9D0DDB7620197BA398B06/"
 
   -- set default image if not defined
   if item.boxsize == nil or item.boxsize == "" or item.boxart == nil or item.boxart == "" then
     item.boxsize = "big"
-    item.boxart = "http://cloud-3.steamusercontent.com/ugc/762723517667628371/18438B0A0045038A7099648AA3346DFCAA267C66/"
+    item.boxart = "https://steamusercontent-a.akamaihd.net/ugc/762723517667628371/18438B0A0045038A7099648AA3346DFCAA267C66/"
   end
 
   UI.setValue("previewTitle", item.name)
