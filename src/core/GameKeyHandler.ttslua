@@ -103,9 +103,11 @@ function takeCardIntoThreatArea(playerColor, hoveredObject)
     modifierY = -90
   end
 
+  -- contruct feedback message
   local cardName = hoveredObject.getName()
-  if cardName == "" then cardName = "card" end
-  broadcastToAll("Moved " .. cardName .. " to " .. getColoredName(playerColor) .. "'s threat area.", "White")
+  if cardName == "" then cardName = "a card" end
+  local playerName = getColoredName(playerColor)
+  broadcastToAll("Moved " .. cardName .. " to " .. playerName .. "'s threat area.", "White")
 
   -- get new rotation (rounded)
   local cardRot = hoveredObject.getRotation()
@@ -266,27 +268,66 @@ function removeOneUse(playerColor, hoveredObject)
   if hoveredObject.type == "Tile" then
     targetObject = hoveredObject
   elseif hoveredObject.type == "Card" then
-    -- grab the first use type from the metadata (or nil)
-    local notes = JSON.decode(hoveredObject.getGMNotes()) or {}
-    local usesData = notes.uses or {}
-    local useInfo = usesData[1] or {}
-    local searchForType = useInfo.type
-    if searchForType then searchForType = searchForType:lower() end
+    local searchResult = searchLib.onObject(hoveredObject, "isTileOrToken")
 
-    for _, obj in ipairs(searchLib.onObject(hoveredObject, "isTileOrToken")) do
-      if not obj.locked and obj.memo ~= "resourceCounter" then
-        -- check for matching object, otherwise use the first hit
-        if obj.memo and obj.memo == searchForType then
-          targetObject = obj
-          break
-        elseif not targetObject then
-          targetObject = obj
+    if #searchResult == 0 then
+      broadcastToColor("No tokens found!", playerColor, "Yellow")
+      return
+    end
+
+    -- index the found tokens by memo (only the first of each type)
+    local indexByMemo = {}
+    for _, obj in ipairs(searchResult) do
+      if not obj.locked then
+        if obj.memo and indexByMemo[obj.memo] == nil then
+          indexByMemo[obj.memo] = obj
+        elseif indexByMemo["NO_MEMO"] == nil then
+          indexByMemo["NO_MEMO"] = obj
         end
+      end
+    end
+
+    -- use metadata (if present) to determine targetObject
+    local usesAreTypeOfResource = false
+    local notes = JSON.decode(hoveredObject.getGMNotes()) or {}
+    for _, useInfo in ipairs(notes.uses or {}) do
+      if useInfo.type then
+        local discardMemo = useInfo.type:lower()
+        if indexByMemo[discardMemo] then
+          targetObject = indexByMemo[discardMemo]
+          break
+        end
+      end
+      if useInfo.token == "resource" then
+        usesAreTypeOfResource = true
+      end
+    end
+
+    -- check for alternatives (check resources first if tokens are a type of resource)
+    if not targetObject then
+      if usesAreTypeOfResource and indexByMemo["resource"] then
+        targetObject = indexByMemo["resource"]
+      else
+        for memo, obj in pairs(indexByMemo) do
+          if memo ~= "resourceCounter" and memo ~= "NO_MEMO" then
+            targetObject = obj
+            break
+          end
+        end
+      end
+    end
+
+    -- if there's still not a target check for clickable counter and token without memo
+    if not targetObject then
+      if indexByMemo["resourceCounter"] then
+        indexByMemo["resourceCounter"].call("modifyValue", -1)
+        return
+      elseif indexByMemo["NO_MEMO"] then
+        targetObject = indexByMemo["NO_MEMO"]
       end
     end
   end
 
-  -- error handling
   if not targetObject then
     broadcastToColor("No tokens found!", playerColor, "Yellow")
     return
@@ -307,6 +348,16 @@ function removeOneUse(playerColor, hoveredObject)
   end
 
   -- feedback message
+  local cardName
+  if hoveredObject.type == "Card" then
+    cardName = hoveredObject.getName()
+  else
+    local searchResult = searchLib.belowPosition(targetObject.getPosition(), "isCard")
+    if #searchResult > 0 then
+      cardName = searchResult[1].getName()
+    end
+  end
+
   local tokenName = targetObject.getName()
   if tokenName == "" then
     if targetObject.memo ~= "" then
@@ -317,15 +368,23 @@ function removeOneUse(playerColor, hoveredObject)
         else
           tokenName = "Clue"
         end
+      elseif targetObject.memo == "resourceCounter" then
+        tokenName = "Resource Counter"
       else
         tokenName = titleCase(targetObject.memo)
       end
     else
-      tokenName = "Unknown"
+      tokenName = "unknown token"
     end
   end
 
-  broadcastToAll(getColoredName(playerColor) .. " removed a token: " .. tokenName, playerColor)
+  -- construct feedback message
+  local playerName = getColoredName(playerColor)
+  local cardInfo = ""
+  if cardName and cardName ~= "" then
+    cardInfo = " from " .. cardName
+  end
+  broadcastToAll(playerName .. " removed a token (" .. tokenName .. ")".. cardInfo .. ".", "White")
 
   local discardForMatColor = getColorToDiscardFor(hoveredObject, playerColor)
   playermatApi.discardListOfObjects(discardForMatColor, { targetObject })
@@ -437,7 +496,7 @@ function takeClueFromLocation(playerColor, hoveredObject)
     end
   elseif hoveredObject.type == "Infinite" and hoveredObject.getName() == "Clue tokens" then
     clue = hoveredObject.takeObject()
-    cardName = "token pool"
+    cardName = "the token pool"
   else
     broadcastToColor("Hover a clue or card with clues and try again.", messageColor, "Yellow")
     return
@@ -470,11 +529,13 @@ function takeClueFromLocation(playerColor, hoveredObject)
     clue.setRotation(rot)
   end
 
-  if cardName then
-    broadcastToAll(getColoredName(playerColor) .. " took one clue from " .. cardName .. ".", "White")
-  else
-    broadcastToAll(getColoredName(playerColor) .. " took one clue.", "White")
+  -- construct feedback message
+  local playerName = getColoredName(playerColor)
+  local cardInfo = ""
+  if cardName and cardName ~= "" then
+    cardInfo = " from " .. cardName
   end
+  broadcastToAll(playerName .. " took one clue" .. cardInfo .. ".", "White")
 
   victoryDisplayApi.update()
 end
