@@ -1,4 +1,9 @@
 require("playercards/CardsWithHelper")
+
+-- intentionally global
+hasXML                     = false
+isHelperEnabled            = false
+
 local chaosBagApi = require("chaosbag/ChaosBagApi")
 
 -- XML background color for each token
@@ -14,18 +19,25 @@ local tokenColor  = {
   [""] = "#77674DE6"
 }
 
-function onSave()
-  return JSON.encode(sigil)
+function updateSave()
+  self.script_state = JSON.encode({
+    isHelperEnabled = isHelperEnabled,
+    sigil = sigil
+  })
 end
 
 function onLoad(savedData)
-  self.addContextMenuItem("Enable Helper", chooseSigil)
-  sigil = JSON.decode(savedData)
-  if sigil and sigil ~= nil then
-    makeXMLButton()
+  if savedData and savedData ~= "" then
+    local loadedData = JSON.decode(savedData)
+    isHelperEnabled = loadedData.isHelperEnabled
+    sigil = loadedData.sigil
+    if sigil and sigil ~= nil then
+      makeXMLButton()
+    end
     self.clearContextMenu()
-    self.addContextMenuItem("Clear Helper", deleteButtons)
+    self.addContextMenuItem("Clear Helper", toggleHelper)
   end
+  syncDisplayWithOptionPanel()
 end
 
 function makeXMLButton()
@@ -57,13 +69,42 @@ function makeXMLButton()
     }
   }
   )
+  updateSave()
+end
+
+-- Create XML button to prompt choosing a sigil; acts as this card's helper
+function initialize()
+  if sigil and sigil ~= nil then
+    makeXMLButton()
+  else
+    self.UI.setXmlTable({
+      {
+        tag = "Button",
+        attributes = {
+          height = 450,
+          width = 1400,
+          rotation = "0 0 180",
+          scale = "0.1 0.1 1",
+          position = "0 -55 -22",
+          padding = "50 50 50 50",
+          font = "font_teutonic-arkham",
+          fontSize = 300,
+          onClick = "chooseSigil",
+          color = "#77674DE6",
+          textColor = "White"
+        },
+        value = "Choose Sigil"
+      }
+    }
+    )
+  end
 end
 
 -- Create dialog window to choose sigil and create sigil-drawing button
-function chooseSigil(playerColor)
-  Player[playerColor].clearSelectedObjects()
+function chooseSigil(player)
+  player.clearSelectedObjects()
   self.clearContextMenu()
-  self.addContextMenuItem("Clear Helper", deleteButtons)
+  self.addContextMenuItem("Clear Helper", toggleHelper)
 
   -- get list of readable names
   local readableNames = {}
@@ -72,21 +113,19 @@ function chooseSigil(playerColor)
   end
 
   -- prompt player to choose sigil
-  Player[playerColor].showOptionsDialog("Choose Sigil", readableNames, 1,
+  player.showOptionsDialog("Choose Sigil", readableNames, 1,
     function(chosenToken)
       sigil = Global.call("getChaosTokenName", chosenToken)
       makeXMLButton()
     end
   )
+  updateSave()
 end
 
--- Delete button and remove sigil
-function deleteButtons(playerColor)
-  Player[playerColor].clearSelectedObjects()
-  self.clearContextMenu()
-  self.addContextMenuItem("Enable Helper", chooseSigil)
+function shutOff()
   self.UI.setXml("")
   sigil = nil
+  updateSave()
 end
 
 function resolveSigil()
