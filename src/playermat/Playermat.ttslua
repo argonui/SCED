@@ -438,14 +438,12 @@ function drawCardsWithReshuffle(numCards)
   local deckAreaObjects = getDeckAreaObjects()
 
   -- Norman Withers handling
-  local harbinger = false
-  if deckAreaObjects.topCard and deckAreaObjects.topCard.getName() == "The Harbinger" then
-    harbinger = true
+  local harbinger
+  if deckAreaObjects.topCard then
+    harbinger = isHarbinger(deckAreaObjects.topCard.getGMNotes())
   elseif deckAreaObjects.draw and not deckAreaObjects.draw.is_face_down then
     local cards = deckAreaObjects.draw.getObjects()
-    if cards[#cards].name == "The Harbinger" then
-      harbinger = true
-    end
+    harbinger = isHarbinger(cards[#cards].gm_notes)
   end
 
   if harbinger then
@@ -473,8 +471,7 @@ function drawCardsWithReshuffle(numCards)
 
   if deckSize >= numCards then
     drawCards(numCards)
-    -- flip top card again for Norman
-    if topCardDetected and string.match(activeInvestigatorId, "%d%d%d%d%d") == "08004" then
+    if topCardDetected then
       flipTopCardFromDeck()
     end
   else
@@ -483,14 +480,18 @@ function drawCardsWithReshuffle(numCards)
       shuffleDiscardIntoDeck()
       Wait.time(function()
         drawCards(numCards - deckSize)
-        -- flip top card again for Norman
-        if topCardDetected and string.match(activeInvestigatorId, "%d%d%d%d%d") == "08004" then
+        if topCardDetected then
           flipTopCardFromDeck()
         end
       end, 1)
     end
     printToColor("Take 1 horror (drawing card from empty deck)", messageColor)
   end
+end
+
+function isHarbinger(notes)
+  local md = JSON.decode(notes or "") or {}
+  return md.id == "08006"
 end
 
 -- get the draw deck and discard pile objects and returns the references
