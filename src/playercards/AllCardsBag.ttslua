@@ -370,19 +370,29 @@ end
 -- Gets a random basic weakness from the bag. Once a given ID has been returned it will be
 -- removed from the list and cannot be selected again until a reload occurs or the indexes
 -- are rebuilt, which will refresh the list to include all weaknesses.
+---@param restrictions? table Additional restrictions:
+---  class string Class to restrict weakness to
+---  standalone boolean Whether 'Campaign only' weaknesses should be exluded
+---  traits? string Trait(s) to use as filter
 ---@return string: ID of the selected weakness
-function getRandomWeaknessId()
-  local availableWeaknesses = buildAvailableWeaknesses()
+function getRandomWeaknessId(restrictions)
+  local availableWeaknesses = buildAvailableWeaknesses(restrictions)
   if #availableWeaknesses > 0 then
     return availableWeaknesses[math.random(#availableWeaknesses)]
+  else
+    broadcastToAll("No basic weakness available!", { 0.9, 0.2, 0.2 })
   end
 end
 
 -- Constructs a list of available basic weaknesses by starting with the full pool of basic
 -- weaknesses then removing any which are currently in the play or deck construction areas
----@param traits? string Trait(s) to use as filter
+---@param restrictions? table Additional restrictions:
+---  class string Class to restrict weakness to
+---  standalone boolean Whether 'Campaign only' weaknesses should be exluded
+---  traits? string Trait(s) to use as filter
 ---@return table: Array of weakness IDs which are valid to choose from
-function buildAvailableWeaknesses(traits)
+function buildAvailableWeaknesses(restrictions)
+  restrictions = restrictions or {}
   local weaknessesInPlay = {}
   local allObjects = getAllObjects()
   for _, object in ipairs(allObjects) do
@@ -400,10 +410,29 @@ function buildAvailableWeaknesses(traits)
     if (weaknessesInPlay[weaknessId] ~= nil and weaknessesInPlay[weaknessId] > 0) then
       weaknessesInPlay[weaknessId] = weaknessesInPlay[weaknessId] - 1
     else
-      if traits then
+      local eligible = true
+
+      -- disable 'Campaign only' weaknesses in standalone mode
+      if restrictions.standalone then
+        local card = cardIdIndex[weaknessId]
+        if card.metadata.modeRestriction == "Campaign" then
+          eligible = false
+        end
+      end
+
+      -- disable class restricted weaknesses
+      if restrictions.class then
+        local card = cardIdIndex[weaknessId]
+        if card.metadata.classRestriction ~= restrictions.class then
+          eligible = false
+        end
+      end
+
+      -- disable non-matching traits
+      if restrictions.traits then
         -- split the string into separate traits (separated by "|")
         local allowedTraits = {}
-        for str in traits:gmatch("([^|]+)") do
+        for str in restrictions.traits:gmatch("([^|]+)") do
           -- remove dots
           str = str:gsub("[%.]", "")
 
@@ -415,15 +444,24 @@ function buildAvailableWeaknesses(traits)
           table.insert(allowedTraits, str)
         end
 
+        local match = false
+
         -- make sure the trait is present on the weakness
         local card = cardIdIndex[weaknessId]
         for _, allowedTrait in ipairs(allowedTraits) do
           if string.contains(string.lower(card.metadata.traits), allowedTrait) then
-            table.insert(availableWeaknesses, weaknessId)
+            match = true
             break
           end
         end
-      else
+
+        if not match then
+          eligible = false
+        end
+      end
+
+      -- add weakness to list if eligible
+      if eligible then
         table.insert(availableWeaknesses, weaknessId)
       end
     end

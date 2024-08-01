@@ -34,19 +34,19 @@ do
     end)
   end
 
-  -- Start the deck build process for the given player color and deck ID.  This
+  -- Start the deck build process for the given player color and deck ID. This
   -- will retrieve the deck from ArkhamDB, and pass to a callback for processing.
   ---@param playerColor string Color name of the player mat to place this deck on (e.g. "Red").
   ---@param deckId string ArkhamDB deck id to be loaded
   ---@param isPrivate boolean Whether this deck is published or private on ArkhamDB
   ---@param loadNewest boolean Whether the newest version of this deck should be loaded
-  ---@param loadInvestigators boolean Whether investigator cards should be loaded as part of this deck
+  ---@param standalone boolean Whether 'Campaign only' weaknesses should be exluded
   ---@param callback function Callback which will be sent the results of this load
   ---    Parameters to the callback will be:
   ---        slots table A map of card ID to count in the deck
-  ---        investigatorCode String.  ID of the investigator in this deck
+  ---        investigatorCode String. ID of the investigator in this deck
   ---        customizations table The decoded table of customization upgrades in this deck
-  ---        playerColor String.  Color this deck is being loaded for
+  ---        playerColor String. Color this deck is being loaded for
   ---@return boolean
   ---@return string
   ArkhamDb.getDecklist = function(
@@ -54,7 +54,7 @@ do
       deckId,
       isPrivate,
       loadNewest,
-      loadInvestigators,
+      standalone,
       callback)
     -- Get a simple card to see if the bag indexes are complete. If not, abort
     -- the deck load. The called method will handle player notification.
@@ -90,11 +90,11 @@ do
       return true, json
     end)
 
-    deck:with(internal.onDeckResult, playerColor, loadNewest, loadInvestigators, callback)
+    deck:with(internal.onDeckResult, playerColor, loadNewest, standalone, callback)
   end
 
   -- Logs that a card could not be loaded in the mod by printing it to the console in the given
-  -- color of the player owning the deck.  Attempts to look up the name on ArkhamDB for clarity,
+  -- color of the player owning the deck. Attempts to look up the name on ArkhamDB for clarity,
   -- but prints the card ID if the name cannot be retrieved.
   ---@param cardId string ArkhamDB ID of the card that could not be found
   ---@param playerColor string Color of the player's deck that had the problem
@@ -118,23 +118,23 @@ do
       end)
   end
 
-  -- Callback when the deck information is received from ArkhamDB.  Parses the
+  -- Callback when the deck information is received from ArkhamDB. Parses the
   -- response then applies standard transformations to the deck such as adding
-  -- random weaknesses and checking for taboos.  Once the deck is processed,
+  -- random weaknesses and checking for taboos. Once the deck is processed,
   -- passes to loadCards to actually spawn the defined deck.
   ---@param deck table ArkhamImportDeck
   ---@param playerColor string Color name of the player mat to place this deck on (e.g. "Red")
   ---@param loadNewest boolean Whether the newest version of this deck should be loaded
-  ---@param loadInvestigators boolean Whether investigator cards should be loaded as part of this deck
+  ---@param standalone boolean Whether 'Campaign only' weaknesses should be exluded
   ---@param callback function Callback which will be sent the results of this load.
   ---    Parameters to the callback will be:
   ---        slots table A map of card ID to count in the deck
-  ---        investigatorCode String.  ID of the investigator in this deck
-  ---        bondedList A table of cardID keys to meaningless values.  Card IDs in this list were
+  ---        investigatorCode String. ID of the investigator in this deck
+  ---        bondedList A table of cardID keys to meaningless values. Card IDs in this list were
   ---        added from a parent bonded card.
   ---        customizations table The decoded table of customization upgrades in this deck
-  ---        playerColor String.  Color this deck is being loaded for
-  internal.onDeckResult = function(deck, playerColor, loadNewest, loadInvestigators, callback)
+  ---        playerColor String. Color this deck is being loaded for
+  internal.onDeckResult = function(deck, playerColor, loadNewest, standalone, callback)
     -- Load the next deck in the upgrade path if the option is enabled
     if (loadNewest and deck.next_deck ~= nil and deck.next_deck ~= "") then
       buildDeck(playerColor, deck.next_deck)
@@ -143,17 +143,20 @@ do
 
     internal.maybePrint(table.concat({ "Found decklist: ", deck.name }), playerColor)
 
-    -- Initialize deck slot table and perform common transformations.  The order of these should not
-    -- be changed, as later steps may act on cards added in each.  For example, a random weakness or
+    -- Initialize deck slot table and perform common transformations. The order of these should not
+    -- be changed, as later steps may act on cards added in each. For example, a random weakness or
     -- investigator may have bonded cards or taboo entries, and should be present
     local slots = deck.slots
-    internal.maybeDrawRandomWeakness(slots, playerColor)
+
+    -- get class for investigator to handle specific weaknesses
+    local class
+    local card = allCardsBagApi.getCardById(deck.investigator_code)
+    if card and card.metadata then class = card.metadata.class end
+    local restrictions = { class = class, standalone = standalone }
+    internal.maybeDrawRandomWeakness(slots, playerColor, restrictions)
 
     -- handles alternative investigators (parallel, promo or revised art)
-    local loadAltInvestigator = "normal"
-    if loadInvestigators then
-      loadAltInvestigator = internal.addInvestigatorCards(deck, slots)
-    end
+    local loadAltInvestigator = internal.addInvestigatorCards(deck, slots)
 
     internal.maybeModifyDeckFromDescription(slots, deck.description_md, playerColor)
     internal.maybeAddSummonedServitor(slots)
@@ -179,13 +182,17 @@ do
   ---    of those cards which will be spawned
   ---@param playerColor string Color of the player this deck is being loaded for. Used for broadcast
   ---    if a weakness is added.
-  internal.maybeDrawRandomWeakness = function(slots, playerColor)
+  ---@param restrictions table Additional restrictions:
+  ---  class string Class to restrict weakness to
+  ---  standalone boolean Whether 'Campaign only' weaknesses should be exluded
+  ---  traits? string Trait(s) to use as filter
+  internal.maybeDrawRandomWeakness = function(slots, playerColor, restrictions)
     local randomWeaknessAmount = slots[RANDOM_WEAKNESS_ID] or 0
     slots[RANDOM_WEAKNESS_ID] = nil
 
     if randomWeaknessAmount > 0 then
       for i = 1, randomWeaknessAmount do
-        local weaknessId = allCardsBagApi.getRandomWeaknessId()
+        local weaknessId = allCardsBagApi.getRandomWeaknessId(restrictions)
         slots[weaknessId] = (slots[weaknessId] or 0) + 1
       end
       internal.maybePrint("Added " .. randomWeaknessAmount .. " random basic weakness(es) to deck", playerColor)
@@ -194,7 +201,7 @@ do
 
   -- Adds both the investigator (XXXXX) and minicard (XXXXX-m) slots with one copy each
   ---@param deck table The processed ArkhamDB deck response
-  ---@param slots table The slot list for cards in this deck.  Table key is the cardId, value is the
+  ---@param slots table The slot list for cards in this deck. Table key is the cardId, value is the
   ---    number of those cards which will be spawned
   ---@return string: Contains the name of the art that should be loaded ("normal", "promo" or "revised")
   internal.addInvestigatorCards = function(deck, slots)
@@ -271,7 +278,7 @@ do
     end
   end
 
-  -- On the Mend should have 1-per-investigator copies set aside, but ArkhamDB always sends 1.  Update
+  -- On the Mend should have 1-per-investigator copies set aside, but ArkhamDB always sends 1. Update
   -- the count based on the investigator count
   ---@param slots table The slot list for cards in this deck. Table key is the cardId, value is the number
   --     of those cards which will be spawned
