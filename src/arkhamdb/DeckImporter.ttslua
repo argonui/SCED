@@ -25,10 +25,10 @@ local STANDALONE_TOGGLE_LABELS = {}
 STANDALONE_TOGGLE_LABELS[true] = "Yes"
 STANDALONE_TOGGLE_LABELS[false] = "No"
 
-local redDeckId = ""
-local orangeDeckId = ""
-local whiteDeckId = ""
-local greenDeckId = ""
+redDeckId = ""
+orangeDeckId = ""
+whiteDeckId = ""
+greenDeckId = ""
 
 local privateDeck = true
 local loadNewestDeck = true
@@ -123,7 +123,7 @@ function makeDeckIdFields()
   iParams.width = INPUT_FIELD_WIDTH
   iParams.height = INPUT_FIELD_HEIGHT
   iParams.font_size = 320
-  iParams.tooltip = "Deck ID from ArkhamDB URL of the deck\nPublic URL: 'https://arkhamdb.com/decklist/view/101/knowledge-overwhelming-solo-deck-1.0' = '101'\nPrivate URL: 'https://arkhamdb.com/deck/view/102' = '102'\n\nAlso supports the deck ID from shared decks from arkham.build!"
+  iParams.tooltip = "Deck ID from ArkhamDB URL of the deck\nPublished URL: 'https://arkhamdb.com/decklist/view/101/knowledge-overwhelming-solo-deck-1.0' = '101'\nPrivate URL: 'https://arkhamdb.com/deck/view/102' = '102'\n\nAlso supports the deck ID from shared decks from arkham.build!"
   iParams.alignment = 3 -- Center
   iParams.color = FIELD_COLOR
   iParams.font_color = { 0, 0, 0 }
@@ -190,19 +190,28 @@ function standaloneChanged()
 end
 
 function loadDecks()
+  co = coroutine.create(loadDecksCoroutine)
+  resumeLoadDecks()
+end
+
+function loadDecksCoroutine()
   if not allCardsBagApi.isIndexReady() then return end
   matsWithInvestigator = playermatApi.getUsedMatColors()
-  if redDeckId ~= nil and redDeckId ~= "" then
-    buildDeck("Red", redDeckId)
+
+  for _, matColor in ipairs({"White", "Orange", "Green", "Red"}) do
+    local deckId = _G[string.lower(matColor) .. "DeckId"]
+    if deckId ~= nil and deckId ~= "" then
+      buildDeck(matColor, deckId)
+      coroutine.yield()
+    end
   end
-  if orangeDeckId ~= nil and orangeDeckId ~= "" then
-    buildDeck("Orange", orangeDeckId)
-  end
-  if whiteDeckId ~= nil and whiteDeckId ~= "" then
-    buildDeck("White", whiteDeckId)
-  end
-  if greenDeckId ~= nil and greenDeckId ~= "" then
-    buildDeck("Green", greenDeckId)
+end
+
+function resumeLoadDecks()
+  log("resume")
+  if co and coroutine.status(co) ~= "dead" then
+    local status, err = coroutine.resume(co)
+    if not status then error(err) end
   end
 end
 
@@ -345,6 +354,7 @@ function loadCards(slots, investigatorId, bondedList, customizations, playerColo
     if (not hadError) then
       printToAll("Deck loaded successfully!", playerColor)
     end
+    resumeLoadDecks()
     return 1
   end
 

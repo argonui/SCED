@@ -370,18 +370,34 @@ end
 -- Gets a random basic weakness from the bag. Once a given ID has been returned it will be
 -- removed from the list and cannot be selected again until a reload occurs or the indexes
 -- are rebuilt, which will refresh the list to include all weaknesses.
----@param restrictions? table Additional restrictions:
----  class string Class to restrict weakness to
----  standalone boolean Whether 'Campaign only' weaknesses should be exluded
----  traits? string Trait(s) to use as filter
----@return string: ID of the selected weakness
-function getRandomWeaknessId(restrictions)
-  local availableWeaknesses = buildAvailableWeaknesses(restrictions)
-  if #availableWeaknesses > 0 then
-    return availableWeaknesses[math.random(#availableWeaknesses)]
-  else
-    broadcastToAll("No basic weakness available!", { 0.9, 0.2, 0.2 })
+---@param params table Bundled parameters:
+---  count number Number of weaknesses
+---  restrictions table Additional restrictions:
+---    class string Class to restrict weakness to
+---    standalone boolean Whether 'Campaign only' weaknesses should be exluded
+---    traits? string Trait(s) to use as filter
+---@return table: Table with IDs of the selected weaknesses
+function getRandomWeaknessIds(params)
+  params.count = params.count or 1
+  local availableWeaknesses = buildAvailableWeaknesses(params.restrictions)
+
+  -- check if enough weaknesses are available
+  local missingWeaknesses = params.count - #availableWeaknesses
+  if missingWeaknesses > 0 then
+    broadcastToAll("Not enough basic weaknesses available! (" .. missingWeaknesses .. " missing)", { 0.9, 0.2, 0.2 })
   end
+
+  local drawnWeaknesses = {}
+
+  -- Fisher-Yates shuffle algorithm
+  local n = #availableWeaknesses
+  for i = 1, math.min(params.count, n) do
+    local index = math.random(i, n)
+    table.insert(drawnWeaknesses, availableWeaknesses[index])
+    availableWeaknesses[index], availableWeaknesses[i] = availableWeaknesses[i], availableWeaknesses[index]
+  end
+
+  return drawnWeaknesses
 end
 
 -- Constructs a list of available basic weaknesses by starting with the full pool of basic
