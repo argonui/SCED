@@ -21,18 +21,18 @@ local UPGRADED_TOGGLE_LABELS = {}
 UPGRADED_TOGGLE_LABELS[true] = "Upgraded"
 UPGRADED_TOGGLE_LABELS[false] = "Specific"
 
-local LOAD_INVESTIGATOR_TOGGLE_LABELS = {}
-LOAD_INVESTIGATOR_TOGGLE_LABELS[true] = "Yes"
-LOAD_INVESTIGATOR_TOGGLE_LABELS[false] = "No"
+local STANDALONE_TOGGLE_LABELS = {}
+STANDALONE_TOGGLE_LABELS[true] = "Yes"
+STANDALONE_TOGGLE_LABELS[false] = "No"
 
-local redDeckId = ""
-local orangeDeckId = ""
-local whiteDeckId = ""
-local greenDeckId = ""
+redDeckId = ""
+orangeDeckId = ""
+whiteDeckId = ""
+greenDeckId = ""
 
 local privateDeck = true
 local loadNewestDeck = true
-local loadInvestigators = false
+local standalone = false
 
 function onLoad(script_state)
   initializeUi(JSON.decode(script_state))
@@ -53,7 +53,7 @@ function getUiState()
     greenDeck = greenDeckId,
     privateDeck = privateDeck,
     loadNewest = loadNewestDeck,
-    investigators = loadInvestigators
+    standalone = standalone
   }
 end
 
@@ -74,7 +74,7 @@ function initializeUi(savedUiState)
     greenDeckId = savedUiState.greenDeck
     privateDeck = savedUiState.privateDeck
     loadNewestDeck = savedUiState.loadNewest
-    loadInvestigators = savedUiState.investigators
+    standalone = savedUiState.standalone
   end
 
   makeOptionToggles()
@@ -84,72 +84,74 @@ end
 
 function makeOptionToggles()
   -- common parameters
-  local checkboxParameters = {}
-  checkboxParameters.function_owner = self
-  checkboxParameters.width = INPUT_FIELD_WIDTH
-  checkboxParameters.height = INPUT_FIELD_HEIGHT
-  checkboxParameters.scale = { 0.1, 0.1, 0.1 }
-  checkboxParameters.font_size = 240
-  checkboxParameters.hover_color = { 0.4, 0.6, 0.8 }
-  checkboxParameters.color = FIELD_COLOR
+  local cParams = {}
+  cParams.function_owner = self
+  cParams.width = 1750
+  cParams.height = INPUT_FIELD_HEIGHT
+  cParams.position = Vector( 0.22, 0.1, -0.102)
+  cParams.scale = { 0.1, 0.1, 0.1 }
+  cParams.font_size = 240
+  cParams.hover_color = { 0.4, 0.6, 0.8 }
+  cParams.color = FIELD_COLOR
 
   -- public / private deck
-  checkboxParameters.click_function = "publicPrivateChanged"
-  checkboxParameters.position = { 0.25, 0.1, -0.102 }
-  checkboxParameters.tooltip = "Published or private deck?\n\nPLEASE USE A PRIVATE DECK IF JUST FOR TTS TO AVOID FLOODING ARKHAMDB PUBLISHED DECK LISTS!"
-  checkboxParameters.label = PRIVATE_TOGGLE_LABELS[privateDeck]
-  self.createButton(checkboxParameters)
+  cParams.click_function = "publishedPrivateChanged"
+  cParams.tooltip = "Published or private deck?\n\nPLEASE USE A PRIVATE DECK IF JUST FOR TTS TO AVOID FLOODING ARKHAMDB PUBLISHED DECK LISTS!\n\nMake sure to enable deck sharing in your account settings.\n\nKeep this on 'Private' for arkham.build."
+  cParams.label = PRIVATE_TOGGLE_LABELS[privateDeck]
+  self.createButton(cParams)
 
   -- load upgraded?
-  checkboxParameters.click_function = "loadUpgradedChanged"
-  checkboxParameters.position = { 0.25, 0.1, -0.01 }
-  checkboxParameters.tooltip = "Load newest upgrade or exact deck?"
-  checkboxParameters.label = UPGRADED_TOGGLE_LABELS[loadNewestDeck]
-  self.createButton(checkboxParameters)
+  cParams.click_function = "loadUpgradedChanged"
+  cParams.position.z = -0.01
+  cParams.tooltip = "Load newest upgrade or exact deck?"
+  cParams.label = UPGRADED_TOGGLE_LABELS[loadNewestDeck]
+  self.createButton(cParams)
 
-  -- load investigators?
-  checkboxParameters.click_function = "loadInvestigatorsChanged"
-  checkboxParameters.position = { 0.25, 0.1, 0.081 }
-  checkboxParameters.tooltip = "Spawn investigator cards?"
-  checkboxParameters.label = LOAD_INVESTIGATOR_TOGGLE_LABELS[loadInvestigators]
-  self.createButton(checkboxParameters)
+  -- standalone mode?
+  cParams.click_function = "standaloneChanged"
+  cParams.position.z = 0.081
+  cParams.tooltip = "Are you playing standalone mode? Enabling this will make all 'Campaign Only' weaknesses ineligible when determining the random basic weakness(es)."
+  cParams.label = STANDALONE_TOGGLE_LABELS[standalone]
+  self.createButton(cParams)
 end
 
 -- Create the four deck ID entry fields
 function makeDeckIdFields()
-  local inputParameters = {}
-  -- Parameters common to all entry fields
-  inputParameters.function_owner = self
-  inputParameters.scale = { 0.1, 0.1, 0.1 }
-  inputParameters.width = INPUT_FIELD_WIDTH
-  inputParameters.height = INPUT_FIELD_HEIGHT
-  inputParameters.font_size = 320
-  inputParameters.tooltip = "Deck ID from ArkhamDB URL of the deck\nPublic URL: 'https://arkhamdb.com/decklist/view/101/knowledge-overwhelming-solo-deck-1.0' = '101'\nPrivate URL: 'https://arkhamdb.com/deck/view/102' = '102'\n\nAlso supports the deck ID from shared decks from arkham.build!"
-  inputParameters.alignment = 3 -- Center
-  inputParameters.color = FIELD_COLOR
-  inputParameters.font_color = { 0, 0, 0 }
-  inputParameters.validation = 4 -- alphanumeric (to support arkham.build IDs)
+  local iParams = {}
+  iParams.function_owner = self
+  iParams.scale = { 0.1, 0.1, 0.1 }
+  iParams.width = INPUT_FIELD_WIDTH
+  iParams.height = INPUT_FIELD_HEIGHT
+  iParams.font_size = 320
+  iParams.tooltip = "Deck ID from ArkhamDB URL of the deck\nPublished URL: 'https://arkhamdb.com/decklist/view/101/knowledge-overwhelming-solo-deck-1.0' = '101'\nPrivate URL: 'https://arkhamdb.com/deck/view/102' = '102'\n\nAlso supports the deck ID from shared decks from arkham.build!"
+  iParams.alignment = 3 -- Center
+  iParams.color = FIELD_COLOR
+  iParams.font_color = { 0, 0, 0 }
+  iParams.validation = 4 -- alphanumeric (to support arkham.build IDs)
 
   -- Green
-  inputParameters.input_function = "greenDeckChanged"
-  inputParameters.position = { -0.166, 0.1, 0.385 }
-  inputParameters.value = greenDeckId
-  self.createInput(inputParameters)
+  iParams.input_function = "greenDeckChanged"
+  iParams.position = { -0.16, 0.1, 0.385 }
+  iParams.value = greenDeckId
+  self.createInput(iParams)
+
   -- Red
-  inputParameters.input_function = "redDeckChanged"
-  inputParameters.position = { 0.171, 0.1, 0.385 }
-  inputParameters.value = redDeckId
-  self.createInput(inputParameters)
+  iParams.input_function = "redDeckChanged"
+  iParams.position = { 0.165, 0.1, 0.385 }
+  iParams.value = redDeckId
+  self.createInput(iParams)
+
   -- White
-  inputParameters.input_function = "whiteDeckChanged"
-  inputParameters.position = { -0.166, 0.1, 0.474 }
-  inputParameters.value = whiteDeckId
-  self.createInput(inputParameters)
+  iParams.input_function = "whiteDeckChanged"
+  iParams.position = { -0.16, 0.1, 0.474 }
+  iParams.value = whiteDeckId
+  self.createInput(iParams)
+
   -- Orange
-  inputParameters.input_function = "orangeDeckChanged"
-  inputParameters.position = { 0.171, 0.1, 0.474 }
-  inputParameters.value = orangeDeckId
-  self.createInput(inputParameters)
+  iParams.input_function = "orangeDeckChanged"
+  iParams.position = { 0.165, 0.1, 0.474 }
+  iParams.value = orangeDeckId
+  self.createInput(iParams)
 end
 
 -- Create the Build All button. This is a transparent button which covers the Build All portion of the background graphic
@@ -172,7 +174,7 @@ function whiteDeckChanged(_, _, inputValue) whiteDeckId = inputValue end
 function greenDeckChanged(_, _, inputValue) greenDeckId = inputValue end
 
 -- Event handlers for toggle buttons
-function publicPrivateChanged()
+function publishedPrivateChanged()
   privateDeck = not privateDeck
   self.editButton({ index = 0, label = PRIVATE_TOGGLE_LABELS[privateDeck] })
 end
@@ -182,25 +184,37 @@ function loadUpgradedChanged()
   self.editButton({ index = 1, label = UPGRADED_TOGGLE_LABELS[loadNewestDeck] })
 end
 
-function loadInvestigatorsChanged()
-  loadInvestigators = not loadInvestigators
-  self.editButton({ index = 2, label = LOAD_INVESTIGATOR_TOGGLE_LABELS[loadInvestigators] })
+function standaloneChanged()
+  standalone = not standalone
+  self.editButton({ index = 2, label = STANDALONE_TOGGLE_LABELS[standalone] })
 end
 
+-- start the deck importing process
 function loadDecks()
+  co = coroutine.create(loadDecksCoroutine)
+  resumeLoadDecks()
+end
+
+-- perform the deck importing (with a pause after each deck load)
+-- this pause will for example allow weaknesses to be spawned so that the RBW drawing can detect them
+function loadDecksCoroutine()
   if not allCardsBagApi.isIndexReady() then return end
   matsWithInvestigator = playermatApi.getUsedMatColors()
-  if redDeckId ~= nil and redDeckId ~= "" then
-    buildDeck("Red", redDeckId)
+
+  for _, matColor in ipairs({"White", "Orange", "Green", "Red"}) do
+    local deckId = _G[string.lower(matColor) .. "DeckId"]
+    if deckId ~= nil and deckId ~= "" then
+      buildDeck(matColor, deckId)
+      coroutine.yield()
+    end
   end
-  if orangeDeckId ~= nil and orangeDeckId ~= "" then
-    buildDeck("Orange", orangeDeckId)
-  end
-  if whiteDeckId ~= nil and whiteDeckId ~= "" then
-    buildDeck("White", whiteDeckId)
-  end
-  if greenDeckId ~= nil and greenDeckId ~= "" then
-    buildDeck("Green", greenDeckId)
+end
+
+-- resume the deck importing process
+function resumeLoadDecks()
+  if co and coroutine.status(co) ~= "dead" then
+    local status, err = coroutine.resume(co)
+    if not status then error(err) end
   end
 end
 
@@ -247,7 +261,7 @@ function buildDeck(playerColor, deckId)
     deckId,
     uiState.privateDeck,
     uiState.loadNewest,
-    uiState.investigators,
+    uiState.standalone,
     loadCards)
 end
 
@@ -343,6 +357,7 @@ function loadCards(slots, investigatorId, bondedList, customizations, playerColo
     if (not hadError) then
       printToAll("Deck loaded successfully!", playerColor)
     end
+    resumeLoadDecks()
     return 1
   end
 
