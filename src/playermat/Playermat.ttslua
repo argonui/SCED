@@ -724,6 +724,29 @@ function createXML()
   local bounds = self.getBoundsNormalized()
   local setAsideDirection = bounds.center.z > 0 and 1 or -1
 
+  -- create a button to toggle the option panel visibility
+  local gearPos
+  if setAsideDirection == -1 then
+    -- next to upkeep button
+    gearPos = "-202 -45 -11"
+  else
+    -- below encounter card drawing
+    gearPos = "203 -21 -11"
+  end
+
+  local toggleOptionPanelXML = {
+    tag = "Button",
+    attributes = {
+      onClick = "onClick_hideOrShowOptions",
+      width = "7",
+      height = "7",
+      position = gearPos,
+      rotation = "0 0 180",
+      image = "option_gear_white"
+    }
+  }
+  table.insert(xml, toggleOptionPanelXML)
+
   -- work out the size
   local rowHeight = {
     header = 200,
@@ -737,11 +760,11 @@ function createXML()
   local optionPanelXML = {
     tag = "TableLayout",
     attributes = {
+      id = "optionPanelMain",
       scale = scale .. " " .. scale,
       width = "1000",
       rotation = "0 0 180",
-      --active = "false",
-      raycastTarget = "true",
+      active = "false",
       color = "#000000",
       outlineSize = "5 5",
       outline = "grey",
@@ -874,7 +897,6 @@ function createXML()
           }
         }
       end
-
       table.insert(optionXML.children, typeXML)
       table.insert(optionPanelXML.children, optionXML)
     end
@@ -890,9 +912,17 @@ function createXML()
   self.UI.setXmlTable(xml)
 end
 
+function onClick_hideOrShowOptions(player)
+  Global.call("changeWindowVisibilityForColorWrapper", {
+    color = player.color,
+    windowId = "optionPanelMain",
+    owner = self
+  })
+end
+
 function onClick_textureSelect(player)
   local textureList = {}
-  for texture, url in pairs(nameToTexture) do
+  for texture, _ in pairs(nameToTexture) do
     table.insert(textureList, texture)
   end
   player.showOptionsDialog("Select a texture:", textureList, _, updateTexture)
@@ -920,6 +950,8 @@ function onClick_handColorSelect(player)
     if player.color == playerColor then
       navigationOverlayApi.copyVisibility(playerColor, color)
       Player[playerColor].changeColor(color)
+    else
+      printToColor("Updated handcolor for this playermat to " .. playerColor .. ".", player.color)
     end
 
     -- update the internal variable
