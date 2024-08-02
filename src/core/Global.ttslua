@@ -267,11 +267,6 @@ function onObjectNumberTyped(hoveredObject, playerColor, number)
   end
 end
 
--- TTS event, used to redraw the playermat slot symbols after a small delay to account for the custom font loading
-function onPlayerConnect()
-  Wait.time(function() playermatApi.redrawSlotSymbols("All") end, 0.2)
-end
-
 -- disable delete action (only applies to promoted players) and discard objects instead
 function onPlayerAction(player, action, targets)
   if action == Player.Action.Delete and not player.admin then
@@ -1169,14 +1164,24 @@ function onClick_toggleUi(player, windowId)
   changeWindowVisibilityForColor(player.color, windowId)
 end
 
+function changeWindowVisibilityForColorWrapper(params)
+  changeWindowVisibilityForColor(params.color, params.windowId, params.overrideState, params.owner)
+end
+
 -- toggles the visibility of the specific window for the specified color
 ---@param color string Player color to toggle the visibility for
 ---@param windowId string ID of the XML element
 ---@param overrideState? boolean Forcefully sets the new visibility
+---@param owner? tts__Object Object that owns the XML (or nil if Global)
 ---@return boolean visible Returns the new state of the visibility
-function changeWindowVisibilityForColor(color, windowId, overrideState)
+function changeWindowVisibilityForColor(color, windowId, overrideState, owner)
+  local targetUi = UI
+  if owner then
+    targetUi = owner.UI
+  end
+
   -- current state
-  local colorString = UI.getAttribute(windowId, "visibility") or ""
+  local colorString = targetUi.getAttribute(windowId, "visibility") or ""
 
   -- parse the visibility string
   local visible = false
@@ -1215,8 +1220,8 @@ function changeWindowVisibilityForColor(color, windowId, overrideState)
   newColorString = newColorString:sub(1, -2)
 
   -- update the visibility of the XML
-  UI.setAttribute(windowId, "visibility", newColorString)
-  UI.setAttribute(windowId, "active", newColorString ~= "")
+  targetUi.setAttribute(windowId, "visibility", newColorString)
+  targetUi.setAttribute(windowId, "active", newColorString ~= "")
 
   return visible
 end
@@ -1561,6 +1566,12 @@ end
 -- removes a playermat and all related objects from play
 ---@param matColor string Color of the playermat to remove
 function removePlayermat(matColor)
+  -- if there's a seated player, move them to grey
+  local handColor = playermatApi.getPlayerColor(matColor)
+  if Player[handColor].seated then
+    Player[handColor].changeColor("Grey")
+  end
+
   local matObjects = guidReferenceApi.getObjectsByOwner(matColor)
   if not matObjects.Playermat then return end
 
