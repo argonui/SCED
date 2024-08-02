@@ -113,8 +113,22 @@ function startSearch(messageColor, number)
 
   -- get draw deck
   local deckAreaObjects = playermatApi.getDeckAreaObjects(matColor)
-  if deckAreaObjects.draw == nil then
+  if deckAreaObjects.draw == nil and deckAreaObjects.topCard == nil then
     printToColor(matColor .. " draw deck could not be found!", messageColor, "Red")
+    return
+  end
+
+  -- check for harbinger
+  local harbinger
+  if deckAreaObjects.topCard then
+    harbinger = isHarbinger(deckAreaObjects.topCard.getGMNotes())
+  elseif deckAreaObjects.draw and not deckAreaObjects.draw.is_face_down then
+    local cards = deckAreaObjects.draw.getObjects()
+    harbinger = isHarbinger(cards[#cards].gm_notes)
+  end
+
+  if harbinger then
+    printToColor("The Harbinger is on top of your deck, searching isn't allowed", messageColor)
     return
   end
 
@@ -158,16 +172,21 @@ function startSearch(messageColor, number)
 
   -- handling for Norman Withers
   if deckAreaObjects.topCard then
-    deckAreaObjects.topCard.setRotation(setAsideRotation)
+    deckAreaObjects.topCard.deal(1, handColor)
+    number = number - 1
     topCardDetected = true
   end
 
   searchView()
 
-  Wait.time(function()
-    deckAreaObjects = playermatApi.getDeckAreaObjects(matColor)
+  if number > 0 then
     deckAreaObjects.draw.deal(number, handColor)
-  end, 1)
+  end
+end
+
+function isHarbinger(notes)
+  local md = JSON.decode(notes or "") or {}
+  return md.id == "08006"
 end
 
 -- place handCards back into deck and optionally shuffle
