@@ -14,8 +14,17 @@ local availableOptions            = {
     {
       id      = "slotEditing",
       title   = "Enable Slot Edit Mode",
-      tooltip = "Makes each slot clickable to change the symbol.",
       type    = "toggle"
+    },
+    {
+      id      = "textureSelect",
+      title   = "Select Playermat Texture",
+      type    = "button"
+    },
+    {
+      id      = "handColorSelect",
+      title   = "Select Hand Color",
+      type    = "button"
     }
   }
 }
@@ -68,7 +77,7 @@ local ENCOUNTER_DISCARD_POSITION  = { x = -3.85, y = 1.5, z = 10.38 }
 local buttonParameters            = {
   label = "Upkeep",
   click_function = "doUpkeep",
-  tooltip = "Right-click to change color",
+  tooltip = "Right-click to skip resource gain and card draw",
   function_owner = self,
   position = { x = 1.82, y = 0.1, z = -0.45 },
   scale = { 0.12, 0.12, 0.12 },
@@ -309,11 +318,6 @@ function doUpkeepFromHotkey(clickedByColor)
 end
 
 function doUpkeep(_, clickedByColor, isRightClick)
-  if isRightClick then
-    changeColor(clickedByColor)
-    return
-  end
-
   updateMessageColor(clickedByColor)
 
   -- unexhaust cards in play zone, flip action tokens and find Forced Learning / Dream-Enhancing Serum
@@ -377,6 +381,11 @@ function doUpkeep(_, clickedByColor, isRightClick)
         obj.flip()
       end
     end
+  end
+
+  if isRightClick then
+    printToColor("Skipping resource gain and card draw", messageColor)
+    return
   end
 
   -- gain a resource (or two if playing Jenny Barnes)
@@ -715,15 +724,22 @@ function createXML()
   local bounds = self.getBoundsNormalized()
   local setAsideDirection = bounds.center.z > 0 and 1 or -1
 
+  -- work out the size
+  local rowHeight = {
+    header = 200,
+    groupHeader = 150,
+    option = 150
+  }
+  local totalHeight = rowHeight.header
+  local scale = 0.11
+
   -- main window
   local optionPanelXML = {
     tag = "TableLayout",
     attributes = {
-      scale = "0.11 0.11",
+      scale = scale .. " " .. scale,
       width = "1000",
-      height = "1200",
       rotation = "0 0 180",
-      position = (setAsideDirection * 270) .. " -35 -58",
       --active = "false",
       raycastTarget = "true",
       color = "#000000",
@@ -737,7 +753,7 @@ function createXML()
       -- header
       {
         tag = "Row",
-        attributes = { preferredHeight = "200" },
+        attributes = { preferredHeight = rowHeight.header },
         children = {
           {
             tag = "Cell",
@@ -761,10 +777,11 @@ function createXML()
 
   -- add options groups
   for groupName, groupData in pairs(availableOptions) do
+    totalHeight = totalHeight + rowHeight.groupHeader
     -- group header
     local groupXML = {
       tag = "Row",
-      attributes = { preferredHeight = "150" },
+      attributes = { preferredHeight = rowHeight.groupHeader },
       children = {
         {
           tag = "Cell",
@@ -788,60 +805,126 @@ function createXML()
 
     -- options
     for _, optionData in ipairs(groupData) do
-      local optionXML = {}
-      if optionData.type ~= "toggle" then
-        log("This isn't implemented yet ;)")
-      else
-        optionXML = {
-          tag = "Row",
-          attributes = { preferredHeight = "150", tooltip = optionData.tooltip, tooltipPosition = "Left", tooltipBackgroundColor = "rgba(0,0,0,1)" },
-          children = {
-            -- option title
-            {
-              tag = "Cell",
-              attributes = { padding = "20 10 5 5", color = "#333333", columnSpan = "2" },
-              children = {
-                {
-                  tag = "Panel",
-                  attributes = { padding = "50 0 0 0" },
-                  children = {
-                    {
-                      tag = "Text",
-                      attributes = { fontSize = "65", font = "font_teutonic-arkham", text = optionData.title }
-                    }
+      totalHeight = totalHeight + rowHeight.option
+      local optionXML = {
+        tag = "Row",
+        attributes = { preferredHeight = rowHeight.option},
+        children = {
+          -- option title
+          {
+            tag = "Cell",
+            attributes = { padding = "20 10 5 5", color = "#333333", columnSpan = "2" },
+            children = {
+              {
+                tag = "Panel",
+                attributes = { padding = "50 0 0 0" },
+                children = {
+                  {
+                    tag = "Text",
+                    attributes = { fontSize = "65", font = "font_teutonic-arkham", text = optionData.title }
                   }
                 }
               }
-            },
-            -- option button
+            }
+          },
+        }
+      }
+
+      local typeXML
+      if optionData.type == "toggle" then
+        typeXML = {
+          tag = "Cell",
+          attributes = { padding = "10 10 5 5", color = "#333333" },
+          children = {
             {
-              tag = "Cell",
-              attributes = { padding = "10 10 5 5", color = "#333333" },
-              children = {
-                {
-                  tag = "Button",
-                  attributes = {
-                    id = optionData.id,
-                    image = optionData.data == true and "option_on" or "option_off",
-                    onClick = "onClick_toggleOption",
-                    rectAlignment = "MiddleRight",
-                    offsetXY = "-30 0",
-                    colors = "#FFFFFF|#dfdfdf",
-                    height = "72",
-                    width = "130",
-                    ignoreLayout = "True"
-                  }
-                }
+              tag = "Button",
+              attributes = {
+                id = optionData.id,
+                image = optionData.data == true and "option_on" or "option_off",
+                onClick = "onClick_toggleOption",
+                rectAlignment = "MiddleRight",
+                offsetXY = "-30 0",
+                colors = "#FFFFFF|#dfdfdf",
+                height = "108",
+                width = "195",
+                ignoreLayout = "True"
+              }
+            }
+          }
+        }
+      elseif optionData.type == "button" then
+        typeXML = {
+          tag = "Cell",
+          attributes = { padding = "10 10 5 5", color = "#333333" },
+          children = {
+            {
+              tag = "Button",
+              attributes = {
+                id = optionData.id,
+                image = "option_button",
+                onClick = "onClick_" .. optionData.id,
+                rectAlignment = "MiddleRight",
+                offsetXY = "-30 0",
+                colors = "#FFFFFF|#dfdfdf",
+                height = "108",
+                width = "195",
+                ignoreLayout = "True"
               }
             }
           }
         }
       end
+
+      table.insert(optionXML.children, typeXML)
       table.insert(optionPanelXML.children, optionXML)
     end
   end
   table.insert(xml, optionPanelXML)
+
+  -- set correct height
+  optionPanelXML.attributes.height = totalHeight
+
+  -- set correct position to align with playermat
+  optionPanelXML.attributes.position = (setAsideDirection * 270) .. " " .. (- 95 + scale * totalHeight / 2) .. " -65"
+
   self.UI.setXmlTable(xml)
+end
+
+function onClick_textureSelect(player)
+  local textureList = {}
+  for texture, url in pairs(nameToTexture) do
+    table.insert(textureList, texture)
+  end
+  player.showOptionsDialog("Select a texture:", textureList, _, updateTexture)
+end
+
+function onClick_handColorSelect(player)
+  local colorList = Player.getColors()
+
+  -- remove existing colors from the list of choices
+  for _, existingColor in ipairs(Player.getAvailableColors()) do
+    for i, newColor in ipairs(colorList) do
+      if existingColor == newColor or newColor == "Black" or newColor == "Grey" then
+        table.remove(colorList, i)
+      end
+    end
+  end
+
+  -- show the option dialog for color selection to the player that triggered this
+  player.showOptionsDialog("Select a new color:", colorList, _, function(color)
+    -- update the color of the hand zone
+    local handZone = ownedObjects.HandZone
+    handZone.setValue(color)
+
+    -- if the seated player clicked this, reseat him to the new color
+    if player.color == playerColor then
+      navigationOverlayApi.copyVisibility(playerColor, color)
+      Player[playerColor].changeColor(color)
+    end
+
+    -- update the internal variable
+    playerColor = color
+  end)
 end
 
 -- changes the UI state and the internal variable for the togglebuttons
@@ -930,40 +1013,6 @@ function resetSlotSymbols()
     table.insert(slotData, slotName)
   end
   updateSlotSymbols()
-end
-
----------------------------------------------------------
--- color related functions
----------------------------------------------------------
-
--- changes the player color
-function changeColor(clickedByColor)
-  local colorList = Player.getColors()
-
-  -- remove existing colors from the list of choices
-  for _, existingColor in ipairs(Player.getAvailableColors()) do
-    for i, newColor in ipairs(colorList) do
-      if existingColor == newColor or newColor == "Black" or newColor == "Grey" then
-        table.remove(colorList, i)
-      end
-    end
-  end
-
-  -- show the option dialog for color selection to the player that triggered this
-  Player[clickedByColor].showOptionsDialog("Select a new color:", colorList, _, function(color)
-    -- update the color of the hand zone
-    local handZone = ownedObjects.HandZone
-    handZone.setValue(color)
-
-    -- if the seated player clicked this, reseat him to the new color
-    if clickedByColor == playerColor then
-      navigationOverlayApi.copyVisibility(playerColor, color)
-      Player[playerColor].changeColor(color)
-    end
-
-    -- update the internal variable
-    playerColor = color
-  end)
 end
 
 ---------------------------------------------------------
