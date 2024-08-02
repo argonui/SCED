@@ -10,16 +10,19 @@ local tokenSpawnTrackerApi        = require("core/token/TokenSpawnTrackerApi")
 
 -- option panel data
 local availableOptions            = {
-  ["Personal Settings"] = {
+  ["PERSONAL SETTINGS"] = {
     {
-      id = "slotEditing",
-      title = "Enable Slot Edit Mode",
+      id      = "slotEditing",
+      title   = "Enable Slot Edit Mode",
       tooltip = "Makes each slot clickable to change the symbol.",
-      type = "toggle",
-      data = "false"
+      type    = "toggle"
     }
   }
 }
+
+-- stores the value for each id
+local optionPanelData             = {}
+optionPanelData.slotEditing       = false
 
 -- we use this to turn off collision handling until onLoad() is complete
 local collisionEnabled            = false
@@ -77,24 +80,24 @@ local buttonParameters            = {
 -- table of texture URLs
 local nameToTexture               = {
   Guardian = "https://steamusercontent-a.akamaihd.net/ugc/2501268517241599869/179119CA88170D9F5C87CD00D267E6F9F397D2F7/",
-  Mystic = "https://steamusercontent-a.akamaihd.net/ugc/2501268517241600113/F6473F92B3435C32A685BB4DC2A88C2504DDAC4F/",
-  Neutral = "https://steamusercontent-a.akamaihd.net/ugc/2462982115659543571/5D778EA4BC682DAE97E8F59A991BCF8CB3979B04/",
-  Rogue = "https://steamusercontent-a.akamaihd.net/ugc/2501268517241600395/00CFAFC13D7B6EACC147D22A40AF9FBBFFAF3136/",
-  Seeker = "https://steamusercontent-a.akamaihd.net/ugc/2501268517241600579/92DEB412D8D3A9C26D1795CEA0335480409C3E4B/",
+  Mystic   = "https://steamusercontent-a.akamaihd.net/ugc/2501268517241600113/F6473F92B3435C32A685BB4DC2A88C2504DDAC4F/",
+  Neutral  = "https://steamusercontent-a.akamaihd.net/ugc/2462982115659543571/5D778EA4BC682DAE97E8F59A991BCF8CB3979B04/",
+  Rogue    = "https://steamusercontent-a.akamaihd.net/ugc/2501268517241600395/00CFAFC13D7B6EACC147D22A40AF9FBBFFAF3136/",
+  Seeker   = "https://steamusercontent-a.akamaihd.net/ugc/2501268517241600579/92DEB412D8D3A9C26D1795CEA0335480409C3E4B/",
   Survivor = "https://steamusercontent-a.akamaihd.net/ugc/2501268517241600848/CEB685E9C8A4A3C18A4B677A519B49423B54E886/"
 }
 
 -- translation table for slot names to characters for special font
 local slotNameToChar              = {
-  ["any"] = "",
-  ["Accessory"] = "C",
-  ["Ally"] = "E",
-  ["Arcane"] = "G",
-  ["Body"] = "K",
+  ["any"]          = "",
+  ["Accessory"]    = "C",
+  ["Ally"]         = "E",
+  ["Arcane"]       = "G",
+  ["Body"]         = "K",
   ["Hand (right)"] = "M",
-  ["Hand (left)"] = "M",
-  ["Hand x2"] = "N",
-  ["Tarot"] = "A"
+  ["Hand (left)"]  = "M",
+  ["Hand x2"]      = "N",
+  ["Tarot"]        = "A"
 }
 
 -- slot symbol for the respective slot (from top left to bottom right) - intentionally global!
@@ -120,13 +123,18 @@ local ownedObjects                = {}
 local matColor                    = self.getMemo()
 
 function onSave()
+  log(optionPanelData)
+  log(type(optionPanelData))
+  log(optionPanelData.slotEditing)
+
   return JSON.encode({
     activeInvestigatorClass = activeInvestigatorClass,
-    activeInvestigatorId = activeInvestigatorId,
-    isClassTextureEnabled = isClassTextureEnabled,
-    isDrawButtonVisible = isDrawButtonVisible,
-    playerColor = playerColor,
-    slotData = slotData
+    activeInvestigatorId    = activeInvestigatorId,
+    isClassTextureEnabled   = isClassTextureEnabled,
+    isDrawButtonVisible     = isDrawButtonVisible,
+    optionPanelData         = optionPanelData,
+    playerColor             = playerColor,
+    slotData                = slotData
   })
 end
 
@@ -137,6 +145,7 @@ function onLoad(savedData)
     activeInvestigatorId    = loadedData.activeInvestigatorId
     isClassTextureEnabled   = loadedData.isClassTextureEnabled
     isDrawButtonVisible     = loadedData.isDrawButtonVisible
+    --optionPanelData         = loadedData.optionPanelData
     playerColor             = loadedData.playerColor
     slotData                = loadedData.slotData
   end
@@ -174,10 +183,10 @@ function onLoad(savedData)
   -- Upkeep button: can use the default parameters for this
   self.createButton(buttonParameters)
 
-  -- Slot editing button: modified default data
-  buttonParameters.label = "Edit Slots"
-  buttonParameters.click_function = "toggleSlotEditing"
-  buttonParameters.tooltip = "Right-click to reset slot symbols"
+  -- Discard 1 button: modified default data
+  buttonParameters.label = "Discard 1"
+  buttonParameters.click_function = "doDiscardOne"
+  buttonParameters.tooltip = "Discard one random card from hand (hidden cards are excluded)."
   buttonParameters.position.z = 0.92
   self.createButton(buttonParameters)
 
@@ -239,18 +248,6 @@ function round(num, numDecimalPlaces)
   return math.floor(num * mult + 0.5) / mult
 end
 
--- edits the label of a button
----@param oldLabel string Old label of the button
----@param newLabel string New label of the button
-function editButtonLabel(oldLabel, newLabel)
-  local buttons = self.getButtons()
-  for i = 1, #buttons do
-    if buttons[i].label == oldLabel then
-      self.editButton({ index = buttons[i].index, label = newLabel })
-    end
-  end
-end
-
 -- updates the internal "messageColor" which is used for print/broadcast statements if no player is seated
 ---@param clickedByColor string Colorstring of player who clicked a button
 function updateMessageColor(clickedByColor)
@@ -258,7 +255,7 @@ function updateMessageColor(clickedByColor)
 end
 
 ---------------------------------------------------------
--- Discard buttons
+-- Discard buttons (threat area)
 ---------------------------------------------------------
 
 -- handles discarding for a list of objects
@@ -418,7 +415,8 @@ function doUpkeep(_, clickedByColor, isRightClick)
       -- draw up to 5 cards
       local cardsToDraw = 5 - #handCards + #cardsToDiscard
       if cardsToDraw > 0 then
-        printToColor("Discarding " .. #cardsToDiscard .. " and drawing " .. cardsToDraw .. " card(s). (Patrice)", messageColor)
+        printToColor("Discarding " .. #cardsToDiscard .. " and drawing " .. cardsToDraw .. " card(s). (Patrice)",
+          messageColor)
 
         -- add some time if there are any cards to discard
         local k = 0
@@ -608,9 +606,12 @@ function doDiscardOne()
 
     -- get a random eligible card (from the "choices" table)
     local num = math.random(1, #choices)
-    deckLib.placeOrMergeIntoDeck(hand[choices[num]], returnGlobalDiscardPosition(), self.getRotation())
-    broadcastToAll(getColoredName(playerColor) .. " randomly discarded card "
-      .. choices[num] .. "/" .. #hand .. ".", "White")
+    local card = hand[choices[num]]
+    local cardName = card.getName()
+    local cardId = choices[num] .. "/" .. #hand
+
+    deckLib.placeOrMergeIntoDeck(card, returnGlobalDiscardPosition(), self.getRotation())
+    broadcastToAll(getColoredName(playerColor) .. " randomly discarded " .. cardName " (" .. cardId .. ").", "White")
   end
 end
 
@@ -714,18 +715,23 @@ function createXML()
   }
   table.insert(xml, defaultsXML)
 
+  -- work out the position
+  local bounds = self.getBoundsNormalized()
+  local setAsideDirection = bounds.center.z > 0 and 1 or -1
+
   -- main window
   local optionPanelXML = {
     tag = "TableLayout",
     attributes = {
-      scale = "0.2 0.2",
-      width = "600",
-      height = "600",
+      scale = "0.11 0.11",
+      width = "1000",
+      height = "1200",
       rotation = "0 0 180",
-      position = "300 0 -100",
+      position = (setAsideDirection * 270) .. " -35 -58",
       --active = "false",
+      raycastTarget = "true",
       color = "#000000",
-      outlineSize = "2 2",
+      outlineSize = "5 5",
       outline = "grey",
       showAnimation = "SlideIn_Right",
       hideAnimation = "SlideOut_Right",
@@ -735,18 +741,18 @@ function createXML()
       -- header
       {
         tag = "Row",
-        --attributes = { preferredHeight = "60" },
+        attributes = { preferredHeight = "200" },
         children = {
           {
             tag = "Cell",
             children = {
               {
                 tag = "Panel",
-                attributes = { padding = "10 0 0 0", scale = "0.3 0.3" },
+                attributes = { padding = "30 0 0 0" },
                 children = {
                   {
                     tag = "Text",
-                    attributes = { font = "font_teutonic-arkham", fontSize = "35", text = "Options" }
+                    attributes = { font = "font_teutonic-arkham", fontSize = "110", text = "Options" }
                   }
                 }
               }
@@ -762,19 +768,19 @@ function createXML()
     -- group header
     local groupXML = {
       tag = "Row",
-      --attributes = { preferredHeight = "44" },
+      attributes = { preferredHeight = "150" },
       children = {
         {
           tag = "Cell",
-          attributes = { padding = "10 10 0 0", columnSpan = "3", color = "#222222" },
+          attributes = { padding = "20 10 0 0", columnSpan = "3", color = "#222222" },
           children = {
             {
               tag = "Panel",
-              attributes = { padding = "5 0 0 0" },
+              attributes = { padding = "40 0 0 0" },
               children = {
                 {
                   tag = "Text",
-                  attributes = { fontSize = "28", font = "font_teutonic-arkham", text = groupName }
+                  attributes = { fontSize = "75", font = "font_teutonic-arkham", text = groupName }
                 }
               }
             }
@@ -782,26 +788,30 @@ function createXML()
         }
       }
     }
+    table.insert(optionPanelXML.children, groupXML)
 
     -- options
-    for i, optionData in ipairs(groupData) do
-      local optionXML = {
-        {
+    for _, optionData in ipairs(groupData) do
+      local optionXML = {}
+      if optionData.type ~= "toggle" then
+        log("This isn't implemented yet ;)")
+      else
+        optionXML = {
           tag = "Row",
-          --attributes = { preferredHeight = "50", tooltip = optionData.tooltip, tooltipPosition = "Left", tooltipBackgroundColor = "rgba(0,0,0,1)" },
+          attributes = { preferredHeight = "150", tooltip = optionData.tooltip, tooltipPosition = "Left", tooltipBackgroundColor = "rgba(0,0,0,1)" },
           children = {
             -- option title
             {
               tag = "Cell",
-              attributes = { padding = "10 10 5 5", color = "#333333", columnSpan = "2" },
+              attributes = { padding = "20 10 5 5", color = "#333333", columnSpan = "2" },
               children = {
                 {
                   tag = "Panel",
-                  attributes = { padding = "10 0 0 0" },
+                  attributes = { padding = "50 0 0 0" },
                   children = {
                     {
                       tag = "Text",
-                      attributes = { fontSize = "22", font = "font_teutonic-arkham", text = optionData.title }
+                      attributes = { fontSize = "65", font = "font_teutonic-arkham", text = optionData.title }
                     }
                   }
                 }
@@ -816,13 +826,13 @@ function createXML()
                   tag = "Button",
                   attributes = {
                     id = optionData.id,
-                    image = "option-off",
+                    image = optionData.data == true and "option_on" or "option_off",
                     onClick = "onClick_toggleOption",
                     rectAlignment = "MiddleRight",
                     offsetXY = "-30 0",
                     colors = "#FFFFFF|#dfdfdf",
-                    height = "36",
-                    width = "65",
+                    height = "72",
+                    width = "130",
                     ignoreLayout = "True"
                   }
                 }
@@ -830,16 +840,28 @@ function createXML()
             }
           }
         }
-      }
-      table.insert(groupXML.children, optionXML)
+      end
+      table.insert(optionPanelXML.children, optionXML)
     end
-    table.insert(optionPanelXML.children, groupXML)
   end
   table.insert(xml, optionPanelXML)
-
-  -- create buttons at the bottom
-
   self.UI.setXmlTable(xml)
+end
+
+-- changes the UI state and the internal variable for the togglebuttons
+function onClick_toggleOption(player, _, id)
+  local state = optionPanelData[id]
+  local newState = not state
+  applyOptionPanelChange(id, newState, player.color)
+  self.UI.setAttribute(id, "image", newState and "option_on" or "option_off")
+end
+
+function applyOptionPanelChange(id, state, clickedByColor)
+  optionPanelData[id] = state
+
+  if id == "slotEditing" then
+    toggleSlotEditing(_, clickedByColor)
+  end
 end
 
 -- updates the XML for the slot symbols based on the slotData table
