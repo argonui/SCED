@@ -8,6 +8,36 @@ local tokenChecker                = require("core/token/TokenChecker")
 local tokenManager                = require("core/token/TokenManager")
 local tokenSpawnTrackerApi        = require("core/token/TokenSpawnTrackerApi")
 
+-- option panel data
+local availableOptions            = {
+  ["PERSONAL SETTINGS"] = {
+    {
+      id    = "slotEditing",
+      title = "Enable Slot Edit Mode",
+      type  = "toggle"
+    },
+    {
+      id    = "textureSelect",
+      title = "Select Playermat Texture",
+      type  = "button"
+    },
+    {
+      id    = "handColorSelect",
+      title = "Select Hand Color",
+      type  = "button"
+    },
+    {
+      id    = "visibilitySelect",
+      title = "Show/Hide this Hand to me",
+      type  = "button"
+    }
+  }
+}
+
+-- stores the value for each id
+local optionPanelData             = {}
+optionPanelData.slotEditing       = false
+
 -- we use this to turn off collision handling until onLoad() is complete
 local collisionEnabled            = false
 local currentlyEditingSlots       = false
@@ -52,7 +82,7 @@ local ENCOUNTER_DISCARD_POSITION  = { x = -3.85, y = 1.5, z = 10.38 }
 local buttonParameters            = {
   label = "Upkeep",
   click_function = "doUpkeep",
-  tooltip = "Right-click to change color",
+  tooltip = "Right-click to skip resource gain and card draw",
   function_owner = self,
   position = { x = 1.82, y = 0.1, z = -0.45 },
   scale = { 0.12, 0.12, 0.12 },
@@ -64,24 +94,24 @@ local buttonParameters            = {
 -- table of texture URLs
 local nameToTexture               = {
   Guardian = "https://steamusercontent-a.akamaihd.net/ugc/2501268517241599869/179119CA88170D9F5C87CD00D267E6F9F397D2F7/",
-  Mystic = "https://steamusercontent-a.akamaihd.net/ugc/2501268517241600113/F6473F92B3435C32A685BB4DC2A88C2504DDAC4F/",
-  Neutral = "https://steamusercontent-a.akamaihd.net/ugc/2462982115659543571/5D778EA4BC682DAE97E8F59A991BCF8CB3979B04/",
-  Rogue = "https://steamusercontent-a.akamaihd.net/ugc/2501268517241600395/00CFAFC13D7B6EACC147D22A40AF9FBBFFAF3136/",
-  Seeker = "https://steamusercontent-a.akamaihd.net/ugc/2501268517241600579/92DEB412D8D3A9C26D1795CEA0335480409C3E4B/",
+  Mystic   = "https://steamusercontent-a.akamaihd.net/ugc/2501268517241600113/F6473F92B3435C32A685BB4DC2A88C2504DDAC4F/",
+  Neutral  = "https://steamusercontent-a.akamaihd.net/ugc/2462982115659543571/5D778EA4BC682DAE97E8F59A991BCF8CB3979B04/",
+  Rogue    = "https://steamusercontent-a.akamaihd.net/ugc/2501268517241600395/00CFAFC13D7B6EACC147D22A40AF9FBBFFAF3136/",
+  Seeker   = "https://steamusercontent-a.akamaihd.net/ugc/2501268517241600579/92DEB412D8D3A9C26D1795CEA0335480409C3E4B/",
   Survivor = "https://steamusercontent-a.akamaihd.net/ugc/2501268517241600848/CEB685E9C8A4A3C18A4B677A519B49423B54E886/"
 }
 
 -- translation table for slot names to characters for special font
 local slotNameToChar              = {
-  ["any"] = "",
-  ["Accessory"] = "C",
-  ["Ally"] = "E",
-  ["Arcane"] = "G",
-  ["Body"] = "K",
+  ["any"]          = "",
+  ["Accessory"]    = "C",
+  ["Ally"]         = "E",
+  ["Arcane"]       = "G",
+  ["Body"]         = "K",
   ["Hand (right)"] = "M",
-  ["Hand (left)"] = "M",
-  ["Hand x2"] = "N",
-  ["Tarot"] = "A"
+  ["Hand (left)"]  = "M",
+  ["Hand x2"]      = "N",
+  ["Tarot"]        = "A"
 }
 
 -- slot symbol for the respective slot (from top left to bottom right) - intentionally global!
@@ -94,38 +124,42 @@ local defaultSlotData             = {
   "any", "any", "any", "Accessory", "Arcane", "Arcane", "Body"
 }
 
--- global variables for access
-activeInvestigatorClass           = "Neutral"
-activeInvestigatorId              = "00000"
-hasDES                            = false
-
+local activeInvestigatorData      = {}
+local hasDES                      = false
 local isClassTextureEnabled       = true
 local isDrawButtonVisible         = false
+local optionPanelVisibility       = ""
 
 -- table of type-object reference pairs of all owned objects
 local ownedObjects                = {}
 local matColor                    = self.getMemo()
 
-function onSave()
-  return JSON.encode({
-    activeInvestigatorClass = activeInvestigatorClass,
-    activeInvestigatorId = activeInvestigatorId,
-    isClassTextureEnabled = isClassTextureEnabled,
-    isDrawButtonVisible = isDrawButtonVisible,
-    playerColor = playerColor,
-    slotData = slotData
+function updateSave()
+  optionPanelVisibility = self.UI.getAttribute("optionPanelMain", "visibility") or ""
+  self.script_state = JSON.encode({
+    activeInvestigatorData = activeInvestigatorData,
+    isClassTextureEnabled  = isClassTextureEnabled,
+    isDrawButtonVisible    = isDrawButtonVisible,
+    optionPanelData        = optionPanelData,
+    optionPanelVisibility  = optionPanelVisibility,
+    playerColor            = playerColor,
+    slotData               = slotData
   })
 end
 
 function onLoad(savedData)
   if savedData and savedData ~= "" then
-    local loadedData        = JSON.decode(savedData)
-    activeInvestigatorClass = loadedData.activeInvestigatorClass
-    activeInvestigatorId    = loadedData.activeInvestigatorId
-    isClassTextureEnabled   = loadedData.isClassTextureEnabled
-    isDrawButtonVisible     = loadedData.isDrawButtonVisible
-    playerColor             = loadedData.playerColor
-    slotData                = loadedData.slotData
+    local loadedData       = JSON.decode(savedData)
+    activeInvestigatorData = loadedData.activeInvestigatorData
+    isClassTextureEnabled  = loadedData.isClassTextureEnabled
+    isDrawButtonVisible    = loadedData.isDrawButtonVisible
+    optionPanelData        = loadedData.optionPanelData
+    optionPanelVisibility  = loadedData.optionPanelVisibility
+    playerColor            = loadedData.playerColor
+    slotData               = loadedData.slotData
+
+    -- make sure that edit mode starts disabled
+    optionPanelData.slotEditing = false
   end
 
   updateMessageColor(playerColor)
@@ -161,15 +195,15 @@ function onLoad(savedData)
   -- Upkeep button: can use the default parameters for this
   self.createButton(buttonParameters)
 
-  -- Slot editing button: modified default data
-  buttonParameters.label = "Edit Slots"
-  buttonParameters.click_function = "toggleSlotEditing"
-  buttonParameters.tooltip = "Right-click to reset slot symbols"
+  -- Discard 1 button: modified default data
+  buttonParameters.label = "Discard 1"
+  buttonParameters.click_function = "doDiscardOne"
+  buttonParameters.tooltip = "Discard one random card from hand (hidden cards are excluded)."
   buttonParameters.position.z = 0.92
   self.createButton(buttonParameters)
 
-  showDrawButton(isDrawButtonVisible)
-  redrawSlotSymbols()
+  showDrawButton()
+  createXML()
   math.randomseed(os.time())
   Wait.time(function() collisionEnabled = true end, 0.1)
 end
@@ -226,18 +260,6 @@ function round(num, numDecimalPlaces)
   return math.floor(num * mult + 0.5) / mult
 end
 
--- edits the label of a button
----@param oldLabel string Old label of the button
----@param newLabel string New label of the button
-function editButtonLabel(oldLabel, newLabel)
-  local buttons = self.getButtons()
-  for i = 1, #buttons do
-    if buttons[i].label == oldLabel then
-      self.editButton({ index = buttons[i].index, label = newLabel })
-    end
-  end
-end
-
 -- updates the internal "messageColor" which is used for print/broadcast statements if no player is seated
 ---@param clickedByColor string Colorstring of player who clicked a button
 function updateMessageColor(clickedByColor)
@@ -245,7 +267,7 @@ function updateMessageColor(clickedByColor)
 end
 
 ---------------------------------------------------------
--- Discard buttons
+-- Discard buttons (threat area)
 ---------------------------------------------------------
 
 -- handles discarding for a list of objects
@@ -303,11 +325,6 @@ function doUpkeepFromHotkey(clickedByColor)
 end
 
 function doUpkeep(_, clickedByColor, isRightClick)
-  if isRightClick then
-    changeColor(clickedByColor)
-    return
-  end
-
   updateMessageColor(clickedByColor)
 
   -- unexhaust cards in play zone, flip action tokens and find Forced Learning / Dream-Enhancing Serum
@@ -363,7 +380,7 @@ function doUpkeep(_, clickedByColor, isRightClick)
 
   -- flip investigator mini-card and summoned servitor mini-card
   -- (all characters allowed to account for custom IDs - e.g. 'Z0000' for TTS Zoop generated IDs)
-  local miniId = string.match(activeInvestigatorId, ".....") .. "-m"
+  local miniId = string.match(activeInvestigatorData.id, ".....") .. "-m"
   for _, obj in ipairs(getObjects()) do
     if obj.type == "Card" and obj.is_face_down then
       local notes = JSON.decode(obj.getGMNotes())
@@ -373,8 +390,13 @@ function doUpkeep(_, clickedByColor, isRightClick)
     end
   end
 
-  -- gain a resource (or two if playing Jenny Barnes)
-  if string.match(activeInvestigatorId, "%d%d%d%d%d") == "02003" then
+  if isRightClick then
+    printToColor("Skipping resource gain and card draw", messageColor)
+    return
+  end
+
+  -- gain a resource (or two if playing non-parallel Jenny Barnes)
+  if activeInvestigatorData.id == "02003" or activeInvestigatorData.id == "02003-pb" then
     updateCounter({ type = "ResourceCounter", modifier = 2 })
     printToColor("Gaining 2 resources (Jenny)", messageColor)
   else
@@ -382,7 +404,7 @@ function doUpkeep(_, clickedByColor, isRightClick)
   end
 
   -- draw a card (with handling for Patrice and Forced Learning)
-  if activeInvestigatorId == "06005" then
+  if activeInvestigatorData.id == "06005" then
     if forcedLearning then
       printToColor("Wow, did you really take 'Versatile' to play Patrice with 'Forced Learning'?"
         .. " Choose which draw replacement effect takes priority and draw cards accordingly.", messageColor)
@@ -405,7 +427,8 @@ function doUpkeep(_, clickedByColor, isRightClick)
       -- draw up to 5 cards
       local cardsToDraw = 5 - #handCards + #cardsToDiscard
       if cardsToDraw > 0 then
-        printToColor("Discarding " .. #cardsToDiscard .. " and drawing " .. cardsToDraw .. " card(s). (Patrice)", messageColor)
+        printToColor("Discarding " .. #cardsToDiscard .. " and drawing " .. cardsToDraw .. " card(s). (Patrice)",
+          messageColor)
 
         -- add some time if there are any cards to discard
         local k = 0
@@ -418,7 +441,7 @@ function doUpkeep(_, clickedByColor, isRightClick)
   elseif forcedLearning then
     printToColor("Drawing 2 cards, discard 1 (Forced Learning)", messageColor)
     drawCardsWithReshuffle(2)
-  elseif activeInvestigatorId == "89001" then
+  elseif activeInvestigatorData.id == "89001" then
     printToColor("Drawing 2 cards (Subject 5U-21)", messageColor)
     drawCardsWithReshuffle(2)
   else
@@ -438,14 +461,12 @@ function drawCardsWithReshuffle(numCards)
   local deckAreaObjects = getDeckAreaObjects()
 
   -- Norman Withers handling
-  local harbinger = false
-  if deckAreaObjects.topCard and deckAreaObjects.topCard.getName() == "The Harbinger" then
-    harbinger = true
+  local harbinger
+  if deckAreaObjects.topCard then
+    harbinger = isHarbinger(deckAreaObjects.topCard.getGMNotes())
   elseif deckAreaObjects.draw and not deckAreaObjects.draw.is_face_down then
     local cards = deckAreaObjects.draw.getObjects()
-    if cards[#cards].name == "The Harbinger" then
-      harbinger = true
-    end
+    harbinger = isHarbinger(cards[#cards].gm_notes)
   end
 
   if harbinger then
@@ -473,8 +494,7 @@ function drawCardsWithReshuffle(numCards)
 
   if deckSize >= numCards then
     drawCards(numCards)
-    -- flip top card again for Norman
-    if topCardDetected and string.match(activeInvestigatorId, "%d%d%d%d%d") == "08004" then
+    if topCardDetected then
       flipTopCardFromDeck()
     end
   else
@@ -483,14 +503,18 @@ function drawCardsWithReshuffle(numCards)
       shuffleDiscardIntoDeck()
       Wait.time(function()
         drawCards(numCards - deckSize)
-        -- flip top card again for Norman
-        if topCardDetected and string.match(activeInvestigatorId, "%d%d%d%d%d") == "08004" then
+        if topCardDetected then
           flipTopCardFromDeck()
         end
       end, 1)
     end
     printToColor("Take 1 horror (drawing card from empty deck)", messageColor)
   end
+end
+
+function isHarbinger(notes)
+  local md = JSON.decode(notes or "") or {}
+  return md.id == "08006"
 end
 
 -- get the draw deck and discard pile objects and returns the references
@@ -594,9 +618,13 @@ function doDiscardOne()
 
     -- get a random eligible card (from the "choices" table)
     local num = math.random(1, #choices)
-    deckLib.placeOrMergeIntoDeck(hand[choices[num]], returnGlobalDiscardPosition(), self.getRotation())
-    broadcastToAll(getColoredName(playerColor) .. " randomly discarded card "
-      .. choices[num] .. "/" .. #hand .. ".", "White")
+    local card = hand[choices[num]]
+    local cardName = card.getName()
+    local cardId = choices[num] .. "/" .. #hand
+
+    deckLib.placeOrMergeIntoDeck(card, returnGlobalDiscardPosition(), self.getRotation())
+    local playerName = Global.call("getColoredName", playerColor)
+    broadcastToAll(playerName .. " randomly discarded " .. cardName " (" .. cardId .. ").", "White")
   end
 end
 
@@ -631,15 +659,16 @@ function checkForDES()
 end
 
 ---------------------------------------------------------
--- slot symbol displaying
+-- XML creation and modifying
 ---------------------------------------------------------
 
--- this will redraw the XML for the slot symbols based on the slotData table
-function redrawSlotSymbols()
+-- initializes the XML
+function createXML()
   local xml = {}
-  local snapId = 0
 
+  -- create a panel for each slot symbol
   -- use the snap point positions in the main play area for positions
+  local snapId = 0
   for _, snap in ipairs(self.getSnapPoints()) do
     if inArea(snap.position, MAIN_PLAY_AREA) then
       snapId = snapId + 1
@@ -654,6 +683,8 @@ function redrawSlotSymbols()
         tag = "Panel",
         attributes = {
           id = "slotPanel" .. snapId,
+          raycastTarget = "false", -- this disables the click function temporarily
+          onClick = "slotClickFunction",
           scale = "0.1 0.1 1",
           width = "175",
           height = "175",
@@ -677,7 +708,322 @@ function redrawSlotSymbols()
     end
   end
 
+  -- create the personal option panel
+  local defaultsXML = {
+    tag = "Defaults",
+    children = {
+      {
+        tag = "Text",
+        attributes = { color = "#FFFFFF", alignment = "MiddleLeft" }
+      },
+      {
+        tag = "Dropdown",
+        attributes = { rectAlignment = "MiddleCenter" }
+      },
+      {
+        tag = "Cell",
+        attributes = { dontUseTableCellBackground = "true", outlineSize = "0 1", outline = "grey" }
+      }
+    }
+  }
+  table.insert(xml, defaultsXML)
+
+  -- work out the position
+  local bounds = self.getBoundsNormalized()
+  local setAsideDirection = bounds.center.z > 0 and 1 or -1
+
+  -- create a button to toggle the option panel visibility
+  local gearPos
+  if setAsideDirection == -1 then
+    -- next to upkeep button
+    gearPos = "-202 -45 -11"
+  else
+    -- below encounter card drawing
+    gearPos = "203 -21 -11"
+  end
+
+  local toggleOptionPanelXML = {
+    tag = "Button",
+    attributes = {
+      onClick = "onClick_hideOrShowOptions",
+      width = "7",
+      height = "7",
+      position = gearPos,
+      rotation = "0 0 180",
+      image = "option_gear_white"
+    }
+  }
+  table.insert(xml, toggleOptionPanelXML)
+
+  -- work out the size
+  local rowHeight = {
+    header = 200,
+    groupHeader = 150,
+    option = 150
+  }
+  local totalHeight = rowHeight.header
+  local scale = 0.11
+
+  -- main window
+  local optionPanelXML = {
+    tag = "TableLayout",
+    attributes = {
+      id = "optionPanelMain",
+      scale = scale .. " " .. scale,
+      width = "1000",
+      rotation = "0 0 180",
+      active = optionPanelVisibility ~= "",
+      visibility = optionPanelVisibility,
+      color = "#000000",
+      outlineSize = "5 5",
+      outline = "grey",
+      showAnimation = "SlideIn_Right",
+      hideAnimation = "SlideOut_Right",
+      animationDuration = "0.2"
+    },
+    children = {
+      -- header
+      {
+        tag = "Row",
+        attributes = { preferredHeight = rowHeight.header },
+        children = {
+          {
+            tag = "Cell",
+            children = {
+              {
+                tag = "Panel",
+                attributes = { padding = "30 0 0 0" },
+                children = {
+                  {
+                    tag = "Text",
+                    attributes = { font = "font_teutonic-arkham", fontSize = "110", text = "Options" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  -- add options groups
+  for groupName, groupData in pairs(availableOptions) do
+    totalHeight = totalHeight + rowHeight.groupHeader
+    -- group header
+    local groupXML = {
+      tag = "Row",
+      attributes = { preferredHeight = rowHeight.groupHeader },
+      children = {
+        {
+          tag = "Cell",
+          attributes = { padding = "20 10 0 0", columnSpan = "3", color = "#222222" },
+          children = {
+            {
+              tag = "Panel",
+              attributes = { padding = "40 0 0 0" },
+              children = {
+                {
+                  tag = "Text",
+                  attributes = { fontSize = "75", font = "font_teutonic-arkham", text = groupName }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    table.insert(optionPanelXML.children, groupXML)
+
+    -- options
+    for _, optionData in ipairs(groupData) do
+      totalHeight = totalHeight + rowHeight.option
+      local optionXML = {
+        tag = "Row",
+        attributes = { preferredHeight = rowHeight.option },
+        children = {
+          -- option title
+          {
+            tag = "Cell",
+            attributes = { padding = "20 10 5 5", color = "#333333", columnSpan = "2" },
+            children = {
+              {
+                tag = "Panel",
+                attributes = { padding = "50 0 0 0" },
+                children = {
+                  {
+                    tag = "Text",
+                    attributes = { fontSize = "65", font = "font_teutonic-arkham", text = optionData.title }
+                  }
+                }
+              }
+            }
+          },
+        }
+      }
+
+      local typeXML
+      if optionData.type == "toggle" then
+        typeXML = {
+          tag = "Cell",
+          attributes = { padding = "10 10 5 5", color = "#333333" },
+          children = {
+            {
+              tag = "Button",
+              attributes = {
+                id = optionData.id,
+                image = optionPanelData[optionData.id] and "option_on" or "option_off",
+                onClick = "onClick_toggleOption",
+                rectAlignment = "MiddleRight",
+                offsetXY = "-30 0",
+                colors = "#FFFFFF|#dfdfdf",
+                height = "108",
+                width = "195",
+                ignoreLayout = "True"
+              }
+            }
+          }
+        }
+      elseif optionData.type == "button" then
+        typeXML = {
+          tag = "Cell",
+          attributes = { padding = "10 10 5 5", color = "#333333" },
+          children = {
+            {
+              tag = "Button",
+              attributes = {
+                id = optionData.id,
+                image = "option_button",
+                onClick = "onClick_" .. optionData.id,
+                rectAlignment = "MiddleRight",
+                offsetXY = "-30 0",
+                colors = "#FFFFFF|#dfdfdf",
+                height = "108",
+                width = "195",
+                ignoreLayout = "True"
+              }
+            }
+          }
+        }
+      end
+      table.insert(optionXML.children, typeXML)
+      table.insert(optionPanelXML.children, optionXML)
+    end
+  end
+  table.insert(xml, optionPanelXML)
+
+  -- set correct height
+  optionPanelXML.attributes.height = totalHeight
+
+  -- set correct position to align with playermat
+  optionPanelXML.attributes.position = (setAsideDirection * 270) .. " " .. (-95 + scale * totalHeight / 2) .. " -65"
+
   self.UI.setXmlTable(xml)
+end
+
+function onClick_hideOrShowOptions(player)
+  Global.call("changeWindowVisibilityForColorWrapper", {
+    color = player.color,
+    windowId = "optionPanelMain",
+    owner = self
+  })
+end
+
+-- show the triggering player a dialog to select a playermat texture
+function onClick_textureSelect(player)
+  local textureList = {}
+  for texture, _ in pairs(nameToTexture) do
+    table.insert(textureList, texture)
+  end
+  player.showOptionsDialog("Select a texture:", textureList, _, updateTexture)
+end
+
+-- show the triggering player a dialog to select a new hand color for this mat
+function onClick_handColorSelect(player)
+  local colorList = Player.getColors()
+
+  -- remove existing colors from the list of choices
+  for _, existingColor in ipairs(Player.getAvailableColors()) do
+    for i, newColor in ipairs(colorList) do
+      if existingColor == newColor or newColor == "Black" or newColor == "Grey" then
+        table.remove(colorList, i)
+      end
+    end
+  end
+
+  -- show the option dialog for color selection to the player that triggered this
+  player.showOptionsDialog("Select a new color:", colorList, _, function(newColor)
+    -- update the color of the hand zone
+    local handZone = ownedObjects.HandZone
+    handZone.setValue(newColor)
+
+    -- update visibility for old and new color
+    Global.call("changeWindowVisibilityForColorWrapper", {
+      color = playerColor,
+      windowId = "optionPanelMain",
+      owner = self
+    })
+    Global.call("changeWindowVisibilityForColorWrapper", {
+      color = newColor,
+      windowId = "optionPanelMain",
+      owner = self
+    })
+    navigationOverlayApi.copyVisibility(playerColor, newColor)
+
+    -- if there was a seated player, reseat to the new color
+    if Player[playerColor].seated then
+      Player[playerColor].changeColor(newColor)
+    else
+      printToColor("Updated handcolor for this playermat to " .. newColor .. ".", player.color)
+    end
+
+    -- update the internal variable
+    playerColor = newColor
+    updateSave()
+  end)
+end
+
+-- instruct Global to update this mat's hand visibility
+function onClick_visibilitySelect(player)
+  if player.color == playerColor then
+    printToColor("This is meant to be clicked by other players to be able to see your hand (primarily for multi-handed gameplay). It won't do anything for you.", playerColor)
+    return
+  end
+
+  Global.call("handVisibilityToggle", { playerColor = player.color, handColor = playerColor })
+end
+
+-- changes the UI state and the internal variable for the togglebuttons
+function onClick_toggleOption(player, _, id)
+  local state = optionPanelData[id]
+  local newState = not state
+  applyOptionPanelChange(id, newState, player.color)
+  self.UI.setAttribute(id, "image", newState and "option_on" or "option_off")
+end
+
+function applyOptionPanelChange(id, state, clickedByColor)
+  optionPanelData[id] = state
+  updateSave()
+
+  if id == "slotEditing" then
+    toggleSlotEditing(_, clickedByColor)
+  end
+end
+
+-- updates the XML for the slot symbols based on the slotData table
+function updateSlotSymbols()
+  for slotId, slotName in ipairs(slotData) do
+    -- update the symbol
+    self.UI.setAttributes("slot" .. slotId, {
+      rotation = getSlotRotation(slotName),
+      text = slotNameToChar[slotName]
+    })
+
+    -- update availability of the click function
+    self.UI.setAttribute("slotPanel" .. slotId, "raycastTarget", currentlyEditingSlots)
+  end
+
+  -- TODO: update the "edit slots button"?
 end
 
 -- toggle the "slot editing mode"
@@ -691,19 +1037,17 @@ function toggleSlotEditing(_, clickedByColor, isRightClick)
 
   -- toggle internal variable
   currentlyEditingSlots = not currentlyEditingSlots
+  updateSlotSymbols()
 
   if currentlyEditingSlots then
-    editButtonLabel("Edit Slots", "Stop editing")
     broadcastToColor("Click on a slot symbol (or an empty slot) to edit it.", messageColor, "Orange")
-    addClickFunctionToSlots()
   else
-    editButtonLabel("Stop editing", "Edit Slots")
-    redrawSlotSymbols()
+    updateSave()
   end
 end
 
 -- click function for slot symbols during the "slot editing mode"
-function slotClickfunction(player, _, id)
+function slotClickFunction(player, _, id)
   local slotIndex = id:gsub("slotPanel", "")
   slotIndex = tonumber(slotIndex)
 
@@ -717,12 +1061,7 @@ function slotClickfunction(player, _, id)
   player.showOptionsDialog("Choose Slot Symbol", slotNames, slotData[slotIndex],
     function(chosenSlotName)
       slotData[slotIndex] = chosenSlotName
-
-      -- update slot symbol
-      self.UI.setAttribute("slot" .. slotIndex, "text", slotNameToChar[chosenSlotName])
-
-      -- update slot rotation
-      self.UI.setAttribute("slot" .. slotIndex, "rotation", getSlotRotation(chosenSlotName))
+      updateSlotSymbols()
     end
   )
 end
@@ -742,54 +1081,8 @@ function resetSlotSymbols()
   for _, slotName in ipairs(defaultSlotData) do
     table.insert(slotData, slotName)
   end
-
-  redrawSlotSymbols()
-
-  -- need to re-add the click functions if currently in edit mode
-  if currentlyEditingSlots then
-    addClickFunctionToSlots()
-  end
-end
-
--- enables the click functions for editing
-function addClickFunctionToSlots()
-  for i = 1, #slotData do
-    self.UI.setAttribute("slotPanel" .. i, "onClick", "slotClickfunction")
-  end
-end
-
----------------------------------------------------------
--- color related functions
----------------------------------------------------------
-
--- changes the player color
-function changeColor(clickedByColor)
-  local colorList = Player.getColors()
-
-  -- remove existing colors from the list of choices
-  for _, existingColor in ipairs(Player.getAvailableColors()) do
-    for i, newColor in ipairs(colorList) do
-      if existingColor == newColor or newColor == "Black" or newColor == "Grey" then
-        table.remove(colorList, i)
-      end
-    end
-  end
-
-  -- show the option dialog for color selection to the player that triggered this
-  Player[clickedByColor].showOptionsDialog("Select a new color:", colorList, _, function(color)
-    -- update the color of the hand zone
-    local handZone = ownedObjects.HandZone
-    handZone.setValue(color)
-
-    -- if the seated player clicked this, reseat him to the new color
-    if clickedByColor == playerColor then
-      navigationOverlayApi.copyVisibility(playerColor, color)
-      Player[playerColor].changeColor(color)
-    end
-
-    -- update the internal variable
-    playerColor = color
-  end)
+  updateSave()
+  updateSlotSymbols()
 end
 
 ---------------------------------------------------------
@@ -833,7 +1126,9 @@ end
 
 function spawnTokensFor(object)
   local extraUses = {}
-  if activeInvestigatorId == "03004" then
+
+  -- add one additional charge for Akachi Onyele
+  if activeInvestigatorData.id == "03004" then
     extraUses["Charge"] = 1
   end
 
@@ -939,9 +1234,9 @@ function maybeUpdateActiveInvestigator(card)
   local extraToken
 
   if notes ~= nil and notes.type == "Investigator" and notes.id ~= nil then
-    if notes.id == activeInvestigatorId then return end
-    activeInvestigatorClass = notes.class
-    activeInvestigatorId = notes.id
+    if notes.id == activeInvestigatorData.id then return end
+    activeInvestigatorData.class = notes.class
+    activeInvestigatorData.id = notes.id
     extraToken = notes.extraToken
     ownedObjects.InvestigatorSkillTracker.call("updateStats", {
       notes.willpowerIcons,
@@ -950,9 +1245,9 @@ function maybeUpdateActiveInvestigator(card)
       notes.agilityIcons
     })
     updateTexture()
-  elseif activeInvestigatorId ~= "00000" then
-    activeInvestigatorClass = "Neutral"
-    activeInvestigatorId = "00000"
+  elseif activeInvestigatorData.id ~= "00000" then
+    activeInvestigatorData.class = "Neutral"
+    activeInvestigatorData.id = "00000"
     ownedObjects.InvestigatorSkillTracker.call("updateStats", { 1, 1, 1, 1 })
     updateTexture()
   else
@@ -980,7 +1275,8 @@ function maybeUpdateActiveInvestigator(card)
 
     tokenManager.spawnToken(pos, "universalActionAbility", self.getRotation(),
       function(spawned)
-        spawned.call("updateClassAndSymbol", { class = activeInvestigatorClass, symbol = activeInvestigatorClass })
+        spawned.call("updateClassAndSymbol",
+          { class = activeInvestigatorData.class, symbol = activeInvestigatorData.class })
       end)
   end
 
@@ -1015,7 +1311,7 @@ function maybeUpdateActiveInvestigator(card)
 
         tokenManager.spawnToken(globalSpawnPos, "universalActionAbility", self.getRotation(),
           function(spawned)
-            spawned.call("updateClassAndSymbol", { class = activeInvestigatorClass, symbol = str })
+            spawned.call("updateClassAndSymbol", { class = activeInvestigatorData.class, symbol = str })
           end)
       end
     end
@@ -1025,11 +1321,13 @@ end
 -- updates the texture of the playermat
 ---@param overrideName? string Force a specific texture
 function updateTexture(overrideName)
+  updateSave()
+
   local name = "Neutral"
 
   -- use class specific texture if enabled
   if isClassTextureEnabled then
-    name = activeInvestigatorClass
+    name = activeInvestigatorData.class
   end
 
   -- get new texture URL
@@ -1052,8 +1350,8 @@ function updateTexture(overrideName)
       end
     end
 
-    self.script_state = onSave()
     customInfo.image = newUrl
+    ---@diagnostic disable-next-line: param-type-mismatch
     self.setCustomObject(customInfo)
     local reloadedMat = self.reload()
 
@@ -1146,9 +1444,12 @@ function getEncounterCardDrawPosition(stack)
 end
 
 -- creates / removes the draw 1 button
----@param visible boolean Whether the draw 1 button should be visible
+---@param visible? boolean Whether the draw 1 button should be visible
 function showDrawButton(visible)
-  isDrawButtonVisible = visible
+  if visible then
+    isDrawButtonVisible = visible
+    updateSave()
+  end
 
   if isDrawButtonVisible then
     -- Draw 1 button: modified default data
@@ -1277,13 +1578,9 @@ function updatePlayerCards(args)
   tokenManager.addPlayerCardData(playerCardData)
 end
 
--- returns the colored steam name or color
-function getColoredName(playerColor)
-  local displayName = playerColor
-  if Player[playerColor].steam_name then
-    displayName = Player[playerColor].steam_name
-  end
 
-  -- add bb-code
-  return "[" .. Color.fromString(playerColor):toHex() .. "]" .. displayName .. "[-]"
-end
+function getActiveInvestigatorData() return activeInvestigatorData end
+
+function setActiveInvestigatorData(newData) activeInvestigatorData = newData end
+
+function getDES() return hasDES end

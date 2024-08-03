@@ -40,7 +40,7 @@ local bagSearchers = {}
 local hideTitleSplashWaitFunctionId = nil
 
 -- online functionality related variables
-local MOD_VERSION = "3.9.0"
+local MOD_VERSION = "3.9.1"
 local SOURCE_REPO = "https://github.com/Chr1Z93/SCED-downloads/releases/latest/download/"
 local library, requestObj, modMeta
 local acknowledgedUpgradeVersions = {}
@@ -70,6 +70,9 @@ local RESOURCE_OPTIONS = {
   "custom",
   "disabled"
 }
+
+-- tracks the visibility of each hand
+local handVisibility = {}
 
 ---------------------------------------------------------
 -- data for tokens
@@ -119,19 +122,21 @@ function onSave()
   end
 
   return JSON.encode({
-    optionPanel = optionPanel,
     acknowledgedUpgradeVersions = acknowledgedUpgradeVersions,
-    chaosTokensLastMatGUID = chaosTokensLastMatGUID,
-    chaosTokensGUID = chaosTokensGUID
+    chaosTokensLastMatGUID      = chaosTokensLastMatGUID,
+    chaosTokensGUID             = chaosTokensGUID,
+    handVisibility              = handVisibility,
+    optionPanel                 = optionPanel
   })
 end
 
 function onLoad(savedData)
   if savedData and savedData ~= "" then
-    local loadedData = JSON.decode(savedData)
-    optionPanel = loadedData.optionPanel
+    local loadedData            = JSON.decode(savedData)
     acknowledgedUpgradeVersions = loadedData.acknowledgedUpgradeVersions
-    chaosTokensLastMatGUID = loadedData.chaosTokensLastMatGUID
+    chaosTokensLastMatGUID      = loadedData.chaosTokensLastMatGUID
+    handVisibility              = loadedData.handVisibility
+    optionPanel                 = loadedData.optionPanel
 
     -- restore saved state for drawn chaos tokens
     for _, guid in ipairs(loadedData.chaosTokensGUID or {}) do
@@ -147,6 +152,7 @@ function onLoad(savedData)
   end
 
   getModVersion()
+  updateHandVisibility()
   math.randomseed(os.time())
 
   -- initialization of loadable objects library (delay to let Navigation Overlay build)
@@ -223,6 +229,8 @@ function onObjectEnterZone(zone, object)
         object.call("resetSealedTokens")
       end
     end
+
+    applyHidingToCard(object, zone.getValue())
   end
 end
 
@@ -238,6 +246,9 @@ function onObjectLeaveZone(zone, object)
       if zone.type == "Hand" and object.hasTag("CardWithHelper") then
         object.call("syncDisplayWithOptionPanel")
       end
+
+      -- make object visible
+      object.setHiddenFrom({})
     end, 1)
 end
 
@@ -258,18 +269,13 @@ function onObjectNumberTyped(hoveredObject, playerColor, number)
   end
 
   -- check whether the hovered object is part of a players draw objects
-  for _, color in ipairs(playermatApi.getUsedMatColors()) do
+  for color, _ in pairs(guidReferenceApi.getObjectsByType("Playermat")) do
     local deckAreaObjects = playermatApi.getDeckAreaObjects(color)
     if deckAreaObjects.topCard == hoveredObject or deckAreaObjects.draw == hoveredObject then
       playermatApi.drawCardsWithReshuffle(color, number)
       return true
     end
   end
-end
-
--- TTS event, used to redraw the playermat slot symbols after a small delay to account for the custom font loading
-function onPlayerConnect()
-  Wait.time(function() playermatApi.redrawSlotSymbols("All") end, 0.2)
 end
 
 -- disable delete action (only applies to promoted players) and discard objects instead
@@ -437,7 +443,7 @@ function returnAndRedraw(_, tokenGUID)
 
   -- perform the actual token replacing
   trackChaosToken(tokenName, mat.getGUID(), true)
-  local params = {token = returnedToken, fromBag = true}
+  local params = { token = returnedToken, fromBag = true }
   returnChaosTokenToBag(params)
 
   chaosTokens[indexOfReturnedToken] = drawChaosToken({
@@ -1169,14 +1175,24 @@ function onClick_toggleUi(player, windowId)
   changeWindowVisibilityForColor(player.color, windowId)
 end
 
+function changeWindowVisibilityForColorWrapper(params)
+  changeWindowVisibilityForColor(params.color, params.windowId, params.overrideState, params.owner)
+end
+
 -- toggles the visibility of the specific window for the specified color
 ---@param color string Player color to toggle the visibility for
 ---@param windowId string ID of the XML element
 ---@param overrideState? boolean Forcefully sets the new visibility
+---@param owner? tts__Object Object that owns the XML (or nil if Global)
 ---@return boolean visible Returns the new state of the visibility
-function changeWindowVisibilityForColor(color, windowId, overrideState)
+function changeWindowVisibilityForColor(color, windowId, overrideState, owner)
+  local targetUi = UI
+  if owner then
+    targetUi = owner.UI
+  end
+
   -- current state
-  local colorString = UI.getAttribute(windowId, "visibility") or ""
+  local colorString = targetUi.getAttribute(windowId, "visibility") or ""
 
   -- parse the visibility string
   local visible = false
@@ -1215,8 +1231,8 @@ function changeWindowVisibilityForColor(color, windowId, overrideState)
   newColorString = newColorString:sub(1, -2)
 
   -- update the visibility of the XML
-  UI.setAttribute(windowId, "visibility", newColorString)
-  UI.setAttribute(windowId, "active", newColorString ~= "")
+  targetUi.setAttribute(windowId, "visibility", newColorString)
+  targetUi.setAttribute(windowId, "active", newColorString ~= "")
 
   return visible
 end
@@ -1373,7 +1389,7 @@ function contentDownloadCallback(request, params)
   if not spawnTable.position then
     local pos = getValidSpawnPosition()
     if not pos then
-      broadcastToAll("Please make space in the area below the tentacle stand in the upper middle of the table and try again.", "Red")
+      broadcastToAll("Please make sure there's space in the upper middle of the table and try again.", "Red")
       return
     end
 
@@ -1540,6 +1556,12 @@ end
 -- removes a playermat and all related objects from play
 ---@param matColor string Color of the playermat to remove
 function removePlayermat(matColor)
+  -- if there's a seated player, move them to grey
+  local handColor = playermatApi.getPlayerColor(matColor)
+  if Player[handColor].seated then
+    Player[handColor].changeColor("Grey")
+  end
+
   local matObjects = guidReferenceApi.getObjectsByOwner(matColor)
   if not matObjects.Playermat then return end
 
@@ -1787,6 +1809,74 @@ function toggleCardHelpers(state)
   end
 end
 
+-- toggles the hand visibility of a hand for a specific player
+function handVisibilityToggle(params)
+  local playerColor = params.playerColor
+  local handColor = params.handColor
+
+  -- collect data for message
+  local state, preposition
+
+  -- modify data table
+  if not handVisibility[handColor] then
+    handVisibility[handColor] = { playerColor, handColor }
+    state, preposition = "Showing", "to"
+  elseif removeValueFromTable(handVisibility[handColor], playerColor) then
+    -- something was removed, maybe clear the table
+    if #handVisibility[handColor] == 1 and handVisibility[handColor][1] == handColor then
+      handVisibility[handColor] = nil
+    end
+    state, preposition = "Hiding", "from"
+  else
+    -- add the new color as viewer
+    table.insert(handVisibility[handColor], playerColor)
+    state, preposition = "Showing", "to"
+  end
+
+  local sourceName = getColoredName(handColor)
+  local targetName = getColoredName(playerColor)
+  broadcastToAll(state .. " " .. sourceName .. "'s hand " .. preposition .. " " .. targetName .. ".")
+  updateHandVisibility()
+end
+
+function updateHandVisibility()
+  -- update the global setting
+  if not next(handVisibility) then
+    Hands.hiding = 1
+  else
+    Hands.hiding = 3
+  end
+
+  -- update visibility of cards already in hands (delay seems to be necessary)
+  Wait.frames(function()
+    for _, handColor in ipairs(Player.getAvailableColors()) do
+      for _, handObj in ipairs(Player[handColor].getHandObjects()) do
+        applyHidingToCard(handObj, handColor)
+      end
+    end
+  end, 1)
+end
+
+-- maybe hide card from non-allowed players
+---@param card tts__Object Card to maybe hide
+---@param handColor? string Color of the hand this card is in
+function applyHidingToCard(card, handColor)
+  if next(handVisibility) then
+    local viewers = { handColor }
+    if handColor and handVisibility[handColor] then
+      viewers = handVisibility[handColor]
+    end
+
+    local hiddenFrom = Player.getColors()
+    for _, viewer in ipairs(viewers) do
+      removeValueFromTable(hiddenFrom, viewer)
+    end
+    card.setHiddenFrom(hiddenFrom)
+  else
+    card.setHiddenFrom({})
+  end
+end
+
 ---------------------------------------------------------
 -- Update notification related functionality
 ---------------------------------------------------------
@@ -1860,13 +1950,15 @@ end
 ---------------------------------------------------------
 
 -- removes a value from a table
+---@return boolean: True if something was removed
 function removeValueFromTable(t, val)
   for i, v in ipairs(t) do
     if v == val then
       table.remove(t, i)
-      break
+      return true
     end
   end
+  return false
 end
 
 -- checks if a table is empty
@@ -1876,4 +1968,15 @@ function isTableEmpty(tbl)
   else
     return false
   end
+end
+
+-- returns the colored steam name or color
+function getColoredName(playerColor)
+  local displayName = playerColor
+  if Player[playerColor].steam_name then
+    displayName = Player[playerColor].steam_name
+  end
+
+  -- add bb-code
+  return "[" .. Color.fromString(playerColor):toHex() .. "]" .. displayName .. "[-]"
 end
