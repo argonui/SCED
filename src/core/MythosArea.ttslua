@@ -54,33 +54,48 @@ function onCollisionEnter(collisionInfo)
   -- early exit for better performance
   if object.type ~= "Card" then return end
 
-  -- get scenario name and maybe fire followup event
-  if object.getName() == "Scenario" then
-    local description = object.getDescription()
-
-    -- detect if a new scenario card is placed down
-    if currentScenario ~= description then
-      currentScenario = description
-      fireScenarioChangedEvent()
-    end
-
-    local metadata = JSON.decode(object.getGMNotes()) or {}
-    if not metadata["tokens"] then
-      tokenData = {}
-      return
-    end
-
-    -- detect orientation of scenario card (for difficulty)
-    useFrontData = not object.is_face_down
-    tokenData = metadata["tokens"][(useFrontData and "front" or "back")]
-    fireTokenDataChangedEvent()
-  end
-
+  -- reset spawned tokens and remove tokens from cards in encounter deck / discard area
   local localPos = self.positionToLocal(object.getPosition())
   if inArea(localPos, ENCOUNTER_DECK_AREA) or inArea(localPos, ENCOUNTER_DISCARD_AREA) then
     Wait.frames(function() tokenSpawnTrackerApi.resetTokensSpawned(object) end, 1)
     removeTokensFromObject(object)
+    return
   end
+
+  -- get metadata
+  local md = JSON.decode(object.getGMNotes()) or {}
+
+  -- get scenario name and maybe fire followup event
+  local cardName = object.getName()
+  if object.getName() == "Scenario" or md.type == "ScenarioReference" then
+    getDataFromReferenceCard(object, cardName, md)
+  end
+end
+
+-- maybe load data from reference card
+function getDataFromReferenceCard(card, cardName, md)
+  local newScenarioName
+  if cardName == "Scenario" then
+    newScenarioName = card.getDescription()
+  else
+    newScenarioName = cardName
+  end
+
+  -- detect if a new scenario card is placed down
+  if currentScenario ~= newScenarioName then
+    currentScenario = newScenarioName
+    fireScenarioChangedEvent()
+  end
+
+  if not md["tokens"] then
+    tokenData = {}
+    return
+  end
+
+  -- detect orientation of scenario card (for difficulty)
+  useFrontData = not card.is_face_down
+  tokenData = md["tokens"][(useFrontData and "front" or "back")]
+  fireTokenDataChangedEvent()
 end
 
 -- TTS event handler. Handles scenario name event triggering
