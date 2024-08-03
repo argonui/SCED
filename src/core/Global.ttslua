@@ -71,6 +71,9 @@ local RESOURCE_OPTIONS = {
   "disabled"
 }
 
+-- tracks the visibility of each hand
+local handVisibility = {}
+
 ---------------------------------------------------------
 -- data for tokens
 ---------------------------------------------------------
@@ -119,19 +122,21 @@ function onSave()
   end
 
   return JSON.encode({
-    optionPanel = optionPanel,
     acknowledgedUpgradeVersions = acknowledgedUpgradeVersions,
-    chaosTokensLastMatGUID = chaosTokensLastMatGUID,
-    chaosTokensGUID = chaosTokensGUID
+    chaosTokensLastMatGUID      = chaosTokensLastMatGUID,
+    chaosTokensGUID             = chaosTokensGUID,
+    handVisibility              = handVisibility,
+    optionPanel                 = optionPanel
   })
 end
 
 function onLoad(savedData)
   if savedData and savedData ~= "" then
-    local loadedData = JSON.decode(savedData)
-    optionPanel = loadedData.optionPanel
+    local loadedData            = JSON.decode(savedData)
     acknowledgedUpgradeVersions = loadedData.acknowledgedUpgradeVersions
-    chaosTokensLastMatGUID = loadedData.chaosTokensLastMatGUID
+    chaosTokensLastMatGUID      = loadedData.chaosTokensLastMatGUID
+    handVisibility              = loadedData.handVisibility
+    optionPanel                 = loadedData.optionPanel
 
     -- restore saved state for drawn chaos tokens
     for _, guid in ipairs(loadedData.chaosTokensGUID or {}) do
@@ -147,6 +152,7 @@ function onLoad(savedData)
   end
 
   getModVersion()
+  updateHandVisibility()
   math.randomseed(os.time())
 
   -- initialization of loadable objects library (delay to let Navigation Overlay build)
@@ -223,6 +229,8 @@ function onObjectEnterZone(zone, object)
         object.call("resetSealedTokens")
       end
     end
+
+    applyHidingToCard(object, zone.getValue())
   end
 end
 
@@ -238,6 +246,9 @@ function onObjectLeaveZone(zone, object)
       if zone.type == "Hand" and object.hasTag("CardWithHelper") then
         object.call("syncDisplayWithOptionPanel")
       end
+
+      -- make object visible
+      object.setHiddenFrom({})
     end, 1)
 end
 
@@ -432,7 +443,7 @@ function returnAndRedraw(_, tokenGUID)
 
   -- perform the actual token replacing
   trackChaosToken(tokenName, mat.getGUID(), true)
-  local params = {token = returnedToken, fromBag = true}
+  local params = { token = returnedToken, fromBag = true }
   returnChaosTokenToBag(params)
 
   chaosTokens[indexOfReturnedToken] = drawChaosToken({
@@ -1234,8 +1245,7 @@ end
 -- updates the preview window
 function updatePreviewWindow()
   local item = library[contentToShow][currentListItem]
-  local tempImage =
-  "https://steamusercontent-a.akamaihd.net/ugc/2115061845788345842/2CD6ABC551555CCF58F9D0DDB7620197BA398B06/"
+  local tempImage = "https://steamusercontent-a.akamaihd.net/ugc/2115061845788345842/2CD6ABC551555CCF58F9D0DDB7620197BA398B06/"
 
   -- set default image if not defined
   if item.boxsize == nil or item.boxsize == "" or item.boxart == nil or item.boxart == "" then
@@ -1397,8 +1407,7 @@ function contentDownloadCallback(request, params)
     if pos then
       spawnTable.position = pos
     else
-      broadcastToAll(
-      "Please make space in the area below the tentacle stand in the upper middle of the table and try again.", "Red")
+      broadcastToAll("Please make sure there's space in the upper middle of the table and try again.", "Red")
       return
     end
   end
@@ -1819,6 +1828,74 @@ function toggleCardHelpers(state)
   end
 end
 
+-- toggles the hand visibility of a hand for a specific player
+function handVisibilityToggle(params)
+  local playerColor = params.playerColor
+  local handColor = params.handColor
+
+  -- collect data for message
+  local state, preposition
+
+  -- modify data table
+  if not handVisibility[handColor] then
+    handVisibility[handColor] = { playerColor, handColor }
+    state, preposition = "Showing", "to"
+  elseif removeValueFromTable(handVisibility[handColor], playerColor) then
+    -- something was removed, maybe clear the table
+    if #handVisibility[handColor] == 1 and handVisibility[handColor][1] == handColor then
+      handVisibility[handColor] = nil
+    end
+    state, preposition = "Hiding", "from"
+  else
+    -- add the new color as viewer
+    table.insert(handVisibility[handColor], playerColor)
+    state, preposition = "Showing", "to"
+  end
+
+  local sourceName = getColoredName(handColor)
+  local targetName = getColoredName(playerColor)
+  broadcastToAll(state .. " " .. sourceName .. "'s hand " .. preposition .. " " .. targetName .. ".")
+  updateHandVisibility()
+end
+
+function updateHandVisibility()
+  -- update the global setting
+  if not next(handVisibility) then
+    Hands.hiding = 1
+  else
+    Hands.hiding = 3
+  end
+
+  -- update visibility of cards already in hands (delay seems to be necessary)
+  Wait.frames(function()
+    for _, handColor in ipairs(Player.getAvailableColors()) do
+      for _, handObj in ipairs(Player[handColor].getHandObjects()) do
+        applyHidingToCard(handObj, handColor)
+      end
+    end
+  end, 1)
+end
+
+-- maybe hide card from non-allowed players
+---@param card tts__Object Card to maybe hide
+---@param handColor? string Color of the hand this card is in
+function applyHidingToCard(card, handColor)
+  if next(handVisibility) then
+    local viewers = { handColor }
+    if handColor and handVisibility[handColor] then
+      viewers = handVisibility[handColor]
+    end
+
+    local hiddenFrom = Player.getColors()
+    for _, viewer in ipairs(viewers) do
+      removeValueFromTable(hiddenFrom, viewer)
+    end
+    card.setHiddenFrom(hiddenFrom)
+  else
+    card.setHiddenFrom({})
+  end
+end
+
 ---------------------------------------------------------
 -- Update notification related functionality
 ---------------------------------------------------------
@@ -1892,13 +1969,15 @@ end
 ---------------------------------------------------------
 
 -- removes a value from a table
+---@return boolean: True if something was removed
 function removeValueFromTable(t, val)
   for i, v in ipairs(t) do
     if v == val then
       table.remove(t, i)
-      break
+      return true
     end
   end
+  return false
 end
 
 -- checks if a table is empty
@@ -1908,4 +1987,15 @@ function isTableEmpty(tbl)
   else
     return false
   end
+end
+
+-- returns the colored steam name or color
+function getColoredName(playerColor)
+  local displayName = playerColor
+  if Player[playerColor].steam_name then
+    displayName = Player[playerColor].steam_name
+  end
+
+  -- add bb-code
+  return "[" .. Color.fromString(playerColor):toHex() .. "]" .. displayName .. "[-]"
 end
