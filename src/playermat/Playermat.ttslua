@@ -25,6 +25,11 @@ local availableOptions            = {
       id    = "handColorSelect",
       title = "Select Hand Color",
       type  = "button"
+    },
+    {
+      id    = "visibilitySelect",
+      title = "Show/Hide this Hand to me",
+      type  = "button"
     }
   }
 }
@@ -618,7 +623,8 @@ function doDiscardOne()
     local cardId = choices[num] .. "/" .. #hand
 
     deckLib.placeOrMergeIntoDeck(card, returnGlobalDiscardPosition(), self.getRotation())
-    broadcastToAll(getColoredName(playerColor) .. " randomly discarded " .. cardName " (" .. cardId .. ").", "White")
+    local playerName = Global.call("getColoredName", playerColor)
+    broadcastToAll(playerName .. " randomly discarded " .. cardName " (" .. cardId .. ").", "White")
   end
 end
 
@@ -923,6 +929,7 @@ function onClick_hideOrShowOptions(player)
   })
 end
 
+-- show the triggering player a dialog to select a playermat texture
 function onClick_textureSelect(player)
   local textureList = {}
   for texture, _ in pairs(nameToTexture) do
@@ -931,6 +938,7 @@ function onClick_textureSelect(player)
   player.showOptionsDialog("Select a texture:", textureList, _, updateTexture)
 end
 
+-- show the triggering player a dialog to select a new hand color for this mat
 function onClick_handColorSelect(player)
   local colorList = Player.getColors()
 
@@ -973,6 +981,16 @@ function onClick_handColorSelect(player)
     playerColor = newColor
     updateSave()
   end)
+end
+
+-- instruct Global to update this mat's hand visibility
+function onClick_visibilitySelect(player)
+  if player.color == playerColor then
+    printToColor("This is meant to be clicked by other players to be able to see your hand (primarily for multi-handed gameplay). It won't do anything for you.", playerColor)
+    return
+  end
+
+  Global.call("handVisibilityToggle", { playerColor = player.color, handColor = playerColor })
 end
 
 -- changes the UI state and the internal variable for the togglebuttons
@@ -1560,16 +1578,6 @@ function updatePlayerCards(args)
   tokenManager.addPlayerCardData(playerCardData)
 end
 
--- returns the colored steam name or color
-function getColoredName(playerColor)
-  local displayName = playerColor
-  if Player[playerColor].steam_name then
-    displayName = Player[playerColor].steam_name
-  end
-
-  -- add bb-code
-  return "[" .. Color.fromString(playerColor):toHex() .. "]" .. displayName .. "[-]"
-end
 
 function getActiveInvestigatorData() return activeInvestigatorData end
 
