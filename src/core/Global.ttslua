@@ -1,24 +1,24 @@
-local blessCurseManagerApi = require("chaosbag/BlessCurseManagerApi")
-local guidReferenceApi = require("core/GUIDReferenceApi")
-local mythosAreaApi = require("core/MythosAreaApi")
-local navigationOverlayApi = require("core/NavigationOverlayApi")
-local playAreaApi = require("core/PlayAreaApi")
-local playermatApi = require("playermat/PlayermatApi")
-local searchLib = require("util/SearchLib")
-local soundCubeApi = require("core/SoundCubeApi")
-local tokenArrangerApi = require("accessories/TokenArrangerApi")
-local tokenChecker = require("core/token/TokenChecker")
-local tokenManager = require("core/token/TokenManager")
+local blessCurseManagerApi          = require("chaosbag/BlessCurseManagerApi")
+local guidReferenceApi              = require("core/GUIDReferenceApi")
+local mythosAreaApi                 = require("core/MythosAreaApi")
+local navigationOverlayApi          = require("core/NavigationOverlayApi")
+local playAreaApi                   = require("core/PlayAreaApi")
+local playermatApi                  = require("playermat/PlayermatApi")
+local searchLib                     = require("util/SearchLib")
+local soundCubeApi                  = require("core/SoundCubeApi")
+local tokenArrangerApi              = require("accessories/TokenArrangerApi")
+local tokenChecker                  = require("core/token/TokenChecker")
+local tokenSpawnTrackerApi          = require("core/token/TokenSpawnTrackerApi")
 
 ---------------------------------------------------------
 -- general setup
 ---------------------------------------------------------
 
-ENCOUNTER_DECK_POS = { -3.93, 1, 5.76 }
-ENCOUNTER_DECK_DISCARD_POSITION = { -3.85, 1, 10.38 }
+ENCOUNTER_DECK_POS                  = { -3.93, 1, 5.76 }
+ENCOUNTER_DECK_DISCARD_POSITION     = { -3.85, 1, 10.38 }
 
 -- GUIDs that will not be interactable (e.g. parts of the table)
-local NOT_INTERACTABLE = {
+local NOT_INTERACTABLE              = {
   "6161b4", -- Decoration-Map
   "9f334f", -- MythosArea
   "463022", -- Panel behind tentacle stand
@@ -30,23 +30,23 @@ local NOT_INTERACTABLE = {
   "975c39", -- vertical border right
 }
 
-local chaosTokens = {}
-local chaosTokensLastMatGUID = nil
+local chaosTokens                   = {}
+local chaosTokensLastMatGUID        = nil
 
 -- chaos token stat tracking
-local tokenDrawingStats = { ["Overall"] = {} }
+local tokenDrawingStats             = { ["Overall"] = {} }
 
-local bagSearchers = {}
+local bagSearchers                  = {}
 local hideTitleSplashWaitFunctionId = nil
 
 -- online functionality related variables
-local MOD_VERSION = "3.9.1"
-local SOURCE_REPO = 'https://raw.githubusercontent.com/chr1z93/loadable-objects/main'
+local MOD_VERSION                   = "3.9.1"
+local SOURCE_REPO                   = 'https://raw.githubusercontent.com/chr1z93/loadable-objects/main'
 local library, requestObj, modMeta
-local acknowledgedUpgradeVersions = {}
-local contentToShow = "campaigns"
-local currentListItem = 1
-local tabIdTable = {
+local acknowledgedUpgradeVersions   = {}
+local contentToShow                 = "campaigns"
+local currentListItem               = 1
+local tabIdTable                    = {
   tab1 = "campaigns",
   tab2 = "scenarios",
   tab3 = "fanmadeCampaigns",
@@ -55,8 +55,8 @@ local tabIdTable = {
 }
 
 -- optionPanel data (intentionally not local!)
-optionPanel = {}
-local LANGUAGES = {
+optionPanel                         = {}
+local LANGUAGES                     = {
   { code = "zh_CN", name = "简体中文" },
   { code = "zh_TW", name = "繁體中文" },
   { code = "de", name = "Deutsch" },
@@ -65,7 +65,7 @@ local LANGUAGES = {
   { code = "fr", name = "Français" },
   { code = "it", name = "Italiano" }
 }
-local RESOURCE_OPTIONS = {
+local RESOURCE_OPTIONS              = {
   "enabled",
   "custom",
   "disabled"
@@ -75,7 +75,7 @@ local RESOURCE_OPTIONS = {
 -- data for tokens
 ---------------------------------------------------------
 
-TOKEN_DATA = {
+TOKEN_DATA                          = {
   damage   = { image = "https://steamusercontent-a.akamaihd.net/ugc/1758068501357115146/903D11AAE7BD5C254C8DC136E9202EE516289DEA/", scale = { 0.17, 0.17, 0.17 } },
   horror   = { image = "https://steamusercontent-a.akamaihd.net/ugc/1758068501357163535/6D9E0756503664D65BDB384656AC6D4BD713F5FC/", scale = { 0.17, 0.17, 0.17 } },
   resource = { image = "https://steamusercontent-a.akamaihd.net/ugc/1758068501357192910/11DDDC7EF621320962FDCF3AE3211D5EDC3D1573/", scale = { 0.17, 0.17, 0.17 } },
@@ -83,7 +83,7 @@ TOKEN_DATA = {
   clue     = { image = "https://steamusercontent-a.akamaihd.net/ugc/1758068501357164917/1D06F1DC4D6888B6F57124BD2AFE20D0B0DA15A8/", scale = { 0.15, 0.15, 0.15 } }
 }
 
-ID_URL_MAP = {
+ID_URL_MAP                          = {
   ['blue']    = { name = "Elder Sign", url = 'https://i.imgur.com/nEmqjmj.png' },
   ['p1']      = { name = "+1", url = 'https://i.imgur.com/uIx8jbY.png' },
   ['0']       = { name = "0", url = 'https://i.imgur.com/btEtVfd.png' },
@@ -103,6 +103,26 @@ ID_URL_MAP = {
   ['bless']   = { name = "Bless", url = 'https://steamusercontent-a.akamaihd.net/ugc/1655601092778627699/339FB716CB25CA6025C338F13AFDFD9AC6FA8356/' },
   ['curse']   = { name = "Curse", url = 'https://steamusercontent-a.akamaihd.net/ugc/1655601092778636039/2A25BD38E8C44701D80DD96BF0121DA21843672E/' },
   ['frost']   = { name = "Frost", url = 'https://steamusercontent-a.akamaihd.net/ugc/1858293462583104677/195F93C063A8881B805CE2FD4767A9718B27B6AE/' }
+}
+
+TokenManager                        = {}
+local tokenOffsets                  = {}
+
+-- Table of data extracted from the token source bag, keyed by the Memo on each token which
+-- should match the token type keys ("resource", "clue", etc)
+local tokenTemplates
+local playerCardData, locationData
+
+-- stateIDs for the multi-stated resource tokens
+local stateTable                    = {
+  ["resource"] = 1,
+  ["ammo"]     = 2,
+  ["bounty"]   = 3,
+  ["charge"]   = 4,
+  ["evidence"] = 5,
+  ["secret"]   = 6,
+  ["supply"]   = 7,
+  ["offering"] = 8
 }
 
 ---------------------------------------------------------
@@ -148,6 +168,7 @@ function onLoad(savedData)
 
   getModVersion()
   math.randomseed(os.time())
+  TokenManager.initialiize()
 
   -- initialization of loadable objects library (delay to let Navigation Overlay build)
   Wait.time(function()
@@ -432,7 +453,7 @@ function returnAndRedraw(_, tokenGUID)
 
   -- perform the actual token replacing
   trackChaosToken(tokenName, mat.getGUID(), true)
-  local params = {token = returnedToken, fromBag = true}
+  local params = { token = returnedToken, fromBag = true }
   returnChaosTokenToBag(params)
 
   chaosTokens[indexOfReturnedToken] = drawChaosToken({
@@ -566,11 +587,15 @@ end
 -- token spawning
 ---------------------------------------------------------
 
--- DEPRECATED. Use TokenManager instead.
+-- DEPRECATED. Use TokenManager instead --> TODO: Remove this with the new downloads repo (v.4.0.0)
 -- Spawns a single token.
 ---@param params table Array with arguments to the method. 1 = position, 2 = type, 3 = rotation
 function spawnToken(params)
-  return tokenManager.spawnToken(params[1], params[2], params[3])
+  return TokenManager.spawnToken({
+    position = params[1],
+    tokenType = params[2],
+    rotation = params[3]
+  })
 end
 
 ---------------------------------------------------------
@@ -1153,12 +1178,9 @@ function onClick_toggleUi(player, windowId)
     return
   end
 
-  -- hide the playAreaGallery if visible
-  if windowId == "downloadWindow" then
-    changeWindowVisibilityForColor(player.color, "playAreaGallery", false)
-    -- hide the downloadWindow if visible
-  elseif windowId == "playAreaGallery" then
-    changeWindowVisibilityForColor(player.color, "downloadWindow", false)
+  -- hide the playAreaGallery / downloadWindow if visible
+  if windowId == "downloadWindow" or windowId == "playAreaGallery" then
+    changeWindowVisibilityForColor(player.color, windowId, false)
   end
 
   changeWindowVisibilityForColor(player.color, windowId)
@@ -1236,7 +1258,8 @@ function updatePreviewWindow()
   -- set default image if not defined
   if item.boxsize == nil or item.boxsize == "" or item.boxart == nil or item.boxart == "" then
     item.boxsize = "big"
-    item.boxart = "https://steamusercontent-a.akamaihd.net/ugc/762723517667628371/18438B0A0045038A7099648AA3346DFCAA267C66/"
+    item.boxart =
+    "https://steamusercontent-a.akamaihd.net/ugc/762723517667628371/18438B0A0045038A7099648AA3346DFCAA267C66/"
   end
 
   UI.setValue("previewTitle", item.name)
@@ -1394,7 +1417,7 @@ function contentDownloadCallback(request, params)
       spawnTable.position = pos
     else
       broadcastToAll(
-      "Please make space in the area below the tentacle stand in the upper middle of the table and try again.", "Red")
+        "Please make space in the area below the tentacle stand in the upper middle of the table and try again.", "Red")
       return
     end
   end
@@ -1881,6 +1904,479 @@ function onClick_notification(_, parameter)
   end
   UI.hide("FinnIcon")
   UI.hide("updateNotification")
+end
+
+---------------------------------------------------------
+-- Token Manager
+---------------------------------------------------------
+
+function TokenManager.initialiize()
+  TokenManager.generateOffsets(12)
+end
+
+-- Generates the offsets for tokens on a card (clues on locations are different and have their own function)
+---@param maxTokens number Maximum amount of tokens on a card
+function TokenManager.generateOffsets(maxTokens)
+  tokenOffsets = {}
+  for numTokens = 1, maxTokens do
+    if numTokens == 1 then
+      tokenOffsets[1] = Vector(0, 3, -0.2)
+    else
+      local offsets = {}
+      local rows = math.min(4, math.ceil(numTokens / 3))
+      local tokensPlaced = 0
+      for row = 1, rows do
+        local y = 3
+        local z = -0.9 + (row - 1) * 0.7
+        local tokensInRow = math.min(3, numTokens - tokensPlaced)
+        for col = 1, tokensInRow do
+          local x = 0
+          if tokensInRow == 2 then
+            x = col == 1 and -0.4 or 0.4
+          elseif tokensInRow == 3 then
+            x = (col - 2) * 0.7
+          end
+          table.insert(offsets, Vector(x, y, z))
+          tokensPlaced = tokensPlaced + 1
+        end
+      end
+      tokenOffsets[numTokens] = offsets
+    end
+  end
+end
+
+-- Spawns tokens for the card. This function is built to just throw a card at it and let it do
+-- the work once a card has hit an area where it might spawn tokens. It will check to see if
+-- the card has already spawned, find appropriate data from either the uses metadata or the Data
+-- Helper, and spawn the tokens.
+function TokenManager.spawnForCard(params)
+  if tokenSpawnTrackerApi.hasSpawnedTokens(params.card.getGUID()) then return end
+  local metadata = JSON.decode(params.card.getGMNotes())
+  if metadata ~= nil then
+    TokenManager.spawnTokensFromUses(params.card, params.extraUses)
+  else
+    TokenManager.spawnTokensFromDataHelper(params.card)
+  end
+end
+
+-- Spawns a set of tokens on the given card.
+function TokenManager.spawnTokenGroup(param)
+  local card = param.card
+  local tokenType = param.tokenType
+  local tokenCount = param.tokenCount
+  local shiftDown = param.shiftDown
+  local subType = param.subType
+
+  if tokenType == "damage" or tokenType == "horror" then
+    TokenManager.spawnCounterToken(card, tokenType, tokenCount, shiftDown)
+  elseif tokenType == "resource" and optionPanel["useResourceCounters"] == "enabled" then
+    TokenManager.spawnResourceCounterToken(card, tokenCount)
+  elseif tokenType == "resource" and optionPanel["useResourceCounters"] == "custom" and tokenCount == 0 then
+    TokenManager.spawnResourceCounterToken(card, tokenCount)
+  else
+    TokenManager.spawnMultipleTokens(card, tokenType, tokenCount, shiftDown, subType)
+  end
+end
+
+-- Spawns a single counter token and sets the value to tokenValue. Used for damage and horror tokens.
+---@param card tts__Object Card to spawn tokens on
+---@param tokenType string Type of token to spawn (template needs to be in source bag)
+---@param tokenValue number Value to set the damage/horror to
+function TokenManager.spawnCounterToken(card, tokenType, tokenValue, shiftDown)
+  if tokenValue < 1 or tokenValue > 50 then return end
+
+  local pos = card.positionToWorld(tokenOffsets[1][1] + Vector(0, 0, shiftDown))
+  local rot = card.getRotation()
+
+  TokenManager.spawnToken({
+    position = pos,
+    tokenType = tokenType,
+    rotation = rot,
+    callback = function(spawned)
+      -- token starts in state 1, so don't attempt to change it to avoid error
+      if tokenValue ~= 1 then
+        spawned.setState(tokenValue)
+      end
+    end
+  })
+end
+
+TokenManager.spawnResourceCounterToken = function(card, tokenCount)
+  local pos = card.positionToWorld(card.positionToLocal(card.getPosition()) + Vector(0, 0.2, -0.5))
+  local rot = card.getRotation()
+
+  TokenManager.spawnToken({
+    position = pos,
+    tokenType = "resourceCounter",
+    rotation = rot,
+    callback = function(spawned)
+      spawned.call("updateVal", tokenCount)
+    end
+  })
+end
+
+-- Spawns a number of tokens.
+---@param tokenType string Type of token to spawn (template needs to be in source bag)
+---@param tokenCount number How many tokens to spawn
+---@param shiftDown? number An offset for the z-value of this group of tokens
+---@param subType? string Subtype of token to spawn. This will only differ from the tokenName for resource or action tokens
+function TokenManager.spawnMultipleTokens(card, tokenType, tokenCount, shiftDown, subType)
+  if tokenCount < 1 then return end
+
+  local offsets = {}
+  if tokenType == "clue" then
+    offsets = TokenManager.buildClueOffsets(card, tokenCount)
+  else
+    if tokenCount > 12 then
+      printToAll("Attempting to spawn " .. tokenCount .. " tokens. Spawning clickable counter instead.")
+      TokenManager.spawnResourceCounterToken(card, tokenCount)
+      return
+    end
+    for i = 1, tokenCount do
+      offsets[i] = card.positionToWorld(tokenOffsets[tokenCount][i])
+    end
+  end
+
+  if shiftDown ~= nil then
+    -- Copy the offsets to make sure we don't change the static values
+    local baseOffsets = offsets
+    offsets = {}
+
+    -- get a vector for the shifting (downwards local to the card)
+    local shiftDownVector = Vector(0, 0, shiftDown):rotateOver("y", card.getRotation().y)
+    for i, baseOffset in ipairs(baseOffsets) do
+      offsets[i] = baseOffset + shiftDownVector
+    end
+  end
+
+  if offsets == nil then
+    error("couldn't find offsets for " .. tokenCount .. ' tokens')
+    return
+  end
+
+  -- this is used to load the correct state for additional resource tokens (e.g. "Ammo")
+  local callback = nil
+  local stateID = stateTable[string.lower(subType or "")]
+  if tokenType == "resource" and stateID ~= nil and stateID ~= 1 then
+    callback = function(spawned) spawned.setState(stateID) end
+  elseif tokenType == "universalActionAbility" then
+    local matColor = playermatApi.getMatColorByPosition(card.getPosition())
+    local class = playermatApi.returnInvestigatorClass(matColor)
+    callback = function(spawned) spawned.call("updateClassAndSymbol", { class = class, symbol = subType or class }) end
+  end
+
+  for i = 1, tokenCount do
+    TokenManager.spawnToken({
+      position = offsets[i],
+      tokenType = tokenType,
+      rotation = card.getRotation(),
+      callback = callback
+    })
+  end
+end
+
+-- Spawns a single token at the given global position by copying it from the template bag.
+function TokenManager.spawnToken(params)
+  local position = params.position
+  local rotation = params.rotation
+  local tokenType = params.tokenType
+  local callback = params.callback
+
+  TokenManager.initTokenTemplates()
+
+  local loadTokenType = tokenType
+  if tokenType == "clue" or tokenType == "doom" then
+    loadTokenType = "clueDoom"
+  end
+
+  local tokenTemplate = tokenTemplates[loadTokenType]
+  if tokenTemplate == nil then
+    error("Unknown token type '" .. loadTokenType .. "'")
+    return
+  end
+
+  -- Take ONLY the Y-value for rotation, so we don't flip the token coming out of the bag
+  local rot = Vector(tokenTemplate.Transform.rotX, 270, tokenTemplate.Transform.rotZ)
+  if rotation ~= nil then
+    rot.y = rotation.y
+  end
+  if tokenType == "doom" then
+    rot.z = 180
+  end
+
+  tokenTemplate.Nickname = ""
+  return spawnObjectData({
+    data = tokenTemplate,
+    position = position,
+    rotation = rot,
+    callback_function = callback
+  })
+end
+
+-- Checks a card for metadata to maybe replenish it
+function TokenManager.maybeReplenishCard(params)
+  for _, useInfo in ipairs(params.uses) do
+    if useInfo.count and useInfo.replenish then
+      TokenManager.replenishTokens(params.card, useInfo)
+    end
+  end
+end
+
+-- Pushes new player card data into the local copy of the Data Helper player data.
+---@param dataTable table Key/Value pairs following the DataHelper style
+function TokenManager.addPlayerCardData(dataTable)
+  TokenManager.initDataHelperData()
+  for k, v in pairs(dataTable) do
+    playerCardData[k] = v
+  end
+end
+
+-- Pushes new location data into the local copy of the Data Helper location data.
+---@param dataTable table Key/Value pairs following the DataHelper style
+function TokenManager.addLocationData(dataTable)
+  TokenManager.initDataHelperData()
+  for k, v in pairs(dataTable) do
+    locationData[k] = v
+  end
+end
+
+-- Checks to see if the given card has location data in the DataHelper
+---@param card tts__Object Card to check for data
+---@return boolean: True if this card has data in the helper, false otherwise
+function TokenManager.hasLocationData(card)
+  TokenManager.initDataHelperData()
+  return TokenManager.getLocationData(card) ~= nil
+end
+
+function TokenManager.initTokenTemplates()
+  if tokenTemplates ~= nil then return end
+  tokenTemplates = {}
+  local tokenSource = guidReferenceApi.getObjectByOwnerAndType("Mythos", "TokenSource")
+  for _, tokenTemplate in ipairs(tokenSource.getData().ContainedObjects) do
+    local tokenName = tokenTemplate.Memo
+    tokenTemplates[tokenName] = tokenTemplate
+  end
+end
+
+-- Copies the data from the DataHelper. Will only happen once.
+function TokenManager.initDataHelperData()
+  if playerCardData ~= nil then return end
+  local dataHelper = guidReferenceApi.getObjectByOwnerAndType("Mythos", "DataHelper")
+  playerCardData = dataHelper.getTable('PLAYER_CARD_DATA')
+  locationData = dataHelper.getTable('LOCATIONS_DATA')
+end
+
+-- Spawn tokens for a card based on the uses metadata. This will consider the face up/down state
+-- of the card for both locations and standard cards.
+---@param card tts__Object Card to maybe spawn tokens for
+---@param extraUses table A table of <use type>=<count> which will modify the number of tokens
+---    spawned for that type. e.g. Akachi's playermat should pass "Charge"=1
+function TokenManager.spawnTokensFromUses(card, extraUses)
+  local uses = TokenManager.getUses(card)
+  if uses == nil then return end
+
+  -- go through tokens to spawn
+  local tokenCount
+  for i, useInfo in ipairs(uses) do
+    tokenCount = (useInfo.count or 0) + (useInfo.countPerInvestigator or 0) * playAreaApi.getInvestigatorCount()
+    if extraUses ~= nil and extraUses[useInfo.type] ~= nil then
+      tokenCount = tokenCount + extraUses[useInfo.type]
+    end
+    -- Shift each spawned group after the first down so they don't pile on each other
+    TokenManager.spawnTokenGroup({
+      card = card,
+      tokenType = useInfo.token,
+      tokenCount = tokenCount,
+      shiftDown = (i - 1) * 0.8,
+      subType = useInfo.type
+    })
+  end
+
+  tokenSpawnTrackerApi.markTokensSpawned(card.getGUID())
+end
+
+-- Spawn tokens for a card based on the data helper data. This will consider the face up/down state
+-- of the card for both locations and standard cards.
+---@param card tts__Object Card to maybe spawn tokens for
+function TokenManager.spawnTokensFromDataHelper(card)
+  TokenManager.initDataHelperData()
+  local playerData = TokenManager.getPlayerCardData(card)
+  if playerData ~= nil then
+    TokenManager.spawnPlayerCardTokensFromDataHelper(card, playerData)
+  end
+  local specificLocationData = TokenManager.getLocationData(card)
+  if specificLocationData ~= nil then
+    TokenManager.spawnLocationTokensFromDataHelper(card, specificLocationData)
+  end
+end
+
+-- Spawn tokens for a player card using data retrieved from the Data Helper.
+---@param card tts__Object Card to maybe spawn tokens for
+---@param playerData table Player card data structure retrieved from the DataHelper. Should be
+--     the right data for this card.
+function TokenManager.spawnPlayerCardTokensFromDataHelper(card, playerData)
+  TokenManager.spawnTokenGroup({
+    card = card,
+    tokenType = playerData.tokenType,
+    tokenCount = playerData.tokenCount
+  })
+  tokenSpawnTrackerApi.markTokensSpawned(card.getGUID())
+end
+
+-- Spawn tokens for a location using data retrieved from the Data Helper.
+---@param card tts__Object Card to maybe spawn tokens for
+---@param locationData table Location data structure retrieved from the DataHelper. Should be
+--     the right data for this card.
+function TokenManager.spawnLocationTokensFromDataHelper(card, locationData)
+  local clueCount = TokenManager.getClueCountFromData(card, locationData)
+  if clueCount > 0 then
+    TokenManager.spawnTokenGroup({ card = card, tokenType = "clue", tokenCount = clueCount })
+    tokenSpawnTrackerApi.markTokensSpawned(card.getGUID())
+  end
+end
+
+function TokenManager.getPlayerCardData(card)
+  return playerCardData[card.getName() .. ':' .. card.getDescription()]
+      or playerCardData[card.getName()]
+end
+
+function TokenManager.getLocationData(card)
+  return locationData[card.getName() .. '_' .. card.getGUID()] or locationData[card.getName()]
+end
+
+function TokenManager.getClueCountFromData(card, locationData)
+  -- Return the number of clues to spawn on this location
+  if locationData == nil then
+    error('attempted to get clue for unexpected object: ' .. card.getName())
+    return 0
+  end
+
+  if ((card.is_face_down and locationData.clueSide == 'back')
+        or (not card.is_face_down and locationData.clueSide == 'front')) then
+    if locationData.type == 'fixed' then
+      return locationData.value
+    elseif locationData.type == 'perPlayer' then
+      return locationData.value * playAreaApi.getInvestigatorCount()
+    end
+    error('unexpected location type: ' .. locationData.type)
+  end
+  return 0
+end
+
+-- Gets the right uses structure for this card, based on metadata and face up/down state
+---@param card tts__Object Card to pull the uses from
+TokenManager.getUses = function(card)
+  local metadata = JSON.decode(card.getGMNotes()) or {}
+  if metadata.type == "Location" then
+    if card.is_face_down and metadata.locationBack ~= nil then
+      return metadata.locationBack.uses
+    elseif not card.is_face_down and metadata.locationFront ~= nil then
+      return metadata.locationFront.uses
+    end
+  elseif not card.is_face_down then
+    return metadata.uses
+  end
+  return nil
+end
+
+-- Dynamically create positions for clues on a card
+---@param card tts__Object Card the clues will be placed on
+---@param count number How many clues?
+---@return table: Array of global positions to spawn the clues at
+TokenManager.buildClueOffsets = function(card, count)
+  -- make sure clues always spawn from left to right
+  local modifier = card.is_face_down and 1 or -1
+
+  local cluePositions = {}
+  for i = 1, count do
+    -- get the set number (1 for clue 1-16, 2 for 17-32 etc.)
+    local set = math.floor((i - 1) / 16) + 1
+
+    -- get the local index (always number from 1-16)
+    local localIndex = (i - 1) % 16
+
+    -- get row and column for this clue
+    local row = math.floor(localIndex / 4) + 1
+    local column = localIndex % 4
+
+    -- calculate local position
+    local localPos = Vector((-0.825 + 0.55 * column) * modifier, 0, -1.5 + 0.55 * row)
+
+    -- get the global clue position (higher y-position for each set)
+    local cluePos = card.positionToWorld(localPos) + Vector(0, 0.03 + 0.103 * (set - 1), 0)
+
+    -- add position to table
+    table.insert(cluePositions, cluePos)
+  end
+  return cluePositions
+end
+
+---@param card tts__Object Card object to be replenished
+---@param useInfo table The already decoded subtable of metadata.uses (to avoid decoding again)
+TokenManager.replenishTokens = function(card, useInfo)
+  -- get current amount of matching resource tokens on the card
+  local clickableResourceCounter = nil
+  local foundTokens = 0
+
+  local maybeDeleteThese = {}
+  if useInfo.token == "clue" then
+    for _, obj in ipairs(searchLib.onObject(card, "isClue")) do
+      foundTokens = foundTokens + math.abs(obj.getQuantity())
+      table.insert(maybeDeleteThese, obj)
+    end
+  elseif useInfo.token == "doom" then
+    for _, obj in ipairs(searchLib.onObject(card, "isDoom")) do
+      foundTokens = foundTokens + math.abs(obj.getQuantity())
+      table.insert(maybeDeleteThese, obj)
+    end
+  else
+    -- search for the token instead if there's no special resource state for it
+    local searchType = string.lower(useInfo.type)
+    if stateTable[searchType] == nil then
+      searchType = useInfo.token
+    end
+
+    for _, obj in ipairs(searchLib.onObject(card, "isTileOrToken")) do
+      local memo = obj.getMemo()
+      if searchType == memo then
+        foundTokens = foundTokens + math.abs(obj.getQuantity())
+        table.insert(maybeDeleteThese, obj)
+      elseif memo == "resourceCounter" then
+        foundTokens = obj.getVar("val")
+        clickableResourceCounter = obj
+        break
+      end
+    end
+  end
+
+  -- this is the theoretical new amount of uses (to be checked below)
+  local newCount = foundTokens + useInfo.replenish
+
+  -- if there are already more uses than the replenish amount, keep them
+  if foundTokens > useInfo.count then
+    newCount = foundTokens
+    -- only replenish up until the replenish amount
+  elseif newCount > useInfo.count then
+    newCount = useInfo.count
+  end
+
+  -- update the clickable counter or spawn a group of tokens
+  if clickableResourceCounter then
+    clickableResourceCounter.call("updateVal", newCount)
+  else
+    -- delete existing tokens
+    for _, obj in ipairs(maybeDeleteThese) do
+      obj.destruct()
+    end
+
+    -- spawn new token group
+    TokenManager.spawnTokenGroup({
+      card = card,
+      tokenType = useInfo.token,
+      tokenCount = newCount,
+      subType = useInfo.type
+    })
+  end
 end
 
 ---------------------------------------------------------
