@@ -1,0 +1,80 @@
+local backUrl = {
+  ScenarioCard =
+  "https://steamusercontent-a.akamaihd.net/ugc/2342503777940351785/F64D8EFB75A9E15446D24343DA0A6EEF5B3E43DB/",
+  PlayerCard =
+  "https://steamusercontent-a.akamaihd.net/ugc/2342503777940352139/A2D42E7E5C43D045D72CE5CFC907E4F886C8C690/"
+}
+
+local deckChanges = {}
+local lastObjGuid
+
+function onCollisionEnter(collisionInfo)
+  local obj = collisionInfo.collision_object
+  if obj.guid == lastObjGuid then return end
+  lastObjGuid = obj.guid
+  Wait.time(function() lastObjGuid = nil end, 0.5)
+
+  if obj.type ~= "Card" and obj.type ~= "Deck" then return end
+
+  local data = obj.getData()
+  local count = 0
+  if obj.type == "Card" then
+    local result = processCard(data)
+    if result then count = count + 1 end
+  elseif obj.type == "Deck" then
+    for _, cardData in ipairs(data["ContainedObjects"]) do
+      local result = processCard(cardData)
+      if result then count = count + 1 end
+    end
+
+    -- update top-level custom deck data
+    for customDeckId, customDeckData in pairs(data["CustomDeck"]) do
+      if deckChanges[customDeckId] then
+        customDeckData["BackURL"] = deckChanges[customDeckId]
+      end
+    end
+  end
+
+  if count == 1 then
+    broadcastToAll("Enhanced the back of 1 card.")
+  else
+    broadcastToAll("Enhanced the back of " .. count .. " cards.")
+  end
+
+  obj.destruct()
+  spawnObjectData({ data = data })
+end
+
+function processCard(cardData)
+  -- determine card type
+  local tags = {}
+  for _, tag in ipairs(cardData["Tags"] or {}) do
+    tags[tag] = true
+  end
+
+  -- has both or neither tag, can't work out back
+  if tags.PlayerCard == tags.ScenarioCard then
+    printToAll("Missing or double tag for '" .. cardData["Nickname"] .. "'.")
+    return false
+  end
+
+  local newBack
+  if tags.PlayerCard then
+    newBack = backUrl.PlayerCard
+  elseif tags.ScenarioCard then
+    newBack = backUrl.ScenarioCard
+  end
+
+  local customDeckId, customDeckData = next(cardData["CustomDeck"])
+
+  -- if this card already has the correct back
+  if customDeckData["BackURL"] == newBack then return false end
+
+  -- skip cards with decksheets as back
+  if (customDeckData["NumHeight"] == 1 and customDeckData["NumWidth"] == 1)
+      or customDeckData["UniqueBack"] == false then
+    customDeckData["BackURL"] = newBack
+    deckChanges[customDeckId] = newBack
+  end
+  return true
+end
