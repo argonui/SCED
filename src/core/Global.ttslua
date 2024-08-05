@@ -72,7 +72,7 @@ local RESOURCE_OPTIONS              = {
 }
 
 -- tracks the visibility of each hand
-local handVisibility = {}
+local handVisibility                = {}
 
 ---------------------------------------------------------
 -- data for tokens
@@ -1263,7 +1263,8 @@ end
 -- updates the preview window
 function updatePreviewWindow()
   local item = library[contentToShow][currentListItem]
-  local tempImage = "https://steamusercontent-a.akamaihd.net/ugc/2115061845788345842/2CD6ABC551555CCF58F9D0DDB7620197BA398B06/"
+  local tempImage =
+  "https://steamusercontent-a.akamaihd.net/ugc/2115061845788345842/2CD6ABC551555CCF58F9D0DDB7620197BA398B06/"
 
   -- set default image if not defined
   if item.boxsize == nil or item.boxsize == "" or item.boxart == nil or item.boxart == "" then
@@ -2037,12 +2038,12 @@ function TokenManager.spawnForCard(params)
 end
 
 -- Spawns a set of tokens on the given card.
-function TokenManager.spawnTokenGroup(param)
-  local card = param.card
-  local tokenType = param.tokenType
-  local tokenCount = param.tokenCount
-  local shiftDown = param.shiftDown
-  local subType = param.subType
+function TokenManager.spawnTokenGroup(params)
+  local card = params.card
+  local tokenType = params.tokenType
+  local tokenCount = params.tokenCount
+  local shiftDown = params.shiftDown
+  local subType = params.subType
 
   if tokenType == "damage" or tokenType == "horror" then
     TokenManager.spawnCounterToken(card, tokenType, tokenCount, shiftDown)
@@ -2062,33 +2063,22 @@ end
 function TokenManager.spawnCounterToken(card, tokenType, tokenValue, shiftDown)
   if tokenValue < 1 or tokenValue > 50 then return end
 
-  local pos = card.positionToWorld(tokenOffsets[1][1] + Vector(0, 0, shiftDown))
-  local rot = card.getRotation()
-
   TokenManager.spawnToken({
-    position = pos,
+    position = card.positionToWorld(tokenOffsets[1][1] + Vector(0, 0, shiftDown)),
     tokenType = tokenType,
-    rotation = rot,
-    callback = function(spawned)
-      -- token starts in state 1, so don't attempt to change it to avoid error
-      if tokenValue ~= 1 then
-        spawned.setState(tokenValue)
-      end
-    end
+    rotation = card.getRotation(),
+    callbackName = "updateStateToken",
+    callbackParams = tokenValue
   })
 end
 
-TokenManager.spawnResourceCounterToken = function(card, tokenCount)
-  local pos = card.positionToWorld(card.positionToLocal(card.getPosition()) + Vector(0, 0.2, -0.5))
-  local rot = card.getRotation()
-
+function TokenManager.spawnResourceCounterToken(card, tokenCount)
   TokenManager.spawnToken({
-    position = pos,
+    position = card.positionToWorld(card.positionToLocal(card.getPosition()) + Vector(0, 0.2, -0.5)),
     tokenType = "resourceCounter",
-    rotation = rot,
-    callback = function(spawned)
-      spawned.call("updateVal", tokenCount)
-    end
+    rotation = card.getRotation(),
+    callbackName = "updateTokenValue",
+    callbackParams = tokenCount
   })
 end
 
@@ -2132,19 +2122,17 @@ function TokenManager.spawnMultipleTokens(card, tokenType, tokenCount, shiftDown
   end
 
   -- this is used to load the correct state for additional resource tokens (e.g. "Ammo")
-  local callback = nil
+  local callbackName = nil
+  local callbackParams = nil
   local stateID = stateTable[string.lower(subType or "")]
-  if tokenType == "resource" and stateID ~= nil and stateID ~= 1 then
-    callback = function(spawned) spawned.setState(stateID) end
+  if tokenType == "resource" then
+    callbackName = "updateStateToken"
+    callbackParams = stateID
   elseif tokenType == "universalActionAbility" then
-    callback = function(spawned)
-      local matColor = playermatApi.getMatColorByPosition(card.getPosition())
-      local activeInvestigatorData = playermatApi.getActiveInvestigatorData(matColor)
-      spawned.call("updateClassAndSymbol", {
-        class = activeInvestigatorData.class,
-        symbol = subType or activeInvestigatorData.class
-      })
-    end
+    local matColor = playermatApi.getMatColorByPosition(card.getPosition())
+    local activeInvestigatorData = playermatApi.getActiveInvestigatorData(matColor)
+    callbackName = "updateUniversalActionAbilityToken"
+    callbackParams = { class = activeInvestigatorData.class, symbol = subType or activeInvestigatorData.class }
   end
 
   for i = 1, tokenCount do
@@ -2152,7 +2140,8 @@ function TokenManager.spawnMultipleTokens(card, tokenType, tokenCount, shiftDown
       position = offsets[i],
       tokenType = tokenType,
       rotation = card.getRotation(),
-      callback = callback
+      callbackName = callbackName,
+      callbackParams = callbackParams
     })
   end
 end
@@ -2162,7 +2151,13 @@ function TokenManager.spawnToken(params)
   local position = params.position
   local rotation = params.rotation
   local tokenType = params.tokenType
-  local callback = params.callback
+  local callbackName = params.callbackName
+  local callbackParams = params.callbackParams
+
+  if callbackName and type(_G[callbackName]) ~= "function" then
+    error("Callback function " .. callbackName .. " does not exist")
+    return
+  end
 
   TokenManager.initTokenTemplates()
 
@@ -2191,7 +2186,7 @@ function TokenManager.spawnToken(params)
     data = tokenTemplate,
     position = position,
     rotation = rot,
-    callback_function = callback
+    callback_function = function(obj) _G[callbackName](obj, callbackParams) end
   })
 end
 
@@ -2312,7 +2307,11 @@ end
 function TokenManager.spawnLocationTokensFromDataHelper(card, locationData)
   local clueCount = TokenManager.getClueCountFromData(card, locationData)
   if clueCount > 0 then
-    TokenManager.spawnTokenGroup({ card = card, tokenType = "clue", tokenCount = clueCount })
+    TokenManager.spawnTokenGroup({
+      card = card,
+      tokenType = "clue",
+      tokenCount = clueCount
+    })
     tokenSpawnTrackerApi.markTokensSpawned(card.getGUID())
   end
 end
@@ -2459,6 +2458,27 @@ TokenManager.replenishTokens = function(card, useInfo)
       subType = useInfo.type
     })
   end
+end
+
+---------------------------------------------------------
+-- Callback functions for token spawning
+---------------------------------------------------------
+
+function updateUniversalActionAbilityToken(obj, params)
+  obj.call("updateClassAndSymbol", params)
+  if params.addTag then
+    obj.addTag(params.addTag)
+  end
+end
+
+function updateStateToken(obj, stateID)
+  if stateID ~= nil and stateID ~= 1 then
+    obj.setState(stateID)
+  end
+end
+
+function updateTokenValue(obj, newVal)
+  obj.call("updateVal", newVal)
 end
 
 ---------------------------------------------------------
