@@ -1998,7 +1998,7 @@ function TokenManager.generateOffsets(maxTokens)
   tokenOffsets = {}
   for numTokens = 1, maxTokens do
     if numTokens == 1 then
-      tokenOffsets[1] = Vector(0, 3, -0.2)
+      tokenOffsets[1] = { Vector(0, 3, -0.2) }
     else
       local offsets = {}
       local rows = math.min(4, math.ceil(numTokens / 3))
@@ -2154,24 +2154,36 @@ function TokenManager.spawnToken(params)
   local callbackName = params.callbackName
   local callbackParams = params.callbackParams
 
-  if callbackName and type(_G[callbackName]) ~= "function" then
-    error("Callback function " .. callbackName .. " does not exist")
-    return
+  -- initialize data table
+  local spawnData = { position = position }
+
+  -- maybe set callback function
+  if callbackName then
+    if type(_G[callbackName]) ~= "function" then
+      error("Callback function " .. callbackName .. " does not exist")
+      return
+    else
+      spawnData.callback_function = function(obj) _G[callbackName](obj, callbackParams) end
+    end
   end
 
-  TokenManager.initTokenTemplates()
-
+  -- get data for token type
   local loadTokenType = tokenType
   if tokenType == "clue" or tokenType == "doom" then
     loadTokenType = "clueDoom"
   end
 
+  TokenManager.initTokenTemplates()
   local tokenTemplate = tokenTemplates[loadTokenType]
   if tokenTemplate == nil then
     error("Unknown token type '" .. loadTokenType .. "'")
     return
   end
 
+  tokenTemplate.Nickname = ""
+  spawnData.data = tokenTemplate
+
+  -- get rotation for the token
   -- Take ONLY the Y-value for rotation, so we don't flip the token coming out of the bag
   local rot = Vector(tokenTemplate.Transform.rotX, 270, tokenTemplate.Transform.rotZ)
   if rotation ~= nil then
@@ -2181,13 +2193,9 @@ function TokenManager.spawnToken(params)
     rot.z = 180
   end
 
-  tokenTemplate.Nickname = ""
-  return spawnObjectData({
-    data = tokenTemplate,
-    position = position,
-    rotation = rot,
-    callback_function = function(obj) _G[callbackName](obj, callbackParams) end
-  })
+  spawnData.rotation = rot
+
+  return spawnObjectData(spawnData)
 end
 
 -- Checks a card for metadata to maybe replenish it
@@ -2394,7 +2402,7 @@ end
 
 ---@param card tts__Object Card object to be replenished
 ---@param useInfo table The already decoded subtable of metadata.uses (to avoid decoding again)
-TokenManager.replenishTokens = function(card, useInfo)
+function TokenManager.replenishTokens(card, useInfo)
   -- get current amount of matching resource tokens on the card
   local clickableResourceCounter = nil
   local foundTokens = 0
