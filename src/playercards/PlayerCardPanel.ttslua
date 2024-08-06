@@ -378,7 +378,7 @@ function createXML(showOtherCardsButton)
     local otherCardsButtonXml = {
       tag = "Panel",
       attributes = {
-        position = "44.25 65.75 -11",
+        position = "44.25 65.5 -11",
         rotation = "0 0 180",
         height = "225",
         width = "225",
@@ -492,20 +492,28 @@ end
 -- investigator cards and minicards as well as the signature cards.
 ---@param groupName string Name of the group to spawn, matching a key in InvestigatorPanelData
 function spawnInvestigators(groupName)
-  if INVESTIGATOR_GROUPS[groupName] == nil then
-    if groupName ~= "Other" then
-      printToAll("No investigator data for '" .. groupName .. "' yet")
-    end
+  local mainData = INVESTIGATOR_GROUPS[groupName]
+  local subData = INVESTIGATORS
+
+  -- handling for custom investigators
+  if groupName == "Other" then
+    local customData = allCardsBagApi.getCustomInvestigatorData()
+    mainData = customData.InvestigatorGroup
+    subData = customData.InvestigatorSubdata
+  end
+
+  if mainData == nil or subData == nil then
+    printToAll("No investigator data for '" .. groupName .. "' yet")
     return
   end
 
   local col = 1
   local row = 1
-  local investigatorCount = #INVESTIGATOR_GROUPS[groupName]
+  local investigatorCount = #mainData
   local position = getInvestigatorRowStartPos(investigatorCount, row)
 
-  for _, investigatorName in ipairs(INVESTIGATOR_GROUPS[groupName]) do
-    for _, spawnSpec in ipairs(buildInvestigatorSpawnSpec(investigatorName, INVESTIGATORS[investigatorName], position)) do
+  for _, investigatorName in ipairs(mainData) do
+    for _, spawnSpec in ipairs(buildInvestigatorSpawnSpec(investigatorName, subData[investigatorName], position)) do
       spawnBag.spawn(spawnSpec)
     end
     position:add(investigatorPositionShiftCol)
@@ -545,7 +553,6 @@ function buildInvestigatorSpawnSpec(investigatorName, investigatorData, position
     globalPos = self.positionToWorld(sigPos),
     rotation = FACE_UP_ROTATION
   })
-
   return spawns
 end
 
@@ -692,9 +699,6 @@ end
 function spawnCycle(cycle)
   if not allCardsBagApi.isIndexReady() then return end
 
-  prepareToPlaceCards()
-  spawnInvestigators(cycle)
-
   -- sort custom cards and include cards without level
   local sortByMetadata = false
   local includeNoLevelCards = false
@@ -702,10 +706,14 @@ function spawnCycle(cycle)
     sortByMetadata = true
     includeNoLevelCards = true
   end
+  local cardList = allCardsBagApi.getCardsByCycle(cycle, sortByMetadata, includeNoLevelCards)
+
+  prepareToPlaceCards()
+  spawnInvestigators(cycle)
 
   spawnBag.spawn({
     name = "cycle" .. cycle,
-    cards = allCardsBagApi.getCardsByCycle(cycle, sortByMetadata, includeNoLevelCards),
+    cards = cardList,
     globalPos = self.positionToWorld(startPositions.cycle),
     rotation = FACE_UP_ROTATION,
     spread = true,
