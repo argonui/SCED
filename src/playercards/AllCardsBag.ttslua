@@ -105,6 +105,8 @@ function buildIndex()
   end
 
   buildSupplementalIndexes()
+  collectSortingData()
+  sortIndexes()
   updatePlayerCardPanel()
   indexingDone = true
   return 1
@@ -245,10 +247,48 @@ function buildSupplementalIndexes()
       writeToNestedTable(cycleIndex, cycleName, cardId)
     end
   end
+end
 
+-- collect the sorting data and cache it
+function collectSortingData()
+  for _, card in pairs(cardIdIndex) do
+    card.sortingData = {
+      class = getClassValue(card.metadata.class),
+      cardType = typeConversion[card.metadata.type] or 99,
+      level = card.metadata.level or 6,
+      name = card.data.Nickname
+    }
+  end
+end
+
+-- generalized comparison function for table.sort() with customizable criteria
+function generalizedCardComparator(id1, id2, criteria)
+  local card1 = cardIdIndex[id1]
+  local card2 = cardIdIndex[id2]
+
+  for _, key in ipairs(criteria) do
+    if card1.sortingData[key] ~= card2.sortingData[key] then
+      return card1.sortingData[key] < card2.sortingData[key]
+    end
+  end
+
+  return id1 < id2
+end
+
+-- sorts by level and then name
+function generalSortFunction(id1, id2)
+  return generalizedCardComparator(id1, id2, {"level", "name"})
+end
+
+-- sort by class, cardType, level and then name
+function metadataSortFunction(id1, id2)
+  return generalizedCardComparator(id1, id2, {"class", "cardType", "level", "name"})
+end
+
+function sortIndexes()
   -- sort class and level indices
   for _, indexTable in pairs(classAndLevelIndex) do
-    table.sort(indexTable, cardComparator)
+    table.sort(indexTable, generalSortFunction)
   end
 
   -- sort cycle indices
@@ -257,8 +297,8 @@ function buildSupplementalIndexes()
   end
 
   -- sort weakness indices
-  table.sort(basicWeaknessList, cardComparator)
-  table.sort(uniqueWeaknessList, cardComparator)
+  table.sort(basicWeaknessList)
+  table.sort(uniqueWeaknessList)
 
   -- sort custom investigator / minicard data
   for _, indexTable in pairs(customInvestigatorData) do
@@ -284,24 +324,6 @@ function writeToNestedTable(rootTable, ...)
     currentTable = currentTable[key]
   end
   table.insert(currentTable, args[#args])
-end
-
--- Comparison function used to sort the class card bag indexes. Sorts by card level, then name, then subname.
-function cardComparator(id1, id2)
-  local card1 = cardIdIndex[id1]
-  local card2 = cardIdIndex[id2]
-
-  -- get level per card (use 6 to sort cards last without level)
-  local level1 = card1.metadata.level or 6
-  local level2 = card2.metadata.level or 6
-
-  if level1 ~= level2 then
-    return level1 < level2
-  elseif card1.data.Nickname ~= card2.data.Nickname then
-    return card1.data.Nickname < card2.data.Nickname
-  else
-    return card1.data.Description < card2.data.Description
-  end
 end
 
 -- inform the player card panel about the presence of other cards (no cycle -> fan-made)
@@ -376,37 +398,6 @@ function getCardsByCycle(params)
     table.sort(cardList, metadataSortFunction)
   end
   return cardList
-end
-
--- sorts cards by metadata: class, type, level, name and then description
-function metadataSortFunction(id1, id2)
-  local card1 = cardIdIndex[id1]
-  local card2 = cardIdIndex[id2]
-
-  -- extract class per card
-  local classValue1 = getClassValue(card1.metadata.class)
-  local classValue2 = getClassValue(card2.metadata.class)
-
-  -- get value to sort by type per card
-  local type1 = typeConversion[card1.metadata.type] or 99
-  local type2 = typeConversion[card2.metadata.type] or 99
-
-  -- get level per card (use 6 to sort cards last without level)
-  local level1 = card1.metadata.level or 6
-  local level2 = card2.metadata.level or 6
-
-  -- actual sorting
-  if classValue1 ~= classValue2 then
-    return classValue1 < classValue2
-  elseif type1 ~= type2 then
-    return type1 < type2
-  elseif level1 ~= level2 then
-    return level1 < level2
-  elseif card1.data.Nickname ~= card2.data.Nickname then
-    return card1.data.Nickname < card2.data.Nickname
-  else
-    return card1.data.Description < card2.data.Description
-  end
 end
 
 -- helper function to calculate the class value for sorting from the "|" separated string
