@@ -64,57 +64,65 @@ end
 -- and creating the keyed lookup tables for the cards. This is a coroutine which will
 -- spread the workload by processing 20 cards before yielding.
 function buildIndex()
-  local cardCount = 0
+  cardCount = 0
   indexingDone = false
   otherCardsDetected = false
 
   -- process the allcardsbag itself
-  for _, cardData in ipairs(self.getData().ContainedObjects) do
-    addCardToIndex(cardData)
-    cardCount = cardCount + 1
-    if cardCount > 19 then
-      cardCount = 0
-      coroutine.yield(0)
-    end
+  local selfData = self.getData()
+  if selfData.ContainedObjects then
+    processContainedObjects(selfData.ContainedObjects)
   end
 
   -- process hotfix bags (and the additional playercards bag)
   for _, hotfixBag in ipairs(getObjectsWithTag("AllCardsHotfix")) do
     local hotfixData = hotfixBag.getData()
-
-    -- if the bag is empty, continue with the next bag
-    if not hotfixData.ContainedObjects then
-      goto nextBag
+    if hotfixData.ContainedObjects then
+      processContainedObjects(hotfixData.ContainedObjects, hotfixData.CustomDeck)
     end
-
-    for _, cardData in ipairs(hotfixData.ContainedObjects) do
-      if cardData.ContainedObjects then
-        -- process containers
-        for _, deepCardData in ipairs(cardData.ContainedObjects) do
-          addCardToIndex(deepCardData)
-          cardCount = cardCount + 1
-          if cardCount > 19 then
-            cardCount = 0
-            coroutine.yield(0)
-          end
-        end
-      else
-        -- process single cards
-        addCardToIndex(cardData)
-        cardCount = cardCount + 1
-        if cardCount > 19 then
-          cardCount = 0
-          coroutine.yield(0)
-        end
-      end
-    end
-    ::nextBag::
   end
 
   buildSupplementalIndexes()
   updatePlayerCardPanel()
   indexingDone = true
   return 1
+end
+
+-- Processes the contained objects for cards to add to the index
+function processContainedObjects(containedObjects, customDeck)
+  for _, objData in ipairs(containedObjects) do
+    if objData.ContainedObjects then
+      -- recursively process nested containers
+      processContainedObjects(objData.ContainedObjects, objData.CustomDeck)
+    else
+      -- we might need to fix the "CustomDeck" entry for cards inside decks since TTS doesn't update it while they are in bags
+      if customDeck then
+        local wantedCustomDeckIdStr = tostring(objData.CardID):sub(1, -3)
+        local presentCustomDeckIdNum = next(objData.CustomDeck)
+
+        -- type conversion (TTS seems to store these as strings, but reads them as numbers)
+        local wantedCustomDeckIdNum = tonumber(wantedCustomDeckIdStr)
+
+        if wantedCustomDeckIdNum ~= presentCustomDeckIdNum then
+          if customDeck[wantedCustomDeckIdNum] then
+            objData.CustomDeck = {}
+            objData.CustomDeck[wantedCustomDeckIdStr] = customDeck[wantedCustomDeckIdNum]
+            log("Correct CustomDeckData for " .. objData.Nickname)
+          else
+            log("Could not correct CustomDeckData for " .. objData.Nickname)
+            return
+          end
+        end
+      end
+
+      addCardToIndex(objData)
+      cardCount = cardCount + 1
+      if cardCount > 19 then
+        cardCount = 0
+        coroutine.yield(0)
+      end
+    end
+  end
 end
 
 -- Adds a card to any indexes it should be a part of, based on its metadata
@@ -178,6 +186,17 @@ function buildSupplementalIndexes()
 
       -- add to cycle index
       local cycleName = card.metadata.cycle
+
+      -- if this is a minicard without cycle, check the parent card for cycle data
+      if not cycleName and card.metadata.type == "Minicard" then
+        -- TO-DO: use a more robust detection instead of 5 characters
+        local parentId = string.match(card.metadata.id, ".....")
+        local parent = cardIdIndex[parentId]
+        if parent and parent.metadata.cycle then
+          cycleName = parent.metadata.cycle
+        end
+      end
+
       if cycleName then
         cycleName = string.lower(cycleName)
 
@@ -189,18 +208,14 @@ function buildSupplementalIndexes()
       else
         -- track cards without defined cycle (should only be fan-made cards)
         cycleName = "other"
-        log(card.metadata.id)
         otherCardsDetected = true
       end
 
-      -- only add official cards with level to cycle index, but all fan-made cards
-      if card.metadata.level or cycleName == "other" then
-        -- maybe initialize table
-        if cycleIndex[cycleName] == nil then
-          cycleIndex[cycleName] = {}
-        end
-        table.insert(cycleIndex[cycleName], card.metadata.id)
+      -- maybe initialize table
+      if cycleIndex[cycleName] == nil then
+        cycleIndex[cycleName] = {}
       end
+      table.insert(cycleIndex[cycleName], card.metadata.id)
     end
   end
 
@@ -278,8 +293,9 @@ end
 
 -- Returns a list of cards from the bag matching a cycle
 ---@param params table
---  cycle: String cycle to retrieve ("The Scarlet Keys" etc.)
---  sortByMetadata: true to sort the table by metadata instead of ID
+--  cycle: string Name of the cycle to retrieve ("The Scarlet Keys" etc.)
+--  sortByMetadata: boolean If true, sorts the table by metadata instead of ID
+--  includeNoLevelCards: boolean If true, includes cards without level
 ---@return table: If the indexes are still being constructed, returns an empty table.
 --  Otherwise, a list of tables, each with the following fields
 --    data: TTS object data, suitable for spawning the card
@@ -288,17 +304,18 @@ function getCardsByCycle(params)
   if not isIndexReady() then return {} end
 
   local cycleData = cycleIndex[string.lower(params.cycle)] or {}
-  if not params.sortByMetadata then
-    return cycleData
+
+  -- create a copy of the data to not change the source
+  local cardList = {}
+  for _, id in ipairs(cycleData) do
+    -- only include cards without level if requested
+    if cardIdIndex[id].metadata.level or params.includeNoLevelCards then
+      table.insert(cardList, id)
+    end
   end
 
   -- sort list by metadata (useful for custom cards without proper IDs)
-  local cardList = {}
-  for _, id in ipairs(cycleData) do
-    table.insert(cardList, id)
-  end
-
-  if #cardList > 0 then
+  if params.sortByMetadata and #cardList > 0 then
     table.sort(cardList, metadataSortFunction)
   end
   return cardList
@@ -340,13 +357,15 @@ end
 
 -- helper function to calculate the class value for sorting from the "|" separated string
 function getClassValueFromString(s)
+  s = s or "NoClass"
   local classValueList = {
     Guardian = 1,
     Seeker = 2,
     Rogue = 3,
     Mystic = 4,
     Survivor = 5,
-    Neutral = 6
+    Neutral = 6,
+    NoClass = 7
   }
   local classValue = 0
   for str in s:gmatch("([^|]+)") do
