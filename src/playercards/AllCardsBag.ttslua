@@ -130,19 +130,20 @@ function addCardToIndex(cardData)
   end
 
   -- if metadata was not valid JSON or empty, don't add the card
-  if not cardMetadata == nil then
+  if not cardMetadata then
     log("Error parsing " .. cardData.Nickname)
     return
   end
 
   -- use the ZoopGuid as fallback if no id present
   cardMetadata.id = cardMetadata.id or cardMetadata.TtsZoopGuid
-  cardIdIndex[cardMetadata.id] = { data = cardData, metadata = cardMetadata }
+  local indexData = { data = cardData, metadata = cardMetadata }
+  cardIdIndex[cardMetadata.id] = indexData
 
   -- also add data for alternate ids
-  if cardMetadata.alternate_ids ~= nil then
+  if cardMetadata.alternate_ids then
     for _, alternateId in ipairs(cardMetadata.alternate_ids) do
-      cardIdIndex[alternateId] = { data = cardData, metadata = cardMetadata }
+      cardIdIndex[alternateId] = indexData
     end
   end
 end
@@ -162,8 +163,8 @@ function buildSupplementalIndexes()
         end
       end
 
-      -- Excludes signature cards (which have no class or level)
-      if card.metadata.class ~= nil and card.metadata.level ~= nil then
+      -- Excludes signature cards and story assets for official cycles (which have no class or level)
+      if card.metadata.class and card.metadata.level then
         local upgradeKey = "-level0"
         if card.metadata.level > 0 then
           upgradeKey = "-upgrade"
@@ -173,23 +174,27 @@ function buildSupplementalIndexes()
         for str in card.metadata.class:gmatch("([^|]+)") do
           table.insert(classAndLevelIndex[str .. upgradeKey], card.metadata.id)
         end
+      end
 
-        -- add to cycle index
-        local cycleName = card.metadata.cycle
-        if cycleName ~= nil then
-          cycleName = string.lower(cycleName)
+      -- add to cycle index
+      local cycleName = card.metadata.cycle
+      if cycleName then
+        cycleName = string.lower(cycleName)
 
-          -- remove "return to " from cycle names
-          cycleName = cycleName:gsub("return to ", "")
+        -- remove "return to " from cycle names
+        cycleName = cycleName:gsub("return to ", "")
 
-          -- override cycle name for night of the zealot
-          cycleName = cycleName:gsub("the night of the zealot", "core")
-        else
-          -- track cards without defined cycle (should only be fan-made cards)
-          cycleName = "other"
-          otherCardsDetected = true
-        end
+        -- override cycle name for night of the zealot
+        cycleName = cycleName:gsub("the night of the zealot", "core")
+      else
+        -- track cards without defined cycle (should only be fan-made cards)
+        cycleName = "other"
+        log(card.metadata.id)
+        otherCardsDetected = true
+      end
 
+      -- only add official cards with level to cycle index, but all fan-made cards
+      if card.metadata.level or cycleName == "other" then
         -- maybe initialize table
         if cycleIndex[cycleName] == nil then
           cycleIndex[cycleName] = {}
@@ -282,17 +287,20 @@ end
 function getCardsByCycle(params)
   if not isIndexReady() then return {} end
 
+  local cycleData = cycleIndex[string.lower(params.cycle)] or {}
   if not params.sortByMetadata then
-    return cycleIndex[string.lower(params.cycle)]
+    return cycleData
   end
 
   -- sort list by metadata (useful for custom cards without proper IDs)
   local cardList = {}
-  for _, id in ipairs(cycleIndex[string.lower(params.cycle)]) do
+  for _, id in ipairs(cycleData) do
     table.insert(cardList, id)
   end
 
-  table.sort(cardList, metadataSortFunction)
+  if #cardList > 0 then
+    table.sort(cardList, metadataSortFunction)
+  end
   return cardList
 end
 
@@ -305,19 +313,24 @@ function metadataSortFunction(id1, id2)
   local classValue1 = getClassValueFromString(card1.metadata.class)
   local classValue2 = getClassValueFromString(card2.metadata.class)
 
+  -- get level per card (use 6 to sort cards last without level)
+  local level1 = card1.metadata.level or 6
+  local level2 = card2.metadata.level or 6
+
   -- conversion tables to simplify type sorting
   local typeConversion = {
     Asset = 1,
     Event = 2,
-    Skill = 3
+    Skill = 3,
+    Weakness = 4
   }
 
   if classValue1 ~= classValue2 then
     return classValue1 < classValue2
   elseif typeConversion[card1.metadata.type] ~= typeConversion[card2.metadata.type] then
     return typeConversion[card1.metadata.type] < typeConversion[card2.metadata.type]
-  elseif card1.metadata.level ~= card2.metadata.level then
-    return card1.metadata.level < card2.metadata.level
+  elseif level1 ~= level2 then
+    return level1 < level2
   elseif card1.data.Nickname ~= card2.data.Nickname then
     return card1.data.Nickname < card2.data.Nickname
   else
