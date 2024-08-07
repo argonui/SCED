@@ -1,11 +1,12 @@
 local chaosBagApi                 = require("chaosbag/ChaosBagApi")
 local deckLib                     = require("util/DeckLib")
+local GlobalApi                   = require("core/GlobalApi")
 local guidReferenceApi            = require("core/GUIDReferenceApi")
 local mythosAreaApi               = require("core/MythosAreaApi")
 local navigationOverlayApi        = require("core/NavigationOverlayApi")
 local searchLib                   = require("util/SearchLib")
 local tokenChecker                = require("core/token/TokenChecker")
-local tokenManager                = require("core/token/TokenManager")
+local tokenManagerApi             = require("core/token/TokenManagerApi")
 local tokenSpawnTrackerApi        = require("core/token/TokenSpawnTrackerApi")
 
 -- option panel data
@@ -73,6 +74,16 @@ local DECK_DISCARD_AREA           = {
 local DRAW_DECK_POSITION          = { x = -1.82, y = 0.1, z = 0 }
 local DISCARD_PILE_POSITION       = { x = -1.82, y = 0.1, z = 0.61 }
 local DRAWN_ENCOUNTER_POSITION    = { x = 1.365, y = 0.5, z = -0.625 }
+local tokenSpawnPos               = {
+  action = {
+    Vector(-0.86, 0, -0.28), -- left of the regular three actions
+    Vector(-1.54, 0, -0.28), -- right of the regular three actions
+  },
+  ability = {
+    Vector(-1, 0, 0.118),  -- bottom left corner of the investigator card
+    Vector(-1, 0, -0.118), -- top left corner of the investigator card
+  }
+}
 
 -- global position of encounter discard pile
 local ENCOUNTER_DISCARD_POSITION  = { x = -3.85, y = 1.5, z = 10.38 }
@@ -149,14 +160,14 @@ end
 
 function onLoad(savedData)
   if savedData and savedData ~= "" then
-    local loadedData       = JSON.decode(savedData)
-    activeInvestigatorData = loadedData.activeInvestigatorData
-    isClassTextureEnabled  = loadedData.isClassTextureEnabled
-    isDrawButtonVisible    = loadedData.isDrawButtonVisible
-    optionPanelData        = loadedData.optionPanelData
-    optionPanelVisibility  = loadedData.optionPanelVisibility
-    playerColor            = loadedData.playerColor
-    slotData               = loadedData.slotData
+    local loadedData            = JSON.decode(savedData)
+    activeInvestigatorData      = loadedData.activeInvestigatorData
+    isClassTextureEnabled       = loadedData.isClassTextureEnabled
+    isDrawButtonVisible         = loadedData.isDrawButtonVisible
+    optionPanelData             = loadedData.optionPanelData
+    optionPanelVisibility       = loadedData.optionPanelVisibility
+    playerColor                 = loadedData.playerColor
+    slotData                    = loadedData.slotData
 
     -- make sure that edit mode starts disabled
     optionPanelData.slotEditing = false
@@ -365,7 +376,7 @@ function doUpkeep(_, clickedByColor, isRightClick)
 
       -- maybe replenish uses on certain cards (don't continue for cards on the deck (Norman) or in the discard pile)
       if cardMetadata.uses ~= nil and self.positionToLocal(obj.getPosition()).x > -1 and not obj.is_face_down then
-        tokenManager.maybeReplenishCard(obj, cardMetadata.uses, self)
+        tokenManagerApi.maybeReplenishCard(obj, cardMetadata.uses, self)
       end
     elseif obj.type == "Deck" and forcedLearning == false then
       -- check decks for forced learning
@@ -623,7 +634,7 @@ function doDiscardOne()
     local cardId = choices[num] .. "/" .. #hand
 
     deckLib.placeOrMergeIntoDeck(card, returnGlobalDiscardPosition(), self.getRotation())
-    local playerName = Global.call("getColoredName", playerColor)
+    local playerName = GlobalApi.getColoredName(playerColor)
     broadcastToAll(playerName .. " randomly discarded " .. cardName " (" .. cardId .. ").", "White")
   end
 end
@@ -922,11 +933,7 @@ function createXML()
 end
 
 function onClick_hideOrShowOptions(player)
-  Global.call("changeWindowVisibilityForColorWrapper", {
-    color = player.color,
-    windowId = "optionPanelMain",
-    owner = self
-  })
+  GlobalApi.changeWindowVisibility(player.color, "optionPanelMain", _, self)
 end
 
 -- show the triggering player a dialog to select a playermat texture
@@ -958,16 +965,8 @@ function onClick_handColorSelect(player)
     handZone.setValue(newColor)
 
     -- update visibility for old and new color
-    Global.call("changeWindowVisibilityForColorWrapper", {
-      color = playerColor,
-      windowId = "optionPanelMain",
-      owner = self
-    })
-    Global.call("changeWindowVisibilityForColorWrapper", {
-      color = newColor,
-      windowId = "optionPanelMain",
-      owner = self
-    })
+    GlobalApi.changeWindowVisibility(playerColor, "optionPanelMain", _, self)
+    GlobalApi.changeWindowVisibility(newColor, "optionPanelMain", _, self)
     navigationOverlayApi.copyVisibility(playerColor, newColor)
 
     -- if there was a seated player, reseat to the new color
@@ -986,11 +985,13 @@ end
 -- instruct Global to update this mat's hand visibility
 function onClick_visibilitySelect(player)
   if player.color == playerColor then
-    printToColor("This is meant to be clicked by other players to be able to see your hand (primarily for multi-handed gameplay). It won't do anything for you.", playerColor)
+    printToColor(
+      "This is meant to be clicked by other players to be able to see your hand (primarily for multi-handed gameplay). It won't do anything for you.",
+      playerColor)
     return
   end
 
-  Global.call("handVisibilityToggle", { playerColor = player.color, handColor = playerColor })
+  GlobalApi.handVisibilityToggle(player.color, playerColor)
 end
 
 -- changes the UI state and the internal variable for the togglebuttons
@@ -1132,7 +1133,7 @@ function spawnTokensFor(object)
     extraUses["Charge"] = 1
   end
 
-  tokenManager.spawnForCard(object, extraUses)
+  tokenManagerApi.spawnForCard(object, extraUses)
 end
 
 function onCollisionEnter(collisionInfo)
@@ -1158,9 +1159,7 @@ end
 
 -- checks if tokens should be spawned for the provided card
 function shouldSpawnTokens(card)
-  if card.is_face_down then
-    return false
-  end
+  if card.is_face_down then return false end
 
   local localCardPos = self.positionToLocal(card.getPosition())
   local metadata = JSON.decode(card.getGMNotes())
@@ -1270,30 +1269,17 @@ function maybeUpdateActiveInvestigator(card)
   end
 
   -- spawn three regular action tokens (investigator specific one in the bottom spot)
+  local rotation = self.getRotation()
+  local callbackName = "updateUniversalActionAbilityToken"
+  local callbackParams = { class = activeInvestigatorData.class, symbol = activeInvestigatorData.class }
+
   for i = 1, 3 do
     local pos = self.positionToWorld(Vector(-1.54 + i * 0.17, 0, -0.28)):add(Vector(0, 0.2, 0))
-
-    tokenManager.spawnToken(pos, "universalActionAbility", self.getRotation(),
-      function(spawned)
-        spawned.call("updateClassAndSymbol",
-          { class = activeInvestigatorData.class, symbol = activeInvestigatorData.class })
-      end)
+    tokenManagerApi.spawnToken(pos, "universalActionAbility", rotation, callbackName, callbackParams)
   end
 
   -- spawn additional token (maybe specific for investigator)
   if extraToken and extraToken ~= "None" then
-    -- local positions
-    local tokenSpawnPos = {
-      action = {
-        Vector(-0.86, 0, -0.28), -- left of the regular three actions
-        Vector(-1.54, 0, -0.28), -- right of the regular three actions
-      },
-      ability = {
-        Vector(-1, 0, 0.118),  -- bottom left corner of the investigator card
-        Vector(-1, 0, -0.118), -- top left corner of the investigator card
-      }
-    }
-
     -- spawn tokens (split string by "|")
     local count = { action = 0, ability = 0 }
     for str in string.gmatch(extraToken, "([^|]+)") do
@@ -1308,11 +1294,8 @@ function maybeUpdateActiveInvestigator(card)
       else
         local localSpawnPos = tokenSpawnPos[type][count[type]]
         local globalSpawnPos = self.positionToWorld(localSpawnPos):add(Vector(0, 0.2, 0))
-
-        tokenManager.spawnToken(globalSpawnPos, "universalActionAbility", self.getRotation(),
-          function(spawned)
-            spawned.call("updateClassAndSymbol", { class = activeInvestigatorData.class, symbol = str })
-          end)
+        callbackParams.symbol = str
+        tokenManagerApi.spawnToken(globalSpawnPos, "universalActionAbility", rotation, callbackName, callbackParams)
       end
     end
   end
@@ -1495,7 +1478,7 @@ function clickableClues(showCounter)
     local pos = self.positionToWorld({ x = -1.12, y = 0.05, z = 0.7 })
     for i = 1, clueCount do
       pos.y = pos.y + 0.045 * i
-      tokenManager.spawnToken(pos, "clue", self.getRotation())
+      tokenManagerApi.spawnToken(pos, "clue", self.getRotation())
     end
   end
 end
@@ -1575,9 +1558,8 @@ end
 function updatePlayerCards(args)
   local customDataHelper = getObjectFromGUID(args[1])
   local playerCardData = customDataHelper.getTable("PLAYER_CARD_DATA")
-  tokenManager.addPlayerCardData(playerCardData)
+  tokenManagerApi.addPlayerCardData(playerCardData)
 end
-
 
 function getActiveInvestigatorData() return activeInvestigatorData end
 

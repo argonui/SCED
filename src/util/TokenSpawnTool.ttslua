@@ -1,16 +1,16 @@
-local playermatApi = require("playermat/PlayermatApi")
-local searchLib = require("util/SearchLib")
-local tokenManager = require("core/token/TokenManager")
-local TOKEN_INDEX = {}
+local playermatApi    = require("playermat/PlayermatApi")
+local searchLib       = require("util/SearchLib")
+local tokenManagerApi = require("core/token/TokenManagerApi")
 
-TOKEN_INDEX[1] = "universalActionAbility"
-TOKEN_INDEX[3] = "resourceCounter"
-TOKEN_INDEX[4] = "damage"
-TOKEN_INDEX[5] = "path"
-TOKEN_INDEX[6] = "horror"
-TOKEN_INDEX[7] = "doom"
-TOKEN_INDEX[8] = "clue"
-TOKEN_INDEX[9] = "resource"
+local TOKEN_INDEX     = {}
+TOKEN_INDEX[1]        = "universalActionAbility"
+TOKEN_INDEX[3]        = "resourceCounter"
+TOKEN_INDEX[4]        = "damage"
+TOKEN_INDEX[5]        = "path"
+TOKEN_INDEX[6]        = "horror"
+TOKEN_INDEX[7]        = "doom"
+TOKEN_INDEX[8]        = "clue"
+TOKEN_INDEX[9]        = "resource"
 
 ---@param index number Index of the pressed key
 ---@param playerColor string Color of the triggering player
@@ -18,9 +18,10 @@ function onScriptingButtonDown(index, playerColor)
   local tokenType = TOKEN_INDEX[index]
   if not tokenType then return end
 
-  local rotation = { x = 0, y = Player[playerColor].getPointerRotation(), z = 0 }
   local position = Player[playerColor].getPointerPosition() + Vector(0, 0.2, 0)
-  callback = nil
+  local rotation = Vector(0, Player[playerColor].getPointerRotation(), 0)
+  callbackName = nil
+  callbackParams = nil
 
   -- check for subtype of resource based on card below
   if tokenType == "resource" then
@@ -66,20 +67,14 @@ function onScriptingButtonDown(index, playerColor)
 
     -- check for nearest investigator card and change action token state to its class
   elseif tokenType == "universalActionAbility" then
-    callback = function(spawned)
-      local matColor = playermatApi.getMatColorByPosition(position)
-      local matRotation = playermatApi.returnRotation(matColor)
-      local activeInvestigatorData = playermatApi.getActiveInvestigatorData(matColor)
-
-      spawned.setRotation(matRotation)
-      spawned.call("updateClassAndSymbol", {
-        class = activeInvestigatorData.class,
-        symbol = activeInvestigatorData.class
-      })
-    end
+    local matColor = playermatApi.getMatColorByPosition(position)
+    local activeInvestigatorData = playermatApi.getActiveInvestigatorData(matColor)
+    rotation = playermatApi.returnRotation(matColor)
+    callbackName = "updateUniversalActionAbilityToken"
+    callbackParams = { class = activeInvestigatorData.class, symbol = activeInvestigatorData.class }
   end
 
-  tokenManager.spawnToken(position, tokenType, rotation, callback)
+  tokenManagerApi.spawnToken(position, tokenType, rotation, callbackName, callbackParams)
 end
 
 -- gets the target card for this operation
@@ -132,7 +127,7 @@ function addUseToCard(card, useType)
 
   -- if matching uses were found, perform the "fake" replenish
   if match then
-    tokenManager.maybeReplenishCard(card, metadata.uses)
+    tokenManagerApi.maybeReplenishCard(card, metadata.uses)
     return true
   else
     return false
