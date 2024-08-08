@@ -1,13 +1,47 @@
-local guidReferenceApi = require("core/GUIDReferenceApi")
+local guidReferenceApi       = require("core/GUIDReferenceApi")
 
-local cardIdIndex = {}
-local classAndLevelIndex = {}
-local basicWeaknessList = {}
-local uniqueWeaknessList = {}
-local cycleIndex = {}
+-- card index and sub-indices
+local cardIdIndex            = {}
+local classAndLevelIndex     = {}
+local customInvestigatorData = {}
+local customSignatureDict    = {}
+local basicWeaknessList      = {}
+local uniqueWeaknessList     = {}
+local cycleIndex             = {}
 
-local indexingDone = false
-local otherCardsDetected = false
+local indexingDone           = false
+local otherCardsDetected     = false
+
+-- helper data for class sorting
+local classValueList         = {
+  Guardian = 1,
+  Seeker   = 2,
+  Rogue    = 3,
+  Mystic   = 4,
+  Survivor = 5,
+  Neutral  = 99998,
+  Mythos   = 99999
+}
+local classesInOrder         = {
+  "Guardian",
+  "Seeker",
+  "Rogue",
+  "Mystic",
+  "Survivor",
+  "Neutral"
+}
+
+-- conversion tables to simplify type sorting
+local typeConversion         = {
+  Investigator = 1,
+  Minicard     = 2,
+  Asset        = 3,
+  Event        = 4,
+  Skill        = 5,
+  Enemy        = 6,
+  Treachery    = 7,
+  Location     = 8
+}
 
 function onLoad()
   self.addContextMenuItem("Rebuild Index", startIndexBuild)
@@ -28,24 +62,14 @@ end
 
 -- Resets all current bag indexes
 function clearIndexes()
-  indexingDone = false
-  cardIdIndex = {}
-  classAndLevelIndex = {}
-  classAndLevelIndex["Guardian-upgrade"] = {}
-  classAndLevelIndex["Seeker-upgrade"] = {}
-  classAndLevelIndex["Mystic-upgrade"] = {}
-  classAndLevelIndex["Survivor-upgrade"] = {}
-  classAndLevelIndex["Rogue-upgrade"] = {}
-  classAndLevelIndex["Neutral-upgrade"] = {}
-  classAndLevelIndex["Guardian-level0"] = {}
-  classAndLevelIndex["Seeker-level0"] = {}
-  classAndLevelIndex["Mystic-level0"] = {}
-  classAndLevelIndex["Survivor-level0"] = {}
-  classAndLevelIndex["Rogue-level0"] = {}
-  classAndLevelIndex["Neutral-level0"] = {}
-  cycleIndex = {}
-  basicWeaknessList = {}
-  uniqueWeaknessList = {}
+  indexingDone           = false
+  cardIdIndex            = {}
+  classAndLevelIndex     = {}
+  cycleIndex             = {}
+  customInvestigatorData = {}
+  customSignatureDict    = {}
+  basicWeaknessList      = {}
+  uniqueWeaknessList     = {}
 end
 
 -- Clears the bag indexes and starts the coroutine to rebuild the indexes
@@ -64,57 +88,66 @@ end
 -- and creating the keyed lookup tables for the cards. This is a coroutine which will
 -- spread the workload by processing 20 cards before yielding.
 function buildIndex()
-  local cardCount = 0
+  cardCount = 0
   indexingDone = false
   otherCardsDetected = false
 
   -- process the allcardsbag itself
-  for _, cardData in ipairs(self.getData().ContainedObjects) do
-    addCardToIndex(cardData)
-    cardCount = cardCount + 1
-    if cardCount > 19 then
-      cardCount = 0
-      coroutine.yield(0)
-    end
+  local selfData = self.getData()
+  if selfData.ContainedObjects then
+    processContainedObjects(selfData.ContainedObjects)
   end
 
   -- process hotfix bags (and the additional playercards bag)
   for _, hotfixBag in ipairs(getObjectsWithTag("AllCardsHotfix")) do
     local hotfixData = hotfixBag.getData()
-
-    -- if the bag is empty, continue with the next bag
-    if not hotfixData.ContainedObjects then
-      goto nextBag
+    if hotfixData.ContainedObjects then
+      processContainedObjects(hotfixData.ContainedObjects, hotfixData.CustomDeck)
     end
-
-    for _, cardData in ipairs(hotfixData.ContainedObjects) do
-      if cardData.ContainedObjects then
-        -- process containers
-        for _, deepCardData in ipairs(cardData.ContainedObjects) do
-          addCardToIndex(deepCardData)
-          cardCount = cardCount + 1
-          if cardCount > 19 then
-            cardCount = 0
-            coroutine.yield(0)
-          end
-        end
-      else
-        -- process single cards
-        addCardToIndex(cardData)
-        cardCount = cardCount + 1
-        if cardCount > 19 then
-          cardCount = 0
-          coroutine.yield(0)
-        end
-      end
-    end
-    ::nextBag::
   end
 
   buildSupplementalIndexes()
+  collectSortingData()
+  sortIndexes()
   updatePlayerCardPanel()
   indexingDone = true
   return 1
+end
+
+-- Processes the contained objects for cards to add to the index
+function processContainedObjects(containedObjects, customDeck)
+  for _, objData in ipairs(containedObjects) do
+    if objData.ContainedObjects then
+      -- recursively process nested containers
+      processContainedObjects(objData.ContainedObjects, objData.CustomDeck)
+    elseif objData.Name == "Card" or objData.Name == "CardCustom" then
+      if customDeck then
+        -- we might need to fix the "CustomDeck" entry for cards inside decks since TTS doesn't update it while they are in bags
+        local wantedCustomDeckIdStr = tostring(objData.CardID):sub(1, -3)
+        local presentCustomDeckIdNum = next(objData.CustomDeck)
+
+        -- type conversion (TTS seems to store these as strings, but reads them as numbers)
+        local wantedCustomDeckIdNum = tonumber(wantedCustomDeckIdStr)
+        if wantedCustomDeckIdNum ~= presentCustomDeckIdNum then
+          if customDeck[wantedCustomDeckIdNum] then
+            objData.CustomDeck = {}
+            objData.CustomDeck[wantedCustomDeckIdStr] = customDeck[wantedCustomDeckIdNum]
+            log("Corrected CustomDeckData for " .. objData.Nickname)
+          else
+            log("Could not correct CustomDeckData for " .. objData.Nickname)
+            return
+          end
+        end
+      end
+
+      addCardToIndex(objData)
+      cardCount = cardCount + 1
+      if cardCount > 19 then
+        cardCount = 0
+        coroutine.yield(0)
+      end
+    end
+  end
 end
 
 -- Adds a card to any indexes it should be a part of, based on its metadata
@@ -130,19 +163,20 @@ function addCardToIndex(cardData)
   end
 
   -- if metadata was not valid JSON or empty, don't add the card
-  if not cardMetadata == nil then
+  if not cardMetadata then
     log("Error parsing " .. cardData.Nickname)
     return
   end
 
   -- use the ZoopGuid as fallback if no id present
   cardMetadata.id = cardMetadata.id or cardMetadata.TtsZoopGuid
-  cardIdIndex[cardMetadata.id] = { data = cardData, metadata = cardMetadata }
+  local indexData = { data = cardData, metadata = cardMetadata }
+  cardIdIndex[cardMetadata.id] = indexData
 
   -- also add data for alternate ids
-  if cardMetadata.alternate_ids ~= nil then
+  if cardMetadata.alternate_ids then
     for _, alternateId in ipairs(cardMetadata.alternate_ids) do
-      cardIdIndex[alternateId] = { data = cardData, metadata = cardMetadata }
+      cardIdIndex[alternateId] = indexData
     end
   end
 end
@@ -154,16 +188,16 @@ function buildSupplementalIndexes()
     if cardId == card.metadata.id then
       -- Add card to the basic weakness list, if appropriate. Some weaknesses have multiple copies, and are added multiple times
       if card.metadata.weakness then
-        table.insert(uniqueWeaknessList, card.metadata.id)
+        table.insert(uniqueWeaknessList, cardId)
         if card.metadata.basicWeaknessCount ~= nil then
           for i = 1, card.metadata.basicWeaknessCount do
-            table.insert(basicWeaknessList, card.metadata.id)
+            table.insert(basicWeaknessList, cardId)
           end
         end
       end
 
-      -- Excludes signature cards (which have no class or level)
-      if card.metadata.class ~= nil and card.metadata.level ~= nil then
+      -- Excludes signature cards and story assets for official cycles (which have no class or level)
+      if card.metadata.class and card.metadata.level then
         local upgradeKey = "-level0"
         if card.metadata.level > 0 then
           upgradeKey = "-upgrade"
@@ -171,37 +205,101 @@ function buildSupplementalIndexes()
 
         -- parse classes (separated by "|") and add the card to the appropriate class and level indices
         for str in card.metadata.class:gmatch("([^|]+)") do
-          table.insert(classAndLevelIndex[str .. upgradeKey], card.metadata.id)
+          writeToNestedTable(classAndLevelIndex, str .. upgradeKey, cardId)
         end
-
-        -- add to cycle index
-        local cycleName = card.metadata.cycle
-        if cycleName ~= nil then
-          cycleName = string.lower(cycleName)
-
-          -- remove "return to " from cycle names
-          cycleName = cycleName:gsub("return to ", "")
-
-          -- override cycle name for night of the zealot
-          cycleName = cycleName:gsub("the night of the zealot", "core")
-        else
-          -- track cards without defined cycle (should only be fan-made cards)
-          cycleName = "other"
-          otherCardsDetected = true
-        end
-
-        -- maybe initialize table
-        if cycleIndex[cycleName] == nil then
-          cycleIndex[cycleName] = {}
-        end
-        table.insert(cycleIndex[cycleName], card.metadata.id)
       end
+
+      -- add to cycle index
+      local cycleName = card.metadata.cycle
+
+      -- if this is a minicard without cycle, check the parent card for cycle data
+      if not cycleName and card.metadata.type == "Minicard" then
+        local parentId = getParentId(cardId)
+        local parent = cardIdIndex[parentId]
+        if parent and parent.metadata.cycle then
+          cycleName = parent.metadata.cycle
+        end
+      end
+
+      if cycleName then
+        cycleName = string.lower(cycleName)
+
+        -- remove "return to " from cycle names
+        cycleName = cycleName:gsub("return to ", "")
+
+        -- override cycle name for night of the zealot
+        cycleName = cycleName:gsub("the night of the zealot", "core")
+      else
+        -- track cards without defined cycle (should only be fan-made cards)
+        cycleName = "other"
+        otherCardsDetected = true
+
+        -- maybe add to special investigator / minicard index
+        if card.metadata.type == "Investigator" then
+          writeToNestedTable(customInvestigatorData, "InvestigatorGroup", cardId)
+          writeToNestedTable(customInvestigatorData, "InvestigatorSubdata", cardId, "cards", cardId)
+
+          -- read the signatures
+          if card.metadata.signatures and type(card.metadata.signatures) == "table" then
+            for sigId, sigCount in pairs(card.metadata.signatures[1] or {}) do
+              customSignatureDict[sigId] = true
+              for i = 1, sigCount do
+                writeToNestedTable(customInvestigatorData, "InvestigatorSubdata", cardId, "signatures", sigId)
+              end
+            end
+          end
+        elseif card.metadata.type == "Minicard" then
+          local parentId = getParentId(cardId)
+          writeToNestedTable(customInvestigatorData, "InvestigatorSubdata", parentId, "minicards", cardId)
+        end
+      end
+
+      -- maybe initialize table
+      writeToNestedTable(cycleIndex, cycleName, cardId)
+    end
+  end
+end
+
+-- collect the sorting data and cache it
+function collectSortingData()
+  for _, card in pairs(cardIdIndex) do
+    card.sortingData = {
+      class = getClassValue(card.metadata.class),
+      cardType = typeConversion[card.metadata.type] or 99,
+      level = card.metadata.level or 6,
+      name = card.data.Nickname
+    }
+  end
+end
+
+-- generalized comparison function for table.sort() with customizable criteria
+function generalizedCardComparator(id1, id2, criteria)
+  local card1 = cardIdIndex[id1]
+  local card2 = cardIdIndex[id2]
+
+  for _, key in ipairs(criteria) do
+    if card1.sortingData[key] ~= card2.sortingData[key] then
+      return card1.sortingData[key] < card2.sortingData[key]
     end
   end
 
+  return id1 < id2
+end
+
+-- sorts by level and then name
+function generalSortFunction(id1, id2)
+  return generalizedCardComparator(id1, id2, { "level", "name" })
+end
+
+-- sort by class, cardType, level and then name
+function metadataSortFunction(id1, id2)
+  return generalizedCardComparator(id1, id2, { "class", "cardType", "level", "name" })
+end
+
+function sortIndexes()
   -- sort class and level indices
   for _, indexTable in pairs(classAndLevelIndex) do
-    table.sort(indexTable, cardComparator)
+    table.sort(indexTable, generalSortFunction)
   end
 
   -- sort cycle indices
@@ -210,22 +308,33 @@ function buildSupplementalIndexes()
   end
 
   -- sort weakness indices
-  table.sort(basicWeaknessList, cardComparator)
-  table.sort(uniqueWeaknessList, cardComparator)
+  table.sort(basicWeaknessList)
+  table.sort(uniqueWeaknessList)
+
+  -- sort custom investigator / minicard data
+  for _, indexTable in pairs(customInvestigatorData) do
+    table.sort(indexTable, metadataSortFunction)
+  end
 end
 
--- Comparison function used to sort the class card bag indexes. Sorts by card level, then name, then subname.
-function cardComparator(id1, id2)
-  local card1 = cardIdIndex[id1]
-  local card2 = cardIdIndex[id2]
+-- get the parent id for minicards by removing the last two characters
+function getParentId(miniId)
+  return string.sub(miniId, 1, -3)
+end
 
-  if card1.metadata.level ~= card2.metadata.level then
-    return card1.metadata.level < card2.metadata.level
-  elseif card1.data.Nickname ~= card2.data.Nickname then
-    return card1.data.Nickname < card2.data.Nickname
-  else
-    return card1.data.Description < card2.data.Description
+-- helper function to ensure nested tables are initialized - last argument will be used as table element
+function writeToNestedTable(rootTable, ...)
+  local args = { ... }
+  local currentTable = rootTable
+
+  for i = 1, #args - 1 do
+    local key = args[i]
+    if not currentTable[key] then
+      currentTable[key] = {}
+    end
+    currentTable = currentTable[key]
   end
+  table.insert(currentTable, args[#args])
 end
 
 -- inform the player card panel about the presence of other cards (no cycle -> fan-made)
@@ -273,8 +382,9 @@ end
 
 -- Returns a list of cards from the bag matching a cycle
 ---@param params table
---  cycle: String cycle to retrieve ("The Scarlet Keys" etc.)
---  sortByMetadata: true to sort the table by metadata instead of ID
+--  cycle: string Name of the cycle to retrieve ("The Scarlet Keys" etc.)
+--  sortByMetadata: boolean If true, sorts the table by metadata instead of ID
+--  includeNoLevelCards: boolean If true, includes cards without level
 ---@return table: If the indexes are still being constructed, returns an empty table.
 --  Otherwise, a list of tables, each with the following fields
 --    data: TTS object data, suitable for spawning the card
@@ -282,65 +392,57 @@ end
 function getCardsByCycle(params)
   if not isIndexReady() then return {} end
 
-  if not params.sortByMetadata then
-    return cycleIndex[string.lower(params.cycle)]
+  local cycleData = cycleIndex[string.lower(params.cycle)] or {}
+
+  -- create a copy of the data to not change the source
+  local cardList = {}
+  for _, id in ipairs(cycleData) do
+    local md = cardIdIndex[id].metadata
+    -- only include cards without level if requested (don't include investigators / minicards / signatures though)
+    if (md.level or params.includeNoLevelCards) and md.type ~= "Investigator" and md.type ~= "Minicard" and customSignatureDict[id] ~= true then
+      table.insert(cardList, id)
+    end
   end
 
   -- sort list by metadata (useful for custom cards without proper IDs)
-  local cardList = {}
-  for _, id in ipairs(cycleIndex[string.lower(params.cycle)]) do
-    table.insert(cardList, id)
+  if params.sortByMetadata and #cardList > 0 then
+    table.sort(cardList, metadataSortFunction)
   end
-
-  table.sort(cardList, metadataSortFunction)
   return cardList
 end
 
--- sorts cards by metadata: class, type, level, name and then description
-function metadataSortFunction(id1, id2)
-  local card1 = cardIdIndex[id1]
-  local card2 = cardIdIndex[id2]
+-- helper function to calculate the class value for sorting from the "|" separated string
+function getClassValue(s)
+  -- make sure cards without class (e.g. weaknesses) get sorted last
+  if not s then return 99999 end
 
-  -- extract class per card
-  local classValue1 = getClassValueFromString(card1.metadata.class)
-  local classValue2 = getClassValueFromString(card2.metadata.class)
-
-  -- conversion tables to simplify type sorting
-  local typeConversion = {
-    Asset = 1,
-    Event = 2,
-    Skill = 3
-  }
-
-  if classValue1 ~= classValue2 then
-    return classValue1 < classValue2
-  elseif typeConversion[card1.metadata.type] ~= typeConversion[card2.metadata.type] then
-    return typeConversion[card1.metadata.type] < typeConversion[card2.metadata.type]
-  elseif card1.metadata.level ~= card2.metadata.level then
-    return card1.metadata.level < card2.metadata.level
-  elseif card1.data.Nickname ~= card2.data.Nickname then
-    return card1.data.Nickname < card2.data.Nickname
-  else
-    return card1.data.Description < card2.data.Description
+  -- split the "|" separated string and remove whitespace
+  local splitClasses = {}
+  for str in s:gmatch("([^|]+)") do
+    str = str:gsub("%s", "")
+    splitClasses[str] = true
   end
+
+  -- sort multiclass cards (outputs 12 for "Guardian|Seeker")
+  local classValue = 0
+  local multiplier = 1
+  for _, class in pairs(classesInOrder) do
+    if splitClasses[class] then
+      classValue = classValue + classValueList[class] * multiplier
+      multiplier = multiplier * 10
+    end
+  end
+
+  return classValue
 end
 
--- helper function to calculate the class value for sorting from the "|" separated string
-function getClassValueFromString(s)
-  local classValueList = {
-    Guardian = 1,
-    Seeker = 2,
-    Rogue = 3,
-    Mystic = 4,
-    Survivor = 5,
-    Neutral = 6
+function getCustomInvestigatorData()
+  if not isIndexReady() then return {} end
+
+  return {
+    InvestigatorGroup = customInvestigatorData.InvestigatorGroup or {},
+    InvestigatorSubdata = customInvestigatorData.InvestigatorSubdata or {}
   }
-  local classValue = 0
-  for str in s:gmatch("([^|]+)") do
-    -- this sorts multiclass cards
-    classValue = classValue * 10 + classValueList[str]
-  end
-  return classValue
 end
 
 -- Searches the bag for cards which match the given name and returns a list. Note that this is
