@@ -4,6 +4,7 @@ local guidReferenceApi       = require("core/GUIDReferenceApi")
 local cardIdIndex            = {}
 local classAndLevelIndex     = {}
 local customInvestigatorData = {}
+local customSignatureDict    = {}
 local basicWeaknessList      = {}
 local uniqueWeaknessList     = {}
 local cycleIndex             = {}
@@ -66,6 +67,7 @@ function clearIndexes()
   classAndLevelIndex     = {}
   cycleIndex             = {}
   customInvestigatorData = {}
+  customSignatureDict    = {}
   basicWeaknessList      = {}
   uniqueWeaknessList     = {}
 end
@@ -237,6 +239,16 @@ function buildSupplementalIndexes()
         if card.metadata.type == "Investigator" then
           writeToNestedTable(customInvestigatorData, "InvestigatorGroup", cardId)
           writeToNestedTable(customInvestigatorData, "InvestigatorSubdata", cardId, "cards", cardId)
+
+          -- read the signatures
+          if card.metadata.signatures then
+            for sigId, sigCount in pairs(card.metadata.signatures[1]) do
+              customSignatureDict[sigId] = true
+              for i = 1, sigCount do
+                writeToNestedTable(customInvestigatorData, "InvestigatorSubdata", cardId, "signatures", sigId)
+              end
+            end
+          end
         elseif card.metadata.type == "Minicard" then
           local parentId = getParentId(cardId)
           writeToNestedTable(customInvestigatorData, "InvestigatorSubdata", parentId, "minicards", cardId)
@@ -277,12 +289,12 @@ end
 
 -- sorts by level and then name
 function generalSortFunction(id1, id2)
-  return generalizedCardComparator(id1, id2, {"level", "name"})
+  return generalizedCardComparator(id1, id2, { "level", "name" })
 end
 
 -- sort by class, cardType, level and then name
 function metadataSortFunction(id1, id2)
-  return generalizedCardComparator(id1, id2, {"class", "cardType", "level", "name"})
+  return generalizedCardComparator(id1, id2, { "class", "cardType", "level", "name" })
 end
 
 function sortIndexes()
@@ -387,8 +399,8 @@ function getCardsByCycle(params)
   local cardList = {}
   for _, id in ipairs(cycleData) do
     local md = cardIdIndex[id].metadata
-    -- only include cards without level if requested (don't include investigators / minicards though)
-    if (md.level or params.includeNoLevelCards) and md.type ~= "Investigator" and md.type ~= "Minicard" then
+    -- only include cards without level if requested (don't include investigators / minicards / signatures though)
+    if (md.level or params.includeNoLevelCards) and md.type ~= "Investigator" and md.type ~= "Minicard" and customSignatureDict[id] ~= true then
       table.insert(cardList, id)
     end
   end
