@@ -44,11 +44,11 @@ local CARD_WIDTH = 2.3
 -- IMPORTANT! Because of the mix of global card sizes and relative-to-scale positions, the X and Y
 -- coordinates on these provide global disances while the Z is local.
 local START_POSITIONS = {
-  classCards = Vector(CARD_WIDTH * 9.5, 2, 1.4),
-  investigator = Vector(6 * 2.5, 2, 1.3),
-  cycle = Vector(CARD_WIDTH * 9.5, 2, 2.4),
-  other = Vector(CARD_WIDTH * 9.5, 2, 1.4),
-  randomWeakness = Vector(0, 2, 1.4),
+  classCards       = Vector(CARD_WIDTH * 9.5, 2, 1.4),
+  investigator     = Vector(6 * 2.5, 2, 1.3),
+  cycle            = Vector(CARD_WIDTH * 9.5, 2, 2.4),
+  other            = Vector(CARD_WIDTH * 9.5, 2, 1.4),
+  randomWeakness   = Vector(0, 2, 1.4),
   -- Because the card spread is handled by the SpawnBag, we don't know (programatically) where this
   -- should be placed. If more customizable cards are added it will need to be moved.
   summonedServitor = Vector(CARD_WIDTH * -7.5, 2, 1.7)
@@ -57,10 +57,12 @@ local START_POSITIONS = {
 -- Shifts to move rows of cards, and groups of rows, as different groupings are laid out
 local CARD_ROW_OFFSET = 3.7
 local CARD_GROUP_OFFSET = 2
+local CARD_MAX_ROWS = 15
+local CARD_MAX_COLS = 20
 
 -- Position offsets for investigator decks in investigator mode, defines the spacing for how the
 -- rows and columns are laid out
-local INVESTIGATOR_POSITION_SHIFT_ROW = Vector(0, 0, 11)
+local INVESTIGATOR_POSITION_SHIFT_ROW = Vector(0, 0, 10)
 local INVESTIGATOR_POSITION_SHIFT_COL = Vector(-6, 0, 0)
 local INVESTIGATOR_MAX_COLS = 6
 
@@ -173,7 +175,7 @@ function createInvestigatorButtons()
     invButtonParams.position = buttonPos
     self.createButton(invButtonParams)
     buttonPos.x = buttonPos.x + CLASS_BUTTONS_X_OFFSET
-    self.setVar(invButtonParams.click_function, function(_, _, _) spawnInvestigatorGroup(class) end)
+    self.setVar(invButtonParams.click_function, function() spawnInvestigatorGroup(class) end)
   end
 end
 
@@ -458,16 +460,14 @@ function scalePositions()
   for key, pos in pairs(START_POSITIONS) do
     -- Because a scaled object means a different global size, using global distance for Z results in
     -- the cards being closer or farther depending on the scale. Leave the Z values and only scale X and Y
-    startPositions[key] = Vector(pos)
-    startPositions[key].x = startPositions[key].x * scale
-    startPositions[key].y = startPositions[key].y * scale
+    startPositions[key] = Vector(pos):scale(Vector(scale, scale, 1))
   end
-  cardRowOffset = CARD_ROW_OFFSET * scale
-  cardGroupOffset = CARD_GROUP_OFFSET * scale
+  cardRowOffset                = CARD_ROW_OFFSET * scale
+  cardGroupOffset              = CARD_GROUP_OFFSET * scale
   investigatorPositionShiftRow = Vector(INVESTIGATOR_POSITION_SHIFT_ROW):scale(scale)
   investigatorPositionShiftCol = Vector(INVESTIGATOR_POSITION_SHIFT_COL):scale(scale)
-  investigatorCardOffset = Vector(INVESTIGATOR_CARD_OFFSET):scale(scale)
-  investigatorSignatureOffset = Vector(INVESTIGATOR_SIGNATURE_OFFSET):scale(scale)
+  investigatorCardOffset       = Vector(INVESTIGATOR_CARD_OFFSET):scale(scale)
+  investigatorSignatureOffset  = Vector(INVESTIGATOR_SIGNATURE_OFFSET):scale(scale)
 end
 
 -- Deletes all cards currently placed on the table
@@ -507,36 +507,35 @@ function spawnInvestigators(groupName)
     return
   end
 
-  local col = 1
+  local col = 0
   local row = 1
   local investigatorCount = #mainData
   local position = getInvestigatorRowStartPos(investigatorCount, row)
 
   for _, investigatorName in ipairs(mainData) do
+    col = col + 1
+    if col > INVESTIGATOR_MAX_COLS then
+      col = 0
+      row = row + 1
+      position = getInvestigatorRowStartPos(investigatorCount, row)
+    end
+
     for _, spawnSpec in ipairs(buildInvestigatorSpawnSpec(investigatorName, subData[investigatorName], position)) do
       spawnBag.spawn(spawnSpec)
     end
     position:add(investigatorPositionShiftCol)
-    col = col + 1
-    if col > INVESTIGATOR_MAX_COLS then
-      col = 1
-      row = row + 1
-      position = getInvestigatorRowStartPos(investigatorCount, row)
-    end
   end
+  return row
 end
 
 function getInvestigatorRowStartPos(investigatorCount, row)
-  local rowStart = Vector(startPositions.investigator)
-  rowStart:add(Vector(
-    investigatorPositionShiftRow.x * (row - 1),
-    investigatorPositionShiftRow.y * (row - 1),
-    investigatorPositionShiftRow.z * (row - 1)))
+  local rowOffset = Vector(investigatorPositionShiftRow):scale(row - 1)
   local investigatorsInRow = math.min(investigatorCount - INVESTIGATOR_MAX_COLS * (row - 1), INVESTIGATOR_MAX_COLS)
-  rowStart:add(Vector(
-    investigatorPositionShiftCol.x * (INVESTIGATOR_MAX_COLS - investigatorsInRow) / 2,
-    investigatorPositionShiftCol.y * (INVESTIGATOR_MAX_COLS - investigatorsInRow) / 2,
-    investigatorPositionShiftCol.z * (INVESTIGATOR_MAX_COLS - investigatorsInRow) / 2))
+  local colOffset = Vector(investigatorPositionShiftCol):scale((INVESTIGATOR_MAX_COLS - investigatorsInRow) / 2)
+
+  local rowStart = Vector(startPositions.investigator)
+  rowStart:add(rowOffset)
+  rowStart:add(colOffset)
   return rowStart
 end
 
@@ -667,9 +666,9 @@ function placeClassCards(cardClass, isUpgraded)
       globalPos = self.positionToWorld(groupPos),
       rotation = FACE_UP_ROTATION,
       spread = true,
-      spreadCols = 20
+      spreadCols = CARD_MAX_COLS
     })
-    groupPos.z = groupPos.z + math.ceil(#skillList / 20) * cardRowOffset + cardGroupOffset
+    groupPos.z = groupPos.z + math.ceil(#skillList / CARD_MAX_COLS) * cardRowOffset + cardGroupOffset
   end
   if #eventList > 0 then
     spawnBag.spawn({
@@ -678,9 +677,9 @@ function placeClassCards(cardClass, isUpgraded)
       globalPos = self.positionToWorld(groupPos),
       rotation = FACE_UP_ROTATION,
       spread = true,
-      spreadCols = 20
+      spreadCols = CARD_MAX_COLS
     })
-    groupPos.z = groupPos.z + math.ceil(#eventList / 20) * cardRowOffset + cardGroupOffset
+    groupPos.z = groupPos.z + math.ceil(#eventList / CARD_MAX_COLS) * cardRowOffset + cardGroupOffset
   end
   if #assetList > 0 then
     spawnBag.spawn({
@@ -689,7 +688,7 @@ function placeClassCards(cardClass, isUpgraded)
       globalPos = self.positionToWorld(groupPos),
       rotation = FACE_UP_ROTATION,
       spread = true,
-      spreadCols = 20
+      spreadCols = CARD_MAX_COLS
     })
   end
 end
@@ -709,15 +708,26 @@ function spawnCycle(cycle)
   local cardList = allCardsBagApi.getCardsByCycle(cycle, sortByMetadata, includeNoLevelCards)
 
   prepareToPlaceCards()
-  spawnInvestigators(cycle)
+  local rowCount = spawnInvestigators(cycle)
+
+  -- need to shift the start position for cycle down if there are multiple rows of investigators
+  local rowOffset = Vector((rowCount - 1) * investigatorPositionShiftRow)
+  local cycleStartPos = Vector(startPositions.cycle):add(rowOffset)
+
+  -- potentially don't spawn all cards if there are too many
+  local maxCardCount = (CARD_MAX_ROWS - rowCount * 3) * CARD_MAX_COLS
+  if #cardList > maxCardCount then
+    printToAll("Only spawning the first " .. maxCardCount .. " cards from " .. #cardList .. " total cards.")
+    cardList = table.pack(table.unpack(cardList, 1, maxCardCount))
+  end
 
   spawnBag.spawn({
     name = "cycle" .. cycle,
     cards = cardList,
-    globalPos = self.positionToWorld(startPositions.cycle),
+    globalPos = self.positionToWorld(cycleStartPos),
     rotation = FACE_UP_ROTATION,
     spread = true,
-    spreadCols = 20
+    spreadCols = CARD_MAX_COLS
   })
 end
 
@@ -729,7 +739,7 @@ function spawnBonded()
     globalPos = self.positionToWorld(startPositions.classCards),
     rotation = FACE_UP_ROTATION,
     spread = true,
-    spreadCols = 20
+    spreadCols = CARD_MAX_COLS
   })
 end
 
@@ -741,7 +751,7 @@ function spawnUpgradeSheets()
     globalPos = self.positionToWorld(startPositions.classCards),
     rotation = FACE_UP_ROTATION,
     spread = true,
-    spreadCols = 20
+    spreadCols = CARD_MAX_COLS
   })
   spawnBag.spawn({
     name = "servitor",
@@ -774,25 +784,25 @@ function spawnWeaknesses()
     globalPos = self.positionToWorld(groupPos),
     rotation = FACE_UP_ROTATION,
     spread = true,
-    spreadCols = 20
+    spreadCols = CARD_MAX_COLS
   })
-  groupPos.z = groupPos.z + math.ceil(#basicWeaknessList / 20) * cardRowOffset + cardGroupOffset
+  groupPos.z = groupPos.z + math.ceil(#basicWeaknessList / CARD_MAX_COLS) * cardRowOffset + cardGroupOffset
   spawnBag.spawn({
     name = "evolvedWeaknesses",
     cards = EVOLVED_WEAKNESSES,
     globalPos = self.positionToWorld(groupPos),
     rotation = FACE_UP_ROTATION,
     spread = true,
-    spreadCols = 20
+    spreadCols = CARD_MAX_COLS
   })
-  groupPos.z = groupPos.z + math.ceil(#EVOLVED_WEAKNESSES / 20) * cardRowOffset + cardGroupOffset
+  groupPos.z = groupPos.z + math.ceil(#EVOLVED_WEAKNESSES / CARD_MAX_COLS) * cardRowOffset + cardGroupOffset
   spawnBag.spawn({
     name = "otherWeaknesses",
     cards = otherWeaknessList,
     globalPos = self.positionToWorld(groupPos),
     rotation = FACE_UP_ROTATION,
     spread = true,
-    spreadCols = 20
+    spreadCols = CARD_MAX_COLS
   })
 end
 
@@ -805,7 +815,8 @@ function spawnRandomWeakness(_, playerColor, isRightClick)
       spawnSingleWeakness(weaknessIds[1])
     end
   else
-    Player[playerColor].showInputDialog("Specify a trait for the weakness (split multiple eligible traits with '|'):", lastWeaknessTrait,
+    Player[playerColor].showInputDialog("Specify a trait for the weakness (split multiple eligible traits with '|'):",
+      lastWeaknessTrait,
       function(text)
         lastWeaknessTrait = text
         local weaknessIds = allCardsBagApi.getRandomWeaknessIds(1, { traits = text })
