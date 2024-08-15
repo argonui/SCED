@@ -21,7 +21,8 @@ local CONNECTION_LINE_Y             = 1.529
 -- used for recreating the link to a custom data helper after image change
 customDataHelper                    = nil
 
-local DEFAULT_URL                   = "https://steamusercontent-a.akamaihd.net/ugc/998015670465071049/FFAE162920D67CF38045EFBD3B85AD0F916147B2/"
+local DEFAULT_URL                   =
+"https://steamusercontent-a.akamaihd.net/ugc/998015670465071049/FFAE162920D67CF38045EFBD3B85AD0F916147B2/"
 
 local SHIFT_OFFSETS                 = {
   left  = { x = 0.00, y = 0, z = 7.67 },
@@ -69,7 +70,7 @@ function onLoad(savedData)
   end
 
   -- this needs to be here since the playarea will be reloaded when the image changes
-  self.interactable  = false
+  self.interactable = false
 
   Wait.time(function() collisionEnabled = true end, 0.1)
 end
@@ -308,7 +309,7 @@ function buildConnection(cardId, iconCardList, locData)
           -- If the reciprocal exists, convert it to BiDi, otherwise add as a one-way
           if locationConnections[connectedGuid] ~= nil
               and (locationConnections[connectedGuid][cardId] == ONE_WAY
-              or locationConnections[connectedGuid][cardId] == BIDIRECTIONAL) then
+                or locationConnections[connectedGuid][cardId] == BIDIRECTIONAL) then
             locationConnections[connectedGuid][cardId] = BIDIRECTIONAL
             locationConnections[cardId][connectedGuid] = nil
           else
@@ -426,7 +427,8 @@ function addOneWayVector(origin, target, vectorOwner, lines)
 
   -- Calculate distance to be closer for horizontal positions than vertical, since cards are taller than wide
   local heading = Vector(originPos):sub(targetPos):heading("y")
-  local distanceFromCard = DIRECTIONAL_ARROW_DISTANCE * 0.7 + DIRECTIONAL_ARROW_DISTANCE * 0.3 * math.abs(math.sin(math.rad(heading)))
+  local distanceFromCard = DIRECTIONAL_ARROW_DISTANCE * 0.7 +
+      DIRECTIONAL_ARROW_DISTANCE * 0.3 * math.abs(math.sin(math.rad(heading)))
 
   -- Calculate the three possible arrow positions. These are offset by half the arrow length to
   -- make them visually balanced by keeping the arrows centered, not tracking the point
@@ -449,8 +451,10 @@ end
 ---    positioning and scaling, as well as highlighting connections during a drag operation
 ---@param lines table List of vector line elements. Mutable, will be updated to add this arrow
 function addArrowLines(arrowheadPos, originPos, vectorOwner, lines)
-  local arrowArm1 = Vector(arrowheadPos):moveTowards(originPos, ARROW_ARM_LENGTH):sub(arrowheadPos):rotateOver("y", -1 * ARROW_ANGLE):add(arrowheadPos)
-  local arrowArm2 = Vector(arrowheadPos):moveTowards(originPos, ARROW_ARM_LENGTH):sub(arrowheadPos):rotateOver("y", ARROW_ANGLE):add(arrowheadPos)
+  local arrowArm1 = Vector(arrowheadPos):moveTowards(originPos, ARROW_ARM_LENGTH):sub(arrowheadPos):rotateOver("y",
+    -1 * ARROW_ANGLE):add(arrowheadPos)
+  local arrowArm2 = Vector(arrowheadPos):moveTowards(originPos, ARROW_ARM_LENGTH):sub(arrowheadPos):rotateOver("y",
+    ARROW_ANGLE):add(arrowheadPos)
 
   local head = vectorOwner.positionToLocal(arrowheadPos)
   local arm1 = vectorOwner.positionToLocal(arrowArm1)
@@ -508,6 +512,55 @@ function highlightMissingData(state)
       end
     else
       missingData[i] = nil
+    end
+  end
+end
+
+-- Readies all cards in the main playarea (both player cards, treacheries and enemies)
+function readyCards(player, clickType)
+  local playerColor = player.color
+
+  -- when right-clicked
+  if clickType == "-2" then
+    printToColor("This will ready (rotate 90° closer to 0°) all cards in the main play area." ..
+    " Make sure to handle enemy engagement manually. To exclude a card from this (e.g. Handcuffs)," ..
+    " right-click it, select 'Tags' and add the tag 'DoNotReady' to it.", playerColor)
+    return
+  end
+
+  local zone = guidReferenceApi.getObjectByOwnerAndType("Mythos", "PlayAreaZone")
+  if not zone then
+    broadcastToColor("Scripting zone couldn't be found.", playerColor, "Red")
+    return
+  end
+
+  broadcastToAll("Readied cards in Play Area")
+
+  local rot = self.getRotation()
+  for _, obj in ipairs(zone.getObjects()) do
+    if obj.type == "Card" and obj.locked == false and not (obj.getVar("do_not_ready") or obj.hasTag("DoNotReady")) then
+      local cardRotation = obj.getRotation()
+      local roundedRotY = round(cardRotation.y, 0)
+      local yRotDiff = roundedRotY - rot.y
+
+      if yRotDiff < 0 then
+        yRotDiff = yRotDiff + 360
+      end
+
+      -- rotate cards to the next multiple of 90° towards 0°
+      local cardRotY = rot.y
+      if yRotDiff > 90 and yRotDiff <= 180 then
+        cardRotY = rot.y + 90
+      elseif yRotDiff > 180 and yRotDiff < 270 then
+        cardRotY = rot.y + 270
+      end
+
+      -- highlighting for readied cards
+      if cardRotY == rot.y and roundedRotY ~= rot.y then
+        obj.highlightOn({ r = 0.8, g = 1, b = 0.05 }, 2)
+      end
+
+      obj.setRotation(cardRotation:setAt("y", cardRotY))
     end
   end
 end
