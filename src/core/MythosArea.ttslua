@@ -26,6 +26,7 @@ local currentScenario, useFrontData, tokenData
 
 function onSave()
   return JSON.encode({
+    scenarioCardGUID    = scenarioCardGUID,
     currentScenario = currentScenario,
     useFrontData    = useFrontData,
     tokenData       = tokenData
@@ -35,11 +36,35 @@ end
 function onLoad(savedData)
   if savedData and savedData ~= "" then
     local loadedState = JSON.decode(savedData) or {}
+    scenarioCard      = getObjectFromGUID(loadedState.scenarioCardGUID) or {}
     currentScenario   = loadedState.currentScenario or ""
     useFrontData      = loadedState.useFrontData or true
     tokenData         = loadedState.tokenData or {}
   end
   Wait.time(function() collisionEnabled = true end, 0.1)
+end
+
+function copyScenarioReferenceCard()
+  if scenarioCard ~= nil then
+    usedColors = playermatApi.getUsedMatColors()
+    if #usedColors ~= 0 then
+      for _, color in ipairs(usedColors) do
+        if color == "Green" then
+          scenarioCard.clone({position = {x = -39.12, y = 1.55, z = 22.58}, snap_to_grid = true})
+        elseif color == "Red" then
+          scenarioCard.clone({position = {x = -21.57, y = 1.55, z = -22.58}, snap_to_grid = true})
+        elseif color == "Orange" then
+          scenarioCard.clone({position = {x = -50.98, y = 1.55, z = -24.87}, snap_to_grid = true})
+        else
+          scenarioCard.clone({position = {x = -50.98, y = 1.55, z = 7.32}, snap_to_grid = true})
+        end
+      end
+    else
+      broadcastToAll("No investigators placed.", "Red")
+    end
+  else
+    broadcastToAll("No scenario reference card found.", "Red")
+  end
 end
 
 ---------------------------------------------------------
@@ -52,8 +77,8 @@ function onCollisionEnter(collisionInfo)
 
   local object = collisionInfo.collision_object
 
-  -- early exit for better performance
-  if object.type ~= "Card" then return end
+  -- early exit for better performance (but should exclude Tiles again in 4.0)
+  if object.type ~= "Card" and object.type ~= "Tile" then return end
 
   -- reset spawned tokens and remove tokens from cards in encounter deck / discard area
   local localPos = self.positionToLocal(object.getPosition())
@@ -70,6 +95,7 @@ function onCollisionEnter(collisionInfo)
   local cardName = object.getName()
   if object.getName() == "Scenario" or md.type == "ScenarioReference" then
     getDataFromReferenceCard(object, cardName, md)
+    scenarioCard = object
   end
 end
 
@@ -108,6 +134,7 @@ function onCollisionExit(collisionInfo)
     tokenData = {}
     useFrontData = nil
     fireTokenDataChangedEvent()
+    scenarioCard = nil
   end
 end
 
