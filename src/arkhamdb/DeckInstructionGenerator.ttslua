@@ -13,18 +13,6 @@ function onLoad()
   buttonParameters.position       = { 0, 0.11, 0.74 }
   buttonParameters.scale          = { 0.5, 1, 0.5 }
   self.createButton(buttonParameters)
-
-  -- "output" text field
-  local inputParameters          = {}
-  inputParameters.label          = "Click button above"
-  inputParameters.input_function = "none"
-  inputParameters.function_owner = self
-  inputParameters.position       = { 0, 0.11, 1.1 }
-  inputParameters.width          = 1200
-  inputParameters.height         = 130
-  inputParameters.font_size      = 107
-  inputParameters.scale          = { 0.4, 1, 0.4 }
-  self.createInput(inputParameters)
 end
 
 -- generates a string for the deck notes that will instruct the Deck Importer to add the specified cards
@@ -44,8 +32,11 @@ function generate(_, playerColor)
     broadcastToColor("Didn't find any valid cards.", playerColor, "Red")
     return
   else
-    broadcastToColor("Created deck instruction for " .. #idList .. " card(s). Copy it from the input field.", playerColor,
-      "Green")
+    local cardString = #idList .. " cards"
+    if #idList == 1 then
+      cardString = " 1 card"
+    end
+    broadcastToColor("Parsed " .. cardString .. ": Go to Notebook > Deck Instructions", playerColor, "Green")
   end
 
   -- sort the idList
@@ -57,7 +48,30 @@ function generate(_, playerColor)
     description = description .. "\n- add: " .. entry.id .. " (**" .. entry.name .. "**)"
   end
 
-  self.editInput({ index = 0, value = description })
+  -- get a timestamp
+  local timestamp = os.date("%Y-%m-%d %H:%M")
+
+  -- get notebook data
+  for _, nb in ipairs(Notes.getNotebookTabs()) do
+    if nb.title == "Deck Instructions" then
+      -- edit the existing tab
+      Notes.editNotebookTab({
+        index = nb.index,
+        body = nb.body .. "\n\n" .. timestamp .. "\n" .. description,
+      })
+      return
+    end
+  end
+
+  -- add a new notebook tab for it (since there was no existing tab)
+  Notes.addNotebookTab({
+    title = "Deck Instructions",
+    body =
+        "Make sure to copy the section beginning with '++SCED import instructions++' to your ArkhamDB / arkham.build deck description." ..
+        "\nAfter doing so, the Deck Importer will be able to spawn these cards IF they are added to the mods card index (for example by " ..
+        "throwing them into the 'Additional Cards Bag'.\nIt also supports '- remove:' instructions to automatically remove placeholder cards.\n\n" ..
+        timestamp .. "\n" .. description
+  })
 end
 
 -- use the ZoopGuid as fallback if no id present
@@ -88,5 +102,3 @@ function sortById(a, b)
     return a.name < b.name
   end
 end
-
-function none() end
