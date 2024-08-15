@@ -54,6 +54,9 @@ function triggerUpkeepMultihanded(playerColor)
       playermatApi.doUpkeepFromHotkey(matColor, playerColor)
     end
   end
+
+  -- also trigger the PlayArea's "Ready Cards" function
+  playAreaApi.readyCards()
 end
 
 -- adds 1 doom to the agenda
@@ -268,21 +271,26 @@ function removeOneUse(playerColor, hoveredObject)
   if hoveredObject.type == "Tile" then
     targetObject = hoveredObject
   elseif hoveredObject.type == "Card" then
-    local searchResult = searchLib.onObject(hoveredObject, "isTileOrToken")
+    -- we're only searching 80% of the cards area to avoid matching tokens on other cards
+    local searchResult = searchLib.onObject(hoveredObject, "isTileOrToken", 0.8)
 
     if #searchResult == 0 then
       broadcastToColor("No tokens found!", playerColor, "Yellow")
       return
     end
 
-    -- index the found tokens by memo (only the first of each type)
+    -- index the found tokens by memo (store the token closest to the card for each memo)
+    local cardPos = hoveredObject.getPosition()
     local indexByMemo = {}
+    local distanceByMemo = {}
     for _, obj in ipairs(searchResult) do
       if not obj.locked then
-        if obj.memo and indexByMemo[obj.memo] == nil then
-          indexByMemo[obj.memo] = obj
-        elseif indexByMemo["NO_MEMO"] == nil then
-          indexByMemo["NO_MEMO"] = obj
+        local objPos = obj.getPosition()
+        local distance = Vector.between(cardPos, objPos):magnitude()
+        local memo = obj.memo or "NO_MEMO"
+        if distanceByMemo[memo] == nil or distanceByMemo[memo] > distance then
+          indexByMemo[memo] = obj
+          distanceByMemo[memo] = distance
         end
       end
     end
@@ -444,19 +452,19 @@ function switchSeat(playerColor, direction)
 end
 
 function takeClueFromLocationWhite(_, hoveredObject)
-  takeClueFromLocation("White", hoveredObject)
+  takeClueFromLocation(playermatApi.getPlayerColor("White"), hoveredObject)
 end
 
 function takeClueFromLocationOrange(_, hoveredObject)
-  takeClueFromLocation("Orange", hoveredObject)
+  takeClueFromLocation(playermatApi.getPlayerColor("Orange"), hoveredObject)
 end
 
 function takeClueFromLocationGreen(_, hoveredObject)
-  takeClueFromLocation("Green", hoveredObject)
+  takeClueFromLocation(playermatApi.getPlayerColor("Green"), hoveredObject)
 end
 
 function takeClueFromLocationRed(_, hoveredObject)
-  takeClueFromLocation("Red", hoveredObject)
+  takeClueFromLocation(playermatApi.getPlayerColor("Red"), hoveredObject)
 end
 
 -- takes a clue from a location, player needs to hover the clue directly or the location
@@ -502,15 +510,10 @@ function takeClueFromLocation(playerColor, hoveredObject)
     return
   end
 
+  -- determine the matColor and position
   local clickableClues = GlobalApi.getOptionPanelState()["useClueClickers"]
-
-  -- handling for calling this for a specific mat via hotkey
-  local matColor, pos
-  if Player[playerColor] and Player[playerColor].seated then
-    matColor = playermatApi.getMatColor(playerColor)
-  else
-    matColor = playerColor
-  end
+  local matColor = playermatApi.getMatColor(playerColor)
+  local pos
 
   if clickableClues then
     pos = { x = 0.49, y = 2.66, z = 0.00 }
