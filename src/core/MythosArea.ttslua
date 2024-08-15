@@ -17,6 +17,13 @@ local ENCOUNTER_DISCARD_AREA     = {
   lowerRight = { x = 1.42, z = 0.59 }
 }
 
+local scenarioCardPosition  = {
+  ["Green"]       = {x = -39.12, y = 1.55, z = 22.58},
+  ["Red"]         = {x = -21.57, y = 1.55, z = -22.58},
+  ["Orange"]      = {x = -50.98, y = 1.55, z = -24.87},
+  ["White"]       = {x = -50.98, y = 1.55, z = 7.32}
+}
+
 -- global position of encounter deck and discard pile
 local ENCOUNTER_DECK_POS         = { x = -3.93, y = 1, z = 5.76 }
 local ENCOUNTER_DISCARD_POSITION = { x = -3.85, y = 1, z = 10.38 }
@@ -26,17 +33,17 @@ local currentScenario, useFrontData, tokenData
 
 function onSave()
   return JSON.encode({
-    scenarioCardGUID    = scenarioCardGUID,
-    currentScenario = currentScenario,
-    useFrontData    = useFrontData,
-    tokenData       = tokenData
+    scenarioCardGUID  = scenarioCardGUID,
+    currentScenario   = currentScenario,
+    useFrontData      = useFrontData,
+    tokenData         = tokenData
   })
 end
 
 function onLoad(savedData)
   if savedData and savedData ~= "" then
     local loadedState = JSON.decode(savedData) or {}
-    scenarioCard      = getObjectFromGUID(loadedState.scenarioCardGUID) or {}
+    scenarioCard      = getObjectFromGUID(loadedState.scenarioCardGUID) or nil
     currentScenario   = loadedState.currentScenario or ""
     useFrontData      = loadedState.useFrontData or true
     tokenData         = loadedState.tokenData or {}
@@ -45,25 +52,26 @@ function onLoad(savedData)
 end
 
 function copyScenarioReferenceCard()
-  if scenarioCard ~= nil then
-    usedColors = playermatApi.getUsedMatColors()
-    if #usedColors ~= 0 then
-      for _, color in ipairs(usedColors) do
-        if color == "Green" then
-          scenarioCard.clone({position = {x = -39.12, y = 1.55, z = 22.58}, snap_to_grid = true})
-        elseif color == "Red" then
-          scenarioCard.clone({position = {x = -21.57, y = 1.55, z = -22.58}, snap_to_grid = true})
-        elseif color == "Orange" then
-          scenarioCard.clone({position = {x = -50.98, y = 1.55, z = -24.87}, snap_to_grid = true})
-        else
-          scenarioCard.clone({position = {x = -50.98, y = 1.55, z = 7.32}, snap_to_grid = true})
-        end
+  if scenarioCard == nil then broadcastToAll("No scenario reference card found.", "Red") return end
+  
+  local usedColors = playermatApi.getUsedMatColors()
+  if #usedColors == 0 then broadcastToAll("No investigators placed.", "Red") return end
+  for _, color in ipairs(usedColors) do
+    local cardPosition = scenarioCardPosition[color]
+    local searchResult = searchLib.atPosition(cardPosition, "isCardOrDeck")
+    if #searchResult > 1 then goto nextLoop end
+    if #searchResult == 1 then
+      local obj = searchResult[1]
+      if obj.type == "Card" and obj.getName() == "Scenario" then
+        local matColor = playermatApi.getMatColorByPosition(obj.getPosition())
+        local ownedObjects = guidReferenceApi.getObjectsByOwner(matColor)
+        ownedObjects.Trash.putObject(obj)
+      else
+        goto nextLoop
       end
-    else
-      broadcastToAll("No investigators placed.", "Red")
     end
-  else
-    broadcastToAll("No scenario reference card found.", "Red")
+    scenarioCard.clone({position = cardPosition, snap_to_grid = true})
+    ::nextLoop::
   end
 end
 
@@ -130,7 +138,7 @@ function onCollisionExit(collisionInfo)
   local object = collisionInfo.collision_object
 
   -- reset token metadata if scenario reference card is removed
-  if object.getName() == "Scenario" then
+  if object == scenarioCard then
     tokenData = {}
     useFrontData = nil
     fireTokenDataChangedEvent()
