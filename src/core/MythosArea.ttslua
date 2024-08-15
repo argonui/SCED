@@ -17,13 +17,6 @@ local ENCOUNTER_DISCARD_AREA     = {
   lowerRight = { x = 1.42, z = 0.59 }
 }
 
-local scenarioCardPosition  = {
-  ["Green"]       = {x = -39.12, y = 1.55, z = 22.58},
-  ["Red"]         = {x = -21.57, y = 1.55, z = -22.58},
-  ["Orange"]      = {x = -50.98, y = 1.55, z = -24.87},
-  ["White"]       = {x = -50.98, y = 1.55, z = 7.32}
-}
-
 -- global position of encounter deck and discard pile
 local ENCOUNTER_DECK_POS         = { x = -3.93, y = 1, z = 5.76 }
 local ENCOUNTER_DISCARD_POSITION = { x = -3.85, y = 1, z = 10.38 }
@@ -57,12 +50,15 @@ function copyScenarioReferenceCard()
   local usedColors = playermatApi.getUsedMatColors()
   if #usedColors == 0 then broadcastToAll("No investigators placed.", "Red") return end
   for _, color in ipairs(usedColors) do
-    local cardPosition = scenarioCardPosition[color]
+    local cardPosition = playermatApi.transformLocalPosition({-1.365, 0.1, -0.625}, color)
     local searchResult = searchLib.atPosition(cardPosition, "isCardOrDeck")
+
     if #searchResult > 1 then goto nextLoop end
     if #searchResult == 1 then
       local obj = searchResult[1]
-      if obj.type == "Card" and obj.getName() == "Scenario" then
+      local md = JSON.decode(obj.getGMNotes()) or {}
+
+      if md.type == "ScenarioReference" then
         local matColor = playermatApi.getMatColorByPosition(obj.getPosition())
         local ownedObjects = guidReferenceApi.getObjectsByOwner(matColor)
         ownedObjects.Trash.putObject(obj)
