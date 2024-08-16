@@ -22,15 +22,18 @@ local ENCOUNTER_DECK_POS         = { x = -3.93, y = 1, z = 5.76 }
 local ENCOUNTER_DISCARD_POSITION = { x = -3.85, y = 1, z = 10.38 }
 local isReshuffling              = false
 local collisionEnabled           = false
-local currentScenario, useFrontData, tokenData
+local currentScenario, useFrontData, tokenData, scenarioCard
 
-function onSave()
-  return JSON.encode({
-    scenarioCardGUID  = scenarioCardGUID,
-    currentScenario   = currentScenario,
-    useFrontData      = useFrontData,
-    tokenData         = tokenData
-  })
+function updateSave()
+  local data = {
+    currentScenario = currentScenario,
+    useFrontData    = useFrontData,
+    tokenData       = tokenData
+  }
+  if scenarioCard ~= nil then
+    data.scenarioCardGuid = scenarioCard.getGUID()
+  end
+  self.script_state = JSON.encode(data )
 end
 
 function onLoad(savedData)
@@ -52,22 +55,18 @@ function copyScenarioReferenceCard()
   for _, color in ipairs(usedColors) do
     local cardPosition = playermatApi.transformLocalPosition({-1.365, 0.1, -0.625}, color)
     local searchResult = searchLib.atPosition(cardPosition, "isCardOrDeck")
-
-    if #searchResult > 1 then goto nextLoop end
-    if #searchResult == 1 then
+    if #searchResult == 0 then
+      scenarioCard.clone({position = cardPosition, snap_to_grid = true})
+    elseif #searchResult == 1 then
       local obj = searchResult[1]
       local md = JSON.decode(obj.getGMNotes()) or {}
-
+    
       if md.type == "ScenarioReference" then
-        local matColor = playermatApi.getMatColorByPosition(obj.getPosition())
-        local ownedObjects = guidReferenceApi.getObjectsByOwner(matColor)
-        ownedObjects.Trash.putObject(obj)
-      else
-        goto nextLoop
+        local trash = guidReferenceApi.getObjectByOwnerAndType(color, "Trash")
+        trash.putObject(obj)
+        scenarioCard.clone({position = cardPosition, snap_to_grid = true})
       end
     end
-    scenarioCard.clone({position = cardPosition, snap_to_grid = true})
-    ::nextLoop::
   end
 end
 
@@ -100,6 +99,9 @@ function onCollisionEnter(collisionInfo)
   if object.getName() == "Scenario" or md.type == "ScenarioReference" then
     getDataFromReferenceCard(object, cardName, md)
     scenarioCard = object
+    if scenarioCard.type == "Card" then
+      scenarioCard.setPosition{-3.85, 1.60, -10.39}
+    end
   end
 end
 
