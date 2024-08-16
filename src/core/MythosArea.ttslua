@@ -22,24 +22,52 @@ local ENCOUNTER_DECK_POS         = { x = -3.93, y = 1, z = 5.76 }
 local ENCOUNTER_DISCARD_POSITION = { x = -3.85, y = 1, z = 10.38 }
 local isReshuffling              = false
 local collisionEnabled           = false
-local currentScenario, useFrontData, tokenData
+local currentScenario, useFrontData, tokenData, scenarioCard
 
-function onSave()
-  return JSON.encode({
+function updateSave()
+  local data = {
     currentScenario = currentScenario,
     useFrontData    = useFrontData,
     tokenData       = tokenData
-  })
+  }
+  if scenarioCard ~= nil then
+    data.scenarioCardGuid = scenarioCard.getGUID()
+  end
+  self.script_state = JSON.encode(data)
 end
 
 function onLoad(savedData)
   if savedData and savedData ~= "" then
     local loadedState = JSON.decode(savedData) or {}
+    scenarioCard      = getObjectFromGUID(loadedState.scenarioCardGUID) or nil
     currentScenario   = loadedState.currentScenario or ""
     useFrontData      = loadedState.useFrontData or true
     tokenData         = loadedState.tokenData or {}
   end
   Wait.time(function() collisionEnabled = true end, 0.1)
+end
+
+function copyScenarioReferenceCard()
+  if scenarioCard == nil then broadcastToAll("No scenario reference card found.", "Red") return end
+  
+  local usedColors = playermatApi.getUsedMatColors()
+  if #usedColors == 0 then broadcastToAll("No investigators placed.", "Red") return end
+  for _, color in ipairs(usedColors) do
+    local cardPosition = playermatApi.transformLocalPosition({-1.365, 0.1, -0.625}, color)
+    local searchResult = searchLib.atPosition(cardPosition, "isCardOrDeck")
+    if #searchResult == 0 then
+      scenarioCard.clone({position = cardPosition, snap_to_grid = true})
+    elseif #searchResult == 1 then
+      local obj = searchResult[1]
+      local md = JSON.decode(obj.getGMNotes()) or {}
+    
+      if md.type == "ScenarioReference" then
+        local trash = guidReferenceApi.getObjectByOwnerAndType(color, "Trash")
+        trash.putObject(obj)
+        scenarioCard.clone({position = cardPosition, snap_to_grid = true})
+      end
+    end
+  end
 end
 
 ---------------------------------------------------------
@@ -52,8 +80,8 @@ function onCollisionEnter(collisionInfo)
 
   local object = collisionInfo.collision_object
 
-  -- early exit for better performance
-  if object.type ~= "Card" then return end
+  -- early exit for better performance (but should exclude Tiles again in 4.0)
+  if object.type ~= "Card" and object.type ~= "Tile" then return end
 
   -- reset spawned tokens and remove tokens from cards in encounter deck / discard area
   local localPos = self.positionToLocal(object.getPosition())
@@ -70,6 +98,10 @@ function onCollisionEnter(collisionInfo)
   local cardName = object.getName()
   if object.getName() == "Scenario" or md.type == "ScenarioReference" then
     getDataFromReferenceCard(object, cardName, md)
+    scenarioCard = object
+    if scenarioCard.type == "Card" then
+      scenarioCard.setPosition{-3.85, 1.60, -10.39}
+    end
   end
 end
 
@@ -90,6 +122,7 @@ function getDataFromReferenceCard(card, cardName, md)
 
   if not md["tokens"] then
     tokenData = {}
+    updateSave()
     return
   end
 
@@ -104,9 +137,10 @@ function onCollisionExit(collisionInfo)
   local object = collisionInfo.collision_object
 
   -- reset token metadata if scenario reference card is removed
-  if object.getName() == "Scenario" then
+  if object == scenarioCard then
     tokenData = {}
     useFrontData = nil
+    scenarioCard = nil
     fireTokenDataChangedEvent()
   end
 end
@@ -141,6 +175,7 @@ end
 function fireTokenDataChangedEvent()
   local fullData = returnTokenData()
   tokenArrangerApi.onTokenDataChanged(fullData)
+  updateSave()
 end
 
 -- returns the chaos token metadata (if provided)
