@@ -78,14 +78,6 @@ local handVisibility                = {}
 -- data for tokens
 ---------------------------------------------------------
 
-TOKEN_DATA                          = {
-  damage   = { image = "https://steamusercontent-a.akamaihd.net/ugc/1758068501357115146/903D11AAE7BD5C254C8DC136E9202EE516289DEA/", scale = { 0.17, 0.17, 0.17 } },
-  horror   = { image = "https://steamusercontent-a.akamaihd.net/ugc/1758068501357163535/6D9E0756503664D65BDB384656AC6D4BD713F5FC/", scale = { 0.17, 0.17, 0.17 } },
-  resource = { image = "https://steamusercontent-a.akamaihd.net/ugc/1758068501357192910/11DDDC7EF621320962FDCF3AE3211D5EDC3D1573/", scale = { 0.17, 0.17, 0.17 } },
-  doom     = { image = "https://i.imgur.com/EoL7yaZ.png", scale = { 0.17, 0.17, 0.17 } },
-  clue     = { image = "https://steamusercontent-a.akamaihd.net/ugc/1758068501357164917/1D06F1DC4D6888B6F57124BD2AFE20D0B0DA15A8/", scale = { 0.15, 0.15, 0.15 } }
-}
-
 ID_URL_MAP                          = {
   ['blue']    = { name = "Elder Sign", url = 'https://i.imgur.com/nEmqjmj.png' },
   ['p1']      = { name = "+1", url = 'https://i.imgur.com/uIx8jbY.png' },
@@ -2065,24 +2057,20 @@ end
 ---@param tokenType string Type of token to spawn (template needs to be in source bag)
 ---@param tokenValue number Value to set the damage/horror to
 function TokenManager.spawnCounterToken(card, tokenType, tokenValue, shiftDown)
-  if tokenValue < 1 or tokenValue > 50 then return end
-
   TokenManager.spawnToken({
     position = card.positionToWorld(tokenOffsets[1][1] + Vector(0, 0, shiftDown)),
     tokenType = tokenType,
     rotation = card.getRotation(),
-    callbackName = "updateStateToken",
-    callbackParams = tokenValue
+    scriptstate = tokenValue
   })
 end
 
-function TokenManager.spawnResourceCounterToken(card, tokenCount)
+function TokenManager.spawnResourceCounterToken(card, tokenValue)
   TokenManager.spawnToken({
     position = card.positionToWorld(card.positionToLocal(card.getPosition()) + Vector(0, 0.2, -0.5)),
     tokenType = "resourceCounter",
     rotation = card.getRotation(),
-    callbackName = "updateTokenValue",
-    callbackParams = tokenCount
+    scriptstate = tokenValue
   })
 end
 
@@ -2157,6 +2145,7 @@ function TokenManager.spawnToken(params)
   local tokenType = params.tokenType
   local callbackName = params.callbackName
   local callbackParams = params.callbackParams
+  local scriptstate = params.scriptstate
 
   -- initialize data table
   local spawnData = { position = position }
@@ -2186,6 +2175,11 @@ function TokenManager.spawnToken(params)
 
   tokenTemplate.Nickname = ""
   spawnData.data = tokenTemplate
+
+  -- maybe directly update the script state of the token
+  if scriptstate then
+    spawnData.data["LuaScriptState"] = tostring(scriptstate)
+  end
 
   -- get rotation for the token
   -- Take ONLY the Y-value for rotation, so we don't flip the token coming out of the bag
@@ -2489,10 +2483,6 @@ function updateStateToken(obj, stateID)
   if stateID ~= nil and stateID ~= 1 then
     obj.setState(stateID)
   end
-end
-
-function updateTokenValue(obj, newVal)
-  obj.call("updateVal", newVal)
 end
 
 ---------------------------------------------------------
