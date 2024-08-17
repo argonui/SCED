@@ -2,8 +2,6 @@ MIN_VALUE = 0
 MAX_VALUE = 99
 val = 0
 
-local bHeight = 600
-local bWidth = 1000
 function onSave() return JSON.encode(val) end
 
 function onLoad(savedData)
@@ -13,13 +11,100 @@ function onLoad(savedData)
 
   self.max_typed_number = MAX_VALUE
 
-  updateLabel()
+  createXml()
 
   -- add context menu entries
   self.addContextMenuItem("Add 5", function() modifyValue(5) end)
   self.addContextMenuItem("Subtract 5", function() modifyValue(-5) end)
   self.addContextMenuItem("Add 10", function() modifyValue(10) end)
   self.addContextMenuItem("Subtract 10", function() modifyValue(-10) end)
+end
+
+function getXmlParameters()
+  local tokenType = self.getMemo()
+  if tokenType == "damage" then
+    return {
+      size = 500,
+      fontSize = 700,
+      offsetXY = "0 0",
+      color = "#fe1b17"
+    }
+  elseif tokenType == "horror" then
+    return {
+      size = 500,
+      fontSize = 700,
+      offsetXY = "30 0",
+      color = "#273784"
+    }
+  else
+    printToAll("Invalid token type")
+  end
+end
+
+function createXml()
+  params = getXmlParameters()
+  if not params then return end
+
+  local uiColor, uiVal = getUiColorAndVal()
+  local xml = {
+    {
+      tag = "Panel",
+      attributes = {
+        id = "valuePanel",
+        onClick = "addOrSubtract",
+        image = "circle",
+        scale = "0.35 0.35 1",
+        color = uiColor,
+        height = params.size,
+        width = params.size,
+        position = "0 0 -6",
+        rotation = "0 0 180",
+        offsetXY = params.offsetXY
+      },
+      children = {
+        {
+          tag = "Text",
+          attributes = {
+            id = "valueText",
+            text = uiVal,
+            color = "#FFFFFF",
+            fontSize = params.fontSize,
+            font = "font_teutonic-arkham"
+          }
+        }
+      }
+    }
+  }
+  self.UI.setXmlTable(xml)
+end
+
+-- hovered for >2s and not-clicked-> no click-function until next hover
+function onHover(playerColor)
+  self.UI.setAttribute("valuePanel", "raycastTarget", true)
+  self.highlightOff("Green")
+
+  local hoverVal = val
+  Wait.time(function()
+    if Player[playerColor] and Player[playerColor].getHoverObject() == self and hoverVal == val then
+      self.UI.setAttribute("valuePanel", "raycastTarget", false)
+      self.highlightOn("Green")
+    end
+  end, 2)
+end
+
+-- value == 1 -> no label/background
+function getUiColorAndVal()
+  if val == 1 then
+    return "#00000000", ""
+  else
+    return params.color, val
+  end
+end
+
+function updateLabel()
+  local uiColor, uiVal = getUiColorAndVal()
+  self.UI.setAttribute("valuePanel", "color", uiColor)
+  self.UI.setAttribute("valueText", "text", uiVal)
 end
 
 -- sets the value to 'newVal'
@@ -30,52 +115,24 @@ function updateVal(newVal)
   end
 end
 
-function addOrSubtract(_, _, isRightClick)
-  modifyValue(isRightClick and -1 or 1)
-end
-
 -- modifies the value by 'mod'
 function modifyValue(mod)
   local newVal = math.min(math.max(val + tonumber(mod), MIN_VALUE), MAX_VALUE)
   updateVal(newVal)
 end
 
-function onNumberTyped(_, number)
-  updateVal(number)
-end
-
-function updateLabel()
-  -- don't display a button for 1 damage/horror
-  if val == 1 then
-    self.clearButtons()
+-- left-click: increase / right-click: decrease / middle-click: reset
+function addOrSubtract(_, clickType)
+  local mod = 1
+  if clickType == "-2" then
+    mod = -1
+  elseif clickType == "-3" then
+    updateVal(1)
     return
   end
+  modifyValue(mod)
+end
 
-  -- create button if needed
-  if self.getButtons() == nil then
-    local tokenType = self.getMemo()
-
-    -- position for damage tokens
-    local position = { 0, 0.06, 0.1 }
-
-    -- position for horror tokens
-    if tokenType == "horror" then
-      position = { -0.025, 0.06, -0.025 }
-    end
-
-    self.createButton({
-      label = val,
-      click_function = "addOrSubtract",
-      function_owner = self,
-      position = position,
-      height = bHeight,
-      width = bWidth,
-      scale = { 1.5, 1.5, 1.5 },
-      font_size = 600,
-      font_color = { 1, 1, 1, 100 },
-      color = { 0, 0, 0, 0 }
-    })
-  else
-    self.editButton({ index = 0, label = val})
-  end
+function onNumberTyped(_, number)
+  updateVal(number)
 end
