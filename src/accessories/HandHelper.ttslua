@@ -11,17 +11,11 @@ function onLoad()
   buttonParameters.hover_color    = "White"
   buttonParameters.label          = 0
   buttonParameters.click_function = "none"
-  buttonParameters.position       = Vector(0, 0.11, -0.2)
+  buttonParameters.position       = Vector(0, 0.11, 0)
   buttonParameters.height         = 0
   buttonParameters.width          = 0
   buttonParameters.font_size      = 1000
   buttonParameters.font_color     = "White"
-  self.createButton(buttonParameters)
-
-  -- index 1: button to toggle "DES"
-  buttonParameters.label          = "DES: ✗"
-  buttonParameters.position.z     = 0.6
-  buttonParameters.font_size      = 200
   self.createButton(buttonParameters)
 
   -- make sure this part executes after the playermats are loaded
@@ -29,26 +23,12 @@ function onLoad()
     updateColors()
 
     -- start loop to update card count
-    playermatApi.checkForDES(matColor)
     Wait.time(updateValue, 1, -1)
   end, 1)
 end
 
 -- updates colors when object is dropped somewhere
 function onDrop() updateColors() end
-
--- disables DES counting while hovered
-function onObjectHover(hoverColor, object)
-  if hoverColor ~= handColor then return end
-
-  if object == self then
-    hovering = true
-    playermatApi.checkForDES(matColor)
-    updateValue()
-  else
-    hovering = false
-  end
-end
 
 -- updates the matcolor and handcolor variable
 function updateColors()
@@ -57,7 +37,7 @@ function updateColors()
   self.setName(handColor .. " Hand Helper")
 end
 
--- count cards in hand (by name for DES)
+-- count cards in hand
 function updateValue()
   -- update colors if handColor doesn't own a handzone
   if Player[handColor].getHandCount() == 0 then
@@ -70,40 +50,18 @@ function updateValue()
   -- if there is still no handzone, then end here
   if Player[handColor].getHandCount() == 0 then return end
 
-  -- get state of "Dream-Enhancing Serum" from playermat
-  local hasDES = playermatApi.hasDES(matColor)
-
-  -- default to regular count if hovered
-  if hovering then
-    hasDES = false
-  end
-
-  self.editButton({ index = 1, label = "DES: " .. (hasDES and "✓" or "✗") })
-
   -- count cards in hand
   local hand = Player[handColor].getHandObjects()
   local size = 0
 
-  if hasDES then
-    local cardHash = {}
-    for _, obj in pairs(hand) do
-      if obj.type == "Card" then
-        local name = obj.getName()
-        local title = string.match(name, '(.+)(%s%(%d+%))') or name
-        cardHash[title] = true
-      end
-    end
-    for _, title in pairs(cardHash) do
+  
+  for _, obj in pairs(hand) do
+    if obj.type == "Card" then
       size = size + 1
-    end
-  else
-    for _, obj in pairs(hand) do
-      if obj.type == "Card" then
-        size = size + 1
-      end
     end
   end
 
   -- update button label and color
-  self.editButton({ index = 0, font_color = hasDES and "Green" or "White", label = size })
+  self.editButton({ index = 0, font_color = "White", label = size })
 end
+ 
