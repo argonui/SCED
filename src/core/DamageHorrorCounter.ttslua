@@ -1,0 +1,81 @@
+MIN_VALUE = 0
+MAX_VALUE = 99
+val = 0
+
+local bHeight = 600
+local bWidth = 1000
+function onSave() return JSON.encode(val) end
+
+function onLoad(savedData)
+  if savedData and savedData ~= "" then
+    val = JSON.decode(savedData)
+  end
+
+  self.max_typed_number = MAX_VALUE
+
+  updateLabel()
+
+  -- add context menu entries
+  self.addContextMenuItem("Add 5", function() modifyValue(5) end)
+  self.addContextMenuItem("Subtract 5", function() modifyValue(-5) end)
+  self.addContextMenuItem("Add 10", function() modifyValue(10) end)
+  self.addContextMenuItem("Subtract 10", function() modifyValue(-10) end)
+end
+
+-- sets the value to 'newVal'
+function updateVal(newVal)
+  if tonumber(newVal) then
+    val = math.min(math.max(newVal, MIN_VALUE), MAX_VALUE)
+    updateLabel()
+  end
+end
+
+function addOrSubtract(_, _, isRightClick)
+  modifyValue(isRightClick and -1 or 1)
+end
+
+-- modifies the value by 'mod'
+function modifyValue(mod)
+  local newVal = math.min(math.max(val + tonumber(mod), MIN_VALUE), MAX_VALUE)
+  updateVal(newVal)
+end
+
+function onNumberTyped(_, number)
+  updateVal(number)
+end
+
+function updateLabel()
+  -- don't display a button for 1 damage/horror
+  if val == 1 then
+    self.clearButtons()
+    return
+  end
+
+  -- create button if needed
+  if self.getButtons() == nil then
+    local tokenType = self.getMemo()
+
+    -- position for damage tokens
+    local position = { 0, 0.06, 0.1 }
+
+    -- position for horror tokens
+    if tokenType == "horror" then
+      position = { -0.025, 0.06, -0.025 }
+    end
+
+    self.createButton({
+      label = val,
+      click_function = "addOrSubtract",
+      function_owner = self,
+      position = position,
+      height = bHeight,
+      width = bWidth,
+      scale = { 1.5, 1.5, 1.5 },
+      font_size = 600,
+      font_color = { 1, 1, 1, 100 },
+      color = { 0, 0, 0, 0 }
+    })
+  else
+    self.editButton({ index = 0, label = val})
+  end
+end
