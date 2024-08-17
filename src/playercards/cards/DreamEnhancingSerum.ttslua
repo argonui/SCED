@@ -1,0 +1,126 @@
+require("playercards/CardsWithHelper")
+local playermatApi              = require("playermat/PlayermatApi")
+local matColor, handColor, loopId
+
+-- intentionally global
+hasXML          = true
+isHelperEnabled = false
+
+function updateSave()
+  self.script_state = JSON.encode({ isHelperEnabled = isHelperEnabled, loopId = loopId })
+end
+
+function onLoad(savedData)
+  if savedData and savedData ~= "" then
+    local loadedData = JSON.decode(savedData)
+    isHelperEnabled = loadedData.isHelperEnabled
+    loopId = loadedData.loopId
+  end
+  updateColors()
+  createHelperXML()
+  syncDisplayWithOptionPanel()
+end
+
+function initialize()
+  updateValue()
+  loopId = Wait.time(updateValue, 2, -1)
+end
+
+function shutOff()
+  if loopId then
+    Wait.stop(loopId)
+    loopId = nil
+  end
+end
+
+function createHelperXML()
+  local xmlTable = { {
+    tag = "VerticalLayout",
+    attributes = {
+      active = "false",
+      id = "Helper",
+      height = 1200,
+      width = 1200,
+      rotation = "0 0 180",
+      scale = "0.1 0.1 1",
+      position = "0 -55 -22",
+      padding = "30 30 30 30",
+      color = "#3D3C3AE6",
+    },
+    children = { {
+      tag = "Panel",
+      attributes = {
+        preferredHeight="300"
+      },
+      children = { {
+        tag = "Text",
+        attributes = {
+          text = "DES count:",
+          color = "White",
+          font = "font_teutonic-arkham",
+          fontsize = "200"
+        }
+      }}
+    },
+    {
+      tag = "Panel",
+      attributes = {
+        preferredHeight="900"
+      },
+      children = { {
+        tag = "Text",
+        attributes = {
+          id = "Count",
+          fontSize = "700",
+          scale = "2.2 2.2 1",
+          color = "Green",
+          font = "font_teutonic-arkham",
+          text = 0
+        }
+      }}
+    }
+  }
+  } }
+  self.UI.setXmlTable(xmlTable)
+end
+
+------------------------
+-- counting functions
+------------------------
+
+-- updates the matcolor and handcolor variable
+function updateColors()
+  matColor = playermatApi.getMatColorByPosition(self.getPosition())
+  handColor = playermatApi.getPlayerColor(matColor)
+end
+
+function updateValue()
+  -- update colors if handColor doesn't own a handzone
+  if Player[handColor].getHandCount() == 0 then
+    updateColors()
+  end
+
+  -- if one of the colors is undefined, then end here
+  if matColor == nil or handColor == nil then return end
+
+  -- if there is still no handzone, then end here
+  if Player[handColor].getHandCount() == 0 then return end
+
+  -- count cards in hand
+  local hand = Player[handColor].getHandObjects()
+
+  local cardHash = {}
+  for _, obj in pairs(hand) do
+    if obj.type == "Card" then
+      local name = obj.getName()
+      local title = string.match(name, '(.+)(%s%(%d+%))') or name
+      cardHash[title] = true
+    end
+  end
+
+  local size = 0
+  for _, title in pairs(cardHash) do
+    size = size + 1
+  end
+  self.UI.setAttribute("Count", "text", size)
+end
