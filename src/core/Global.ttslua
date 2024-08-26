@@ -41,17 +41,17 @@ local hideTitleSplashWaitFunctionId = nil
 
 -- online functionality related variables
 local MOD_VERSION                   = "4.0.0"
-local SOURCE_REPO                   = 'https://raw.githubusercontent.com/chr1z93/loadable-objects/main'
+local SOURCE_REPO                   = "https://github.com/Chr1Z93/SCED-downloads/releases/latest/download/"
 local library, requestObj, modMeta
 local acknowledgedUpgradeVersions   = {}
-local contentToShow                 = "campaigns"
+local contentToShow                 = "campaign"
 local currentListItem               = 1
 local tabIdTable                    = {
-  tab1 = "campaigns",
-  tab2 = "scenarios",
-  tab3 = "fanmadeCampaigns",
-  tab4 = "fanmadeScenarios",
-  tab5 = "fanmadePlayerCards"
+  tab1 = "campaign",
+  tab2 = "scenario",
+  tab3 = "fanmade-campaign",
+  tab4 = "fanmade-scenario",
+  tab5 = "fanmade-playercards"
 }
 
 -- optionPanel data (intentionally not local!)
@@ -178,7 +178,7 @@ function onLoad(savedData)
 
   -- initialization of loadable objects library (delay to let Navigation Overlay build)
   Wait.time(function()
-    WebRequest.get(SOURCE_REPO .. '/library.json', libraryDownloadCallback)
+    WebRequest.get(SOURCE_REPO .. 'library.json', libraryDownloadCallback)
   end, 1)
 end
 
@@ -1051,7 +1051,7 @@ function placeholder_download(params)
     return 1
   end
 
-  local url = SOURCE_REPO .. '/' .. params.url
+  local url = SOURCE_REPO .. params.filename .. ".json"
   requestObj = WebRequest.get(url, function(request) contentDownloadCallback(request, params) end)
   startLuaCoroutine(Global, 'downloadCoroutine')
 end
@@ -1097,7 +1097,7 @@ function coroutineDownloadAll()
     broadcastToAll("Downloading " .. contentType .. "...")
     local contained = ""
     for _, params in ipairs(objectList) do
-      local request = WebRequest.get(SOURCE_REPO .. '/' .. params.url, function() end)
+      local request = WebRequest.get(SOURCE_REPO .. params.filename .. ".json", function() end)
       local start = os.time()
       while true do
         if request.is_done then
@@ -1172,7 +1172,7 @@ function onClick_spawnPlaceholder(player)
   placeholder.setColorTint({ 1, 1, 1, 71 / 255 })
   placeholder.setName(item.name)
   placeholder.setDescription("by " .. (item.author or "Unknown"))
-  placeholder.setGMNotes(item.url)
+  placeholder.setGMNotes(item.filename)
   placeholder.setLuaScript(dummy.getLuaScript())
   Player.getPlayers()[1].pingTable(spawnPos)
 
@@ -1311,36 +1311,22 @@ function updatePreviewWindow()
 end
 
 -- formats the json response from the webrequest into a key-value lua table
--- strips the prefix from the community content items
-function formatLibrary(json_response)
+function formatLibrary(jsonResponse)
   library = {}
-  library["campaigns"] = json_response.campaigns
-  library["scenarios"] = json_response.scenarios
-  library["extras"] = json_response.extras
-  library["fanmadeCampaigns"] = {}
-  library["fanmadeScenarios"] = {}
-  library["fanmadePlayerCards"] = {}
 
-  for _, item in ipairs(json_response.community) do
-    local identifier = nil
-    for str in string.gmatch(item.name, "([^:]+)") do
-      if not identifier then
-        -- grab the first part to know the content type
-        identifier = str
-      else
-        -- update the name without the content type
-        item.name = str
-        break
-      end
+  for _, item in ipairs(jsonResponse["content"]) do
+    local contentType = item["type"]
+
+    -- add "fanmade" for unofficial content
+    if item["author"] ~= "Fantasy Flight Games" then
+      contentType = "fanmade-" .. contentType
     end
 
-    if identifier == "Fan Investigators" then
-      table.insert(library["fanmadePlayerCards"], item)
-    elseif identifier == "Fan Campaign" then
-      table.insert(library["fanmadeCampaigns"], item)
-    elseif identifier == "Fan Scenario" then
-      table.insert(library["fanmadeScenarios"], item)
+    -- initialize subtable
+    if library[contentType] == nil then
+      library[contentType] = {}
     end
+    table.insert(library[contentType], item)
   end
 end
 
@@ -1421,15 +1407,15 @@ function contentDownloadCallback(request, params)
 
   -- if position is undefined, get empty position
   if not spawnTable.position then
-    spawnTable.rotation = { 0, 270, 0 }
-
     local pos = getValidSpawnPosition()
-    if pos then
-      spawnTable.position = pos
-    else
+    if not pos then
       broadcastToAll("Please make sure there's space in the upper middle of the table and try again.", "Red")
       return
     end
+
+    spawnTable.position = pos
+    spawnTable.rotation = { 0, 270, 0 }
+  else
   end
 
   -- if spawned from menu, move the camera and/or ping the table
@@ -1466,13 +1452,9 @@ function getValidSpawnPosition()
   local potentialSpawnPositionY = 1.5
   local potentialSpawnPositionZ = { 35, 21, 7, -7, -21, -35 }
 
-  for i, posX in ipairs(potentialSpawnPositionX) do
-    for j, posZ in ipairs(potentialSpawnPositionZ) do
-      local pos = {
-        x = posX,
-        y = potentialSpawnPositionY,
-        z = posZ,
-      }
+  for _, posX in ipairs(potentialSpawnPositionX) do
+    for _, posZ in ipairs(potentialSpawnPositionZ) do
+      local pos = Vector(posX, potentialSpawnPositionY, posZ)
       if checkPositionForContentSpawn(pos) then
         return pos
       end
@@ -1482,11 +1464,10 @@ function getValidSpawnPosition()
 end
 
 -- checks whether something is in the specified position
--- returns true if empty
+-- first hit is the table surface, additional hits means something is there
+---@return boolean: True if empty
 function checkPositionForContentSpawn(checkPos)
   local searchResult = searchLib.atPosition(checkPos)
-
-  -- first hit is the table surface, additional hits means something is there
   return #searchResult == 1
 end
 
@@ -1497,9 +1478,9 @@ function libraryDownloadCallback(request)
     return
   end
 
-  local json_response = nil
-  if pcall(function() json_response = JSON.decode(request.text) end) then
-    formatLibrary(json_response)
+  local jsonResponse = nil
+  if pcall(function() jsonResponse = JSON.decode(request.text) end) then
+    formatLibrary(jsonResponse)
     updateDownloadItemList()
   else
     print('error parsing downloaded library')
@@ -1922,7 +1903,7 @@ end
 
 -- grabs the latest mod version and release notes from GitHub (called onLoad())
 function getModVersion()
-  WebRequest.get(SOURCE_REPO .. '/modversion.json', compareVersion)
+  WebRequest.get(SOURCE_REPO .. 'modversion.json', compareVersion)
 end
 
 -- compares the modversion with GitHub and possibly shows the update notification
