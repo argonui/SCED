@@ -9,6 +9,8 @@ buttonParamaters.width          = 700
 buttonParamaters.height         = 700
 
 local updating
+local waitIds                   = {}
+local currentCount              = {}
 
 ---------------------------------------------------------
 -- creating buttons and menus + initializing tables
@@ -39,7 +41,7 @@ function onLoad()
   self.createButton(buttonParamaters)
 
   -- index: 3 - curse count
-  buttonParamaters.position[1]    = -buttonParamaters.position[1]
+  buttonParamaters.position[1] = -buttonParamaters.position[1]
   self.createButton(buttonParamaters)
 
   -- context menu
@@ -91,8 +93,8 @@ function initializeState()
 end
 
 function updateButtonLabels()
-  self.editButton({ index = 2, label = formatTokenCount("Bless", true)})
-  self.editButton({ index = 3, label = formatTokenCount("Curse", true)})
+  self.editButton({ index = 2, label = formatTokenCount("Bless", true) })
+  self.editButton({ index = 3, label = formatTokenCount("Curse", true) })
 end
 
 function broadcastCount(token)
@@ -162,8 +164,11 @@ function doRemove(color)
     end
   end
 
-  broadcastToColor("Removed " .. count.Bless .. " Bless and " .. count.Curse .. " Curse tokens from the chaos bag.", color, "White")
-  broadcastToColor("Removed " .. removeTakenTokens("Bless") .. " Bless and " .. removeTakenTokens("Curse") .. " Curse tokens from play.", color, "White")
+  broadcastToColor("Removed " .. count.Bless .. " Bless and " .. count.Curse .. " Curse tokens from the chaos bag.",
+    color, "White")
+  broadcastToColor(
+    "Removed " .. removeTakenTokens("Bless") .. " Bless and " .. removeTakenTokens("Curse") .. " Curse tokens from play.",
+    color, "White")
 
   resetTables()
   updateButtonLabels()
@@ -234,7 +239,7 @@ function releasedToken(param)
       break
     end
   end
-  
+
   if not param.fromBag then
     updateDisplayAndBroadcast(param.type)
   end
@@ -286,8 +291,8 @@ function addToken(type)
     printToColor("10 tokens already in play, not adding any.", playerColor)
     return
   end
+  printCountWithDelay(type)
   numInPlay[type] = numInPlay[type] + 1
-  printToAll("Adding " .. type .. " token " .. formatTokenCount(type))
   updateButtonLabels()
   return chaosBagApi.spawnChaosToken(type)
 end
@@ -307,12 +312,13 @@ function removeToken(type)
     return
   end
 
+  printCountWithDelay(type)
+
   chaosBag.takeObject({
     guid = table.remove(tokens),
     smooth = false,
     callback_function = function(obj)
       numInPlay[type] = numInPlay[type] - 1
-      printToAll("Removing " .. type .. " token " .. formatTokenCount(type))
       updateButtonLabels()
       obj.destruct()
       tokenArrangerApi.layout()
@@ -331,6 +337,31 @@ function removeTakenTokens(type)
     end
   end
   return count
+end
+
+-- prints the changes to the chaos bag after 1s delay, bundles them into a single message
+function printCountWithDelay(type)
+  if waitIds[type] then
+    Wait.stop(waitIds[type])
+  else
+    currentCount[type] = numInPlay[type]
+  end
+
+  waitIds[type] = Wait.time(function()
+    local diff = numInPlay[type] - currentCount[type]
+    local tokenString = " tokens "
+    if diff == 1 then
+      tokenString = " token "
+    end
+
+    if diff > 0 then
+      printToAll("Added " .. math.abs(diff) .. " " .. type .. tokenString .. formatTokenCount(type))
+    elseif diff < 0 then
+      printToAll("Removed " .. math.abs(diff) .. " " .. type .. tokenString .. formatTokenCount(type))
+    end
+    waitIds[type] = nil
+    currentCount[type] = nil
+  end, 1)
 end
 
 ---------------------------------------------------------
