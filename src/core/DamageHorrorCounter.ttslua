@@ -1,0 +1,133 @@
+local MIN_VALUE, MAX_VALUE = 0, 99
+val = 0
+
+function updateSave() self.script_state = val end
+
+function onLoad(savedData)
+  if savedData and savedData ~= "" then
+    val = JSON.decode(savedData)
+  end
+
+  self.max_typed_number = MAX_VALUE
+
+  createXml()
+
+  self.addContextMenuItem("Add 5", function() modifyValue(5) end)
+  self.addContextMenuItem("Subtract 5", function() modifyValue(-5) end)
+  self.addContextMenuItem("Add 10", function() modifyValue(10) end)
+  self.addContextMenuItem("Subtract 10", function() modifyValue(-10) end)
+end
+
+function getXmlParameters()
+  local tokenType = self.getMemo()
+  if tokenType == "damage" then
+    return {
+      size = 550,
+      fontSize = 700,
+      offsetXY = "-5 5",
+      color = "#fe1b17fc"
+    }
+  elseif tokenType == "horror" then
+    return {
+      size = 550,
+      fontSize = 700,
+      offsetXY = "30 -5",
+      color = "#273784fc"
+    }
+  else
+    printToAll("Invalid token type")
+  end
+end
+
+function createXml()
+  params = getXmlParameters()
+  if not params then return end
+
+  local uiColor, uiVal = getUiColorAndVal()
+  local xml = {
+    {
+      tag = "Button",
+      attributes = {
+        id = "xmlBtn",
+        image = "circle",
+        onClick = "addOrSubtract",
+        scale = "0.35 0.35 1",
+        colors = uiColor,
+        position = "0 0 -6",
+        rotation = "0 0 180",
+        height = params.size,
+        width = params.size,
+        offsetXY = params.offsetXY
+      },
+      children =  {
+        {
+          tag = "Text",
+          attributes = {
+            id = "xmlTxt",
+            fontStyle = "Bold",
+            fontSize = params.fontSize,
+            font = "font_teutonic-arkham",
+            text = uiVal,
+            color = "#FFFFFF"
+          }
+        }
+      }
+    }
+  }
+  self.UI.setXmlTable(xml)
+end
+
+-- rotate to face-up when dropped
+function onDrop()
+  self.setRotation(self.getRotation():setAt("z", 0))
+end
+
+-- value == 1 and unlocked -> no label/background
+function getUiColorAndVal()
+  if val == 1 then
+    return getColorBlock("#00000000"), ""
+  else
+    return getColorBlock(params.color), val
+  end
+end
+
+function getColorBlock(hexColor)
+  return table.concat({hexColor, hexColor, hexColor}, "|")
+end
+
+function updateLabel()
+  local uiColor, uiVal = getUiColorAndVal()
+  self.UI.setAttribute("xmlBtn", "colors", uiColor)
+  self.UI.setAttribute("xmlTxt", "text", uiVal)
+end
+
+-- sets the value to 'newVal'
+function updateVal(newVal)
+  if tonumber(newVal) then
+    val = math.min(math.max(newVal, MIN_VALUE), MAX_VALUE)
+    updateLabel()
+    updateSave()
+  end
+end
+
+-- modifies the value by 'mod'
+function modifyValue(mod)
+  local newVal = math.min(math.max(val + tonumber(mod), MIN_VALUE), MAX_VALUE)
+  updateVal(newVal)
+end
+
+-- left-click: increase / right-click: decrease / middle-click: reset
+function addOrSubtract(_, clickType)
+  local mod = 1
+  if clickType == "-2" then
+    mod = -1
+  elseif clickType == "-3" then
+    updateVal(1)
+    return
+  end
+  modifyValue(mod)
+end
+
+function onNumberTyped(_, number)
+  updateVal(number)
+end
