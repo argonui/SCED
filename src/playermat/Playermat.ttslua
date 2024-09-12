@@ -387,12 +387,10 @@ function doUpkeep(_, clickedByColor, isRightClick)
   end
 
   -- flip investigator mini-card and summoned servitor mini-card
-  -- (all characters allowed to account for custom IDs - e.g. 'Z0000' for TTS Zoop generated IDs)
-  local miniId = string.match(activeInvestigatorData.id, ".....") .. "-m"
   for _, obj in ipairs(getObjects()) do
     if obj.type == "Card" and obj.is_face_down then
       local notes = JSON.decode(obj.getGMNotes())
-      if notes ~= nil and notes.type == "Minicard" and (notes.id == miniId or notes.id == "09080-m") then
+      if notes ~= nil and notes.type == "Minicard" and (notes.id == activeInvestigatorData.miniId or notes.id == "09080-m") then
         obj.flip()
       end
     end
@@ -1219,6 +1217,7 @@ function maybeUpdateActiveInvestigator(card)
     if notes.id == activeInvestigatorData.id then return end
     activeInvestigatorData.class = notes.class
     activeInvestigatorData.id = notes.id
+    activeInvestigatorData.miniId = getMiniId(notes.id)
     extraToken = notes.extraToken
     ownedObjects.InvestigatorSkillTracker.call("updateStats", {
       notes.willpowerIcons,
@@ -1230,6 +1229,7 @@ function maybeUpdateActiveInvestigator(card)
   elseif activeInvestigatorData.id ~= "00000" then
     activeInvestigatorData.class = "Neutral"
     activeInvestigatorData.id = "00000"
+    activeInvestigatorData.miniId = "00000-m"
     ownedObjects.InvestigatorSkillTracker.call("updateStats", { 1, 1, 1, 1 })
     updateTexture()
   else
@@ -1281,6 +1281,17 @@ function maybeUpdateActiveInvestigator(card)
         tokenManagerApi.spawnToken(globalSpawnPos, "universalActionAbility", rotation, callbackName, callbackParams)
       end
     end
+  end
+end
+
+-- returns the mini ID for the currently placed investigator
+function getMiniId(baseId)
+  if #baseId < 16 then
+    -- use the first 5 characters to exclude suffixes
+    return string.match(baseId, ".....") .. "-m"
+  else
+    -- use the full ID (long -> assume it's from Zoop)
+    return baseId .. "-m"
   end
 end
 
