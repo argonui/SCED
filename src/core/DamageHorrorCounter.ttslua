@@ -22,17 +22,17 @@ function getXmlParameters()
   local tokenType = self.getMemo()
   if tokenType == "damage" then
     return {
-      size = 550,
-      fontSize = 700,
-      offsetXY = "-5 5",
-      color = "#fe1b17fc"
+      size = 600,
+      posX = "10",
+      posY = "5",
+      color = "#FA2A19FC"
     }
   elseif tokenType == "horror" then
     return {
-      size = 550,
-      fontSize = 700,
-      offsetXY = "30 -5",
-      color = "#273784fc"
+      size = 600,
+      posX = "-18",
+      posY = "-5",
+      color = "#302F6DFC"
     }
   else
     printToAll("Invalid token type")
@@ -43,7 +43,7 @@ function createXml()
   params = getXmlParameters()
   if not params then return end
 
-  local uiColor, uiVal = getUiColorAndVal()
+  local uiColor, uiFontSize, uiVal = getUiColorSizeAndVal()
   local xml = {
     {
       tag = "Button",
@@ -53,20 +53,18 @@ function createXml()
         onClick = "addOrSubtract",
         scale = "0.35 0.35 1",
         colors = uiColor,
-        position = "0 0 -6",
+        position = params.posX .. " " .. params.posY .. " -6",
         rotation = "0 0 180",
         height = params.size,
-        width = params.size,
-        offsetXY = params.offsetXY
+        width = params.size
       },
       children =  {
         {
           tag = "Text",
           attributes = {
             id = "xmlTxt",
-            fontStyle = "Bold",
-            fontSize = params.fontSize,
-            font = "font_teutonic-arkham",
+            fontSize = uiFontSize,
+            font = "font_arkham-numbers",
             text = uiVal,
             color = "#FFFFFF"
           }
@@ -77,17 +75,26 @@ function createXml()
   self.UI.setXmlTable(xml)
 end
 
--- rotate to face-up when dropped
-function onDrop()
-  self.setRotation(self.getRotation():setAt("z", 0))
+function onRotate(_, flip, _, _, oldFlip)
+  if flip == oldFlip then return end
+  
+  if flip == 180 then
+    self.UI.setAttribute("xmlBtn", "position", params.posX .. " " .. params.posY .. " 6")
+    self.UI.setAttribute("xmlBtn", "rotation", "0 180 180")
+  else
+    self.UI.setAttribute("xmlBtn", "position", params.posX .. " " .. params.posY .. " -6")
+    self.UI.setAttribute("xmlBtn", "rotation", "0 0 180")
+  end
 end
 
--- value == 1 and unlocked -> no label/background
-function getUiColorAndVal()
+-- value == 1 -> no label/background
+function getUiColorSizeAndVal()
   if val == 1 then
-    return getColorBlock("#00000000"), ""
+    return getColorBlock("#00000000"), "700", ""
+  elseif val < 10 then
+    return getColorBlock(params.color), "700", val
   else
-    return getColorBlock(params.color), val
+    return getColorBlock(params.color), "350", val
   end
 end
 
@@ -96,8 +103,10 @@ function getColorBlock(hexColor)
 end
 
 function updateLabel()
-  local uiColor, uiVal = getUiColorAndVal()
+  local uiColor, uiFontSize, uiVal = getUiColorSizeAndVal()
+
   self.UI.setAttribute("xmlBtn", "colors", uiColor)
+  self.UI.setAttribute("xmlTxt", "fontSize", uiFontSize)
   self.UI.setAttribute("xmlTxt", "text", uiVal)
 end
 
