@@ -550,18 +550,42 @@ function drawCards(numCards)
 end
 
 function shuffleDiscardIntoDeck(player, _, elementId)
+  -- update the message color if this was called via button
+  if player then
+    updateMessageColor(player.color)
+  end
+
+  -- get object references
   local deckAreaObjects = getDeckAreaObjects()
   if not deckAreaObjects.discard then
     -- display a feedback message if called via button
     if elementId == "shuffleDiscardButton" then
-      broadcastToColor("Discard pile is empty.", player.color, "Orange")
+      broadcastToColor("Discard pile is empty.", messageColor, "Orange")
     end
     return
   end
 
+  -- Norman Withers handling
+  local harbinger
+  if deckAreaObjects.topCard then
+    harbinger = isHarbinger(deckAreaObjects.topCard.getGMNotes())
+  elseif deckAreaObjects.draw and not deckAreaObjects.draw.is_face_down then
+    local cards = deckAreaObjects.draw.getObjects()
+    harbinger = isHarbinger(cards[#cards].gm_notes)
+  end
+
+  if harbinger then
+    printToColor("The Harbinger is on top of your deck, not shuffling cards into your deck.", messageColor)
+    return
+  end
+
+  -- create a list of objects to shuffle
   local objectsToShuffle = {}
   if deckAreaObjects.topCard then
     table.insert(objectsToShuffle, deckAreaObjects.topCard)
+
+    -- this will be executed after the deck merging + shuffling
+    Wait.time(flipTopCardFromDeck, 1)
   end
 
   table.insert(objectsToShuffle, deckAreaObjects.discard)
