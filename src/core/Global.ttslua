@@ -71,8 +71,9 @@ local RESOURCE_OPTIONS              = {
   "disabled"
 }
 
--- tracks the visibility of each hand
+-- track player-specific visibilities
 local handVisibility                = {}
+local blurseVisibility              = {}
 
 ---------------------------------------------------------
 -- data for tokens
@@ -137,6 +138,7 @@ function onSave()
     acknowledgedUpgradeVersions = acknowledgedUpgradeVersions,
     chaosTokensLastMatGUID      = chaosTokensLastMatGUID,
     chaosTokensGUID             = chaosTokensGUID,
+    blurseVisibility            = blurseVisibility,
     handVisibility              = handVisibility,
     optionPanel                 = optionPanel
   })
@@ -147,6 +149,7 @@ function onLoad(savedData)
     local loadedData            = JSON.decode(savedData)
     acknowledgedUpgradeVersions = loadedData.acknowledgedUpgradeVersions
     chaosTokensLastMatGUID      = loadedData.chaosTokensLastMatGUID
+    blurseVisibility            = loadedData.blurseVisibility
     handVisibility              = loadedData.handVisibility
     optionPanel                 = loadedData.optionPanel
 
@@ -165,6 +168,7 @@ function onLoad(savedData)
 
   getModVersion()
   updateHandVisibility()
+  updateBlurseVisibility()
   math.randomseed(os.time())
   TokenManager.initialiize()
 
@@ -1176,14 +1180,21 @@ end
 ---@param player tts__Player Player that triggered this
 ---@param windowId string Name of the UI to toggle
 function onClick_toggleUi(player, windowId)
+  -- let the Navigation Overlay handle the toggling of its visibility modes
   if windowId == "Navigation Overlay" then
     navigationOverlayApi.cycleVisibility(player.color)
     return
   end
 
   -- hide the playAreaGallery / downloadWindow if visible
-  if windowId == "downloadWindow" or windowId == "playAreaGallery" then
-    changeWindowVisibilityForColor(player.color, windowId, false)
+  if windowId == "downloadWindow" then
+    changeWindowVisibilityForColor(player.color, "playAreaGallery", false)
+  elseif windowId == "playAreaGallery" then
+    changeWindowVisibilityForColor(player.color, "downloadWindow", false)
+  elseif windowId == "blessCurseManager" then
+    -- store the state of the Bless/Curse Manager UI to restore it onLoad()
+    blurseVisibility[player.color] = changeWindowVisibilityForColor(player.color, "blessCurseManager")
+    return
   end
 
   changeWindowVisibilityForColor(player.color, windowId)
@@ -1886,6 +1897,15 @@ function applyHidingToCard(card, handColor)
     card.setHiddenFrom(hiddenFrom)
   else
     card.setHiddenFrom({})
+  end
+end
+
+-- loads the visibility of the Bless/Curse Manager XML from the internal variable
+function updateBlurseVisibility()
+  local count = 1
+  for playerColor, state in pairs(blurseVisibility) do
+    Wait.frames(function() changeWindowVisibilityForColor(playerColor, "blessCurseManager", state) end, count)
+    count = count + 3
   end
 end
 
