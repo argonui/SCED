@@ -71,8 +71,9 @@ local RESOURCE_OPTIONS              = {
   "disabled"
 }
 
--- tracks the visibility of each hand
+-- track player-specific visibilities
 local handVisibility                = {}
+local blurseVisibility              = {}
 
 ---------------------------------------------------------
 -- data for tokens
@@ -137,6 +138,7 @@ function onSave()
     acknowledgedUpgradeVersions = acknowledgedUpgradeVersions,
     chaosTokensLastMatGUID      = chaosTokensLastMatGUID,
     chaosTokensGUID             = chaosTokensGUID,
+    blurseVisibility            = blurseVisibility,
     handVisibility              = handVisibility,
     optionPanel                 = optionPanel
   })
@@ -147,6 +149,7 @@ function onLoad(savedData)
     local loadedData            = JSON.decode(savedData)
     acknowledgedUpgradeVersions = loadedData.acknowledgedUpgradeVersions
     chaosTokensLastMatGUID      = loadedData.chaosTokensLastMatGUID
+    blurseVisibility            = loadedData.blurseVisibility
     handVisibility              = loadedData.handVisibility
     optionPanel                 = loadedData.optionPanel
 
@@ -165,6 +168,7 @@ function onLoad(savedData)
 
   getModVersion()
   updateHandVisibility()
+  updateBlurseVisibility()
   math.randomseed(os.time())
   TokenManager.initialiize()
 
@@ -1172,11 +1176,11 @@ function onClick_spawnPlaceholder(player)
   changeWindowVisibilityForColor(player.color, "downloadWindow", false)
 end
 
--- toggles the visbility of the bless / curse manager UI
+-- toggles the visibility of the bless / curse manager UI
 function showHideBlurse(player)
   local visibility = changeWindowVisibilityForColor(player.color, "blessCurseManager")
   changeWindowVisibilityForColor(player.color, "hideBlurse", visibility)
-  changeWindowVisibilityForColor(player.color, "showBlurse", not visibility)
+  blurseVisibility[player.color] = visibility
 end
 
 -- toggles the visibility of the respective UI
@@ -1894,6 +1898,18 @@ function applyHidingToCard(card, handColor)
   else
     card.setHiddenFrom({})
   end
+end
+
+function updateBlurseVisibility()
+  function coroBlurse()
+    for playerColor, state in pairs(blurseVisibility) do
+      changeWindowVisibilityForColor(playerColor, "blessCurseManager", state)
+      changeWindowVisibilityForColor(playerColor, "hideBlurse", state)
+      coroutine.yield()
+    end
+    return 1
+  end
+  startLuaCoroutine(Global, "coroBlurse")
 end
 
 ---------------------------------------------------------
