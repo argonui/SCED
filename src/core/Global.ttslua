@@ -1176,25 +1176,25 @@ function onClick_spawnPlaceholder(player)
   changeWindowVisibilityForColor(player.color, "downloadWindow", false)
 end
 
--- toggles the visibility of the bless / curse manager UI
-function showHideBlurse(player)
-  local visibility = changeWindowVisibilityForColor(player.color, "blessCurseManager")
-  changeWindowVisibilityForColor(player.color, "hideBlurse", visibility)
-  blurseVisibility[player.color] = visibility
-end
-
 -- toggles the visibility of the respective UI
 ---@param player tts__Player Player that triggered this
 ---@param windowId string Name of the UI to toggle
 function onClick_toggleUi(player, windowId)
+  -- let the Navigation Overlay handle the toggling of its visibility modes
   if windowId == "Navigation Overlay" then
     navigationOverlayApi.cycleVisibility(player.color)
     return
   end
 
   -- hide the playAreaGallery / downloadWindow if visible
-  if windowId == "downloadWindow" or windowId == "playAreaGallery" then
-    changeWindowVisibilityForColor(player.color, windowId, false)
+  if windowId == "downloadWindow" then
+    changeWindowVisibilityForColor(player.color, "playAreaGallery", false)
+  elseif windowId == "playAreaGallery" then
+    changeWindowVisibilityForColor(player.color, "downloadWindow", false)
+  elseif windowId == "blessCurseManager" then
+    -- store the state of the Bless/Curse Manager UI to restore it onLoad()
+    blurseVisibility[player.color] = changeWindowVisibilityForColor(player.color, "blessCurseManager")
+    return
   end
 
   changeWindowVisibilityForColor(player.color, windowId)
@@ -1900,16 +1900,13 @@ function applyHidingToCard(card, handColor)
   end
 end
 
+-- loads the visibility of the Bless/Curse Manager XML from the internal variable
 function updateBlurseVisibility()
-  function coroBlurse()
-    for playerColor, state in pairs(blurseVisibility) do
-      changeWindowVisibilityForColor(playerColor, "blessCurseManager", state)
-      changeWindowVisibilityForColor(playerColor, "hideBlurse", state)
-      coroutine.yield()
-    end
-    return 1
+  local count = 1
+  for playerColor, state in pairs(blurseVisibility) do
+    Wait.frames(function() changeWindowVisibilityForColor(playerColor, "blessCurseManager", state) end, count)
+    count = count + 3
   end
-  startLuaCoroutine(Global, "coroBlurse")
 end
 
 ---------------------------------------------------------
