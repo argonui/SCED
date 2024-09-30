@@ -272,9 +272,15 @@ function round(num, numDecimalPlaces)
 end
 
 -- updates the internal "messageColor" which is used for print/broadcast statements if no player is seated
----@param clickedByColor string Colorstring of player who clicked a button
+---@param clickedByColor? string Colorstring of player who clicked a button
 function updateMessageColor(clickedByColor)
-  messageColor = Player[playerColor].seated and playerColor or clickedByColor
+  if Player[playerColor].seated then
+    messageColor = playerColor
+  elseif clickedByColor and Player[clickedByColor].seated then
+    messageColor = clickedByColor
+  else
+    messageColor = Player.getPlayers()[1].color
+  end
 end
 
 ---------------------------------------------------------
@@ -1340,6 +1346,8 @@ end
 
 -- does something for specific investigators when they are loaded
 function newInvestigatorCallback(newId)
+  updateMessageColor()
+
   -- remove existing object that was placed for a specific investigator
   local obj = guidReferenceApi.getObjectByOwnerAndType(playerColor, "InvestigatorSpecifics")
   if obj ~= nil then
@@ -1350,13 +1358,17 @@ function newInvestigatorCallback(newId)
   if newId == "01005-p" or newId == "01005-pf" then
     -- parallel Wendy Adams
     printToColor(
-      "There's a Game Key for parallel Wendy to add sealing options to any card:" ..
+      "Wendy Adams: There's a Game Key to add sealing options to any card:" ..
       " Top menu bar > Options > Game Keys", messageColor)
   elseif newId == "06003" then
     -- Tony Morgan
-    local spawnedObj = spawnObjectData({ data = getDataForInfiniteBag("bounty") })
+    local spawnedObj = spawnObjectData({
+      data = getDataForInfiniteBag("bounty"),
+      position = zones.getZonePosition(playerColor, "SetAside7"),
+      rotation = self.getRotation()
+    })
     guidReferenceApi.editIndex(playerColor, "InvestigatorSpecifics", spawnedObj.getGUID())
-    printToColor("We've spawned an infinite bag of bounty tokens for convenience near your playermat.", messageColor)
+    printToColor("Tony Morgan: Spawned an infinite bag of bounty tokens near your playermat.", messageColor)
   elseif newId == "08004" then
     -- Norman Withers
     printToColor(
@@ -1364,9 +1376,13 @@ function newInvestigatorCallback(newId)
       "and then the mod should keep it flipped throughout the game.", messageColor)
   elseif newId == "09015" then
     -- Darrell Simmons
-    local spawnedObj = spawnObjectData({ data = getDataForInfiniteBag("evidence") })
+    local spawnedObj = spawnObjectData({
+      data = getDataForInfiniteBag("evidence"),
+      position = zones.getZonePosition(playerColor, "SetAside7"),
+      rotation = self.getRotation()
+    })
     guidReferenceApi.editIndex(playerColor, "InvestigatorSpecifics", spawnedObj.getGUID())
-    printToColor("We've spawned an infinite bag of evidence tokens for convenience near your playermat.", messageColor)
+    printToColor("Darrell Simons: Spawned an infinite bag of evidence tokens near your playermat.", messageColor)
   elseif newId == "89001" then
     -- Subject 5U-21
     local sourceBag = guidReferenceApi.getObjectByOwnerAndType("Mythos", "OptionPanelSource")
@@ -1382,13 +1398,15 @@ function newInvestigatorCallback(newId)
         break
       end
     end
-    printToColor("We've spawned a helper to track the classes of devoured cards near your playermat. " ..
-    "Note that this and 'Ravenous' will work with the Attachment Helper from the option panel.", messageColor)
+    printToColor("Subject 5U-21: Spawned a helper to track the classes of devoured cards near your playermat. " ..
+      "Note that this and 'Ravenous' will work with the Attachment Helper from the option panel.", messageColor)
   end
 end
 
 function getDataForInfiniteBag(tokenType)
   local tokenData = tokenManagerApi.getDataForInfiniteBag(tokenType)
+  log(tokenData)
+  return tokenData
 end
 
 -- returns the mini ID for the currently placed investigator
