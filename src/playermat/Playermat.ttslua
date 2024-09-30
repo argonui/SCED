@@ -8,6 +8,7 @@ local searchLib                   = require("util/SearchLib")
 local tokenChecker                = require("core/token/TokenChecker")
 local tokenManagerApi             = require("core/token/TokenManagerApi")
 local tokenSpawnTrackerApi        = require("core/token/TokenSpawnTrackerApi")
+local zones                       = require("playermat/Zones")
 
 -- option panel data
 local availableOptions            = {
@@ -341,19 +342,14 @@ function doUpkeep(_, clickedByColor, isRightClick)
   local forcedLearning = false
   local rot = self.getRotation()
   for _, obj in ipairs(searchAroundSelf()) do
-    if obj.hasTag("Temporary") == true then
+    if obj.hasTag("Temporary") then
       discardListOfObjects({ obj })
-    elseif obj.hasTag("UniversalToken") == true and obj.is_face_down then
+    elseif obj.hasTag("UniversalToken") and obj.is_face_down then
       obj.flip()
-    elseif obj.type == "Card" then      
-      if obj.hasTag("DoInUpkeep") then
-        obj.call("doInUpkeep")
-      end
-      -- do not rotate, replenish, etc. on cards in investigator card area
-      if inArea(self.positionToLocal(obj.getPosition()), INVESTIGATOR_AREA) then
-        break
-      end
-      
+    elseif obj.hasTag("DoInUpkeep") and obj.is_face_down then
+      obj.call("doInUpkeep")
+    elseif obj.type == "Card" and not inArea(self.positionToLocal(obj.getPosition()), INVESTIGATOR_AREA) then
+      -- do not continue for cards in investigator card area
       local cardMetadata = JSON.decode(obj.getGMNotes()) or {}
 
       if not (obj.getVar("do_not_ready") or obj.hasTag("DoNotReady")) then
@@ -384,8 +380,8 @@ function doUpkeep(_, clickedByColor, isRightClick)
       if cardMetadata.uses ~= nil and self.positionToLocal(obj.getPosition()).x > -1 and not obj.is_face_down then
         tokenManagerApi.maybeReplenishCard(obj, cardMetadata.uses, self)
       end
-    elseif obj.type == "Deck" and forcedLearning == false then
-      -- check decks for forced learning
+    elseif obj.type == "Deck" and not obj.is_face_down and not forcedLearning then
+      -- check face up decks for forced learning
       for _, deepObj in ipairs(obj.getObjects()) do
         local cardMetadata = JSON.decode(deepObj.gm_notes) or {}
         if cardMetadata.id == "08031" then
@@ -1265,36 +1261,34 @@ end
 -- investigator ID grabbing and skill tracker
 ---------------------------------------------------------
 
--- updates the internal investigator id and action tokens if an investigator card is detected
+-- updates the internal investigator data and performs additional operations if an investigator card is detected
 ---@param card tts__Object Card that might be an investigator
 function maybeUpdateActiveInvestigator(card)
+  -- don't continue if this card is not in the investigator area
   if not inArea(self.positionToLocal(card.getPosition()), INVESTIGATOR_AREA) then return end
 
-  local notes = JSON.decode(card.getGMNotes())
-  local extraToken
+  -- get metadata
+  local notes = JSON.decode(card.getGMNotes()) or {}
 
-  if notes ~= nil and notes.type == "Investigator" and notes.id ~= nil then
-    if notes.id == activeInvestigatorData.id then return end
-    activeInvestigatorData.class = notes.class
-    activeInvestigatorData.id = notes.id
-    activeInvestigatorData.miniId = getMiniId(notes.id)
-    extraToken = notes.extraToken
-    ownedObjects.InvestigatorSkillTracker.call("updateStats", {
-      notes.willpowerIcons,
-      notes.intellectIcons,
-      notes.combatIcons,
-      notes.agilityIcons
-    })
-    updateTexture()
-  elseif activeInvestigatorData.id ~= "00000" then
-    activeInvestigatorData.class = "Neutral"
-    activeInvestigatorData.id = "00000"
-    activeInvestigatorData.miniId = "00000-m"
-    ownedObjects.InvestigatorSkillTracker.call("updateStats", { 1, 1, 1, 1 })
-    updateTexture()
-  else
-    return
-  end
+  -- don't continue for cards without proper metadata
+  if notes.type ~= "Investigator" or notes.id == nil then return end
+
+  -- don't continue if this is already the active investigator
+  if notes.id == activeInvestigatorData.id then return end
+
+  -- extract relevant data from the metadata
+  activeInvestigatorData.class = notes.class
+  activeInvestigatorData.id = notes.id
+  activeInvestigatorData.miniId = getMiniId(notes.id)
+  ownedObjects.InvestigatorSkillTracker.call("updateStats", {
+    notes.willpowerIcons,
+    notes.intellectIcons,
+    notes.combatIcons,
+    notes.agilityIcons
+  })
+  updateTexture()
+
+  newInvestigatorCallback(notes.id)
 
   -- set proper scale for investigators
   local cardData = card.getData()
@@ -1322,10 +1316,10 @@ function maybeUpdateActiveInvestigator(card)
   end
 
   -- spawn additional token (maybe specific for investigator)
-  if extraToken and extraToken ~= "None" then
+  if notes.extraToken and notes.extraToken ~= "None" then
     -- spawn tokens (split string by "|")
     local count = { action = 0, ability = 0 }
-    for str in string.gmatch(extraToken, "([^|]+)") do
+    for str in string.gmatch(notes.extraToken, "([^|]+)") do
       local type = "action"
       if str == "FreeTrigger" or str == "Reaction" then
         type = "ability"
@@ -1342,6 +1336,59 @@ function maybeUpdateActiveInvestigator(card)
       end
     end
   end
+end
+
+-- does something for specific investigators when they are loaded
+function newInvestigatorCallback(newId)
+  -- remove existing object that was placed for a specific investigator
+  local obj = guidReferenceApi.getObjectByOwnerAndType(playerColor, "InvestigatorSpecifics")
+  if obj ~= nil then
+    obj.destruct()
+    guidReferenceApi.editIndex(playerColor, "InvestigatorSpecifics")
+  end
+
+  if newId == "01005-p" or newId == "01005-pf" then
+    -- parallel Wendy Adams
+    printToColor(
+      "There's a Game Key for parallel Wendy to add sealing options to any card:" ..
+      " Top menu bar > Options > Game Keys", messageColor)
+  elseif newId == "06003" then
+    -- Tony Morgan
+    local spawnedObj = spawnObjectData({ data = getDataForInfiniteBag("bounty") })
+    guidReferenceApi.editIndex(playerColor, "InvestigatorSpecifics", spawnedObj.getGUID())
+    printToColor("We've spawned an infinite bag of bounty tokens for convenience near your playermat.", messageColor)
+  elseif newId == "08004" then
+    -- Norman Withers
+    printToColor(
+      "At the start of the game flip the top card of your deck manually " ..
+      "and then the mod should keep it flipped throughout the game.", messageColor)
+  elseif newId == "09015" then
+    -- Darrell Simmons
+    local spawnedObj = spawnObjectData({ data = getDataForInfiniteBag("evidence") })
+    guidReferenceApi.editIndex(playerColor, "InvestigatorSpecifics", spawnedObj.getGUID())
+    printToColor("We've spawned an infinite bag of evidence tokens for convenience near your playermat.", messageColor)
+  elseif newId == "89001" then
+    -- Subject 5U-21
+    local sourceBag = guidReferenceApi.getObjectByOwnerAndType("Mythos", "OptionPanelSource")
+    for _, objData in ipairs(sourceBag.getData().ContainedObjects) do
+      if objData["Nickname"] == "Subject 5U-21 Helper" then
+        objData["Locked"] = true
+        local spawnedObj = spawnObjectData({
+          data = objData,
+          position = zones.getZonePosition(playerColor, "SetAside7"),
+          rotation = self.getRotation()
+        })
+        guidReferenceApi.editIndex(playerColor, "InvestigatorSpecifics", spawnedObj.getGUID())
+        break
+      end
+    end
+    printToColor("We've spawned a helper to track the classes of devoured cards near your playermat. " ..
+    "Note that this and 'Ravenous' will work with the Attachment Helper from the option panel.", messageColor)
+  end
+end
+
+function getDataForInfiniteBag(tokenType)
+  local tokenData = tokenManagerApi.getDataForInfiniteBag(tokenType)
 end
 
 -- returns the mini ID for the currently placed investigator
