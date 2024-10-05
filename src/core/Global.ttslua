@@ -1928,6 +1928,15 @@ function compareVersion(request)
   -- global variable to make it accessible for other functions
   modMeta = JSON.decode(request.text)
 
+  -- maybe update SOURCE_REPO to specific version
+  if modMeta["setSpecificDownloadVersion"] then
+    local versionTable = modMeta["setSpecificDownloadVersion"][1]
+    if versionTable[MOD_VERSION] then
+      SOURCE_REPO = "https://github.com/Chr1Z93/SCED-downloads/releases/download/" .. versionTable[MOD_VERSION] .. "/"
+      log("Using download repo version: " .. versionTable[MOD_VERSION])
+    end
+  end
+
   -- stop here if on latest or newer version
   if convertVersionToNumber(MOD_VERSION) >= convertVersionToNumber(modMeta["latestVersion"]) then return end
 
@@ -2041,6 +2050,7 @@ function TokenManager.spawnTokenGroup(params)
   local tokenCount = params.tokenCount
   local shiftDown = params.shiftDown
   local subType = params.subType
+  local temporary = params.temporary
 
   if tokenType == "damage" or tokenType == "horror" then
     TokenManager.spawnCounterToken(card, tokenType, tokenCount, shiftDown)
@@ -2049,7 +2059,7 @@ function TokenManager.spawnTokenGroup(params)
   elseif tokenType == "resource" and optionPanel["useResourceCounters"] == "custom" and tokenCount == 0 then
     TokenManager.spawnResourceCounterToken(card, tokenCount)
   else
-    TokenManager.spawnMultipleTokens(card, tokenType, tokenCount, shiftDown, subType)
+    TokenManager.spawnMultipleTokens(card, tokenType, tokenCount, shiftDown, subType, temporary)
   end
 end
 
@@ -2080,7 +2090,8 @@ end
 ---@param tokenCount number How many tokens to spawn
 ---@param shiftDown? number An offset for the z-value of this group of tokens
 ---@param subType? string Subtype of token to spawn. This will only differ from the tokenName for resource or action tokens
-function TokenManager.spawnMultipleTokens(card, tokenType, tokenCount, shiftDown, subType)
+---@param temporary? boolean If present adds the temporary tag to an action token
+function TokenManager.spawnMultipleTokens(card, tokenType, tokenCount, shiftDown, subType, temporary)
   if tokenCount < 1 then return end
 
   local offsets = {}
@@ -2125,7 +2136,11 @@ function TokenManager.spawnMultipleTokens(card, tokenType, tokenCount, shiftDown
     local matColor = playermatApi.getMatColorByPosition(card.getPosition())
     local activeInvestigatorData = playermatApi.getActiveInvestigatorData(matColor)
     callbackName = "updateUniversalActionAbilityToken"
-    callbackParams = { class = activeInvestigatorData.class, symbol = subType or activeInvestigatorData.class }
+    callbackParams = { class = activeInvestigatorData.class, symbol = subType or activeInvestigatorData.class}
+    
+    if temporary then
+      callbackParams.addTag = "Temporary"
+    end
   end
 
   for i = 1, tokenCount do
@@ -2469,6 +2484,97 @@ function TokenManager.replenishTokens(card, useInfo)
   end
 end
 
+-- adds a use to a card
+---@param card tts__Object Card that should get a use added
+---@param useType string Type of uses to be added
+function TokenManager.addUseToCard(params)
+  local card = params.card
+  local useType = params.useType
+  local metadata = JSON.decode(card.getGMNotes()) or {}
+  -- get correct data for location
+  if metadata.type == "Location" then
+    if not card.is_face_down and metadata.locationFront ~= nil then
+      metadata = metadata.locationFront
+    elseif metadata.locationBack ~= nil then
+      metadata = metadata.locationBack
+    end
+
+    -- if there are no uses at all, add "empty" uses for fake replenishing (only for clues)
+    if metadata.uses == nil then
+      metadata.uses = { { token = "clue" } }
+    end
+  end
+
+  local match = false
+  for _, useInfo in ipairs(metadata.uses or {}) do
+    if useInfo.token == useType then
+      -- artificially create replenish data to re-use that existing functionality
+      useInfo.count = 999
+      useInfo.replenish = 1
+      match = true
+    else
+      -- artificially disable other uses from replenishing
+      useInfo.replenish = nil
+    end
+  end
+
+  -- if matching uses were found, perform the "fake" replenish
+  if match then
+    TokenManager.maybeReplenishCard({ card = card, uses = metadata.uses })
+    return true
+  else
+    return false
+  end
+end
+
+-- generates the data to spawn an infinite bag of a specific type of resources
+function TokenManager.getDataForInfiniteBag(params)
+  -- re-assign parameters for convenience
+  local tokenType = params.tokenType
+  local position = params.position
+  local rotation = params.rotation
+
+  -- make sure the token templates are initialized
+  TokenManager.initTokenTemplates()
+
+  -- create a copy of the resource token (to not modify the source)
+  local template = deepCopy(tokenTemplates["resource"])
+  local subTypeStateId = stateTable[tokenType]
+  local subTypeData = template["States"][subTypeStateId]
+
+  -- add states to data
+  subTypeData["States"] = template["States"]
+
+  -- add "1" state and remove the current state
+  subTypeData["States"][1] = template
+  subTypeData["States"][1]["States"] = nil
+  subTypeData["States"][subTypeStateId] = nil
+
+  -- update rotation of the main state
+  subTypeData["Transform"].rotX = 0
+  subTypeData["Transform"].rotY = 0
+  subTypeData["Transform"].rotZ = 0
+
+  -- generate and return data for the infinite bag
+  local properTypeName = tokenType:gsub("^%l", string.upper)
+  return {
+    Name = "Infinite_Bag",
+    Nickname = properTypeName .. " Bag",
+    ContainedObjects = { subTypeData },
+    Transform = {
+      posX = position.x,
+      posY = position.y,
+      posZ = position.z,
+      rotX = rotation.x,
+      rotY = rotation.y,
+      rotZ = rotation.z,
+      scaleX = 1,
+      scaleY = 1,
+      scaleZ = 1
+    }
+  }
+end
+
 ---------------------------------------------------------
 -- Callback functions for token spawning
 ---------------------------------------------------------
@@ -2537,4 +2643,18 @@ function getColoredName(playerColor)
 
   -- add bb-code
   return "[" .. Color.fromString(playerColor):toHex() .. "]" .. displayName .. "[-]"
+end
+
+-- creates a deep copy of a table
+function deepCopy(data)
+  if type(data) ~= "table" then return data end
+  local copiedList = {}
+  for key, value in pairs(data) do
+    if type(value) == "table" then
+      copiedList[key] = deepCopy(value)
+    else
+      copiedList[key] = value
+    end
+  end
+  return copiedList
 end

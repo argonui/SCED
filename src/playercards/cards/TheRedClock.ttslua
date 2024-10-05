@@ -1,0 +1,92 @@
+require("playercards/CardsWithHelper")
+local playermatApi         = require("playermat/PlayermatApi")
+local searchLib            = require("util/SearchLib")
+local tokenManagerApi      = require("core/token/TokenManagerApi")
+
+-- intentionally global
+hasXML                     = true
+isHelperEnabled            = false
+
+function onLoad(savedData)
+  -- get level via metadata and proceed accordingly:
+  -- lvl 2: one action
+  -- lvl 5: two actions
+
+  notes = JSON.decode(self.getGMNotes())
+  if savedData and savedData ~= "" then
+    local loadedData = JSON.decode(savedData)
+    isHelperEnabled = loadedData.isHelperEnabled
+  end
+  syncDisplayWithOptionPanel()
+end
+
+function updateSave()
+  self.script_state = JSON.encode({
+    isHelperEnabled = isHelperEnabled
+  })
+end
+
+function addCharge(player)
+  tokenManagerApi.addUseToCard(self, "resource")
+  Wait.frames(function()
+    local foundTokens = searchSelfForTokens()
+    if foundTokens == 3 then
+      addAction(player)
+    end
+  end, 5)
+end
+
+function searchSelfForTokens()
+  clickableResourceCounter = nil
+  local foundTokens = 0
+
+  for _, obj in ipairs(searchLib.onObject(self, "isTileOrToken", 0.8)) do
+    local memo = obj.getMemo()
+    if memo == "charge" then
+      foundTokens = foundTokens + math.abs(obj.getQuantity())
+    elseif memo == "resourceCounter" then
+      foundTokens = obj.getVar("val")
+      clickableResourceCounter = obj
+      break
+    end
+  end
+  return foundTokens
+end
+
+function takeAll(player)
+  local foundTokens = searchSelfForTokens()
+  local matColor = playermatApi.getMatColorByPosition(self.getPosition())
+  playermatApi.updateCounter(matColor, "ResourceCounter", _, foundTokens)
+
+  if clickableResourceCounter then
+    clickableResourceCounter.call("updateVal", 0)
+  else
+    for _, obj in ipairs(searchLib.onObject(self, "isTileOrToken", 0.8)) do
+      local memo = obj.getMemo()
+      if memo == "charge" then
+        obj.destruct()
+      end
+    end
+  end
+  
+  if notes.id == "08058" then
+    Wait.time(function() addCharge(player) end, 0.5)
+    broadcastToColor("Moved " .. foundTokens .. " resource(s) to " .. matColor .. "'s resource pool and placed one charge.", player.color)
+  else
+    broadcastToColor("Moved " .. foundTokens .. " resource(s) to " .. matColor .. "'s resource pool.", player.color)
+  end
+end
+
+function addAction(player)
+  if notes.id == "08058" then
+    spawnActionToken(2)
+    broadcastToColor("Spawning two temporary action tokens.", player.color)
+  else
+    spawnActionToken(1)
+    broadcastToColor("Spawning one temporary action token.", player.color)
+  end
+end
+
+function spawnActionToken(numTokens)
+  tokenManagerApi.spawnTokenGroup(self, "universalActionAbility", numTokens, 0.8, _, true)
+end
