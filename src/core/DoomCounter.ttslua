@@ -73,14 +73,36 @@ end
 -- called by updateVal and addVal to broadcast total doom in play, including doom threshold
 function broadcastDoom(val)
   local doomInPlayCounter = guidReferenceApi.getObjectByOwnerAndType("Mythos", "DoomInPlayCounter")
-  local doomInPlay = doomInPlayCounter.call("countDoomInPlay") + val
+  local doomInPlay = doomInPlayCounter.call("getDoomCount") + val
   local doomThreshold = getDoomThreshold()
 
-  if doomThreshold then
-    broadcastToAll(val .. " doom on the agenda (" .. doomInPlay .. "/" .. doomThreshold .. " in play)")
-  else
-    broadcastToAll(val .. " doom on the agenda (" .. doomInPlay .. " in play)")
+  local broadcastParts = {}
+
+  -- construct the first part of the message
+  table.insert(broadcastParts, val)
+  table.insert(broadcastParts, " doom on the agenda (")
+
+  -- maybe add color if threshold is reached
+  local addColor = doomThreshold and (doomInPlay >= doomThreshold)
+  if addColor then
+    table.insert(broadcastParts, "[" .. Color.fromString("Red"):toHex() .. "]")
   end
+  table.insert(broadcastParts, doomInPlay)
+
+  -- maybe add the middle part
+  if doomThreshold then
+    table.insert(broadcastParts, "/" .. doomThreshold)
+  end
+
+  -- end the coloring
+  if addColor then
+    table.insert(broadcastParts, "[-]")
+  end
+
+  -- add the final part
+  table.insert(broadcastParts, " in play)")
+
+  broadcastToAll(table.concat(broadcastParts, ""))
 end
 
 -- called by "Reset" button to remove doom

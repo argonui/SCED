@@ -14,9 +14,19 @@ local TOTAL_PLAY_AREA  = {
     z = 35
   }
 }
+local subtractDoom = false
+
+function updateSave()
+  self.script_state = JSON.encode(subtractDoom)
+end
 
 -- create button, context menu and start loop
-function onLoad()
+function onLoad(savedData)
+  if savedData and savedData ~= "" then
+    subtractDoom = JSON.decode(savedData)
+  end
+
+  self.addContextMenuItem("Toggle Doom Mode", toggleSubtractDoom)
   self.createButton({
     label = "0",
     click_function = "none",
@@ -35,6 +45,20 @@ function onLoad()
   Wait.time(updateCounter, 2, -1)
 end
 
+function toggleSubtractDoom()
+  if subtractDoom then
+    subtractDoom = false
+  else
+    subtractDoom = true
+  end
+
+  if subtractDoom then
+    broadcastToAll("Doom in play has been marked as subtracting from the total doom count.")
+  else
+    broadcastToAll("Doom in play has been marked as adding to the total doom count.")
+  end
+end
+
 -- main function
 function updateCounter()
   local count = countDoomInPlay()
@@ -50,6 +74,13 @@ function countDoomInPlay()
   end
 
   return count
+end
+
+-- returns the doom count (for an outside call)
+function getDoomCount()
+  local count = countDoomInPlay()
+  local mult = subtractDoom and -1 or 1
+  return mult * count
 end
 
 -- gets quantity (for stacks) of doom
