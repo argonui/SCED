@@ -2525,6 +2525,53 @@ function TokenManager.addUseToCard(params)
   else
     return false
   end
+
+-- generates the data to spawn an infinite bag of a specific type of resources
+function TokenManager.getDataForInfiniteBag(params)
+  -- re-assign parameters for convenience
+  local tokenType = params.tokenType
+  local position = params.position
+  local rotation = params.rotation
+
+  -- make sure the token templates are initialized
+  TokenManager.initTokenTemplates()
+
+  -- create a copy of the resource token (to not modify the source)
+  local template = deepCopy(tokenTemplates["resource"])
+  local subTypeStateId = stateTable[tokenType]
+  local subTypeData = template["States"][subTypeStateId]
+
+  -- add states to data
+  subTypeData["States"] = template["States"]
+
+  -- add "1" state and remove the current state
+  subTypeData["States"][1] = template
+  subTypeData["States"][1]["States"] = nil
+  subTypeData["States"][subTypeStateId] = nil
+
+  -- update rotation of the main state
+  subTypeData["Transform"].rotX = 0
+  subTypeData["Transform"].rotY = 0
+  subTypeData["Transform"].rotZ = 0
+
+  -- generate and return data for the infinite bag
+  local properTypeName = tokenType:gsub("^%l", string.upper)
+  return {
+    Name = "Infinite_Bag",
+    Nickname = properTypeName .. " Bag",
+    ContainedObjects = { subTypeData },
+    Transform = {
+      posX = position.x,
+      posY = position.y,
+      posZ = position.z,
+      rotX = rotation.x,
+      rotY = rotation.y,
+      rotZ = rotation.z,
+      scaleX = 1,
+      scaleY = 1,
+      scaleZ = 1
+    }
+  }
 end
 
 ---------------------------------------------------------
@@ -2595,4 +2642,18 @@ function getColoredName(playerColor)
 
   -- add bb-code
   return "[" .. Color.fromString(playerColor):toHex() .. "]" .. displayName .. "[-]"
+end
+
+-- creates a deep copy of a table
+function deepCopy(data)
+  if type(data) ~= "table" then return data end
+  local copiedList = {}
+  for key, value in pairs(data) do
+    if type(value) == "table" then
+      copiedList[key] = deepCopy(value)
+    else
+      copiedList[key] = value
+    end
+  end
+  return copiedList
 end

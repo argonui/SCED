@@ -1,37 +1,37 @@
 require("playercards/PlayerCardSpawner")
 
-local allCardsBagApi            = require("playercards/AllCardsBagApi")
+local allCardsBagApi           = require("playercards/AllCardsBagApi")
 
-local BUTTON_LABELS             = {}
-BUTTON_LABELS["spawn"]          = {}
-BUTTON_LABELS["spawn"][true]    = "All matching cards"
-BUTTON_LABELS["spawn"][false]   = "First matching card"
-BUTTON_LABELS["search"]         = {}
-BUTTON_LABELS["search"][true]   = "Name equals search term"
-BUTTON_LABELS["search"][false]  = "Name contains search term"
+local BUTTON_LABELS            = {}
+BUTTON_LABELS["spawn"]         = {}
+BUTTON_LABELS["spawn"][true]   = "All matching cards"
+BUTTON_LABELS["spawn"][false]  = "First matching card"
+BUTTON_LABELS["search"]        = {}
+BUTTON_LABELS["search"][true]  = "Name equals search term"
+BUTTON_LABELS["search"][false] = "Name contains search term"
 
-local inputParameters           = {}
-inputParameters.label           = "Click to enter card name"
-inputParameters.input_function  = "input_func"
-inputParameters.function_owner  = self
-inputParameters.alignment       = 2
-inputParameters.position        = { x = 0, y = 0.1, z = -0.62 }
-inputParameters.width           = 3750
-inputParameters.height          = 380
-inputParameters.font_size       = 350
-inputParameters.scale           = { 0.1, 1, 0.1 }
-inputParameters.color           = { 0.9, 0.7, 0.5 }
-inputParameters.font_color      = { 0, 0, 0 }
+local inputParameters          = {}
+inputParameters.label          = "Click to enter card name"
+inputParameters.input_function = "input_func"
+inputParameters.function_owner = self
+inputParameters.alignment      = 2
+inputParameters.position       = { x = 0, y = 0.1, z = -0.62 }
+inputParameters.width          = 3750
+inputParameters.height         = 380
+inputParameters.font_size      = 350
+inputParameters.scale          = { 0.1, 1, 0.1 }
+inputParameters.color          = { 0.9, 0.7, 0.5 }
+inputParameters.font_color     = { 0, 0, 0 }
 
 function onSave()
   return JSON.encode({ spawnAll, searchExact, inputParameters.value })
 end
 
 function onLoad(savedData)
-  local loadedData                = JSON.decode(savedData)
-  spawnAll                        = loadedData[1] or false
-  searchExact                     = loadedData[2] or false
-  inputParameters.value           = loadedData[3] or ""
+  local loadedData      = JSON.decode(savedData)
+  spawnAll              = loadedData[1] or false
+  searchExact           = loadedData[2] or false
+  inputParameters.value = loadedData[3] or ""
   self.createInput(inputParameters)
 
   -- shared parameters
@@ -103,6 +103,13 @@ function startSearch()
     return
   end
 
+  -- if the search string is a number, assume it's an ID and spawn the card directly
+  if tonumber(inputParameters.value) then
+    local singleCard = allCardsBagApi.getCardById(inputParameters.value)
+    spawnCardList({ singleCard })
+    return
+  end
+
   -- search all objects in bag
   local cardList = allCardsBagApi.getCardsByName(inputParameters.value, searchExact)
   if cardList == nil or #cardList == 0 then
@@ -117,6 +124,10 @@ function startSearch()
   -- sort table by name (reverse for multiple results, because bottom card spawns first)
   table.sort(cardList, function(k1, k2) return spawnAll == (k1.data.Nickname > k2.data.Nickname) end)
 
+  spawnCardList(cardList)
+end
+
+function spawnCardList(cardList)
   local rot = self.getRotation()
   local pos = self.positionToWorld(Vector(0, 2, -0.08))
   Spawner.spawnCards(cardList, pos, rot, true)
