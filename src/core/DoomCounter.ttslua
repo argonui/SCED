@@ -70,10 +70,13 @@ function onNumberTyped(_, number)
   updateVal(number)
 end
 
--- called by updateVal and addVal to broadcast total doom in play, including doom threshold
+-- called by updateVal and addVal to broadcast total doom in play or on the agenda
+-- shows the "Doom on the Agenda / Doom Treshold" if metadata is present
+-- otherwise shows total "Doom in Play"
 function broadcastDoom(val)
   local doomInPlayCounter = guidReferenceApi.getObjectByOwnerAndType("Mythos", "DoomInPlayCounter")
-  local doomInPlay = doomInPlayCounter.call("getDoomCount") + val
+  local doomInPlay = doomInPlayCounter and doomInPlayCounter.call("getDoomCount") or 0
+  local totalDoom = val + doomInPlay
   local doomThreshold = getDoomThreshold()
 
   local broadcastParts = {}
@@ -82,25 +85,26 @@ function broadcastDoom(val)
   table.insert(broadcastParts, val)
   table.insert(broadcastParts, " doom on the agenda (")
 
-  -- maybe add color if threshold is reached
-  local addColor = doomThreshold and (doomInPlay >= doomThreshold)
-  if addColor then
-    table.insert(broadcastParts, "[" .. Color.fromString("Red"):toHex() .. "]")
-  end
-  table.insert(broadcastParts, doomInPlay)
-
-  -- maybe add the middle part
+  -- add the middle part
   if doomThreshold then
+    -- maybe add color if threshold is reached
+    if totalDoom >= doomThreshold then
+      table.insert(broadcastParts, "[" .. Color.fromString("Red"):toHex() .. "]")
+    end
+
+    table.insert(broadcastParts, totalDoom)
     table.insert(broadcastParts, "/" .. doomThreshold)
-  end
 
-  -- end the coloring
-  if addColor then
-    table.insert(broadcastParts, "[-]")
-  end
+    -- end the coloring
+    if totalDoom >= doomThreshold then
+      table.insert(broadcastParts, "[-]")
+    end
 
-  -- add the final part
-  table.insert(broadcastParts, " in play)")
+    table.insert(broadcastParts, " total)")
+  else
+    table.insert(broadcastParts, val + math.abs(doomInPlay))
+    table.insert(broadcastParts, " in play)")
+  end
 
   broadcastToAll(table.concat(broadcastParts, ""))
 end
