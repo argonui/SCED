@@ -71,13 +71,28 @@ function onNumberTyped(_, number)
 end
 
 -- called by updateVal and addVal to broadcast total doom in play or on the agenda
--- shows the "Doom on the Agenda / Doom Treshold" if metadata is present
+-- shows "Doom on the Agenda / Doom Threshold" if metadata is present
 -- otherwise shows total "Doom in Play"
 function broadcastDoom(val)
+  local md = getDoomMetadata()
+  local mod = getDoomThresholdModifier()
+  local invCount = playAreaApi.getInvestigatorCount()
+
+  -- maybe apply additional doom threshold for solo play
+  local soloDoomThreshold = 0
+  if invCount == 1 then
+    soloDoomThreshold = md.additionalDoomForSolo or 0
+  end
+
+  -- sum the doom thresholds and modifiers
+  local doomThreshold = (md.doomThreshold or 0) + mod + (md.doomThresholdPerInvestigator or 0) * invCount + soloDoomThreshold
+
   local doomInPlayCounter = guidReferenceApi.getObjectByOwnerAndType("Mythos", "DoomInPlayCounter")
+  if doomInPlayCounter and md.subtractDoomInPlay then
+    toggleSubtractDoom(true)
+  end
   local doomInPlay = doomInPlayCounter and doomInPlayCounter.call("getDoomCount") or 0
   local totalDoom = val + doomInPlay
-  local doomThreshold = getDoomThreshold()
 
   local broadcastParts = {}
 
@@ -107,6 +122,11 @@ function broadcastDoom(val)
   end
 
   broadcastToAll(table.concat(broadcastParts, ""))
+
+  -- maybe let players know about modifier
+  if mod ~= 0 then
+    printToAll("Doom Threshold was modified by " .. mod .. " due to cards in play.", "Orange")
+  end
 end
 
 -- called by "Reset" button to remove doom
@@ -122,32 +142,50 @@ function startReset()
 end
 
 -- get doom threshold from top card of Agenda deck
-function getDoomThreshold()
-  local agendaPos = { -2.72, 1.6, 0.37 }
+function getDoomMetadata()
+  local agendaPos = Vector(-2.72, 1.6, 0.37)
   local searchResult = searchLib.atPosition(agendaPos, "isCardOrDeck")
 
   if #searchResult == 1 then
     local obj = searchResult[1]
     if obj.type == "Card" then
-      return getDoomThresholdFromGMNotes(obj.getGMNotes())
+      return JSON.decode(obj.getGMNotes()) or {}
     else
       -- handle agenda deck
       local containedObjects = obj.getData().ContainedObjects
       local topCardData = containedObjects[#containedObjects]
-      return getDoomThresholdFromGMNotes(topCardData.GMNotes)
+      return JSON.decode(topCardData.GMNotes) or {}
     end
   end
-  return nil
+  return {}
 end
 
--- decodes the gm notes and return the doom treshhold
-function getDoomThresholdFromGMNotes(notes)
-  local metadata = JSON.decode(notes) or {}
-  if metadata.doomThresholdPerInvestigator then
-    return metadata.doomThresholdPerInvestigator * playAreaApi.getInvestigatorCount() + metadata.doomThreshold
-  else
-    return metadata.doomThreshold
+function getDoomThresholdModifier()
+  local mod = 0
+  local appliedModifierGUIDs = {}
+
+  -- check playarea
+  local playAreaZone = guidReferenceApi.getObjectByOwnerAndType("Mythos", "PlayAreaZone")
+  for _, obj in ipairs(playAreaZone.getObjects()) do
+    if not obj.is_face_down and obj.type == "Card" then
+      local md = JSON.decode(obj.getGMNotes()) or {}
+      mod = mod + (md.modifyDoomThreshold or 0)
+      appliedModifierGUIDs[obj.getGUID()] = true
+    end
   end
+
+  -- check mythos area (make sure we don't apply cards twice that are in both areas)
+  local searchPos = Vector(-1.31, 2, -4)
+  local searchRot = Vector(0, 270, 0)
+  local searchSize = Vector(25, 1, 13.5)
+  local searchFilter = "isCard"
+  for _, obj in ipairs(searchLib.inArea(searchPos, searchRot, searchSize, searchFilter)) do
+    if not obj.is_face_down and appliedModifierGUIDs[obj.getGUID()] == nil then
+      local md = JSON.decode(obj.getGMNotes()) or {}
+      mod = mod + (md.modifyDoomThreshold or 0)
+    end
+  end
+  return mod
 end
 
 -- XML UI functions
