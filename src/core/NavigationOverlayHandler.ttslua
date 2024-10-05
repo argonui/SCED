@@ -73,13 +73,31 @@ local distance   = {}
 -- save/load functionality
 ---------------------------------------------------------
 
-function onSave()
-  return JSON.encode({
+function getSaveData()
+  return {
     visibility = visibility,
     claims     = claims,
     pitch      = pitch,
     distance   = distance
-  })
+  }
+end
+
+function loadData(loadedData)
+  if not loadedData then return end
+
+  visibility       = loadedData.visibility
+  claims           = loadedData.claims
+  pitch            = loadedData.pitch
+  distance         = loadedData.distance
+
+  -- use pitch to track players
+  for playerColor, _ in pairs(pitch) do
+    updateSettingsUI(playerColor)
+  end
+end
+
+function onSave()
+  return JSON.encode(getSaveData())
 end
 
 function onLoad(savedData)
@@ -407,7 +425,7 @@ function loadDefaultSettings(player)
   distance[player.color] = nil
 
   -- update the UI accordingly
-  updateSettingsUI(player)
+  updateSettingsUI(player.color)
 end
 
 -- called by clicking a toggle
@@ -420,7 +438,7 @@ function toggleSettings(player)
   else
     settingsOpenForColor = player.color
 
-    updateSettingsUI(player)
+    updateSettingsUI(player.color)
     UI.setAttribute("navPanelSettings", "visibility", player.color)
     UI.setAttribute("navPanelSettings", "active", true)
   end
@@ -436,15 +454,15 @@ function updateDistance(player, number)
   distance[player.color] = number
 end
 
--- updates the settings UI for the provided player
-function updateSettingsUI(player)
+-- updates the settings UI for the provided playerColor
+function updateSettingsUI(playerColor)
   -- update the sliders
-  UI.setAttribute("sliderPitch", "value", pitch[player.color] or 75)
-  UI.setAttribute("sliderDistance", "value", distance[player.color] or 100)
-  
+  UI.setAttribute("sliderPitch", "value", pitch[playerColor] or 75)
+  UI.setAttribute("sliderDistance", "value", distance[playerColor] or 100)
+
   -- update the claims
   local matColorList = { "White", "Orange", "Green", "Red" }
   for _, matColor in pairs(matColorList) do
-    UI.setAttribute("claim" .. matColor, "isOn", claims[player.color][matColor] or false)
+    UI.setAttribute("claim" .. matColor, "isOn", claims[playerColor][matColor] or false)
   end
 end
