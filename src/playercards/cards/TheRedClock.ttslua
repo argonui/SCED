@@ -1,0 +1,119 @@
+require("playercards/CardsWithHelper")
+local guidReferenceApi = require("core/GUIDReferenceApi")
+local playermatApi         = require("playermat/PlayermatApi")
+local searchLib            = require("util/SearchLib")
+local tokenManagerApi = require("core/token/TokenManagerApi")
+
+
+-- intentionally global
+hasXML                     = true
+isHelperEnabled            = false
+
+function onLoad(savedData)
+  -- get level via metadata and proceed accordingly:
+  -- lvl 2: one action
+  -- lvl 5: two actions
+
+  notes = JSON.decode(self.getGMNotes())
+  if savedData and savedData ~= "" then
+    local loadedData = JSON.decode(savedData)
+    isHelperEnabled = loadedData.isHelperEnabled
+  end
+  syncDisplayWithOptionPanel()
+end
+
+function updateSave()
+  self.script_state = JSON.encode({
+    isHelperEnabled = isHelperEnabled
+  })
+end
+
+function addCharge(player)
+  tokenManagerApi.addUseToCard(self, "resource")
+  Wait.time(function() searchSelf() end, 5)
+  log(foundTokens)
+  if foundTokens == 3 then
+    addAction(player)
+  end
+end
+
+function searchSelf(destroy)
+  clickableResourceCounter = nil
+  foundTokens = 0
+
+  for _, obj in ipairs(searchLib.onObject(self, "isTileOrToken")) do
+    local image = obj.getCustomObject().image
+    if image == "https://steamusercontent-a.akamaihd.net/ugc/2028355744161230179/E3A30A2D661A12205D98D4D0E374591586C5C486/" then
+      foundTokens = foundTokens + math.abs(obj.getQuantity())
+      if destroy then obj.destruct() end
+      return foundTokens
+    elseif obj.getMemo() == "resourceCounter" then
+      foundTokens = obj.getVar("val")
+      clickableResourceCounter = obj
+      return foundTokens
+    end
+  end
+end
+
+function takeAll(player)
+  local destroy = true
+  searchSelf(destroy)
+  local matColor = playermatApi.getMatColorByPosition(self.getPosition())
+  playermatApi.updateCounter(matColor, "ResourceCounter", _, foundTokens)
+
+  if clickableResourceCounter then
+    clickableResourceCounter.call("updateVal", 0)
+  end
+  
+  if notes.id == "08058" then
+    Wait.frames(function() addCharge(player) end, 2)
+    broadcastToColor("Moved " .. foundTokens .. " resource(s) to " .. matColor .. "'s resource pool and placed one charge.", player.color)
+  else
+    broadcastToColor("Moved " .. foundTokens .. " resource(s) to " .. matColor .. "'s resource pool.", player.color)
+  end
+end
+
+function addAction(player)
+  if notes.id == "08058" then
+    spawnActionToken(2)
+    broadcastToColor("Spawning two temporary action tokens.", player.color)
+  else
+    spawnActionToken(1)
+    broadcastToColor("Spawning one temporary action token.", player.color)
+  end
+end
+
+function spawnActionToken(numTokens)
+  local position = self.getPosition()
+  local matColor = playermatApi.getMatColorByPosition(position)
+  local mat = guidReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
+  local rotation = mat.getRotation()
+
+  -- find empty action token slots by checking snap points
+  local snaps = mat.getSnapPoints()
+
+  -- get empty slots
+  local emptyPositions = {}
+  for i, snap in ipairs(snaps) do
+    if i > 1 then
+      if snap.tags[1] == "UniversalToken" then
+        local snapPos = mat.positionToWorld(snap.position)
+        local searchResult = searchLib.atPosition(snapPos, "isUniversalToken")
+        if #searchResult == 0 then
+          table.insert(emptyPositions, snapPos)
+        end
+      end
+    end
+  end
+
+  local activeInvestigatorData = playermatApi.getActiveInvestigatorData(matColor)
+  local callbackParams = { class = activeInvestigatorData.class, symbol = activeInvestigatorData.class, addTag = "Temporary" }
+  local callbackName = "updateUniversalActionAbilityToken"
+  for i = 1, numTokens do
+    if emptyPositions[i] ~= nil then
+      tokenManagerApi.spawnToken(emptyPositions[i] + Vector(0, 0.7, 0), "universalActionAbility", rotation, callbackName, callbackParams)
+    else
+      tokenManagerApi.spawnToken(position + Vector(0, 0.7, 0), "universalActionAbility", rotation, callbackName, callbackParams)
+    end
+  end
+end

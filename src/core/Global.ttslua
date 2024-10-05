@@ -2478,6 +2478,51 @@ function TokenManager.replenishTokens(card, useInfo)
   end
 end
 
+-- adds a use to a card
+---@param card tts__Object Card that should get a use added
+---@param useType string Type of uses to be added
+function TokenManager.addUseToCard(params)
+  
+  log(params.useType)
+  local card = params.card
+  local useType = params.useType
+  local metadata = JSON.decode(card.getGMNotes()) or {}
+  -- get correct data for location
+  if metadata.type == "Location" then
+    if not card.is_face_down and metadata.locationFront ~= nil then
+      metadata = metadata.locationFront
+    elseif metadata.locationBack ~= nil then
+      metadata = metadata.locationBack
+    end
+
+    -- if there are no uses at all, add "empty" uses for fake replenishing (only for clues)
+    if metadata.uses == nil then
+      metadata.uses = { { token = "clue" } }
+    end
+  end
+
+  local match = false
+  for _, useInfo in ipairs(metadata.uses or {}) do
+    if useInfo.token == useType then
+      -- artificially create replenish data to re-use that existing functionality
+      useInfo.count = 999
+      useInfo.replenish = 1
+      match = true
+    else
+      -- artificially disable other uses from replenishing
+      useInfo.replenish = nil
+    end
+  end
+
+  -- if matching uses were found, perform the "fake" replenish
+  if match then
+    TokenManager.maybeReplenishCard({ card = card, uses = metadata.uses })
+    return true
+  else
+    return false
+  end
+end
+
 ---------------------------------------------------------
 -- Callback functions for token spawning
 ---------------------------------------------------------
