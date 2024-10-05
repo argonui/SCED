@@ -83,7 +83,7 @@ end
 ---------------------------------------------------------
 
 function importFromToken()
-  broadcastToAll("Campaign Import initiated")
+  broadcastToAll("Import initiated")
   local importData = JSON.decode(coin.getGMNotes())
 
   -- import the campaign data
@@ -194,8 +194,15 @@ function importFromToken()
     end
   end
 
+  -- enable Token Removers
+  if importData["enableTokenRemover"] then
+    for _, obj in ipairs(guidReferenceApi.getObjectsByType("TokenRemover")) do
+      obj.call("enable")
+    end
+  end
+
   coin.destruct()
-  broadcastToAll("Campaign successfully imported!", "Green")
+  broadcastToAll("Import completed!", "Green")
   return 1
 end
 
@@ -206,7 +213,7 @@ end
 
 -- creates a campaign token with save data encoded into GM Notes based on the current state of the table
 function exportToToken()
-  broadcastToAll("Campaign Export initiated")
+  broadcastToAll("Export initiated")
 
   local dataToSave = {}
 
@@ -294,15 +301,24 @@ function exportToToken()
     dataToSave.removePhaseTracker = true
   end
 
+  -- check if Token Removers are enabled
+  local tokenRemoverList = guidReferenceApi.getObjectsByType("TokenRemover")
+  if #tokenRemoverList > 0 then
+    local zoneGUID = tokenRemoverList[1].call("onSave")
+    if getObjectFromGUID(zoneGUID) ~= nil then
+      dataToSave.enableTokenRemover = true
+    end
+  end
+
   -- finish the data for the campaign token
   saveTokenData.GMNotes = JSON.encode(dataToSave)
-  saveTokenData.Nickname = os.date("%Y-%m-%d") .. " Save"
+  saveTokenData.Nickname = os.date("%Y_%m_%d") .. " Save"
   if campaignBox then
-    saveTokenData.Nickname = saveTokenData.Nickname .. " " .. campaignBox.getName()
+    saveTokenData.Nickname = saveTokenData.Nickname .. " (" .. campaignBox.getName() .. ")"
   end
 
   spawnObjectData({ data = saveTokenData })
-  broadcastToAll("Campaign successfully exported! Save coin object to import on a different save.", "Green")
+  broadcastToAll("Export completed! Save coin object to import on a different save.", "Green")
   return 1
 end
 
@@ -324,9 +340,9 @@ function findUniqueObjectWithTag(tag)
   if #objects == 1 then
     return objects[1]
   elseif #objects == 0 then
-    broadcastToAll("No " .. tag .. " detected; ensure it has the correct tag.", "Red")
+    broadcastToAll("No " .. tag .. " detected; ensure it has the correct tag.", "Orange")
   else
-    broadcastToAll("More than one " .. tag .. " detected; delete all but one.", "Red")
+    broadcastToAll("More than one " .. tag .. " detected; delete all but one.", "Orange")
   end
 end
 
