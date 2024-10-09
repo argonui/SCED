@@ -1,10 +1,17 @@
 local cardIdIndex  = {}
 local indexingDone = false
 
+local backUrl      = {
+  ScenarioCard =
+  "https://steamusercontent-a.akamaihd.net/ugc/2342503777940351785/F64D8EFB75A9E15446D24343DA0A6EEF5B3E43DB/",
+  PlayerCard =
+  "https://steamusercontent-a.akamaihd.net/ugc/2342503777940352139/A2D42E7E5C43D045D72CE5CFC907E4F886C8C690/"
+}
+
 function onLoad()
   self.addContextMenuItem("Rebuild Index", rebuildIndex)
   math.randomseed(os.time())
-  Wait.frames(rebuildIndex, 30)
+  Wait.frames(startIndexBuild, 30)
 end
 
 function rebuildIndex()
@@ -20,6 +27,7 @@ function startIndexBuild()
 end
 
 function buildIndex()
+  print("Building Encounter Card index")
   cardCount = 0
   indexingDone = false
   processContainedObjects(self.getData().ContainedObjects)
@@ -72,7 +80,7 @@ end
 
 function isIndexReady()
   if not indexingDone then
-    broadcastToAll("Still loading player cards, please try again in a few seconds", { 0.9, 0.2, 0.2 })
+    broadcastToAll("Still loading cards, please try again in a few seconds", { 0.9, 0.2, 0.2 })
   end
   return indexingDone
 end
@@ -102,6 +110,7 @@ end
 
 -- attempt to replace cards
 function onObjectSpawn(obj)
+  if obj.hasTag("Replaced") then return end
   if obj.type ~= "Card" then return end
 
   local md = JSON.decode(obj.getGMNotes()) or {}
@@ -113,13 +122,46 @@ function onObjectSpawn(obj)
 
   log("Replaced " .. obj.getName())
 
-  local objData         = obj.getData()
-  objData["CardID"]     = cardData.data["CardID"]
-  objData["CustomDeck"] = cardData.data["CustomDeck"]
-  objData["Name"]       = cardData.data["Name"]
+  obj.addTag("Replaced")
 
-  Wait.frames(function()
+  Wait.time(function()
+    local objData         = obj.getData()
+    objData["CardID"]     = cardData.data["CardID"]
+    objData["CustomDeck"] = cardData.data["CustomDeck"]
+    objData["Name"]       = cardData.data["Name"]
+    processCard(objData)
     obj.destruct()
     spawnObjectData({ data = objData })
-  end, 10)
+  end, 1)
+end
+
+function processCard(cardData)
+  -- determine card type
+  local tags = {}
+  for _, tag in ipairs(cardData["Tags"] or {}) do
+    tags[tag] = true
+  end
+
+  -- has both or neither tag, can't work out back
+  if tags.PlayerCard == tags.ScenarioCard then
+    printToAll("Missing or double tag for '" .. cardData["Nickname"] .. "'.")
+    return false
+  end
+
+  local newBack
+  if tags.PlayerCard then
+    newBack = backUrl.PlayerCard
+  elseif tags.ScenarioCard then
+    newBack = backUrl.ScenarioCard
+  end
+
+  local _, customDeckData = next(cardData["CustomDeck"])
+  customDeckData["BackIsHidden"] = true
+
+  -- skip cards with decksheets as back
+  if (customDeckData["NumHeight"] == 1 and customDeckData["NumWidth"] == 1)
+      or customDeckData["UniqueBack"] == false then
+    customDeckData["BackURL"] = newBack
+  end
+  return true
 end
