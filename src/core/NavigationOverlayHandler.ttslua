@@ -1,7 +1,7 @@
 local guidReferenceApi = require("core/GUIDReferenceApi")
-local playermatApi = require("playermat/PlayermatApi")
+local playermatApi     = require("playermat/PlayermatApi")
 
-fullButtonData   = {
+fullButtonData         = {
   { id = "1",  width = "84",  height = "33",  offset = "1 2" },       --  1. Act/Agenda
   { id = "2",  width = "78",  height = "69",  offset = "1 -62" },     --  2. Map
   { id = "3",  width = "70",  height = "36",  offset = "-38 -126" },  --  3. White
@@ -25,7 +25,7 @@ fullButtonData   = {
   { id = "21", width = "20",  height = "20",  offset = "-20 150" }    -- 21. Settings
 }
 
-playButtonData   = {
+playButtonData         = {
   { id = "1",  width = "80", height = "33", offset = "0 55" },
   { id = "2",  width = "78", height = "70", offset = "0 -8" },
   { id = "3",  width = "68", height = "32", offset = "-36 -71" },
@@ -42,7 +42,7 @@ playButtonData   = {
 }
 
 -- To-Do: dynamically get positions by linking to objects
-cameraData       = {
+cameraData             = {
   { position = { -1.6, 1.55, 0 },      distance = 18 }, --  1. Act/Agenda
   { position = { -28, 1.55, 0 },       distance = -1 }, --  2. Map
   { position = { -31.6, 1.55, 26.4 },  distance = -1 }, --  3. Green playermat
@@ -64,10 +64,10 @@ cameraData       = {
 }
 
 local settingsOpenForColor
-local visibility = {}
-local claims     = {}
-local pitch      = {}
-local distance   = {}
+local visibility       = {}
+local claims           = {}
+local pitch            = {}
+local distance         = {}
 
 ---------------------------------------------------------
 -- save/load functionality
@@ -287,36 +287,19 @@ function getDynamicViewBounds(objList)
 end
 
 function loadCameraFromApi(params)
-  loadCamera(params.player, params.camera)
+  loadCamera(params.player, params.index, params.matColor)
 end
 
 -- loads the specified camera for a player
 ---@param player tts__Player Player whose camera should be moved
----@param camera number|string If number: Index of the camera view to load | If string: Color of the playermat to swap to
-function loadCamera(player, camera)
-  local lookHere, index, matColor
+---@param index? number Index of the camera view to load
+---@param matColor? string Color of the playermat to swap to
+function loadCamera(player, index, matColor)
+  -- need at least one of these parameters
+  if not index and not matColor then return end
+
   local matColorList = { "White", "Orange", "Green", "Red" }
-  local indexList = {
-    White = 3,
-    Orange = 4,
-    Green = 5,
-    Red = 6
-  }
-
-  if tonumber(camera) then
-    index = tonumber(camera)
-    matColor = matColorList[index - 2] -- mat index 1 - 4
-  else
-    index = indexList[camera]
-    matColor = camera
-  end
-
-  -- if mat is removed, end here
-  local mat = guidReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
-  if mat == nil then
-    printToColor("Couldn't find this playermat.", player.color)
-    return
-  end
+  local lookHere
 
   -- dynamic view of the play area
   if index == 2 then
@@ -329,8 +312,18 @@ function loadCamera(player, camera)
       yaw = 90,
       distance = 0.8 * math.max(bounds.diffX, bounds.diffZ) + 7
     }
-  -- dynamic view of the clicked play mat
-  elseif index >= 3 and index <= 6 then
+    -- dynamic view of the clicked play mat
+  elseif (index >= 3 and index <= 6) or matColor then
+    -- maybe get matColor (mat index 1 - 4)
+    matColor = matColor or matColorList[index - 2]
+
+    -- if mat is removed, end here
+    local mat = guidReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
+    if mat == nil then
+      printToColor("Couldn't find this playermat.", player.color)
+      return
+    end
+
     -- check if anyone (except for yourself) has claimed this color
     local isClaimed = false
 
@@ -441,7 +434,7 @@ function updateSettingsUI(player)
   -- update the sliders
   UI.setAttribute("sliderPitch", "value", pitch[player.color] or 75)
   UI.setAttribute("sliderDistance", "value", distance[player.color] or 100)
-  
+
   -- update the claims
   local matColorList = { "White", "Orange", "Green", "Red" }
   for _, matColor in pairs(matColorList) do
