@@ -1,65 +1,35 @@
--- card index and sub-indices
 local cardIdIndex  = {}
-local cycleIndex   = {}
 local indexingDone = false
 
 function onLoad()
-  self.addContextMenuItem("Rebuild Index", startIndexBuild)
+  self.addContextMenuItem("Rebuild Index", rebuildIndex)
   math.randomseed(os.time())
-  Wait.frames(startIndexBuild, 30)
+  Wait.frames(rebuildIndex, 30)
 end
 
--- Called by Hotfix bags when they load. If we are still loading indexes, then
--- the all cards and hotfix bags are being loaded together, and we can ignore
--- this call as the hotfix will be included in the initial indexing. If it is
--- called once indexing is complete it means the hotfix bag has been added
--- later, and we should rebuild the index to integrate the hotfix bag.
-function rebuildIndexForHotfix()
+function rebuildIndex()
   if indexingDone then
     startIndexBuild()
   end
 end
 
--- Resets all current bag indexes
-function clearIndexes()
+function startIndexBuild()
   indexingDone = false
   cardIdIndex  = {}
-  cycleIndex   = {}
-end
-
--- Clears the bag indexes and starts the coroutine to rebuild the indexes
-function startIndexBuild()
-  clearIndexes()
   startLuaCoroutine(self, "buildIndex")
 end
 
-function onObjectLeaveContainer(container, _)
-  if container == self then
-    broadcastToAll("Removing cards from the All Encounter Cards bag may break some functions.", "Red")
-  end
-end
-
--- Create the card indexes by iterating all cards in the bag, parsing their metadata
--- and creating the keyed lookup tables for the cards. This is a coroutine which will
--- spread the workload by processing 20 cards before yielding.
 function buildIndex()
   cardCount = 0
   indexingDone = false
-
-  -- process the allcardsbag itself
-  local selfData = self.getData()
-  if selfData.ContainedObjects then
-    processContainedObjects(selfData.ContainedObjects)
-  end
-
-  buildSupplementalIndexes()
+  processContainedObjects(self.getData().ContainedObjects)
   indexingDone = true
   return 1
 end
 
 -- Processes the contained objects for cards to add to the index
 function processContainedObjects(containedObjects, customDeck)
-  for _, objData in ipairs(containedObjects) do
+  for _, objData in ipairs(containedObjects or {}) do
     if objData.ContainedObjects then
       -- recursively process nested containers
       processContainedObjects(objData.ContainedObjects, objData.CustomDeck)
@@ -93,64 +63,13 @@ function processContainedObjects(containedObjects, customDeck)
   end
 end
 
--- Adds a card to any indexes it should be a part of, based on its metadata
----@param cardData table TTS object data for the card
 function addCardToIndex(cardData)
-  -- using the more efficient 'json.parse()' to speed this process up
-  local status, cardMetadata = pcall(function() return json.parse(cardData.GMNotes) end)
-
-  -- if an error happens, fallback to the regular parser
-  if status ~= true or cardMetadata == nil then
-    log("Fast parser failed for " .. cardData.Nickname .. ", using old parser instead.")
-    cardMetadata = JSON.decode(cardData.GMNotes)
-  end
-
-  -- if metadata was not valid JSON or empty, don't add the card
-  if not cardMetadata then
-    log("Error parsing " .. cardData.Nickname)
-    return
-  end
-
-  -- use the ZoopGuid as fallback if no id present
-  cardMetadata.id = cardMetadata.id or cardMetadata.TtsZoopGuid
-  local indexData = { data = cardData, metadata = cardMetadata }
-  cardIdIndex[cardMetadata.id] = indexData
-
-  -- also add data for alternate ids
-  if cardMetadata.alternate_ids then
-    for _, alternateId in ipairs(cardMetadata.alternate_ids) do
-      cardIdIndex[alternateId] = indexData
-    end
+  local length = string.len(cardData["Nickname"])
+  if length == 5 or length == 6 then
+    cardIdIndex[cardData["Nickname"]] = { data = cardData }
   end
 end
 
--- Creates the supplemental indexes for classes, weaknesses etc.
-function buildSupplementalIndexes()
-  for cardId, card in pairs(cardIdIndex) do
-    local cycleName = card.metadata.cycle or "other"
-    cycleName = string.lower(cycleName)
-    cycleName = cycleName:gsub("return to ", "")
-    cycleName = cycleName:gsub("the night of the zealot", "core")
-    writeToNestedTable(cycleIndex, cycleName, cardId)
-  end
-end
-
--- helper function to ensure nested tables are initialized - last argument will be used as table element
-function writeToNestedTable(rootTable, ...)
-  local args = { ... }
-  local currentTable = rootTable
-
-  for i = 1, #args - 1 do
-    local key = args[i]
-    if not currentTable[key] then
-      currentTable[key] = {}
-    end
-    currentTable = currentTable[key]
-  end
-  table.insert(currentTable, args[#args])
-end
-
----@return boolean: If true, the bag is currently not indexing and ready to be accessed
 function isIndexReady()
   if not indexingDone then
     broadcastToAll("Still loading player cards, please try again in a few seconds", { 0.9, 0.2, 0.2 })
@@ -158,39 +77,9 @@ function isIndexReady()
   return indexingDone
 end
 
--- Returns a specific card from the bag, based on ArkhamDB ID
----@param params table ID of the card to retrieve
----@return table: If the indexes are still being constructed, returns an empty table.
---  Otherwise, a single table with the following fields
---    data: TTS object data, suitable for spawning the card
---    metadata: Table of parsed metadata
 function getCardById(params)
   if not isIndexReady() then return {} end
   return cardIdIndex[params.id]
-end
-
--- Searches the bag for cards which match the given name and returns a list. Note that this is
--- an O(n) search without index support. It may be slow.
--- Parameter array must contain these fields to define the search:
---   name: String or string fragment to search for names
---   exact: Whether the name match should be exact
-function getCardsByName(params)
-  local name = params.name
-  local exact = params.exact
-  local results = {}
-
-  -- Track cards (by ID) that we've added to avoid duplicates that may come from alternate IDs
-  local addedCards = {}
-  for _, cardData in pairs(cardIdIndex) do
-    if (not addedCards[cardData.metadata.id]) then
-      if (exact and (string.lower(cardData.data.Nickname) == string.lower(name)))
-          or (not exact and string.find(string.lower(cardData.data.Nickname), string.lower(name), 1, true)) then
-        table.insert(results, cardData)
-        addedCards[cardData.metadata.id] = true
-      end
-    end
-  end
-  return results
 end
 
 function onObjectEnterContainer(container)
@@ -208,38 +97,33 @@ function delayedIndexUpdate()
   if waitId then
     Wait.stop(waitId)
   end
-  waitId = Wait.time(rebuildIndexForHotfix, 2)
+  waitId = Wait.time(rebuildIndex, 2)
 end
 
--- attempt to replace cards with IDs as name
+-- attempt to replace cards
 function onObjectSpawn(obj)
-  -- only continue for cards
   if obj.type ~= "Card" then return end
 
-  -- only continue if no description
-  if obj.getDescription() ~= "" then return end
-
-  -- only continue if no gm notes
-  if obj.getGMNotes() ~= "" then return end
+  local md = JSON.decode(obj.getGMNotes()) or {}
+  if not md.id then return end
 
   -- check if it's in the index
-  local cardData = getCardById({ id = obj.getName() })
+  local cardData = getCardById({ id = md.id })
   if cardData == nil then return end
 
-  log("Replaced card ID " .. obj.getName())
+  log("Replaced " .. obj.getName())
 
-  local objData           = obj.getData()
-
-  -- update data
-  objData["GMNotes"]      = cardData.data["GMNotes"]
-  objData["Tags"]         = cardData.data["Tags"]
-  objData["LuaScript"]    = cardData.data["LuaScript"]
-  objData["XmlUI"]        = cardData.data["XmlUI"]
-  objData["SidewaysCard"] = cardData.data["SidewaysCard"]
-  objData["Nickname"]     = cardData.data["Nickname"]
+  local objData            = obj.getData()
+  cardData["GUID"]         = objData.data["GUID"]
+  cardData["GMNotes"]      = objData.data["GMNotes"]
+  cardData["Tags"]         = objData.data["Tags"]
+  cardData["LuaScript"]    = objData.data["LuaScript"]
+  cardData["XmlUI"]        = objData.data["XmlUI"]
+  cardData["SidewaysCard"] = objData.data["SidewaysCard"]
+  cardData["Nickname"]     = objData.data["Nickname"]
 
   Wait.frames(function()
     obj.destruct()
-    spawnObjectData({ data = objData })
+    spawnObjectData({ data = cardData })
   end, 10)
 end
