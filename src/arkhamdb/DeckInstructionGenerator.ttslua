@@ -1,3 +1,4 @@
+require("core/Constants")
 local searchLib = require("util/SearchLib")
 
 local idList = {}
@@ -20,10 +21,10 @@ function generate(_, playerColor)
   idList = {}
   for _, obj in ipairs(searchLib.onObject(self, "isCardOrDeck")) do
     if obj.type == "Card" then
-      processCard(obj.getGMNotes(), obj.getName(), playerColor)
+      processCard(obj.getData(), playerColor)
     elseif obj.type == "Deck" then
-      for _, deepObj in ipairs(obj.getData().ContainedObjects) do
-        processCard(deepObj.GMNotes, deepObj.Nickname, playerColor)
+      for _, deepObjData in ipairs(obj.getData().ContainedObjects) do
+        processCard(deepObjData, playerColor)
       end
     end
   end
@@ -43,10 +44,36 @@ function generate(_, playerColor)
   table.sort(idList, sortById)
 
   -- construct the string (new line for each instruction)
-  local description = "++SCED import instructions++"
+  local descriptionParts = {}
+  table.insert(descriptionParts, "++SCED import instructions++")
+
   for _, entry in ipairs(idList) do
-    description = description .. "\n- add: " .. entry.id .. " (**" .. entry.name .. "**)"
+    -- start a new line and add first part of instruction
+    table.insert(descriptionParts, "\n- add: " .. entry.id .. " (")
+
+    -- maybe add hyperlink to card face
+    if entry.face then
+      table.insert(descriptionParts, '<a href="' .. entry.face .. '">')
+    end
+
+    -- name of the card
+    table.insert(descriptionParts, "**" .. entry.name .. "**")
+
+    -- maybe close hyperlink
+    if entry.face then
+      table.insert(descriptionParts, "</a>")
+    end
+
+    -- closing bracket
+    table.insert(descriptionParts, ")")
+
+    -- maybe add hyperlink for back
+    if entry.back then
+      table.insert(descriptionParts, ' (<a href="' .. entry.back .. '">Back</a>')
+    end
   end
+
+  local description = table.concat(descriptionParts, "")
 
   -- get a timestamp
   local timestamp = os.date("%Y-%m-%d %H:%M")
@@ -83,12 +110,25 @@ function getIdFromData(metadata)
   end
 end
 
-function processCard(notes, name, playerColor)
-  local id = getIdFromData(JSON.decode(notes) or {})
+function processCard(cardData, playerColor)
+  local id = getIdFromData(JSON.decode(cardData.GMNotes) or {})
   if id then
-    table.insert(idList, { id = id, name = name })
+    local cardDetails = { id = id, name = cardData.Nickname }
+
+    -- if this is not a decksheet, add its URL
+    local _, customDeckData = next(cardData["CustomDeck"])
+    if customDeckData["NumHeight"] == 1 and customDeckData["NumWidth"] == 1 then
+      cardDetails.face = customDeckData["FaceURL"]
+
+      -- also add the back if it's not one of the regular backs
+      if customDeckData["BackURL"] ~= CARD_BACK_URL.PlayerCard and customDeckData["BackURL"] ~= CARD_BACK_URL.PlayerCard then
+        cardDetails.back = customDeckData["BackURL"]
+      end
+    end
+
+    table.insert(idList, cardDetails)
   else
-    broadcastToColor("Couldn't get ID for " .. name .. ".", playerColor, "Red")
+    broadcastToColor("Couldn't get ID for " .. cardData.Nickname .. ".", playerColor, "Red")
   end
 end
 
