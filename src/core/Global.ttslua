@@ -175,8 +175,9 @@ function onLoad(savedData)
   updateBlurseVisibility()
   math.randomseed(os.time())
   TokenManager.initialiize()
+  Wait.frames(createActionTrackerUI, 10)
 
-  -- initialization of loadable objects library (delay to let Navigation Overlay build)
+  -- initialization of library (delay to let Navigation Overlay build)
   Wait.time(function()
     WebRequest.get(SOURCE_REPO .. 'library.json', libraryDownloadCallback)
   end, 1)
@@ -320,7 +321,7 @@ end
 function onObjectRotate(obj, _, flip, _, _, oldFlip)
   if flip == oldFlip or not obj.hasTag("UniversalToken") or obj.hasTag("Temporary") then return end
 
-  local owner = guidReferenceApi.getOwner(obj)
+  local owner = guidReferenceApi.getOwnerOfObject(obj)
   if owner == "Mythos" then return end
 
   -- make sure we only do this for action tokens in the regular position
@@ -1507,14 +1508,14 @@ function createActionTrackerUI()
     attributes = {
       id = "actionTracker",
       color = "black",
-      active = "true",
-      height = "120",
-      width = "250",
-      offsetXY = "0 300",
+      active = true,
+      height = "1200",
+      width = "2500",
+      offsetXY = "0 0",
       rectAlignment = "LowerCenter",
       raycastTarget = "true",
       outlineSize = "2 2",
-      outline = "#303030",
+      outline = "#303030"
     },
     children = {}
   }
@@ -1572,7 +1573,7 @@ function createActionTrackerUI()
           id = "playerAction" .. j .. matColor,
           color = "green",
           width = "25",
-          height = "25",
+          height = "25"
         }
       }
       table.insert(playerRow.children[2].children, actionXml)
@@ -1624,9 +1625,9 @@ end
 -- generates a list of display names (Steam name or investigator)
 function getListOfPlayerNames()
   local list = {}
-  for matColor, _ in pairs(guidReferenceApi.getObjectsByType("Playermat")) do
-    local playerColor = playermatApi.getPlayerColor(matColor)
-    list[matColor] = Player[playerColor].steam_name or playermatApi.getInvestigatorName(matColor)
+  for _, color in ipairs(Player.getAvailableColors()) do
+    local matColor = playermatApi.getMatColor(color)
+    list[matColor] = Player[color].steam_name or playermatApi.getInvestigatorName(matColor)
   end
   return list
 end
@@ -1645,8 +1646,10 @@ function updateGlobalXml(newXml)
   -- get current state and update newXml
   for _, windowId in ipairs(windowIdList) do
     local element = getXmlTableElementById(newXml, windowId)
-    element.attributes.active = UI.getAttribute(windowId, "active")
-    element.attributes.visibility = UI.getAttribute(windowId, "visibility")
+    if element and element.attributes then
+      element.attributes.active = UI.getAttribute(windowId, "active")
+      element.attributes.visibility = UI.getAttribute(windowId, "visibility")
+    end
   end
 
   UI.setXmlTable(newXml)
