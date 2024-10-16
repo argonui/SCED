@@ -94,7 +94,7 @@ function takeCardIntoThreatArea(playerColor, hoveredObject)
       local data = {
         object = obj,
         localPos = hoveredObject.positionToLocal(obj.getPosition()),
-        localRotY = cardRot.y - obj.getRotation().y
+        localRot = obj.getRotation() - cardRot
       }
       table.insert(additionalObjects, data)
     end
@@ -109,7 +109,7 @@ function takeCardIntoThreatArea(playerColor, hoveredObject)
 
   -- work out the new rotation
   local matRotation = playermatApi.returnRotation(matColor)
-  local newCardRot = cardRot:setAt("y", matRotation.y + ownerRotation.y - cardRot.y)
+  local newCardRot = cardRot:setAt("y", matRotation.y + cardRot.y - ownerRotation.y)
 
   -- move the main card to threat area
   hoveredObject.setRotation(newCardRot)
@@ -118,7 +118,10 @@ function takeCardIntoThreatArea(playerColor, hoveredObject)
   -- move tokens/tiles (to new global position)
   for _, data in ipairs(additionalObjects) do
     data.object.setPosition(hoveredObject.positionToWorld(data.localPos))
-    data.object.setRotation(newCardRot.y + data.localRotY)
+
+    local newRot = data.localRot + Vector(0, newCardRot.y, 0)
+    newRot.y = roundToMultiple(newRot.y, 45)
+    data.object.setRotation(newRot)
   end
 
   -- contruct feedback message (hide name when face-down + enabled setting)
@@ -575,4 +578,8 @@ function getFirstSeatedPlayer()
   for _, color in ipairs(getSeatedPlayers()) do
     return color
   end
+end
+
+function roundToMultiple(num, mult)
+  return math.floor((num + mult / 2) / mult) * mult
 end
