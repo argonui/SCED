@@ -76,6 +76,9 @@ local RESOURCE_OPTIONS              = {
 local handVisibility                = {}
 local blurseVisibility              = {}
 
+-- track action count per player
+local actionsPerMatColor            = {}
+
 ---------------------------------------------------------
 -- data for tokens
 ---------------------------------------------------------
@@ -307,6 +310,27 @@ function onPlayerAction(player, action, targets)
     return false
   end
   return true
+end
+
+function onPlayerChangeColor()
+  updateActionTrackerNames()
+end
+
+-- detect action token flipping
+function onObjectRotate(obj, _, flip, _, _, oldFlip)
+  if flip == oldFlip or not obj.hasTag("UniversalToken") or obj.hasTag("Temporary") then return end
+
+  local owner = guidReferenceApi.getOwner(obj)
+  if owner == "Mythos" then return end
+
+  -- make sure we only do this for action tokens in the regular position
+  local mat = guidReferenceApi.getObjectByOwnerAndType(owner, "Playermat")
+  local relPos = mat.positionToLocal(obj.getPosition())
+  if relPos.x > -1 and relPos.x < -1.5 then
+    actionsPerMatColor[owner] = (actionsPerMatColor[owner] or 0) + (obj.is_face_down and -1 or 1)
+    actionsPerMatColor[owner] = math.max(math.min(actionsPerMatColor[owner], 3), 0)
+    updateActionTrackerTokens()
+  end
 end
 
 ---------------------------------------------------------
@@ -1407,7 +1431,6 @@ function updateDownloadItemList(skipAuthorUpdate)
     -- if there's a filter, apply it (both for name and author)
     if (searchFilter == nil or string.contains(string.lower(v.name), searchFilter)) and
         (authorFilter == nil or v.author == authorFilter) then
-
       -- start collecting authors unless skipping
       if not skipAuthorUpdate then
         table.insert(authorList, v.author)
@@ -1449,13 +1472,174 @@ function updateDownloadItemList(skipAuthorUpdate)
   Wait.time(onClick_select, 0.2)
 end
 
+function createActionTrackerUI()
+  local defaultsXML = {
+    tag = "Defaults",
+    children = {
+      {
+        tag = "Text",
+        attributes = {
+          class = "playerName",
+          font = "font_teutonic-arkham",
+          fontSize = "20",
+          alignment = "MiddleCenter",
+          rectAlignment = "MiddleCenter"
+        }
+      },
+      {
+        tag = "Panel",
+        attributes = {
+          class = "showHide",
+          color = "black",
+          height = "30",
+          width = "30",
+          rectAlignment = "MiddleRight",
+          outlineSize = "2 2",
+          outline = "#303030"
+        }
+      }
+    }
+  }
+
+  -- The main action tracker panel
+  local actionTrackerPanel = {
+    tag = "TableLayout",
+    attributes = {
+      id = "actionTracker",
+      color = "black",
+      active = "true",
+      height = "120",
+      width = "250",
+      offsetXY = "0 300",
+      rectAlignment = "LowerCenter",
+      raycastTarget = "true",
+      outlineSize = "2 2",
+      outline = "#303030",
+    },
+    children = {}
+  }
+
+  -- make list of currently used mat colors
+  local isUsed = {}
+  for _, matColor in ipairs(playermatApi.getUsedMatColors()) do
+    isUsed[matColor] = true
+  end
+  local nameList = getListOfPlayerNames()
+
+  -- Loop through playermats and create rows in the Action Tracker
+  for matColor, _ in pairs(guidReferenceApi.getObjectsByType("Playermat")) do
+    local playerColor = playermatApi.getPlayerColor(matColor)
+    local playerRow = {
+      tag = "Row",
+      attributes = {
+        id = "playerRow" .. matColor,
+        preferredHeight = "30",
+        active = isUsed[matColor] or false
+      },
+      children = {
+        -- Player name
+        {
+          tag = "Cell",
+          children = {
+            {
+              tag = "Text",
+              attributes = {
+                id = "playerName" .. matColor,
+                class = "playerName",
+                color = playerColor,
+                text = nameList[matColor]
+              }
+            }
+          }
+        },
+        -- Action tokens for the player
+        {
+          tag = "Cell",
+          children = {
+            {
+              tag = "Panel",
+              attributes = { padding = "4 4 4 4" },
+              children = {}
+            }
+          }
+        }
+      }
+    }
+    for j = 1, 3 do
+      local actionXml = {
+        tag = "Image",
+        attributes = {
+          id = "playerAction" .. j .. matColor,
+          color = "green",
+          width = "25",
+          height = "25",
+        }
+      }
+      table.insert(playerRow.children[2].children, actionXml)
+    end
+    table.insert(actionTrackerPanel.children, playerRow)
+  end
+  local xml = UI.getXmlTable()
+  table.insert(xml, defaultsXML)
+  table.insert(xml, actionTrackerPanel)
+  updateGlobalXml(xml)
+end
+
+-- updates the visibility of the action tracker's player rows
+function updateActionTrackerVisibility()
+  local isUsed = {}
+  for _, matColor in ipairs(playermatApi.getUsedMatColors()) do
+    isUsed[matColor] = true
+  end
+
+  for matColor, _ in pairs(guidReferenceApi.getObjectsByType("Playermat")) do
+    UI.setAttribute("playerRow" .. matColor, "active", isUsed[matColor] or false)
+  end
+end
+
+-- updates the color of the actions based on the playermats actions tokens
+function updateActionTrackerTokens(params)
+  if params then
+    actionsPerMatColor[params.matColor] = params.actionCount
+  end
+
+  for matColor, actionCount in pairs(actionsPerMatColor) do
+    for i = 1, 3 do
+      local color = (i <= actionCount) and "green" or "grey"
+      UI.setAttribute("playerAction" .. i .. matColor, "color", color)
+    end
+  end
+end
+
+-- updates the displayed names in the action tracker
+function updateActionTrackerNames()
+  local nameList = getListOfPlayerNames()
+  for matColor, _ in pairs(guidReferenceApi.getObjectsByType("Playermat")) do
+    local playerColor = playermatApi.getPlayerColor(matColor)
+    UI.setAttribute("playerName" .. matColor, "color", playerColor)
+    UI.setAttribute("playerName" .. matColor, "text", nameList[matColor])
+  end
+end
+
+-- generates a list of display names (Steam name or investigator)
+function getListOfPlayerNames()
+  local list = {}
+  for matColor, _ in pairs(guidReferenceApi.getObjectsByType("Playermat")) do
+    local playerColor = playermatApi.getPlayerColor(matColor)
+    list[matColor] = Player[playerColor].steam_name or playermatApi.getInvestigatorName(matColor)
+  end
+  return list
+end
+
 -- this helper function updates the global XML while preserving the visibility of windows
 function updateGlobalXml(newXml)
   -- preserve visibility settings for these elements
   local windowIdList = {
     "playAreaGallery",
     "downloadWindow",
-    "optionPanel"
+    "optionPanel",
+    "blessCurseManager",
+    "actionTracker"
   }
 
   -- get current state and update newXml
@@ -1681,6 +1865,12 @@ function removePlayermat(matColor)
   for _, obj in pairs(matObjects) do
     obj.destruct()
   end
+
+  -- update index
+  guidReferenceApi.editIndex(matColor)
+
+  -- update the action tracker
+  updateActionTrackerVisibility()
 end
 
 -- sets the option panel to the correct state (corresponding to 'optionPanel')
