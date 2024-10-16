@@ -42,8 +42,9 @@ local hideTitleSplashWaitFunctionId = nil
 -- online functionality related variables
 local MOD_VERSION                   = "4.0.0"
 local SOURCE_REPO                   = "https://github.com/Chr1Z93/SCED-downloads/releases/latest/download/"
-local library, requestObj, modMeta
+local library, requestObj, modMeta, searchFilter, authorFilter
 local acknowledgedUpgradeVersions   = {}
+local authorList                    = {}
 local contentToShow                 = "campaign"
 local currentListItem               = 1
 local tabIdTable                    = {
@@ -959,6 +960,54 @@ end
 -- Content Importing and XML functions
 ---------------------------------------------------------
 
+-- callback function for the search field in the download menu
+function onSearchValueSubmit(_, value)
+  -- this event seems to be called 5x at once, so we use this flag to just execute it once
+  if ignoreSubmit then return end
+  ignoreSubmit = true
+
+  -- store input value in global var
+  if value == "" then
+    searchFilter = nil
+  else
+    searchFilter = value
+  end
+
+  -- update XML so that the settings persists
+  UI.setAttribute("searchField", "text", value)
+
+  -- turn off flag after 0.1s
+  Wait.time(function() ignoreSubmit = false end, 0.1)
+
+  -- update list (including new filter setting)
+  updateDownloadItemList(true)
+end
+
+-- callback function for the "author" dropdown in the download menu
+function onAuthorFilterChanged(_, value)
+  -- store input value in global var
+  if value == "All authors" then
+    authorFilter = nil
+  else
+    authorFilter = value
+  end
+
+  -- update XML so that the settings persists
+  UI.setAttribute("authorDropdown", "value", returnAuthorId(value))
+
+  -- update list (including new filter setting)
+  updateDownloadItemList(true)
+end
+
+-- helper function to get the ID of the dropdown selection
+function returnAuthorId(name)
+  for index, optionName in ipairs(authorList) do
+    if optionName == name then
+      return index
+    end
+  end
+end
+
 -- forwards the requested content type to the update function and sets highlight to clicked tab
 ---@param tabId string Id of the clicked tab
 function onClick_tab(_, _, tabId)
@@ -971,6 +1020,12 @@ function onClick_tab(_, _, tabId)
     end
   end
   currentListItem = 1
+
+  -- reset filters
+  authorFilter, searchFilter = nil, nil
+  UI.setAttribute("searchField", "text", "")
+  UI.setAttribute("authorDropdown", "value", 0)
+
   updateDownloadItemList()
 end
 
@@ -1334,32 +1389,60 @@ function formatLibrary(jsonResponse)
 end
 
 -- updates the window content to the requested content
-function updateDownloadItemList()
+---@param skipAuthorUpdate? boolean If true, skips the update for the author dropdown
+function updateDownloadItemList(skipAuthorUpdate)
   if not library then return end
 
   -- addition of list items according to library file
   local globalXml = UI.getXmlTable()
   local contentList = getXmlTableElementById(globalXml, 'contentList')
 
+  -- reset the list of authors unless skipping
+  if not skipAuthorUpdate then
+    authorList = {}
+  end
+
   contentList.children = {}
   for i, v in ipairs(library[contentToShow]) do
-    table.insert(contentList.children,
-      {
-        tag = "Panel",
-        attributes = { id = "panel" .. i },
-        children = {
-          tag = 'Text',
-          value = v.name,
-          attributes = {
-            id = contentToShow .. "_" .. i,
-            onClick = 'onClick_select',
-            alignment = 'MiddleLeft'
+    -- if there's a filter, apply it (both for name and author)
+    if (searchFilter == nil or string.contains(string.lower(v.name), searchFilter)) and
+        (authorFilter == nil or v.author == authorFilter) then
+
+      -- start collecting authors unless skipping
+      if not skipAuthorUpdate then
+        table.insert(authorList, v.author)
+      end
+
+      table.insert(contentList.children,
+        {
+          tag = "Panel",
+          attributes = { id = "panel" .. i },
+          children = {
+            tag = 'Text',
+            value = v.name,
+            attributes = {
+              id = contentToShow .. "_" .. i,
+              onClick = 'onClick_select',
+              alignment = 'MiddleLeft'
+            }
           }
-        }
-      })
+        })
+    end
   end
 
   contentList.attributes.height = #contentList.children * 27
+
+  -- populate the author dropdown with options unless skipping
+  if not skipAuthorUpdate then
+    authorList = removeDuplicatesAndSort(authorList)
+
+    local authorDropdown = getXmlTableElementById(globalXml, 'authorDropdown')
+    authorDropdown.children = { { tag = "Option", value = "All authors" } }
+    for _, author in ipairs(authorList) do
+      table.insert(authorDropdown.children, { tag = "Option", value = author })
+    end
+  end
+
   updateGlobalXml(globalXml)
 
   -- select the first item
@@ -2136,8 +2219,8 @@ function TokenManager.spawnMultipleTokens(card, tokenType, tokenCount, shiftDown
     local matColor = playermatApi.getMatColorByPosition(card.getPosition())
     local activeInvestigatorData = playermatApi.getActiveInvestigatorData(matColor)
     callbackName = "updateUniversalActionAbilityToken"
-    callbackParams = { class = activeInvestigatorData.class, symbol = subType or activeInvestigatorData.class}
-    
+    callbackParams = { class = activeInvestigatorData.class, symbol = subType or activeInvestigatorData.class }
+
     if temporary then
       callbackParams.addTag = "Temporary"
     end
@@ -2655,4 +2738,20 @@ function deepCopy(data)
     end
   end
   return copiedList
+end
+
+function removeDuplicatesAndSort(t)
+  local seen = {}
+  local result = {}
+
+  for _, value in ipairs(t) do
+    if not seen[value] then
+      seen[value] = true
+      table.insert(result, value)
+    end
+  end
+
+  table.sort(result)
+
+  return result
 end
