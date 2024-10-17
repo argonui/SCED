@@ -68,9 +68,9 @@ end
 
 -- move the hovered object to the nearest empty slot on the playermat
 function takeCardIntoThreatArea(playerColor, hoveredObject)
-  -- only continue if an unlocked card
+  -- only continue if an unlocked, non-location card is hovered
   if hoveredObject == nil
-      or hoveredObject.type ~= "Card" and hoveredObject.type ~= "Deck"
+      or (hoveredObject.type ~= "Card" and hoveredObject.type ~= "Deck")
       or hoveredObject.hasTag("Location")
       or hoveredObject.locked then
     broadcastToColor("Hover a non-location card and try again.", playerColor, "Yellow")
@@ -78,7 +78,7 @@ function takeCardIntoThreatArea(playerColor, hoveredObject)
   end
 
   local matColor = playermatApi.getMatColor(playerColor)
-  local mat = guidReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
+  local cardRot = hoveredObject.getRotation()
 
   -- do not continue if the threat area is already full
   local threatAreaPos = playermatApi.getEncounterCardDrawPosition(matColor, false)
@@ -87,37 +87,29 @@ function takeCardIntoThreatArea(playerColor, hoveredObject)
     return
   end
 
-  -- initialize list of objects to move (and store local positions)
+  -- initialize list of objects to move (and store local position + rotation)
   local additionalObjects = {}
   for _, obj in ipairs(searchLib.onObject(hoveredObject, "isTileOrToken")) do
-    local data = {}
-    data.object = obj
-    data.localPos = hoveredObject.positionToLocal(obj.getPosition())
-    table.insert(additionalObjects, data)
+    if not obj.locked then
+      local data = {
+        object = obj,
+        localPos = hoveredObject.positionToLocal(obj.getPosition()),
+        localRot = obj.getRotation() - cardRot
+      }
+      table.insert(additionalObjects, data)
+    end
   end
 
-  -- find out if the original card is on the green or red playermats
-  local originalMatColor = guidReferenceApi.getOwnerOfObject(hoveredObject)
-
-  -- determine modifiers for the playermats
-  local modifierY = 0
-  if originalMatColor == "Red" then
-    modifierY = 90
-  elseif originalMatColor == "Green" then
-    modifierY = -90
+  -- get the rotation of the owning playermat (or Mythos)
+  local cardOwner = guidReferenceApi.getOwnerOfObject(hoveredObject)
+  local ownerRotation = Vector(0, 270, 0)
+  if cardOwner ~= "Mythos" then
+    ownerRotation = playermatApi.returnRotation(cardOwner)
   end
 
-  -- contruct feedback message
-  local cardName = hoveredObject.getName()
-  if cardName == "" then cardName = "a card" end
-  local playerName = GlobalApi.getColoredName(playerColor)
-  broadcastToAll("Moved " .. cardName .. " to " .. playerName .. "'s threat area.", "White")
-
-  -- get new rotation (rounded)
-  local cardRot = hoveredObject.getRotation()
-  local roundedRotY = roundToMultiple(cardRot.y, 45)
-  local deltaRotY = 270 - mat.getRotation().y - modifierY
-  local newCardRot = cardRot:setAt("y", roundedRotY - deltaRotY)
+  -- work out the new rotation
+  local matRotation = playermatApi.returnRotation(matColor)
+  local newCardRot = cardRot:setAt("y", matRotation.y + cardRot.y - ownerRotation.y)
 
   -- move the main card to threat area
   hoveredObject.setRotation(newCardRot)
@@ -125,11 +117,21 @@ function takeCardIntoThreatArea(playerColor, hoveredObject)
 
   -- move tokens/tiles (to new global position)
   for _, data in ipairs(additionalObjects) do
-    if not data.object.locked then
-      data.object.setPosition(hoveredObject.positionToWorld(data.localPos))
-      data.object.setRotation(data.object.getRotation() - Vector(0, deltaRotY, 0))
-    end
+    data.object.setPosition(hoveredObject.positionToWorld(data.localPos))
+
+    local newRot = data.localRot + Vector(0, newCardRot.y, 0)
+    newRot.y = roundToMultiple(newRot.y, 45)
+    data.object.setRotation(newRot)
   end
+
+  -- contruct feedback message (hide name when face-down + enabled setting)
+  local cardName = hoveredObject.getName()
+  if cardName == "" or (hoveredObject.is_face_down and hoveredObject.hide_when_face_down) then
+    cardName = "a card"
+  end
+
+  local playerName = GlobalApi.getColoredName(playerColor)
+  broadcastToAll("Moved " .. cardName .. " to " .. playerName .. "'s threat area.", "White")
 end
 
 -- discard the hovered or selected objects to the respective trashcan and discard tokens on it if it was a card
@@ -393,7 +395,7 @@ function removeOneUse(playerColor, hoveredObject)
   if cardName and cardName ~= "" then
     cardInfo = " from " .. cardName
   end
-  broadcastToAll(playerName .. " removed a token (" .. tokenName .. ")".. cardInfo .. ".", "White")
+  broadcastToAll(playerName .. " removed a token (" .. tokenName .. ")" .. cardInfo .. ".", "White")
 
   local discardForMatColor = getColorToDiscardFor(hoveredObject, playerColor)
   playermatApi.discardListOfObjects(discardForMatColor, { targetObject })
