@@ -122,8 +122,8 @@ do
   PlayermatApi.getHelperSpawnData = function(matColor, helperName)
     local resultTable = {}
     local localPositionTable = {
-      ["Hand Helper"] = Vector( -0.055, 0, -1.132 ),
-      ["Search Assistant"] = Vector( -0.34, 0, -1.132 )
+      ["Hand Helper"] = Vector(-0.055, 0, -1.132),
+      ["Search Assistant"] = Vector(-0.34, 0, -1.132)
     }
 
     for color, mat in pairs(getMatForColor(matColor)) do
@@ -342,6 +342,49 @@ do
   PlayermatApi.syncAllCustomizableCards = function()
     for _, mat in pairs(getMatForColor("All")) do
       mat.call("syncAllCustomizableCards")
+    end
+  end
+
+  -- moves + rotates a playermat (and related objects)
+  ---@param matColor string Color of the playermat - White, Orange, Green, Red or All
+  ---@param position table New position for the playermat
+  ---@param rotationY number New y-rotation for the playermat (X and Z will be 0)
+  PlayermatApi.moveAndRotate = function(matColor, position, rotationY)
+    -- get mat and related objects
+    local mat = guidReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
+    local matObjects = guidReferenceApi.getObjectsByOwner(matColor)
+
+    if not mat then return end
+
+    -- use current value if undefined
+    position = position or mat.getPosition()
+    rotationY = rotationY or mat.getRotation().y
+
+    -- store relative positions
+    local storedPositions = {}
+    for _, obj in pairs(matObjects) do
+      if obj ~= mat then
+        storedPositions[obj.getGUID()] = mat.positionToLocal(obj.getPosition())
+      end
+    end
+
+    -- also get objects on the mat
+    local objectsOnMat = searchLib.onObject(mat)
+    for _, obj in ipairs(objectsOnMat) do
+      if obj ~= mat and storedPositions[obj.getGUID()] == nil and obj.interactable ~= false then
+        storedPositions[obj.getGUID()] = mat.positionToLocal(obj.getPosition())
+      end
+    end
+
+    -- move main mat
+    mat.setPosition(position)
+    mat.setRotation({ 0, rotationY, 0 })
+
+    -- set new position + rotation (preserve object X / Z rotation)
+    for guid, pos in pairs(storedPositions) do
+      local obj = getObjectFromGUID(guid)
+      obj.setPosition(mat.positionToWorld(pos))
+      obj.setRotation(obj.getRotation():setAt("y", rotationY))
     end
   end
 
