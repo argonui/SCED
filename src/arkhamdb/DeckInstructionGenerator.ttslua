@@ -3,17 +3,14 @@ local searchLib = require("util/SearchLib")
 
 local idList = {}
 
+local cardWidth = 250
+local cardHeight = cardWidth * 1.4
 local galleryTemplateStart = [[<style>
-  .sced-image {
-    max-width: 49%;
-    height: auto;
-    border-radius: 8px;
-    box-shadow: 0px 5px 10px rgba(0, 0, 0, 0.4);
-    margin: 0;
-    transition: transform 0.3s ease-in-out;
-  }
-  .sced-image:hover { transform: scale(1.45); }
-  .sced-container {
+  .sced-spacer { height: 60px; }
+  .sced-card { width: 250px; border-radius: 5px; margin: 0; transition: transform 0.25s ease-in-out; }
+  .sced-slice { background-repeat: no-repeat; }
+  .sced-card:hover { transform: scale(1.45); }
+  .sced-card-container {
     display: flex;
     flex-wrap: wrap;
     justify-content: center;
@@ -21,19 +18,18 @@ local galleryTemplateStart = [[<style>
     margin-top: 5px;
     padding: 10px;
   }
-  .sced-spacer { height: 50px; }
   @media (max-width: 600px) {
-    .sced-image { max-width: 100%; }
-    .sced-image:hover { transform: none; }
     .sced-spacer { height: 0px; }
+    .sced-card { width: 100%; height: auto; }
+    .sced-card:hover { transform: none; }
   }
 </style>
-<div class="sced-container">\n]]
-local galleryTemplateMiddle = [[  <img class="sced-image" src="{{IMAGE_URL}}"/>\n]]
-local galleryTemplateEnd = [[</div>\n<div class="sced-spacer"></div>]]
+<div class="sced-container">]]
+local templateCardRegular = [[  <img class="sced-card sced-regular" src="{{IMAGE_URL}}"/>]]
+local templateCardSlice = [[  <div class="sced-card sced-card-slice" style="background-image: url('{{IMAGE_URL}}'); background-size: {{SHEET_SIZE_1}}px {{SHEET_SIZE_2}}px; background-position: {{OFFSET_1}}px {{OFFSET_2}}px;"></div>]]
+local galleryTemplateEnd = [[</div>]] .. "\n" .. [[<div class="sced-spacer"></div>]]
 
 function onLoad()
-  -- "generate" button
   local buttonParameters          = {}
   buttonParameters.function_owner = self
   buttonParameters.height         = 200
@@ -70,7 +66,7 @@ function generate(_, playerColor)
   end
 
   -- sort the idList
-  table.sort(idList, sortById)
+  table.sort(idList, sortByMetadata)
 
   -- construct the string (new line for each instruction)
   local descriptionParts = {}
@@ -108,17 +104,11 @@ function generate(_, playerColor)
 
   -- maybe create a card gallery for included cards
   if createGallery then
-    table.insert(descriptionParts, "\n\n")
-    table.insert(descriptionParts, galleryTemplateStart)
+    table.insert(descriptionParts, "\n\n" .. galleryTemplateStart .. "\n")
 
-    -- add cards
+    addedImages = {}
     for _, entry in ipairs(idList) do
-      if entry.face then
-        table.insert(descriptionParts, galleryTemplateMiddle:gsub("{{IMAGE_URL}}", entry.face))
-      end
-      if entry.back then
-        table.insert(descriptionParts, galleryTemplateMiddle:gsub("{{IMAGE_URL}}", entry.back))
-      end
+      maybeAddImageToGallery(descriptionParts, entry)
     end
     table.insert(descriptionParts, galleryTemplateEnd)
   end
@@ -148,7 +138,7 @@ function generate(_, playerColor)
         "\nAfter doing so, the Deck Importer will be able to spawn these cards IF they are added to the mod's card index (for example by " ..
         "throwing them into the 'Additional Cards Box' next to the Player Cards Panel in the upper left corner of the table." ..
         "\nIt also supports '- remove:' instructions to automatically remove placeholder cards.\nIf you are using a custom " ..
-        "investigator, make sure to use a 'remove' instruction to remove the original one.\n" .. timestamp .. "\n" .. description
+        "investigator, make sure to use a 'remove' instruction to remove the original one.\n\n" .. timestamp .. "\n" .. description
   })
 end
 
@@ -161,19 +151,74 @@ function getIdFromData(metadata)
   end
 end
 
-function processCard(cardData, playerColor)
-  local id = getIdFromData(JSON.decode(cardData.GMNotes) or {})
-  if id then
-    local cardDetails = { id = id, name = cardData.Nickname }
+function maybeAddImageToGallery(t, data)
+  if data.sheetH and data.sheetW then
+    -- add cards from decksheets
+    local element = templateCardSlice
+    element = element:gsub("{{SHEET_SIZE_1}}", data.sheetW * cardWidth):gsub("{{SHEET_SIZE_2}}", data.sheetH * cardHeight)
+    element = element:gsub("{{OFFSET_1}}", data.col * cardWidth):gsub("{{OFFSET_2}}", data.row * cardHeight)
 
-    -- if this is not a decksheet, add its URL
-    local _, customDeckData = next(cardData["CustomDeck"])
-    if customDeckData["NumHeight"] == 1 and customDeckData["NumWidth"] == 1 then
+    maybeAddCardSlice(t, element, data.face, data.cardId)
+
+    if data.uniqueBack then
+      maybeAddCardSlice(t, element, data.back, data.cardId)
+    else
+      maybeAddCardRegular(t, data.back)
+    end
+  else
+    -- add regular cards
+    maybeAddCardRegular(t, data.face)
+    maybeAddCardRegular(t, data.back)
+  end
+end
+
+function maybeAddCardRegular(t, url)
+  if not url then return end
+
+  if not addedImages[url] then
+    addedImages[url] = true
+    table.insert(t, templateCardRegular:gsub("{{IMAGE_URL}}", url) .. "\n")
+  end
+end
+
+function maybeAddCardSlice(t, element, url, cardId)
+  if not url then return end
+
+  -- initialize table
+  addedImages[url] = addedImages[url] or {}
+
+  if not addedImages[url][cardId] then
+    addedImages[url][cardId] = true
+    table.insert(t, element:gsub("{{IMAGE_URL}}", url) .. "\n")
+  end
+end
+
+function processCard(cardData, playerColor)
+  local md = JSON.decode(cardData.GMNotes) or {}
+  local id = getIdFromData(md)
+  if id then
+    local cardDetails = {
+      id = id,
+      name = cardData.Nickname,
+      metadata = md,
+      cardId = math.floor(cardData.CardID % 100)
+    }
+
+    -- add images unless minicard
+    if md.type ~= "Minicard" then
+      local _, customDeckData = next(cardData["CustomDeck"])
       cardDetails.face = customDeckData["FaceURL"]
+
+      if customDeckData["NumHeight"] > 1 or customDeckData["NumWidth"] > 1 then
+        cardDetails.sheetH = customDeckData["NumHeight"]
+        cardDetails.sheetW = customDeckData["NumWidth"]
+        cardDetails.row, cardDetails.col = getGridPosition(cardDetails.cardId, customDeckData["NumWidth"])
+      end
 
       -- also add the back if it's not one of the regular backs
       if customDeckData["BackURL"] ~= CARD_BACK_URL.PlayerCard and customDeckData["BackURL"] ~= CARD_BACK_URL.PlayerCard then
         cardDetails.back = customDeckData["BackURL"]
+        cardDetails.uniqueBack = customDeckData["UniqueBack"]
       end
     end
 
@@ -183,13 +228,26 @@ function processCard(cardData, playerColor)
   end
 end
 
-function sortById(a, b)
+function sortByMetadata(a, b)
   local numA = tonumber(a.id)
   local numB = tonumber(b.id)
 
-  if numA and numB then
+  local isInvestigatorA = (a.metadata.type == "Investigator")
+  local isInvestigatorB = (b.metadata.type == "Investigator")
+
+  if isInvestigatorA and not isInvestigatorB then
+    return true
+  elseif isInvestigatorB and not isInvestigatorA then
+    return false
+  elseif numA and numB then
     return numA < numB
   else
     return a.name < b.name
   end
+end
+
+function getGridPosition(index, columns)
+  local row = math.floor(index / columns) + 1
+  local column = (index % columns) + 1
+  return row, column
 end
