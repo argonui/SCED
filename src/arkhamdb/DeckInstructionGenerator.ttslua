@@ -3,6 +3,35 @@ local searchLib = require("util/SearchLib")
 
 local idList = {}
 
+local galleryTemplateStart = [[<style>
+  .sced-image {
+    max-width: 49%;
+    height: auto;
+    border-radius: 8px;
+    box-shadow: 0px 5px 10px rgba(0, 0, 0, 0.4);
+    margin: 0;
+    transition: transform 0.3s ease-in-out;
+  }
+  .sced-image:hover { transform: scale(1.45); }
+  .sced-container {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 5px;
+    margin-top: 5px;
+    padding: 10px;
+  }
+  .sced-spacer { height: 50px; }
+  @media (max-width: 600px) {
+    .sced-image { max-width: 100%; }
+    .sced-image:hover { transform: none; }
+    .sced-spacer { height: 0px; }
+  }
+</style>
+<div class="sced-container">\n]]
+local galleryTemplateMiddle = [[  <img class="sced-image" src="{{IMAGE_URL}}"/>\n]]
+local galleryTemplateEnd = [[</div>\n<div class="sced-spacer"></div>]]
+
 function onLoad()
   -- "generate" button
   local buttonParameters          = {}
@@ -47,12 +76,15 @@ function generate(_, playerColor)
   local descriptionParts = {}
   table.insert(descriptionParts, "++SCED import instructions++")
 
+  -- create the main part of the instructions
+  local createGallery = false
   for _, entry in ipairs(idList) do
     -- start a new line and add first part of instruction
     table.insert(descriptionParts, "\n- add: " .. entry.id .. " (")
 
     -- maybe add hyperlink to card face
     if entry.face then
+      createGallery = true
       table.insert(descriptionParts, '<a href="' .. entry.face .. '">')
     end
 
@@ -69,8 +101,26 @@ function generate(_, playerColor)
 
     -- maybe add hyperlink for back
     if entry.back then
+      createGallery = true
       table.insert(descriptionParts, ' (<a href="' .. entry.back .. '">Back</a>)')
     end
+  end
+
+  -- maybe create a card gallery for included cards
+  if createGallery then
+    table.insert(descriptionParts, "\n\n")
+    table.insert(descriptionParts, galleryTemplateStart)
+
+    -- add cards
+    for _, entry in ipairs(idList) do
+      if entry.face then
+        table.insert(descriptionParts, galleryTemplateMiddle:gsub("{{IMAGE_URL}}", entry.face))
+      end
+      if entry.back then
+        table.insert(descriptionParts, galleryTemplateMiddle:gsub("{{IMAGE_URL}}", entry.back))
+      end
+    end
+    table.insert(descriptionParts, galleryTemplateEnd)
   end
 
   local description = table.concat(descriptionParts, "")
@@ -97,7 +147,8 @@ function generate(_, playerColor)
         "Make sure to copy the section beginning with '++SCED import instructions++' to your ArkhamDB / arkham.build deck description." ..
         "\nAfter doing so, the Deck Importer will be able to spawn these cards IF they are added to the mod's card index (for example by " ..
         "throwing them into the 'Additional Cards Box' next to the Player Cards Panel in the upper left corner of the table." ..
-        "\nIt also supports '- remove:' instructions to automatically remove placeholder cards.\n\n" .. timestamp .. "\n" .. description
+        "\nIt also supports '- remove:' instructions to automatically remove placeholder cards.\nIf you are using a custom " ..
+        "investigator, make sure to use a 'remove' instruction to remove the original one.\n" .. timestamp .. "\n" .. description
   })
 end
 
