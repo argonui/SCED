@@ -3,13 +3,21 @@ local searchLib = require("util/SearchLib")
 
 local idList = {}
 
+-- some math for card sizing
+local cardRatio = 1.4
 local cardWidth = 235
-local cardHeight = cardWidth * 1.4
+local cardHeight = cardWidth * cardRatio
+local hoverScale = 1.45
+local sliceRotateScale = 0.714 -- 1 / cardRatio
+
+-- template for the description
 local galleryTemplateStart = [[<style>
   .sced-spacer { height: 60px; }
   .sced-card { width: ]] .. cardWidth .. [[px; border-radius: 5px; margin: 0; transition: transform 0.25s ease-in-out; }
   .sced-slice { background-repeat: no-repeat; height: ]] .. cardHeight .. [[px; }
-  .sced-card:hover { transform: scale(1.45); }
+  .sced-card:hover { transform: scale(]] .. hoverScale .. [[); }
+  .sced-rotate { transform: scale(]] .. sliceRotateScale .. [[) rotate(270deg); }
+  .sced-rotate:hover { transform: scale(]] .. hoverScale .. [[) rotate(270deg); }
   .sced-container {
     display: flex;
     flex-wrap: wrap;
@@ -27,7 +35,7 @@ local galleryTemplateStart = [[<style>
 </style>
 <div class="sced-container">]]
 local templateCard = [[  <img class="sced-card" src="{{IMAGE_URL}}"/>]]
-local templateSlice = [[  <div class="sced-card sced-slice" style="background-image: url('{{IMAGE_URL}}'); background-size: {{SHEET_SIZE_1}}px {{SHEET_SIZE_2}}px; background-position: -{{OFFSET_1}}px -{{OFFSET_2}}px;"></div>]]
+local templateSlice = [[  <div class="sced-card sced-slice{{ROTATION_CLASS}}" style="background-image: url('{{IMAGE_URL}}'); background-size: {{SHEET_SIZE_1}}px {{SHEET_SIZE_2}}px; background-position: -{{OFFSET_1}}px -{{OFFSET_2}}px;"></div>]]
 local galleryTemplateEnd = [[</div>]] .. "\n" .. [[<div class="sced-spacer"></div>]]
 
 function onLoad()
@@ -45,15 +53,7 @@ end
 -- generates a string for the deck notes that will instruct the Deck Importer to add the specified cards
 function generate(_, playerColor)
   idList = {}
-  for _, obj in ipairs(searchLib.onObject(self, "isCardOrDeck")) do
-    if obj.type == "Card" then
-      processCard(obj.getData(), playerColor)
-    elseif obj.type == "Deck" then
-      for _, deepObjData in ipairs(obj.getData().ContainedObjects) do
-        processCard(deepObjData, playerColor)
-      end
-    end
-  end
+  getIdList(playerColor)
 
   if #idList == 0 then
     broadcastToColor("Didn't find any valid cards.", playerColor, "Red")
@@ -105,37 +105,34 @@ function generate(_, playerColor)
 
   -- maybe create a card gallery for included cards
   if createGallery then
-    table.insert(descriptionParts, "\n\n" .. galleryTemplateStart .. "\n")
-
-    addedImages = {}
-    for _, entry in ipairs(idList) do
-      maybeAddImageToGallery(descriptionParts, entry)
-    end
-    table.insert(descriptionParts, galleryTemplateEnd)
+    addGallery(descriptionParts)
   end
 
+  -- perform the concatenation of the parts to a single string
   local description = table.concat(descriptionParts, "")
 
-  -- get a timestamp
-  local timestamp = os.date("%Y-%m-%d %H:%M")
-
-  -- get notebook data
+  -- attempt to edit the existing tab
   for _, nb in ipairs(Notes.getNotebookTabs()) do
     if nb.title == "Deck Instructions" then
-      -- edit the existing tab
-      Notes.editNotebookTab({
-        index = nb.index,
-        body = timestamp .. "\n\n" .. description,
-      })
+      Notes.editNotebookTab({index = nb.index, body = os.date("%Y-%m-%d %H:%M") .. "\n\n" .. description })
       return
     end
   end
 
   -- add a new notebook tab for it (since there was no existing tab)
-  Notes.addNotebookTab({
-    title = "Deck Instructions",
-    body = timestamp .. "\n\n" .. description
-  })
+  Notes.addNotebookTab({ title = "Deck Instructions", body = os.date("%Y-%m-%d %H:%M") .. "\n\n" .. description })
+end
+
+function getIdList(playerColor)
+  for _, obj in ipairs(searchLib.onObject(self, "isCardOrDeck")) do
+    if obj.type == "Card" then
+      processCard(obj.getData(), playerColor)
+    elseif obj.type == "Deck" then
+      for _, deepObjData in ipairs(obj.getData().ContainedObjects) do
+        processCard(deepObjData, playerColor)
+      end
+    end
+  end
 end
 
 -- use the ZoopGuid as fallback if no id present
@@ -147,6 +144,17 @@ function getIdFromData(metadata)
   end
 end
 
+function addGallery(t)
+  table.insert(t, "\n\n" .. galleryTemplateStart .. "\n")
+
+  addedImages = {}
+  for _, entry in ipairs(idList) do
+    maybeAddImageToGallery(t, entry)
+  end
+
+  table.insert(t, galleryTemplateEnd)
+end
+
 function maybeAddImageToGallery(t, data)
   if data.sheetH and data.sheetW then
     -- add cards from decksheets
@@ -155,6 +163,12 @@ function maybeAddImageToGallery(t, data)
     element = element:gsub("{{SHEET_SIZE_2}}", data.sheetH * cardHeight)
     element = element:gsub("{{OFFSET_1}}", (data.col - 1) * cardWidth)
     element = element:gsub("{{OFFSET_2}}", (data.row - 1) * cardHeight)
+
+    if not data.sideways then
+      element = element:gsub("{{ROTATION_CLASS}}", "")
+    else
+      element = element:gsub("{{ROTATION_CLASS}}", " sced-rotate")
+    end
     maybeAddSlice(t, element, data.face, data.cardId)
 
     if data.uniqueBack then
@@ -196,7 +210,8 @@ function processCard(cardData, playerColor)
       id = id,
       name = cardData.Nickname,
       metadata = md,
-      cardId = math.floor(cardData.CardID % 100)
+      cardId = math.floor(cardData.CardID % 100),
+      sideways = cardData["SidewaysCard"]
     }
 
     -- add images unless minicard
@@ -226,7 +241,6 @@ end
 function sortByMetadata(a, b)
   local numA = tonumber(a.id)
   local numB = tonumber(b.id)
-
   local isInvestigatorA = (a.metadata.type == "Investigator")
   local isInvestigatorB = (b.metadata.type == "Investigator")
 
