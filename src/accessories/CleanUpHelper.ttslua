@@ -18,7 +18,6 @@ local IGNORE_TAG                = "CleanUpHelper_ignore"
 
 -- colors and order for following tables
 local COLORS                    = { "White", "Orange", "Green", "Red" }
-local campaignLog
 local RESET_VALUES              = {}
 local loadingFailedBefore       = false
 local optionsVisible            = false
@@ -32,7 +31,11 @@ local removeIgnoreLater         = {}
 -- don't clean playermats for preludes
 local scenarioName
 local preludeList               = {
-  ["Prelude: Welcome to Hemlock Vale!"] = true
+  ["Prelude: Welcome to Hemlock Vale!"] = true, -- real prelude, don't clean playermats
+  ["Prelude: The First Evening"]        = true, -- interlude, but maybe players already imported decks
+  ["Prelude: Dawn of the Second Day"]   = true, -- real prelude, don't clean playermats
+  ["Prelude: The Second Evening"]       = true, -- interlude, but maybe players already imported decks
+  ["Prelude: Dawn of the Final Day"]    = true  -- real prelude, don't clean playermats
 }
 
 local buttonParameters          = {}
@@ -198,17 +201,17 @@ function getTrauma()
   end
 
   -- get campaign log
-  campaignLog = getObjectsWithTag("CampaignLog")[1]
-  if campaignLog == nil then
+  local campaignLog = getObjectsWithTag("CampaignLog")[1]
+  if campaignLog ~= nil then
+    loadTrauma(campaignLog)
+  else
     printToAll("Campaign log not found in standard position!", "Yellow")
     printToAll("Default values for health and sanity loaded.", "Yellow")
-    return
   end
-  loadTrauma()
 end
 
 -- gets data from campaign log if possible
-function loadTrauma()
+function loadTrauma(campaignLog)
   -- check if "returnTrauma" function exists to avoid calling nil
   local trauma = campaignLog.getVar("returnTrauma")
 
@@ -229,15 +232,13 @@ function loadTrauma()
     loadingFailedBefore = false
   else
     -- set campaign log to first state
-    local stateId = campaignLog.getStateId()
-
-    if stateId ~= 1 then
+    if campaignLog.getStateId() ~= 1 then
       campaignLog = campaignLog.setState(1)
     end
     loadingFailedBefore = true
 
     -- small delay to account for potential state change
-    Wait.time(loadTrauma, 0.1)
+    Wait.time(function() loadTrauma(campaignLog) end, 0.1)
   end
 end
 
