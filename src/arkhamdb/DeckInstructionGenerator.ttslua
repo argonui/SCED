@@ -3,14 +3,14 @@ local searchLib = require("util/SearchLib")
 
 local idList = {}
 
-local cardWidth = 250
+local cardWidth = 235
 local cardHeight = cardWidth * 1.4
 local galleryTemplateStart = [[<style>
   .sced-spacer { height: 60px; }
-  .sced-card { width: 250px; border-radius: 5px; margin: 0; transition: transform 0.25s ease-in-out; }
-  .sced-slice { background-repeat: no-repeat; }
+  .sced-card { width: ]] .. cardWidth .. [[px; border-radius: 5px; margin: 0; transition: transform 0.25s ease-in-out; }
+  .sced-slice { background-repeat: no-repeat; height: ]] .. cardHeight .. [[px; }
   .sced-card:hover { transform: scale(1.45); }
-  .sced-card-container {
+  .sced-container {
     display: flex;
     flex-wrap: wrap;
     justify-content: center;
@@ -20,13 +20,14 @@ local galleryTemplateStart = [[<style>
   }
   @media (max-width: 600px) {
     .sced-spacer { height: 0px; }
-    .sced-card { width: 100%; height: auto; }
+    .sced-card { width: 100%; }
     .sced-card:hover { transform: none; }
+    .sced-slice { height: 140%; }
   }
 </style>
 <div class="sced-container">]]
-local templateCardRegular = [[  <img class="sced-card sced-regular" src="{{IMAGE_URL}}"/>]]
-local templateCardSlice = [[  <div class="sced-card sced-card-slice" style="background-image: url('{{IMAGE_URL}}'); background-size: {{SHEET_SIZE_1}}px {{SHEET_SIZE_2}}px; background-position: {{OFFSET_1}}px {{OFFSET_2}}px;"></div>]]
+local templateCard = [[  <img class="sced-card" src="{{IMAGE_URL}}"/>]]
+local templateSlice = [[  <div class="sced-card sced-slice" style="background-image: url('{{IMAGE_URL}}'); background-size: {{SHEET_SIZE_1}}px {{SHEET_SIZE_2}}px; background-position: -{{OFFSET_1}}px -{{OFFSET_2}}px;"></div>]]
 local galleryTemplateEnd = [[</div>]] .. "\n" .. [[<div class="sced-spacer"></div>]]
 
 function onLoad()
@@ -36,7 +37,7 @@ function onLoad()
   buttonParameters.width          = 800
   buttonParameters.click_function = "generate"
   buttonParameters.color          = { 0, 0, 0, 0 }
-  buttonParameters.position       = { 0, 0.11, 0.74 }
+  buttonParameters.position       = Vector(0, 0.11, 0.74)
   buttonParameters.scale          = { 0.5, 1, 0.5 }
   self.createButton(buttonParameters)
 end
@@ -124,7 +125,7 @@ function generate(_, playerColor)
       -- edit the existing tab
       Notes.editNotebookTab({
         index = nb.index,
-        body = nb.body .. "\n\n" .. timestamp .. "\n" .. description,
+        body = timestamp .. "\n\n" .. description,
       })
       return
     end
@@ -133,12 +134,7 @@ function generate(_, playerColor)
   -- add a new notebook tab for it (since there was no existing tab)
   Notes.addNotebookTab({
     title = "Deck Instructions",
-    body =
-        "Make sure to copy the section beginning with '++SCED import instructions++' to your ArkhamDB / arkham.build deck description." ..
-        "\nAfter doing so, the Deck Importer will be able to spawn these cards IF they are added to the mod's card index (for example by " ..
-        "throwing them into the 'Additional Cards Box' next to the Player Cards Panel in the upper left corner of the table." ..
-        "\nIt also supports '- remove:' instructions to automatically remove placeholder cards.\nIf you are using a custom " ..
-        "investigator, make sure to use a 'remove' instruction to remove the original one.\n\n" .. timestamp .. "\n" .. description
+    body = timestamp .. "\n\n" .. description
   })
 end
 
@@ -154,34 +150,33 @@ end
 function maybeAddImageToGallery(t, data)
   if data.sheetH and data.sheetW then
     -- add cards from decksheets
-    local element = templateCardSlice
-    element = element:gsub("{{SHEET_SIZE_1}}", data.sheetW * cardWidth):gsub("{{SHEET_SIZE_2}}", data.sheetH * cardHeight)
-    element = element:gsub("{{OFFSET_1}}", data.col * cardWidth):gsub("{{OFFSET_2}}", data.row * cardHeight)
-
-    maybeAddCardSlice(t, element, data.face, data.cardId)
+    local element = templateSlice
+    element = element:gsub("{{SHEET_SIZE_1}}", data.sheetW * cardWidth)
+    element = element:gsub("{{SHEET_SIZE_2}}", data.sheetH * cardHeight)
+    element = element:gsub("{{OFFSET_1}}", (data.col - 1) * cardWidth)
+    element = element:gsub("{{OFFSET_2}}", (data.row - 1) * cardHeight)
+    maybeAddSlice(t, element, data.face, data.cardId)
 
     if data.uniqueBack then
-      maybeAddCardSlice(t, element, data.back, data.cardId)
+      maybeAddSlice(t, element, data.back, data.cardId)
     else
-      maybeAddCardRegular(t, data.back)
+      maybeAddCard(t, data.back)
     end
   else
     -- add regular cards
-    maybeAddCardRegular(t, data.face)
-    maybeAddCardRegular(t, data.back)
+    maybeAddCard(t, data.face)
+    maybeAddCard(t, data.back)
   end
 end
 
-function maybeAddCardRegular(t, url)
-  if not url then return end
-
-  if not addedImages[url] then
+function maybeAddCard(t, url)
+  if url and not addedImages[url] then
     addedImages[url] = true
-    table.insert(t, templateCardRegular:gsub("{{IMAGE_URL}}", url) .. "\n")
+    table.insert(t, templateCard:gsub("{{IMAGE_URL}}", url) .. "\n")
   end
 end
 
-function maybeAddCardSlice(t, element, url, cardId)
+function maybeAddSlice(t, element, url, cardId)
   if not url then return end
 
   -- initialize table
@@ -237,7 +232,7 @@ function sortByMetadata(a, b)
 
   if isInvestigatorA and not isInvestigatorB then
     return true
-  elseif isInvestigatorB and not isInvestigatorA then
+  elseif not isInvestigatorA and isInvestigatorB then
     return false
   elseif numA and numB then
     return numA < numB
