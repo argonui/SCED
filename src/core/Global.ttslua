@@ -327,8 +327,8 @@ function onObjectRotate(obj, _, flip, _, _, oldFlip)
   -- make sure we only do this for action tokens in the regular position
   local mat = guidReferenceApi.getObjectByOwnerAndType(owner, "Playermat")
   local relPos = mat.positionToLocal(obj.getPosition())
-  if relPos.x > -1 and relPos.x < -1.5 then
-    actionsPerMatColor[owner] = (actionsPerMatColor[owner] or 0) + (obj.is_face_down and -1 or 1)
+  if relPos.x > -1.5 and relPos.x < -1 then
+    actionsPerMatColor[owner] = (actionsPerMatColor[owner] or 3) + (obj.is_face_down and 1 or -1)
     actionsPerMatColor[owner] = math.max(math.min(actionsPerMatColor[owner], 3), 0)
     updateActionTrackerTokens()
   end
@@ -1474,44 +1474,26 @@ function updateDownloadItemList(skipAuthorUpdate)
 end
 
 function createActionTrackerUI()
-  local defaultsXML = {
-    tag = "Defaults",
-    children = {
-      {
-        tag = "Text",
-        attributes = {
-          class = "playerName",
-          font = "font_teutonic-arkham",
-          fontSize = "20",
-          alignment = "MiddleCenter",
-          rectAlignment = "MiddleCenter"
-        }
-      },
-      {
-        tag = "Panel",
-        attributes = {
-          class = "showHide",
-          color = "black",
-          height = "30",
-          width = "30",
-          rectAlignment = "MiddleRight",
-          outlineSize = "2 2",
-          outline = "#303030"
-        }
-      }
-    }
-  }
+  -- make list of currently used mat colors
+  local usedMatColors = playermatApi.getUsedMatColors()
+  local isUsed = {}
+  for _, matColor in ipairs(usedMatColors) do
+    isUsed[matColor] = true
+  end
 
-  -- The main action tracker panel
-  local actionTrackerPanel = {
+  local actionTrackerXml = {
     tag = "TableLayout",
     attributes = {
       id = "actionTracker",
       color = "black",
-      height = "1200",
-      width = "2500",
-      offsetXY = "0 0",
-      rectAlignment = "LowerCenter",
+      active = true,
+      height = 30 * #usedMatColors,
+      width = "200",
+      offsetXY = "2 0",
+      columnWidths = "100 25 25 25",
+      padding = "4 4 4 4",
+      cellSpacing = "5",
+      rectAlignment = "MiddleLeft",
       raycastTarget = "true",
       outlineSize = "2 2",
       outline = "#303030"
@@ -1519,11 +1501,6 @@ function createActionTrackerUI()
     children = {}
   }
 
-  -- make list of currently used mat colors
-  local isUsed = {}
-  for _, matColor in ipairs(playermatApi.getUsedMatColors()) do
-    isUsed[matColor] = true
-  end
   local nameList = getListOfPlayerNames()
 
   -- Loop through playermats and create rows in the Action Tracker
@@ -1531,13 +1508,8 @@ function createActionTrackerUI()
     local playerColor = playermatApi.getPlayerColor(matColor)
     local playerRow = {
       tag = "Row",
-      attributes = {
-        id = "playerRow" .. matColor,
-        preferredHeight = "30",
-        active = isUsed[matColor] or false
-      },
+      attributes = { id = "playerRow" .. matColor, active = isUsed[matColor] or false },
       children = {
-        -- Player name
         {
           tag = "Cell",
           children = {
@@ -1552,46 +1524,35 @@ function createActionTrackerUI()
             }
           }
         },
-        -- Action tokens for the player
-        {
-          tag = "Cell",
-          children = {
-            {
-              tag = "Panel",
-              attributes = { padding = "4 4 4 4" },
-              children = {}
-            }
-          }
-        }
       }
     }
+
     for j = 1, 3 do
       local actionXml = {
-        tag = "Image",
-        attributes = {
-          id = "playerAction" .. j .. matColor,
-          color = "green",
-          width = "25",
-          height = "25"
+        tag = "Cell",
+        children = {
+          tag = "Panel",
+          attributes = { id = "playerAction" .. j .. matColor, color = "green" }
         }
       }
-      table.insert(playerRow.children[2].children, actionXml)
+      table.insert(playerRow.children, actionXml)
     end
-    table.insert(actionTrackerPanel.children, playerRow)
+    table.insert(actionTrackerXml.children, playerRow)
   end
   local xml = UI.getXmlTable()
-  table.insert(xml, defaultsXML)
-  table.insert(xml, actionTrackerPanel)
+  table.insert(xml, actionTrackerXml)
   updateGlobalXml(xml)
 end
 
 -- updates the visibility of the action tracker's player rows
 function updateActionTrackerVisibility()
+  local usedMatColors = playermatApi.getUsedMatColors()
   local isUsed = {}
-  for _, matColor in ipairs(playermatApi.getUsedMatColors()) do
+  for _, matColor in ipairs(usedMatColors) do
     isUsed[matColor] = true
   end
 
+  UI.setAttribute("actionTracker", "height" , 30 * #usedMatColors)
   for matColor, _ in pairs(guidReferenceApi.getObjectsByType("Playermat")) do
     UI.setAttribute("playerRow" .. matColor, "active", isUsed[matColor] or false)
   end
@@ -1619,6 +1580,7 @@ function updateActionTrackerNames()
     UI.setAttribute("playerName" .. matColor, "color", playerColor)
     UI.setAttribute("playerName" .. matColor, "text", nameList[matColor])
   end
+  updateActionTrackerVisibility()
 end
 
 -- generates a list of display names (Steam name or investigator)
@@ -1640,8 +1602,7 @@ function updateGlobalXml(newXml)
     "playAreaGallery",
     "downloadWindow",
     "optionPanel",
-    "blessCurseManager",
-    "actionTracker"
+    "blessCurseManager"
   }
 
   -- get current state and update newXml
