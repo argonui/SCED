@@ -1,9 +1,4 @@
-local backUrl = {
-  ScenarioCard =
-  "https://steamusercontent-a.akamaihd.net/ugc/2342503777940351785/F64D8EFB75A9E15446D24343DA0A6EEF5B3E43DB/",
-  PlayerCard =
-  "https://steamusercontent-a.akamaihd.net/ugc/2342503777940352139/A2D42E7E5C43D045D72CE5CFC907E4F886C8C690/"
-}
+require("core/Constants")
 
 local deckChanges = {}
 local lastObjGuid
@@ -59,24 +54,24 @@ function processCard(cardData)
     return false
   end
 
-  local newBack
-  if tags.PlayerCard then
-    newBack = backUrl.PlayerCard
-  elseif tags.ScenarioCard then
-    newBack = backUrl.ScenarioCard
-  end
-
+  -- get correct back URL depending on tag
+  local newBack = tags.PlayerCard and CARD_BACK_URL.PlayerCard or CARD_BACK_URL.ScenarioCard
   local customDeckId, customDeckData = next(cardData["CustomDeck"])
 
   -- if this card already has the correct back settings
-  if customDeckData["BackURL"] == newBack and customDeckData["BackIsHidden"] then return false end
+  if customDeckData["BackURL"] == newBack and customDeckData["BackIsHidden"] then
+    return false
+  end
 
   -- skip cards with decksheets as back
-  if (customDeckData["NumHeight"] == 1 and customDeckData["NumWidth"] == 1)
-      or customDeckData["UniqueBack"] == false then
-    customDeckData["BackIsHidden"] = true
-    customDeckData["BackURL"] = newBack
-    deckChanges[customDeckId] = newBack
+  if (customDeckData["NumHeight"] ~= 1 or customDeckData["NumWidth"] ~= 1)
+      and customDeckData["UniqueBack"] then
+    return false
   end
+
+  -- update data
+  customDeckData["BackIsHidden"] = true
+  customDeckData["BackURL"] = newBack
+  deckChanges[customDeckId] = newBack
   return true
 end
