@@ -235,11 +235,6 @@ function onObjectEnterZone(zone, object)
       object.flip()
     end
 
-    -- disable any helpers on the card
-    if object.hasTag("CardWithHelper") then
-      object.call("setHelperState", false)
-    end
-
     -- maybe reset data about sealed tokens (if that function exists)
     if object.hasTag("CardThatSeals") then
       local func = object.getVar("resetSealedTokens")
@@ -260,11 +255,6 @@ function onObjectLeaveZone(zone, object)
   -- make sure that the object really left and isn't still in a hand zone
   for _, objZone in ipairs(object.getZones()) do
     if objZone.isDestroyed() or objZone.type == "Hand" then return end
-  end
-
-  -- resync the state of the helper on the card with the option panel
-  if zone.type == "Hand" and object.hasTag("CardWithHelper") then
-    object.call("syncDisplayWithOptionPanel")
   end
 
   -- make object visible
@@ -1729,10 +1719,12 @@ function applyOptionPanelChange(id, state)
     -- update master clue counter
     local counter = guidReferenceApi.getObjectByOwnerAndType("Mythos", "MasterClueCounter")
     counter.setVar("useClickableCounters", state)
-
+    
     -- option: Enable card helpers
   elseif id == "enableCardHelpers" then
-    toggleCardHelpers(state)
+    if state == false then
+      turnOffCardHelpers()
+    end
 
     -- option: Play area connection drawing
   elseif id == "playAreaConnections" then
@@ -1908,10 +1900,10 @@ function titleSplash(scenarioName)
   end
 end
 
--- instructs all card helpers to update their visibility
-function toggleCardHelpers(state)
+-- turns off all card helpers, if they are on
+function turnOffCardHelpers()
   for _, obj in ipairs(getObjectsWithTag("CardWithHelper")) do
-    obj.call("setHelperState", state)
+    obj.call("setHelperState", false)
   end
 end
 
