@@ -1197,24 +1197,26 @@ function onCollisionEnter(collisionInfo)
   syncCustomizableMetadata(object)
   
   local localCardPos = self.positionToLocal(object.getPosition())
-  if not inArea(localCardPos, DECK_DISCARD_AREA) and object.hasTag("CardWithHelper") then
-    -- get state of the option panel
-    local options = GlobalApi.getOptionPanelState()
-    if options.enableCardHelpers then
-      object.call("setHelperState", true)
-    end
-  end
-
   if inArea(localCardPos, DECK_DISCARD_AREA) then
     tokenSpawnTrackerApi.resetTokensSpawned(object)
     removeTokensFromObject(object)
-  elseif shouldSpawnTokens(object) then
-    spawnTokensFor(object)
+  else
+    if shouldSpawnTokensOrShowHelper(object) then
+      if object.hasTag("CardWithHelper") then
+        -- get state of the option panel
+        local options = GlobalApi.getOptionPanelState()
+        if options.enableCardHelpers then
+          object.call("setHelperState", true)
+        end
+      else
+        spawnTokensFor(object)
+      end
+    end
   end
 end
 
 -- checks if tokens should be spawned for the provided card
-function shouldSpawnTokens(card)
+function shouldSpawnTokensOrShowHelper(card)
   if card.is_face_down then return false end
 
   local localCardPos = self.positionToLocal(card.getPosition())
@@ -1228,7 +1230,14 @@ function shouldSpawnTokens(card)
   -- Spawn tokens for assets and events on the main area
   if inArea(localCardPos, MAIN_PLAY_AREA)
       and (metadata.type == "Asset"
-        or metadata.type == "Event") then
+        or metadata.type == "Event")
+          then
+    return true
+  end
+
+  if inArea(localCardPos, INVESTIGATOR_AREA)
+      and (metadata.type == "Investigator") -- this is mostly for helpers like Stella and Kohaku
+        then
     return true
   end
 
@@ -1236,7 +1245,9 @@ function shouldSpawnTokens(card)
   if inArea(localCardPos, THREAT_AREA)
       and (metadata.type == "Treachery"
         or metadata.type == "Enemy"
-        or metadata.weakness) then
+        or metadata.type == "Skill"
+        or metadata.weakness)
+         then
     return true
   end
 
