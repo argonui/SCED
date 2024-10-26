@@ -403,8 +403,8 @@ function doUpkeep(_, clickedByColor, isRightClick)
   -- flip investigator mini-card and summoned servitor mini-card
   for _, obj in ipairs(getObjects()) do
     if obj.type == "Card" and obj.is_face_down then
-      local notes = JSON.decode(obj.getGMNotes())
-      if notes ~= nil and notes.type == "Minicard" and (notes.id == activeInvestigatorData.miniId or notes.id == "09080-m") then
+      local md = JSON.decode(obj.getGMNotes()) or {}
+      if md.type == "Minicard" and (md.id == activeInvestigatorData.miniId or md.id == "09080-m") then
         obj.flip()
       end
     end
@@ -1141,12 +1141,11 @@ end
 -- number of customizable cards in play.
 function syncAllCustomizableCards()
   for _, card in ipairs(searchAroundSelf("isCard")) do
-    syncCustomizableMetadata(card)
+    syncCustomizableMetadata(card, JSON.decode(card.getGMNotes()))
   end
 end
 
-function syncCustomizableMetadata(card)
-  local cardMetadata = JSON.decode(card.getGMNotes()) or {}
+function syncCustomizableMetadata(card, cardMetadata)
   if cardMetadata == nil or cardMetadata.customizations == nil then return end
 
   for _, upgradeSheet in ipairs(searchAroundSelf("isCard")) do
@@ -1189,62 +1188,45 @@ function onCollisionEnter(collisionInfo)
   -- only continue for cards
   if object.type ~= "Card" then return end
 
-  maybeUpdateActiveInvestigator(object)
-  syncCustomizableMetadata(object)
-  
+  local md = JSON.decode(object.getGMNotes()) or {}
+  syncCustomizableMetadata(object, md)
+
   local localCardPos = self.positionToLocal(object.getPosition())
-  if inArea(localCardPos, DECK_DISCARD_AREA) then
+  if inArea(localCardPos, INVESTIGATOR_AREA) then
+    if md.type == "Investigator" and md.id ~= nil then
+      maybeUpdateActiveInvestigator(object, md)
+
+      -- this is mostly for helpers like Stella and Kohaku
+      spawnTokensOrShowHelper(object)
+    end
+
+  elseif inArea(localCardPos, DECK_DISCARD_AREA) then
     tokenSpawnTrackerApi.resetTokensSpawned(object)
     removeTokensFromObject(object)
-  else
-    if shouldSpawnTokensOrShowHelper(object) then
-      if object.hasTag("CardWithHelper") then
-        -- get state of the option panel
-        local options = GlobalApi.getOptionPanelState()
-        if options.enableCardHelpers then
-          object.call("setHelperState", true)
-        end
-      else
-        spawnTokensFor(object)
-      end
+
+  elseif object.is_face_down == false then
+    -- main uses spawning
+    if inArea(localCardPos, MAIN_PLAY_AREA) and (md.type == "Asset" or md.type == "Event") then
+      spawnTokensOrShowHelper(object)
+    end
+
+    -- encounter types / committed skill cards in the threat area
+    if inArea(localCardPos, THREAT_AREA) and (md.type == "Treachery" or md.type == "Enemy" or md.type == "Skill" or md.weakness) then
+      spawnTokensOrShowHelper(object)
     end
   end
 end
 
--- checks if tokens should be spawned for the provided card
-function shouldSpawnTokensOrShowHelper(card)
-  if card.is_face_down then return false end
+function spawnTokensOrShowHelper(card)
+  spawnTokensFor(card)
 
-  local localCardPos = self.positionToLocal(card.getPosition())
-  local metadata = JSON.decode(card.getGMNotes())
-
-  -- If no metadata we don't know the type, so only spawn in the main area
-  if metadata == nil then
-    return inArea(localCardPos, MAIN_PLAY_AREA)
+  if card.hasTag("CardWithHelper") then
+    -- get state of the option panel
+    local options = GlobalApi.getOptionPanelState()
+    if options.enableCardHelpers then
+      card.call("setHelperState", true)
+    end
   end
-
-  -- Spawn tokens for assets and events on the main area
-  if inArea(localCardPos, MAIN_PLAY_AREA)
-      and (metadata.type == "Asset"
-        or metadata.type == "Event") then
-    return true
-  end
-
-  if inArea(localCardPos, INVESTIGATOR_AREA)
-      and (metadata.type == "Investigator") then -- this is mostly for helpers like Stella and Kohaku
-    return true
-  end
-
-  -- Spawn tokens for all encounter types in the threat area
-  if inArea(localCardPos, THREAT_AREA)
-      and (metadata.type == "Treachery"
-        or metadata.type == "Enemy"
-        or metadata.type == "Skill"
-        or metadata.weakness) then
-    return true
-  end
-
-  return false
 end
 
 function onObjectEnterContainer(container, object)
@@ -1286,32 +1268,24 @@ end
 
 -- updates the internal investigator data and performs additional operations if an investigator card is detected
 ---@param card tts__Object Card that might be an investigator
-function maybeUpdateActiveInvestigator(card)
-  -- don't continue if this card is not in the investigator area
-  if not inArea(self.positionToLocal(card.getPosition()), INVESTIGATOR_AREA) then return end
-
-  -- get metadata
-  local notes = JSON.decode(card.getGMNotes()) or {}
-
-  -- don't continue for cards without proper metadata
-  if notes.type ~= "Investigator" or notes.id == nil then return end
-
+---@param md table Metadata for the card
+function maybeUpdateActiveInvestigator(card, md)
   -- don't continue if this is already the active investigator
-  if notes.id == activeInvestigatorData.id then return end
+  if md.id == activeInvestigatorData.id then return end
 
   -- extract relevant data from the metadata
-  activeInvestigatorData.class = notes.class
-  activeInvestigatorData.id = notes.id
-  activeInvestigatorData.miniId = getMiniId(notes.id)
+  activeInvestigatorData.class = md.class
+  activeInvestigatorData.id = md.id
+  activeInvestigatorData.miniId = getMiniId(md.id)
   ownedObjects.InvestigatorSkillTracker.call("updateStats", {
-    notes.willpowerIcons,
-    notes.intellectIcons,
-    notes.combatIcons,
-    notes.agilityIcons
+    md.willpowerIcons,
+    md.intellectIcons,
+    md.combatIcons,
+    md.agilityIcons
   })
   updateTexture()
 
-  newInvestigatorCallback(notes.id)
+  newInvestigatorCallback(md.id)
 
   -- set proper scale for investigators
   local cardData = card.getData()
@@ -1339,10 +1313,10 @@ function maybeUpdateActiveInvestigator(card)
   end
 
   -- spawn additional token (maybe specific for investigator)
-  if notes.extraToken and notes.extraToken ~= "None" then
+  if md.extraToken and md.extraToken ~= "None" then
     -- spawn tokens (split string by "|")
     local count = { action = 0, ability = 0 }
-    for str in string.gmatch(notes.extraToken, "([^|]+)") do
+    for str in string.gmatch(md.extraToken, "([^|]+)") do
       local type = "action"
       if str == "FreeTrigger" or str == "Reaction" then
         type = "ability"
@@ -1442,12 +1416,12 @@ function updateTexture(overrideName)
   -- apply texture
   local customInfo = self.getCustomObject()
   if customInfo.image ~= newUrl then
-    -- temporarily lock objects so they don't fall through the mat
+    -- make sure objects are resting and store position
     local objectsToUnlock = {}
     for _, obj in ipairs(searchAroundSelf()) do
       if not obj.getLock() then
-        obj.setLock(true)
-        table.insert(objectsToUnlock, obj)
+        obj.resting = true
+        table.insert(objectsToUnlock, { obj = obj, pos = obj.getPosition() })
       end
     end
 
@@ -1456,12 +1430,14 @@ function updateTexture(overrideName)
     self.setCustomObject(customInfo)
     local reloadedMat = self.reload()
 
-    -- unlock objects when mat is reloaded
+    -- restore object positions
     Wait.condition(function()
       Wait.frames(function()
-        for _, obj in ipairs(objectsToUnlock) do
-          obj.setLock(false)
-          obj.resting = true
+        for _, objTable in ipairs(objectsToUnlock) do
+          if objTable.obj ~= nil then
+            objTable.obj.resting = true
+            objTable.obj.setPosition(objTable.pos)
+          end
         end
       end, 5)
     end, function() return reloadedMat.loading_custom == false end)
