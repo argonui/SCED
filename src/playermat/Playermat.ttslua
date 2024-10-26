@@ -1193,18 +1193,28 @@ function onCollisionEnter(collisionInfo)
 
   maybeUpdateActiveInvestigator(object)
   syncCustomizableMetadata(object)
-
+  
   local localCardPos = self.positionToLocal(object.getPosition())
   if inArea(localCardPos, DECK_DISCARD_AREA) then
     tokenSpawnTrackerApi.resetTokensSpawned(object)
     removeTokensFromObject(object)
-  elseif shouldSpawnTokens(object) then
-    spawnTokensFor(object)
+  else
+    if shouldSpawnTokensOrShowHelper(object) then
+      if object.hasTag("CardWithHelper") then
+        -- get state of the option panel
+        local options = GlobalApi.getOptionPanelState()
+        if options.enableCardHelpers then
+          object.call("setHelperState", true)
+        end
+      else
+        spawnTokensFor(object)
+      end
+    end
   end
 end
 
 -- checks if tokens should be spawned for the provided card
-function shouldSpawnTokens(card)
+function shouldSpawnTokensOrShowHelper(card)
   if card.is_face_down then return false end
 
   local localCardPos = self.positionToLocal(card.getPosition())
@@ -1222,10 +1232,16 @@ function shouldSpawnTokens(card)
     return true
   end
 
+  if inArea(localCardPos, INVESTIGATOR_AREA)
+      and (metadata.type == "Investigator") then -- this is mostly for helpers like Stella and Kohaku
+    return true
+  end
+
   -- Spawn tokens for all encounter types in the threat area
   if inArea(localCardPos, THREAT_AREA)
       and (metadata.type == "Treachery"
         or metadata.type == "Enemy"
+        or metadata.type == "Skill"
         or metadata.weakness) then
     return true
   end
