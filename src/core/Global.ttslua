@@ -33,6 +33,7 @@ local chaosTokensLastMatGUID        = nil
 
 -- chaos token stat tracking
 local tokenDrawingStats             = { ["Overall"] = {} }
+local lastDrawnTokens               = {}
 
 local bagSearchers                  = {}
 local hideTitleSplashWaitFunctionId = nil
@@ -594,6 +595,14 @@ function trackChaosToken(tokenName, matGUID, subtract)
   tokenName                               = getReadableTokenName(tokenName)
   tokenDrawingStats["Overall"][tokenName] = (tokenDrawingStats["Overall"][tokenName] or 0) + modifier
   tokenDrawingStats[matGUID][tokenName]   = (tokenDrawingStats[matGUID][tokenName] or 0) + modifier
+
+  -- add to list of last drawn tokens (if not subtracting)
+  if not subtract then
+    table.insert(lastDrawnTokens, { tokenName = tokenName, matGUID = matGUID })
+    if #lastDrawnTokens > 5 then
+      table.remove(lastDrawnTokens, 1)
+    end
+  end
 end
 
 -- Left-click: print stats, Right-click: reset stats
@@ -667,6 +676,25 @@ function handleStatTrackerClick(player, clickType, _)
     if clickType == "-3" then return end
 
     printToAll("------------------------------")
+
+    -- maybe print history for last 5 token draws
+    if #lastDrawnTokens > 0 then
+      local tokenStr = ""
+      for _, data in ipairs(lastDrawnTokens) do
+        local mat = getObjectFromGUID(data.matGUID)
+        if mat ~= nil then
+          local handColor = mat.getVar("playerColor")
+          tokenStr = tokenStr .. "[" .. Color.fromString(handColor):toHex() .. "]" .. data.tokenName .. "[-], "
+        else
+          tokenStr = tokenStr .. data.tokenName .. " ,"
+        end
+      end
+
+      -- remove last delimiter
+      tokenStr = string.sub(tokenStr, 1, -3)
+      printToAll("Last 5: " .. tokenStr)
+    end
+
     printToAll(squidKing .. " is an auto-fail magnet.", { 255, 0, 0 })
   else
     printToAll("No tokens have been drawn yet.", "Yellow")
