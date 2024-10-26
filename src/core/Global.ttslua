@@ -33,6 +33,7 @@ local chaosTokensLastMatGUID        = nil
 
 -- chaos token stat tracking
 local tokenDrawingStats             = { ["Overall"] = {} }
+local lastDrawnTokens               = {}
 
 local bagSearchers                  = {}
 local hideTitleSplashWaitFunctionId = nil
@@ -146,6 +147,24 @@ function onLoad(savedData)
   updateBlurseVisibility()
   math.randomseed(os.time())
   TokenManager.initialiize()
+
+  -- add a button and context menu to the chaos token stat tracker
+  local statTracker = guidReferenceApi.getObjectByOwnerAndType("Mythos", "StatTracker")
+  if statTracker then
+    statTracker.UI.setXmlTable({
+      {
+        tag = "Button",
+        attributes = {
+          onClick = "Global/handleStatTrackerClick",
+          position = "0 0 -11",
+          width = "250",
+          height = "250",
+          color = "#00000000"
+        }
+      }
+    })
+    statTracker.addContextMenuItem("Print my stats", function(playerColor) handleStatTrackerClick(Player[playerColor], "-3") end)
+  end
 
   -- initialization of loadable objects library (delay to let Navigation Overlay build)
   Wait.time(function()
@@ -584,18 +603,31 @@ function trackChaosToken(tokenName, matGUID, subtract)
   tokenName                               = getReadableTokenName(tokenName)
   tokenDrawingStats["Overall"][tokenName] = (tokenDrawingStats["Overall"][tokenName] or 0) + modifier
   tokenDrawingStats[matGUID][tokenName]   = (tokenDrawingStats[matGUID][tokenName] or 0) + modifier
+
+  -- add to list of last drawn tokens (if not subtracting)
+  if not subtract then
+    table.insert(lastDrawnTokens, { tokenName = tokenName, matGUID = matGUID })
+    if #lastDrawnTokens > 5 then
+      table.remove(lastDrawnTokens, 1)
+    end
+  end
 end
 
 -- Left-click: print stats, Right-click: reset stats
-function handleStatTrackerClick(_, _, isRightClick)
-  if isRightClick then
+function handleStatTrackerClick(player, clickType, _)
+  if clickType == "-2" then
+    -- right-clicked
     resetChaosTokenStatTracker()
-  else
-    local squidKing     = "Nobody"
-    local maxSquid      = 0
-    local foundAnyStats = false
+    return
+  end
 
-    for key, personalStats in pairs(tokenDrawingStats) do
+  local squidKing     = "Nobody"
+  local maxSquid      = 0
+  local foundAnyStats = false
+
+  for key, personalStats in pairs(tokenDrawingStats) do
+    -- skip if middle-clicked and not the color of the clicking player
+    if clickType ~= "-3" or guidReferenceApi.getOwnerOfObject(getObjectFromGUID(key)) == playermatApi.getMatColor(player.color) then
       local playerColor, playerName
 
       if key == "Overall" then
@@ -644,19 +676,43 @@ function handleStatTrackerClick(_, _, isRightClick)
         printToAll('Total: ' .. tostring(totalCount))
       end
     end
+  end
 
-    -- detect if any player drew tokens
-    if foundAnyStats then
-      printToAll("------------------------------")
-      printToAll(squidKing .. " is an auto-fail magnet.", { 255, 0, 0 })
-    else
-      printToAll("No tokens have been drawn yet.", "Yellow")
+  -- detect if any player drew tokens
+  if foundAnyStats then
+    -- end here if middle-clicked
+    if clickType == "-3" then return end
+
+    printToAll("------------------------------")
+
+    -- maybe print history for last 5 token draws
+    if #lastDrawnTokens > 0 then
+      local tokenStr = ""
+      for _, data in ipairs(lastDrawnTokens) do
+        local mat = getObjectFromGUID(data.matGUID)
+        if mat ~= nil then
+          local handColor = mat.getVar("playerColor")
+          tokenStr = tokenStr .. "[" .. Color.fromString(handColor):toHex() .. "]" .. data.tokenName .. "[-], "
+        else
+          tokenStr = tokenStr .. data.tokenName .. " ,"
+        end
+      end
+
+      -- remove last delimiter
+      tokenStr = string.sub(tokenStr, 1, -3)
+      printToAll("Last 5 (old to new): " .. tokenStr)
     end
+
+    printToAll(squidKing .. " is an auto-fail magnet.", { 255, 0, 0 })
+  else
+    printToAll("No tokens have been drawn yet.", "Yellow")
   end
 end
 
 -- resets the count for each token to 0
 function resetChaosTokenStatTracker()
+  printToAll("Chaos Token stat tracker has been reset.")
+  lastDrawnTokens = {}
   tokenDrawingStats = { ["Overall"] = {} }
 end
 
