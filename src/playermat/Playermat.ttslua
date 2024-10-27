@@ -179,7 +179,8 @@ function onLoad(savedData)
   ownedObjects = guidReferenceApi.getObjectsByOwner(matColor)
 
   -- discard button creation
-  for i = 1, 6 do
+  makeDrawAreaButton()
+  for i = 2, 6 do
     makeDiscardButton(i)
   end
 
@@ -326,8 +327,47 @@ function makeDiscardButton(id)
     scale = { 0.12, 0.12, 0.12 },
     width = 900,
     height = 350,
-    font_size = 220
+    font_size = 210
   })
+end
+
+-- build a hybrid button to discard from searchPosition or move a card/deck to empty threat area on right click
+function makeDrawAreaButton()
+  local position = { -1.365, 0.1, -0.94 }
+  self.createButton({
+    label = "Discard / ➜",
+    click_function = "discardOrMove",
+    tooltip = "Right-click to move to threat area",
+    function_owner = self,
+    position = position,
+    scale = { 0.12, 0.12, 0.12 },
+    width = 1190,
+    height = 350,
+    font_size = 207
+  })
+end
+
+function discardOrMove(_, playerColor, isRightClick)
+  local searchPosition = { 1.365, 0.1, -0.62 }
+  local cardSizeSearch = { 2, 1, 3.2 }
+  local globalSearchPosition = self.positionToWorld(searchPosition)
+  local searchResult = searchArea(globalSearchPosition, cardSizeSearch)
+
+  if isRightClick then
+    local threatAreaPos = getEncounterCardDrawPosition(false)
+    if threatAreaPos == getEncounterCardDrawPosition(true) then
+      broadcastToColor("Threat area is full.", playerColor, "Yellow")
+      return
+    end
+
+    for _, obj in ipairs(searchResult) do
+      if obj.type == "Card" or obj.type == "Deck" then
+        obj.setPosition(threatAreaPos)
+      end
+    end
+  else
+    return discardListOfObjects(searchResult)
+  end
 end
 
 ---------------------------------------------------------
