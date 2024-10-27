@@ -349,18 +349,6 @@ function tidyPlayerMatCoroutine()
 
         -- parse playermat objects
         for _, obj in ipairs(playermatApi.searchAroundPlayermat(color)) do
-          -- reset action tokens
-          if obj.hasTag("UniversalToken") and obj.is_face_down then
-            obj.flip()
-            obj.call("updateClassAndSymbol", { class = "Neutral" })
-          end
-
-          -- get rid of temporary tokens
-          if obj.hasTag("Temporary") then
-            trash.putObject(obj)
-          end
-
-          -- remove objects (with exceptions)
           maybeTrashObject(obj, trash)
         end
 
@@ -376,6 +364,20 @@ function tidyPlayerMatCoroutine()
     -- reset "activeInvestigatorId" and "...class"
     playermatApi.setActiveInvestigatorData("All", { class = "Neutral", id = "00000", miniId = "00000-m" })
     playermatApi.updateTexture("All")
+
+    coWaitFrames(5)
+
+    -- respawn action tokens
+    playermatApi.spawnActionTokens("All")
+  else
+    -- perform a "pseudo" upkeep for cards on playermats
+    for _, color in ipairs(COLORS) do
+      for _, obj in ipairs(playermatApi.searchAroundPlayermat(color)) do
+        if obj.hasTag("DoInUpkeep") and not obj.is_face_down then
+          obj.call("doInUpkeep")
+        end
+      end
+    end
   end
 
   -- mythos area cleanup
@@ -418,11 +420,14 @@ function getTekeliliHelper()
 end
 
 function maybeTrashObject(obj, trash)
-  if not obj.hasTag(IGNORE_TAG)
-      and (not obj.hasTag("UniversalToken") or obj.getScale().x < 0.4)
-      and not obj.hasTag("chaosBag")
-      and (not obj.locked or obj.hasTag("Investigator"))
-      and obj.interactable then
+  if obj.hasTag(IGNORE_TAG) or obj.hasTag("chaosBag") then return end
+
+  if obj.hasTag("Temporary") then
+    trash.putObject(obj)
+    return
+  end
+
+  if (not obj.locked or obj.hasTag("Investigator")) and obj.interactable then
     trash.putObject(obj)
   end
 end

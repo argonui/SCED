@@ -179,7 +179,8 @@ function onLoad(savedData)
   ownedObjects = guidReferenceApi.getObjectsByOwner(matColor)
 
   -- discard button creation
-  for i = 1, 6 do
+  makeDrawAreaButton()
+  for i = 2, 6 do
     makeDiscardButton(i)
   end
 
@@ -326,8 +327,47 @@ function makeDiscardButton(id)
     scale = { 0.12, 0.12, 0.12 },
     width = 900,
     height = 350,
-    font_size = 220
+    font_size = 210
   })
+end
+
+-- build a hybrid button to discard from searchPosition or move a card/deck to empty threat area on right click
+function makeDrawAreaButton()
+  local position = { -1.365, 0.1, -0.94 }
+  self.createButton({
+    label = "Discard / ➜",
+    click_function = "discardOrMove",
+    tooltip = "Right-click to move to threat area",
+    function_owner = self,
+    position = position,
+    scale = { 0.12, 0.12, 0.12 },
+    width = 1190,
+    height = 350,
+    font_size = 207
+  })
+end
+
+function discardOrMove(_, playerColor, isRightClick)
+  local searchPosition = { 1.365, 0.1, -0.62 }
+  local cardSizeSearch = { 2, 1, 3.2 }
+  local globalSearchPosition = self.positionToWorld(searchPosition)
+  local searchResult = searchArea(globalSearchPosition, cardSizeSearch)
+
+  if isRightClick then
+    local threatAreaPos = getEncounterCardDrawPosition(false)
+    if threatAreaPos == getEncounterCardDrawPosition(true) then
+      broadcastToColor("Threat area is full.", playerColor, "Yellow")
+      return
+    end
+
+    for _, obj in ipairs(searchResult) do
+      if obj.type == "Card" or obj.type == "Deck" then
+        obj.setPosition(threatAreaPos)
+      end
+    end
+  else
+    return discardListOfObjects(searchResult)
+  end
 end
 
 ---------------------------------------------------------
@@ -403,8 +443,8 @@ function doUpkeep(_, clickedByColor, isRightClick)
   -- flip investigator mini-card and summoned servitor mini-card
   for _, obj in ipairs(getObjects()) do
     if obj.type == "Card" and obj.is_face_down then
-      local notes = JSON.decode(obj.getGMNotes())
-      if notes ~= nil and notes.type == "Minicard" and (notes.id == activeInvestigatorData.miniId or notes.id == "09080-m") then
+      local md = JSON.decode(obj.getGMNotes()) or {}
+      if md.type == "Minicard" and (md.id == activeInvestigatorData.miniId or md.id == "09080-m") then
         obj.flip()
       end
     end
@@ -1069,8 +1109,6 @@ function updateSlotSymbols()
     -- update availability of the click function
     self.UI.setAttribute("slotPanel" .. slotId, "raycastTarget", currentlyEditingSlots)
   end
-
-  -- TODO: update the "edit slots button"?
 end
 
 -- toggle the "slot editing mode"
@@ -1143,12 +1181,11 @@ end
 -- number of customizable cards in play.
 function syncAllCustomizableCards()
   for _, card in ipairs(searchAroundSelf("isCard")) do
-    syncCustomizableMetadata(card)
+    syncCustomizableMetadata(card, JSON.decode(card.getGMNotes()))
   end
 end
 
-function syncCustomizableMetadata(card)
-  local cardMetadata = JSON.decode(card.getGMNotes()) or {}
+function syncCustomizableMetadata(card, cardMetadata)
   if cardMetadata == nil or cardMetadata.customizations == nil then return end
 
   for _, upgradeSheet in ipairs(searchAroundSelf("isCard")) do
@@ -1191,46 +1228,45 @@ function onCollisionEnter(collisionInfo)
   -- only continue for cards
   if object.type ~= "Card" then return end
 
-  maybeUpdateActiveInvestigator(object)
-  syncCustomizableMetadata(object)
+  local md = JSON.decode(object.getGMNotes()) or {}
+  syncCustomizableMetadata(object, md)
 
   local localCardPos = self.positionToLocal(object.getPosition())
-  if inArea(localCardPos, DECK_DISCARD_AREA) then
+  if inArea(localCardPos, INVESTIGATOR_AREA) then
+    if md.type == "Investigator" and md.id ~= nil then
+      maybeUpdateActiveInvestigator(object, md)
+
+      -- this is mostly for helpers like Stella and Kohaku
+      spawnTokensOrShowHelper(object)
+    end
+
+  elseif inArea(localCardPos, DECK_DISCARD_AREA) then
     tokenSpawnTrackerApi.resetTokensSpawned(object)
     removeTokensFromObject(object)
-  elseif shouldSpawnTokens(object) then
-    spawnTokensFor(object)
+
+  elseif object.is_face_down == false then
+    -- main uses spawning
+    if inArea(localCardPos, MAIN_PLAY_AREA) and (md.type == "Asset" or md.type == "Event") then
+      spawnTokensOrShowHelper(object)
+    end
+
+    -- encounter types / committed skill cards in the threat area
+    if inArea(localCardPos, THREAT_AREA) and (md.type == "Treachery" or md.type == "Enemy" or md.type == "Skill" or md.weakness) then
+      spawnTokensOrShowHelper(object)
+    end
   end
 end
 
--- checks if tokens should be spawned for the provided card
-function shouldSpawnTokens(card)
-  if card.is_face_down then return false end
+function spawnTokensOrShowHelper(card)
+  spawnTokensFor(card)
 
-  local localCardPos = self.positionToLocal(card.getPosition())
-  local metadata = JSON.decode(card.getGMNotes())
-
-  -- If no metadata we don't know the type, so only spawn in the main area
-  if metadata == nil then
-    return inArea(localCardPos, MAIN_PLAY_AREA)
+  if card.hasTag("CardWithHelper") then
+    -- get state of the option panel
+    local options = GlobalApi.getOptionPanelState()
+    if options.enableCardHelpers then
+      card.call("setHelperState", true)
+    end
   end
-
-  -- Spawn tokens for assets and events on the main area
-  if inArea(localCardPos, MAIN_PLAY_AREA)
-      and (metadata.type == "Asset"
-        or metadata.type == "Event") then
-    return true
-  end
-
-  -- Spawn tokens for all encounter types in the threat area
-  if inArea(localCardPos, THREAT_AREA)
-      and (metadata.type == "Treachery"
-        or metadata.type == "Enemy"
-        or metadata.weakness) then
-    return true
-  end
-
-  return false
 end
 
 function onObjectEnterContainer(container, object)
@@ -1272,32 +1308,24 @@ end
 
 -- updates the internal investigator data and performs additional operations if an investigator card is detected
 ---@param card tts__Object Card that might be an investigator
-function maybeUpdateActiveInvestigator(card)
-  -- don't continue if this card is not in the investigator area
-  if not inArea(self.positionToLocal(card.getPosition()), INVESTIGATOR_AREA) then return end
-
-  -- get metadata
-  local notes = JSON.decode(card.getGMNotes()) or {}
-
-  -- don't continue for cards without proper metadata
-  if notes.type ~= "Investigator" or notes.id == nil then return end
-
+---@param md table Metadata for the card
+function maybeUpdateActiveInvestigator(card, md)
   -- don't continue if this is already the active investigator
-  if notes.id == activeInvestigatorData.id then return end
+  if md.id == activeInvestigatorData.id then return end
 
   -- extract relevant data from the metadata
-  activeInvestigatorData.class = notes.class
-  activeInvestigatorData.id = notes.id
-  activeInvestigatorData.miniId = getMiniId(notes.id)
+  activeInvestigatorData.class = md.class
+  activeInvestigatorData.id = md.id
+  activeInvestigatorData.miniId = getMiniId(md.id)
   ownedObjects.InvestigatorSkillTracker.call("updateStats", {
-    notes.willpowerIcons,
-    notes.intellectIcons,
-    notes.combatIcons,
-    notes.agilityIcons
+    md.willpowerIcons,
+    md.intellectIcons,
+    md.combatIcons,
+    md.agilityIcons
   })
   updateTexture()
 
-  newInvestigatorCallback(notes.id)
+  newInvestigatorCallback(md.id)
 
   -- set proper scale for investigators
   local cardData = card.getData()
@@ -1314,21 +1342,19 @@ function maybeUpdateActiveInvestigator(card)
     obj.destruct()
   end
 
-  -- spawn three regular action tokens (investigator specific one in the bottom spot)
-  local rotation = self.getRotation()
-  local callbackName = "updateUniversalActionAbilityToken"
-  local callbackParams = { class = activeInvestigatorData.class, symbol = activeInvestigatorData.class }
-
-  for i = 1, 3 do
-    local pos = self.positionToWorld(Vector(-1.54 + i * 0.17, 0, -0.28)):add(Vector(0, 0.2, 0))
-    tokenManagerApi.spawnToken(pos, "universalActionAbility", rotation, callbackName, callbackParams)
-  end
+  -- spawn three regular action tokens
+  spawnActionTokens()
 
   -- spawn additional token (maybe specific for investigator)
-  if notes.extraToken and notes.extraToken ~= "None" then
+  if md.extraToken and md.extraToken ~= "None" then
+    local tokenType = "universalActionAbility"
+    local rotation = self.getRotation()
+    local callbackName = "updateUniversalActionAbilityToken"
+    local callbackParams = { class = activeInvestigatorData.class, symbol = activeInvestigatorData.class }
+
     -- spawn tokens (split string by "|")
     local count = { action = 0, ability = 0 }
-    for str in string.gmatch(notes.extraToken, "([^|]+)") do
+    for str in string.gmatch(md.extraToken, "([^|]+)") do
       local type = "action"
       if str == "FreeTrigger" or str == "Reaction" then
         type = "ability"
@@ -1341,9 +1367,21 @@ function maybeUpdateActiveInvestigator(card)
         local localSpawnPos = tokenSpawnPos[type][count[type]]
         local globalSpawnPos = self.positionToWorld(localSpawnPos):add(Vector(0, 0.2, 0))
         callbackParams.symbol = str
-        tokenManagerApi.spawnToken(globalSpawnPos, "universalActionAbility", rotation, callbackName, callbackParams)
+        tokenManagerApi.spawnToken(globalSpawnPos, tokenType, rotation, callbackName, callbackParams)
       end
     end
+  end
+end
+
+function spawnActionTokens()
+  local tokenType = "universalActionAbility"
+  local rotation = self.getRotation()
+  local callbackName = "updateUniversalActionAbilityToken"
+  local callbackParams = { class = activeInvestigatorData.class, symbol = activeInvestigatorData.class }
+
+  for i = 1, 3 do
+    local position = self.positionToWorld(Vector(-1.54 + i * 0.17, 0, -0.28)):add(Vector(0, 0.2, 0))
+    tokenManagerApi.spawnToken(position, tokenType, rotation, callbackName, callbackParams)
   end
 end
 
@@ -1428,12 +1466,12 @@ function updateTexture(overrideName)
   -- apply texture
   local customInfo = self.getCustomObject()
   if customInfo.image ~= newUrl then
-    -- temporarily lock objects so they don't fall through the mat
+    -- make sure objects are resting and store position
     local objectsToUnlock = {}
     for _, obj in ipairs(searchAroundSelf()) do
       if not obj.getLock() then
-        obj.setLock(true)
-        table.insert(objectsToUnlock, obj)
+        obj.resting = true
+        table.insert(objectsToUnlock, { obj = obj, pos = obj.getPosition() })
       end
     end
 
@@ -1442,12 +1480,14 @@ function updateTexture(overrideName)
     self.setCustomObject(customInfo)
     local reloadedMat = self.reload()
 
-    -- unlock objects when mat is reloaded
+    -- restore object positions
     Wait.condition(function()
       Wait.frames(function()
-        for _, obj in ipairs(objectsToUnlock) do
-          obj.setLock(false)
-          obj.resting = true
+        for _, objTable in ipairs(objectsToUnlock) do
+          if objTable.obj ~= nil then
+            objTable.obj.resting = true
+            objTable.obj.setPosition(objTable.pos)
+          end
         end
       end, 5)
     end, function() return reloadedMat.loading_custom == false end)
