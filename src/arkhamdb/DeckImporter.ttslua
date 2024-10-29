@@ -286,20 +286,36 @@ function loadCards(slots, investigatorId, bondedList, customizations, playerColo
     local slotsCopy = deepCopy(slots)
     local cardsToSpawn = {}
     local resourceModifier = 0
+    cardsWithAttachments = {
+      ["03264"] = true,
+      ["07303"] = true,
+      ["09077"] = true,
+      ["10079"] = true
+    }
 
     -- reset the startsInPlayCount
     startsInPlayCount = 0
 
-    -- Attachment Helper handling
-    if GlobalApi.getOptionPanelState()["showAttachmentHelper"] then
+    -- reserve slots for cards with attachments
+    for cardId, _ in pairs(cardsWithAttachments) do
+      if slotsCopy[cardId] and slotsCopy[cardId] > 0 then
+        -- increase startsInPlayCount by 1 and reserve slot for this card
+        startsInPlayCount = startsInPlayCount + 1
+        cardsWithAttachments[cardId] = startsInPlayCount
 
-    else
-
+        -- reserve an additional slot for the attachments
+        startsInPlayCount = startsInPlayCount + 1
+      end
     end
+
     for cardId, cardCount in pairs(slots) do
       local card = allCardsBagApi.getCardById(cardId)
       if card ~= nil then
-        local cardZone = getDefaultCardZone(card.metadata, bondedList)
+        if cardsWithAttachments[cardId] and cardsWithAttachments[cardId] < 6 then
+          cardZone = "Blank" .. cardsWithAttachments[cardId]
+        else
+          cardZone = getDefaultCardZone(card.metadata, bondedList)
+        end
         for i = 1, cardCount do
           table.insert(cardsToSpawn, { data = card.data, metadata = card.metadata, zone = cardZone })
         end
@@ -315,8 +331,7 @@ function loadCards(slots, investigatorId, bondedList, customizations, playerColo
     end
 
     updateStartingResources(playerColor, resourceModifier)
-    handleAncestralKnowledge(cardsToSpawn, slotsCopy)
-    handleNonRandomSelections(cardsToSpawn, slotsCopy, bondedList, customizations, playerColor)
+    handleAllAttachments(cardsToSpawn, slotsCopy, bondedList, customizations, playerColor)
 
     -- parallel Jim Culver handling
     if investigatorId == "02004-p" or investigatorId == "02004-pb" then
@@ -337,6 +352,21 @@ function loadCards(slots, investigatorId, bondedList, customizations, playerColo
       local deckPos = zones.getZonePosition(playerColor, zone):setAt("y", 3)
       local deckRot = zones.getDefaultCardRotation(playerColor, zone)
       local callback = nil
+
+      -- spawn attachment helpers if option is enabled
+      if GlobalApi.getOptionPanelState()["showAttachmentHelper"] then
+        local objs = getObjectsWithTag("AttachmentHelperBag")
+        if #objs > 0 then
+          for cardId, reservedSlot in pairs(cardsWithAttachments) do
+            if reservedSlot < 7 then
+              objs[1].takeObject({
+                position = zones.getZonePosition(playerColor, "Blank" .. reservedSlot):setAt("y", 1.6),
+                rotation = deckRot
+              })
+            end
+          end
+        end
+      end
 
       -- If cards are spread too close together TTS groups them weirdly, selecting multiples
       -- when hovering over a single card. This distance is the minimum to avoid that.
@@ -504,15 +534,11 @@ function removeBusyZones(playerColor, zoneDecks)
   end
 end
 
--- Check to see if the deck list has Ancestral Knowledge. If it does, move 5 random skills to SetAside3
----@param cardList table Deck list being created
-function handleAncestralKnowledge(cardList, slotsCopy)
-  if not slotsCopy["07303"] or slotsCopy["07303"] == 0 then return end
-
+function handleAncestralKnowledge(cardsToSpawn)
   local skillList = {}
 
   -- process cardlist for skills
-  for i, card in ipairs(cardList) do
+  for i, card in ipairs(cardsToSpawn) do
     if card.metadata.type == "Skill" and card.zone == "Deck" and not card.metadata.weakness then
       table.insert(skillList, i)
     end
@@ -521,40 +547,41 @@ function handleAncestralKnowledge(cardList, slotsCopy)
   -- move 5 random skills to SetAside3
   for i = 1, 5 do
     local skillListIndex = math.random(#skillList)
-    cardList[skillList[skillListIndex]].zone = "UnderSetAside3"
+    cardsToSpawn[skillList[skillListIndex]].zone = "UnderSetAside3"
     table.remove(skillList, skillListIndex)
   end
 end
 
-function handleNonRandomSelections(cardsToSpawn, slotsCopy, bondedList, customizations, playerColor)
-  -- handle cards with attachments (Stick to the Plan, Underworld Market and Bewitching)
-  for _, cardId in ipairs({ "03264", "09077", "10079" }) do
+-- handle cards with attachments (Stick to the Plan, Underworld Market and Bewitching)
+function handleAllAttachments(cardsToSpawn, slotsCopy, bondedList, customizations, playerColor)
+  for cardId, reservedSlot in pairs(cardsWithAttachments) do
     if slotsCopy[cardId] and slotsCopy[cardId] > 0 then
-      if customizations["attachments_" .. cardId] then
+      if customizations["attachments_" .. cardId] and reservedSlot < 6 then
         handleAttachment(cardId, cardsToSpawn, customizations)
       elseif cardId == "09077" then
         handleUnderworldMarket(cardsToSpawn, slotsCopy, playerColor)
       elseif cardId == "05002" then
         handleHunchDeck(cardsToSpawn, bondedList, playerColor)
+      elseif cardId == "07303" then
+        handleAncestralKnowledge(cardsToSpawn)
       end
     end
   end
 end
 
 function handleAttachment(parentId, cardsToSpawn, customizations)
-  -- get list of cards that are attached
+  -- get list of cards that are attached (split by ",")
   local attachmentList = {}
-
-  -- split by ","
   for str in string.gmatch(customizations["attachments_" .. parentId], "([^,]+)") do
     table.insert(attachmentList, str)
   end
 
   -- process cards
+  local zone = "Blank" .. (cardsWithAttachments[parentId] + 1)
   for i = #attachmentList, 1, -1 do
     for j = #cardsToSpawn, 1, -1 do
-      if cardsToSpawn[j].metadata.id == attachmentList[i] and cardsToSpawn[j].zone ~= "BelowSetAside" then
-        cardsToSpawn[j].zone = "BelowSetAside"
+      if cardsToSpawn[j].metadata.id == attachmentList[i] and cardsToSpawn[j].zone ~= zone then
+        cardsToSpawn[j].zone = zone
         break
       end
     end
