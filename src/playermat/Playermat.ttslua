@@ -54,22 +54,22 @@ local SEARCH_AROUND_SELF_Z_BUFFER = 1.75
 
 -- defined areas for object searching
 local MAIN_PLAY_AREA              = {
-  upperLeft = { x = 1.98, z = 0.736 },
+  upperLeft  = { x = 1.98, z = 0.736 },
   lowerRight = { x = -0.79, z = -0.39 }
 }
 local INVESTIGATOR_AREA           = {
-  upperLeft = { x = -1.084, z = 0.06517 },
+  upperLeft  = { x = -1.084, z = 0.06517 },
   lowerRight = { x = -1.258, z = -0.0805 }
 }
 local THREAT_AREA                 = {
-  upperLeft = { x = 1.53, z = -0.34 },
+  upperLeft  = { x = 1.53, z = -0.34 },
   lowerRight = { x = -1.13, z = -0.92 }
 }
 local DECK_DISCARD_AREA           = {
-  upperLeft = { x = -1.62, z = 0.855 },
+  upperLeft  = { x = -1.62, z = 0.855 },
   lowerRight = { x = -2.02, z = -0.245 },
-  center = { x = -1.82, y = 0.5, z = 0.305 },
-  size = { x = 0.4, y = 3, z = 1.1 }
+  center     = { x = -1.82, y = 0.5, z = 0.305 },
+  size       = Vector(0.4, 3, 1.1)
 }
 
 -- local positions
@@ -252,13 +252,7 @@ end
 -- searches the area around the draw deck and discard pile
 function searchDeckAndDiscardArea(filter)
   local pos = self.positionToWorld(DECK_DISCARD_AREA.center)
-  local scale = self.getScale()
-  local size = {
-    x = DECK_DISCARD_AREA.size.x * scale.x,
-    y = DECK_DISCARD_AREA.size.y,
-    z = DECK_DISCARD_AREA.size.z * scale.z
-  }
-  return searchArea(pos, size, filter)
+  return searchArea(pos, DECK_DISCARD_AREA.size * self.getScale(), filter)
 end
 
 -- rounds a number to the specified amount of decimal places
@@ -518,58 +512,73 @@ end
 -- draws the specified amount of cards (and shuffles the discard if necessary)
 ---@param numCards number Number of cards to draw
 function drawCardsWithReshuffle(numCards)
-  local deckAreaObjects = getDeckAreaObjects()
+  function drawCardsCoroutine()
+    local deckAreaObjects = getDeckAreaObjects()
 
-  -- Norman Withers handling
-  local harbinger
-  if deckAreaObjects.topCard then
-    harbinger = isHarbinger(deckAreaObjects.topCard.getGMNotes())
-  elseif deckAreaObjects.draw and not deckAreaObjects.draw.is_face_down then
-    local cards = deckAreaObjects.draw.getObjects()
-    harbinger = isHarbinger(cards[#cards].gm_notes)
-  end
-
-  if harbinger then
-    printToColor("The Harbinger is on top of your deck, not drawing cards", messageColor)
-    return
-  end
-
-  local topCardDetected = false
-  if deckAreaObjects.topCard ~= nil then
-    deckAreaObjects.topCard.deal(1, playerColor)
-    topCardDetected = true
-    numCards = numCards - 1
-    if numCards == 0 then
-      flipTopCardFromDeck()
-      return
+    -- Norman Withers handling
+    local harbinger
+    if deckAreaObjects.topCard then
+      harbinger = isHarbinger(deckAreaObjects.topCard.getGMNotes())
+    elseif deckAreaObjects.draw and not deckAreaObjects.draw.is_face_down then
+      local cards = deckAreaObjects.draw.getObjects()
+      harbinger = isHarbinger(cards[#cards].gm_notes)
     end
-  end
 
-  local deckSize = 1
-  if deckAreaObjects.draw == nil then
-    deckSize = 0
-  elseif deckAreaObjects.draw.type == "Deck" then
-    deckSize = #deckAreaObjects.draw.getObjects()
-  end
-
-  if deckSize >= numCards then
-    drawCards(numCards)
-    if topCardDetected then
-      flipTopCardFromDeck()
+    if harbinger then
+      printToColor("The Harbinger is on top of your deck, not drawing cards", messageColor)
+      return 1
     end
-  else
-    drawCards(deckSize)
+
+    -- draw the top card if possible
+    local topCardDetected = false
+    if deckAreaObjects.topCard ~= nil then
+      deckAreaObjects.topCard.deal(1, playerColor)
+      topCardDetected = true
+      numCards = numCards - 1
+      if numCards == 0 then
+        flipTopCardFromDeck()
+        return 1
+      end
+    end
+
+    -- determine deck size
+    local deckSize = 1
+    if deckAreaObjects.draw == nil then
+      deckSize = 0
+    elseif deckAreaObjects.draw.type == "Deck" then
+      deckSize = #deckAreaObjects.draw.getObjects()
+    end
+
+    -- draw additional cards from existing deck
+    if deckSize >= numCards then
+      drawCards(deckAreaObjects.draw, numCards)
+      if topCardDetected then
+        flipTopCardFromDeck()
+      end
+      return 1
+    end
+
+    -- draw the full deck, form a new deck and draw the remaining cards
+    drawCards(deckAreaObjects.draw, deckSize)
     if deckAreaObjects.discard ~= nil then
+      coWaitFrames(30)
       shuffleDiscardIntoDeck()
-      Wait.time(function()
-        drawCards(numCards - deckSize)
-        if topCardDetected then
-          flipTopCardFromDeck()
-        end
-      end, 1)
+      if deckAreaObjects.discard.type == "Card" then
+        coWaitSeconds(1 * 0.1 + 0.25)
+      else
+        coWaitSeconds(#deckAreaObjects.discard.getObjects() * 0.1 + 0.25)
+      end
+      local shuffledObjects = getDeckAreaObjects()
+      drawCards(shuffledObjects.draw, numCards - deckSize)
+      if topCardDetected then
+        flipTopCardFromDeck()
+      end
+      printToColor("Take 1 horror (drawing card from empty deck)", messageColor)
     end
-    printToColor("Take 1 horror (drawing card from empty deck)", messageColor)
+    return 1
   end
+
+  startLuaCoroutine(self, "drawCardsCoroutine")
 end
 
 function isHarbinger(notes)
@@ -595,11 +604,11 @@ function getDeckAreaObjects()
 end
 
 -- draws the specified number of cards (reshuffling of discard pile is handled separately)
+---@param cardOrDeck tts__Object Card/Deck to draw from
 ---@param numCards number Number of cards to draw
-function drawCards(numCards)
-  local deckAreaObjects = getDeckAreaObjects()
-  if deckAreaObjects.draw then
-    deckAreaObjects.draw.deal(numCards, playerColor)
+function drawCards(cardOrDeck, numCards)
+  if cardOrDeck ~= nil then
+    cardOrDeck.deal(numCards, playerColor)
   end
 end
 
@@ -639,7 +648,11 @@ function shuffleDiscardIntoDeck(player, _, elementId)
     table.insert(objectsToShuffle, deckAreaObjects.topCard)
 
     -- this will be executed after the deck merging + shuffling
-    Wait.time(flipTopCardFromDeck, 1)
+    if deckAreaObjects.discard.type == "Card" then
+      Wait.time(flipTopCardFromDeck, 1 * 0.1 + 0.5)
+    else
+      Wait.time(flipTopCardFromDeck, #deckAreaObjects.discard.getObjects() * 0.1 + 0.5)
+    end
   end
 
   table.insert(objectsToShuffle, deckAreaObjects.discard)
@@ -651,8 +664,9 @@ end
 function flipTopCardFromDeck()
   Wait.time(function()
     local deckAreaObjects = getDeckAreaObjects()
-    if deckAreaObjects.topCard then
-    elseif deckAreaObjects.draw then
+    if deckAreaObjects.topCard ~= nil then return end
+
+    if deckAreaObjects.draw ~= nil then
       if deckAreaObjects.draw.type == "Card" then
         deckAreaObjects.draw.flip()
       else
@@ -1711,3 +1725,18 @@ end
 function getActiveInvestigatorData() return activeInvestigatorData end
 
 function setActiveInvestigatorData(newData) activeInvestigatorData = newData end
+
+-- pauses the current coroutine for 'frameCount' frames
+function coWaitFrames(frameCount)
+  for k = 1, frameCount do
+    coroutine.yield(0)
+  end
+end
+
+-- pauses the current coroutine for 'seconds' seconds
+function coWaitSeconds(seconds)
+  local startTime = os.clock()
+  while os.clock() - startTime < seconds do
+    coroutine.yield(0)
+  end
+end
