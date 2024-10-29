@@ -1,38 +1,38 @@
 require("playercards/PlayerCardSpawner")
 
-local allCardsBagApi = require("playercards/AllCardsBagApi")
-local arkhamDb = require("arkhamdb/ArkhamDb")
+local allCardsBagApi   = require("playercards/AllCardsBagApi")
+local arkhamDb         = require("arkhamdb/ArkhamDb")
+local GlobalApi        = require("core/GlobalApi")
 local guidReferenceApi = require("core/GUIDReferenceApi")
-local playermatApi = require("playermat/PlayermatApi")
-local zones = require("playermat/Zones")
+local playermatApi     = require("playermat/PlayermatApi")
+local zones            = require("playermat/Zones")
 
 local matsWithInvestigator = {}
-local startsInPlayCount = 0
+local startsInPlayCount    = 0
+local INPUT_FIELD_HEIGHT   = 340
+local INPUT_FIELD_WIDTH    = 1500
+local FIELD_COLOR          = { 0.9, 0.7, 0.5 }
 
-local INPUT_FIELD_HEIGHT = 340
-local INPUT_FIELD_WIDTH = 1500
-local FIELD_COLOR = { 0.9, 0.7, 0.5 }
+local PRIVATE_TOGGLE_LABELS     = {}
+PRIVATE_TOGGLE_LABELS[true]     = "Private"
+PRIVATE_TOGGLE_LABELS[false]    = "Published"
 
-local PRIVATE_TOGGLE_LABELS = {}
-PRIVATE_TOGGLE_LABELS[true] = "Private"
-PRIVATE_TOGGLE_LABELS[false] = "Published"
+local UPGRADED_TOGGLE_LABELS    = {}
+UPGRADED_TOGGLE_LABELS[true]    = "Upgraded"
+UPGRADED_TOGGLE_LABELS[false]   = "Specific"
 
-local UPGRADED_TOGGLE_LABELS = {}
-UPGRADED_TOGGLE_LABELS[true] = "Upgraded"
-UPGRADED_TOGGLE_LABELS[false] = "Specific"
-
-local STANDALONE_TOGGLE_LABELS = {}
-STANDALONE_TOGGLE_LABELS[true] = "Yes"
+local STANDALONE_TOGGLE_LABELS  = {}
+STANDALONE_TOGGLE_LABELS[true]  = "Yes"
 STANDALONE_TOGGLE_LABELS[false] = "No"
 
-redDeckId = ""
+redDeckId    = ""
 orangeDeckId = ""
-whiteDeckId = ""
-greenDeckId = ""
+whiteDeckId  = ""
+greenDeckId  = ""
 
-local privateDeck = true
+local privateDeck    = true
 local loadNewestDeck = true
-local standalone = false
+local standalone     = false
 
 function onLoad(script_state)
   initializeUi(JSON.decode(script_state))
@@ -88,7 +88,7 @@ function makeOptionToggles()
   cParams.function_owner = self
   cParams.width = 1750
   cParams.height = INPUT_FIELD_HEIGHT
-  cParams.position = Vector( 0.22, 0.1, -0.102)
+  cParams.position = Vector(0.22, 0.1, -0.102)
   cParams.scale = { 0.1, 0.1, 0.1 }
   cParams.font_size = 240
   cParams.hover_color = { 0.4, 0.6, 0.8 }
@@ -201,7 +201,7 @@ function loadDecksCoroutine()
   if not allCardsBagApi.isIndexReady() then return end
   matsWithInvestigator = playermatApi.getUsedMatColors()
 
-  for _, matColor in ipairs({"White", "Orange", "Green", "Red"}) do
+  for _, matColor in ipairs({ "White", "Orange", "Green", "Red" }) do
     local deckId = _G[string.lower(matColor) .. "DeckId"]
     if deckId ~= nil and deckId ~= "" then
       buildDeck(matColor, deckId)
@@ -222,16 +222,16 @@ end
 ---@param cardMetadata table  Contains card metadata
 ---@return string Zone Name of the zone such as "Deck", "SetAside1", etc. (See zones file for a list of valid zones)
 function getDefaultCardZone(cardMetadata, bondedList)
-  if cardMetadata.id == "09080-m" then -- Have to check the Servitor before other minicards
+  if cardMetadata.id == "09080-m" then
+    -- Have to check the Servitor before other minicards
     return "SetAside6"
-  elseif cardMetadata.id == "09006" then -- On The Mend is set aside
+  elseif cardMetadata.id == "09006" or cardMetadata.id == "06233" or cardMetadata.id == "06275"
+      or cardMetadata.id == "71052" or bondedList[cardMetadata.id] then
+    -- On The Mend, False Awakening, Jewel of Sarnath and bonded cards are set aside
     return "SetAside2"
-  elseif cardMetadata.id == "06233" or cardMetadata.id == "06275" then -- False Awakening is set aside
-    return "SetAside2"
-  elseif cardMetadata.id == "71052" then -- Jewel of Sarnath is set aside
-    return "SetAside2"
-  elseif bondedList[cardMetadata.id] then
-    return "SetAside2"
+  elseif cardMetadata.id == "07303" or cardMetadata.id == "09077" then
+    -- Ancestral Knowledge / Underworld Market
+    return "SetAside3"
   elseif cardMetadata.type == "Investigator" then
     return "Investigator"
   elseif cardMetadata.type == "Minicard" then
@@ -242,7 +242,6 @@ function getDefaultCardZone(cardMetadata, bondedList)
     return startsInPlayTracker()
   elseif cardMetadata.permanent then
     return "SetAside1"
-    -- SetAside3 is used for Ancestral Knowledge / Underworld Market
   else
     return "Deck"
   end
@@ -284,11 +283,19 @@ end
 ---@param loadAltInvestigator string Contains the name of alternative art for the investigator ("normal", "revised" or "promo")
 function loadCards(slots, investigatorId, bondedList, customizations, playerColor, loadAltInvestigator)
   function coinside()
+    local slotsCopy = deepCopy(slots)
     local cardsToSpawn = {}
     local resourceModifier = 0
 
     -- reset the startsInPlayCount
     startsInPlayCount = 0
+
+    -- Attachment Helper handling
+    if GlobalApi.getOptionPanelState()["showAttachmentHelper"] then
+
+    else
+
+    end
     for cardId, cardCount in pairs(slots) do
       local card = allCardsBagApi.getCardById(cardId)
       if card ~= nil then
@@ -308,10 +315,14 @@ function loadCards(slots, investigatorId, bondedList, customizations, playerColo
     end
 
     updateStartingResources(playerColor, resourceModifier)
-    handleAncestralKnowledge(cardsToSpawn)
-    handleUnderworldMarket(cardsToSpawn, playerColor)
-    handleHunchDeck(investigatorId, cardsToSpawn, bondedList, playerColor)
-    handleSpiritDeck(investigatorId, cardsToSpawn, playerColor, customizations)
+    handleAncestralKnowledge(cardsToSpawn, slotsCopy)
+    handleNonRandomSelections(cardsToSpawn, slotsCopy, bondedList, customizations, playerColor)
+
+    -- parallel Jim Culver handling
+    if investigatorId == "02004-p" or investigatorId == "02004-pb" then
+      handleSpiritDeck(cardsToSpawn, playerColor, customizations)
+    end
+
     handleCustomizableUpgrades(cardsToSpawn, customizations)
     handlePeteSignatureAssets(investigatorId, cardsToSpawn)
 
@@ -495,25 +506,19 @@ end
 
 -- Check to see if the deck list has Ancestral Knowledge. If it does, move 5 random skills to SetAside3
 ---@param cardList table Deck list being created
-function handleAncestralKnowledge(cardList)
-  local hasAncestralKnowledge = false
+function handleAncestralKnowledge(cardList, slotsCopy)
+  if not slotsCopy["07303"] or slotsCopy["07303"] == 0 then return end
+
   local skillList = {}
 
-  -- Have to process the entire list to check for Ancestral Knowledge and get all possible skills, so do both in one pass
+  -- process cardlist for skills
   for i, card in ipairs(cardList) do
-    if card.metadata.id == "07303" then
-      hasAncestralKnowledge = true
-      card.zone = "SetAside3"
-    elseif (card.metadata.type == "Skill"
-        and card.zone == "Deck"
-        and not card.metadata.weakness) then
+    if card.metadata.type == "Skill" and card.zone == "Deck" and not card.metadata.weakness then
       table.insert(skillList, i)
     end
   end
 
-  if not hasAncestralKnowledge then return end
-
-  -- Move 5 random skills to SetAside3
+  -- move 5 random skills to SetAside3
   for i = 1, 5 do
     local skillListIndex = math.random(#skillList)
     cardList[skillList[skillListIndex]].zone = "UnderSetAside3"
@@ -521,24 +526,55 @@ function handleAncestralKnowledge(cardList)
   end
 end
 
+function handleNonRandomSelections(cardsToSpawn, slotsCopy, bondedList, customizations, playerColor)
+  -- handle cards with attachments (Stick to the Plan, Underworld Market and Bewitching)
+  for _, cardId in ipairs({ "03264", "09077", "10079" }) do
+    if slotsCopy[cardId] and slotsCopy[cardId] > 0 then
+      if customizations["attachments_" .. cardId] then
+        handleAttachment(cardId, cardsToSpawn, customizations)
+      elseif cardId == "09077" then
+        handleUnderworldMarket(cardsToSpawn, slotsCopy, playerColor)
+      elseif cardId == "05002" then
+        handleHunchDeck(cardsToSpawn, bondedList, playerColor)
+      end
+    end
+  end
+end
+
+function handleAttachment(parentId, cardsToSpawn, customizations)
+  -- get list of cards that are attached
+  local attachmentList = {}
+
+  -- split by ","
+  for str in string.gmatch(customizations["attachments_" .. parentId], "([^,]+)") do
+    table.insert(attachmentList, str)
+  end
+
+  -- process cards
+  for i = #attachmentList, 1, -1 do
+    for j = #cardsToSpawn, 1, -1 do
+      if cardsToSpawn[j].metadata.id == attachmentList[i] and cardsToSpawn[j].zone ~= "BelowSetAside" then
+        cardsToSpawn[j].zone = "BelowSetAside"
+        break
+      end
+    end
+  end
+end
+
 -- Check for and handle Underworld Market by moving all Illicit cards to UnderSetAside3
 ---@param cardList table Deck list being created
 ---@param playerColor string Color this deck is being loaded for
-function handleUnderworldMarket(cardList, playerColor)
-  local hasMarket = false
+function handleUnderworldMarket(cardList, slotsCopy, playerColor)
+  if not slotsCopy["09077"] or slotsCopy["09077"] == 0 then return end
+
   local illicitList = {}
 
-  -- Process the entire list to check for Underworld Market and get all possible Illicit cards, doing both in one pass
+  -- get all possible Illicit cards
   for i, card in ipairs(cardList) do
-    if card.metadata.id == "09077" then
-      hasMarket = true
-      card.zone = "SetAside3"
-    elseif card.metadata.traits ~= nil and string.find(card.metadata.traits, "Illicit", 1, true) and card.zone == "Deck" then
+    if card.metadata.traits ~= nil and string.find(card.metadata.traits, "Illicit", 1, true) and card.zone == "Deck" then
       table.insert(illicitList, i)
     end
   end
-
-  if not hasMarket then return end
 
   if #illicitList < 10 then
     printToAll("Only " .. #illicitList .. " Illicit cards in your deck, you can't trigger Underworld Market's ability.", playerColor)
@@ -561,13 +597,10 @@ function handleUnderworldMarket(cardList, playerColor)
   end
 end
 
--- If the investigator is Joe Diamond, extract all Insight events to SetAside5 to build the Hunch Deck
----@param investigatorId string ID for the deck's investigator card
+-- Extract all Insight events to SetAside5 to build the Hunch Deck for Joe Diamond
 ---@param cardList table Deck list being created
 ---@param playerColor string Color this deck is being loaded for
-function handleHunchDeck(investigatorId, cardList, bondedList, playerColor)
-  if investigatorId ~= "05002" then return end
-
+function handleHunchDeck(cardList, bondedList, playerColor)
   local insightList = {}
   for i, card in ipairs(cardList) do
     if (card.metadata.type == "Event"
@@ -597,14 +630,11 @@ function handleHunchDeck(investigatorId, cardList, bondedList, playerColor)
   end
 end
 
--- If the investigator is Parallel Jim Culver, extract all Ally assets to SetAside5 to build the Spirit Deck
----@param investigatorId string ID for the deck's investigator card
+-- Extract all Ally assets to SetAside5 to build the Spirit Deck for parallel Jim Culver
 ---@param cardList table Deck list being created
 ---@param playerColor string Color this deck is being loaded for
 ---@param customizations table Additional deck information
-function handleSpiritDeck(investigatorId, cardList, playerColor, customizations)
-  if investigatorId ~= "02004-p" and investigatorId ~= "02004-pb" then return end
-
+function handleSpiritDeck(cardList, playerColor, customizations)
   local spiritList = {}
   if customizations["extra_deck"] then
     -- split by ","
@@ -639,9 +669,11 @@ function handleSpiritDeck(investigatorId, cardList, playerColor, customizations)
   end
 
   if #spiritList < 10 then
-    printToAll("Jim's spirit deck must have 9 Ally assets but the deck only has " .. (#spiritList - 1) .. " Ally assets.", playerColor)
+    printToAll("Jim's spirit deck must have 9 Ally assets but the deck only has " ..
+      (#spiritList - 1) .. " Ally assets.", playerColor)
   elseif #spiritList > 11 then
-    printToAll("Moved all " .. (#spiritList - 1) .. " Ally assets to the spirit deck, reduce it to 10 (including Vengeful Shade).", playerColor)
+    printToAll("Moved all " .. (#spiritList - 1) ..
+      " Ally assets to the spirit deck, reduce it to 10 (including Vengeful Shade).", playerColor)
   else
     printToAll("Built Jim's spirit deck", playerColor)
   end
@@ -761,4 +793,18 @@ function updateStartingResources(playerColor, resourceModifier)
     playermatApi.updateCounter(playerColor, "ResourceCounter", _, resourceModifier)
     printToAll("Modified starting resources", playerColor)
   end
+end
+
+-- internal function to create a copy of a table
+function deepCopy(data)
+  if type(data) ~= "table" then return data end
+  local copiedList = {}
+  for key, value in pairs(data) do
+    if type(value) == "table" then
+      copiedList[key] = deepCopy(value)
+    else
+      copiedList[key] = value
+    end
+  end
+  return copiedList
 end
