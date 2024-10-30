@@ -274,16 +274,27 @@ function removeOneUse(playerColor, hoveredObject)
   if hoveredObject.type == "Tile" then
     targetObject = hoveredObject
   elseif hoveredObject.type == "Card" then
-    -- we're only searching 80% of the cards area to avoid matching tokens on other cards
-    local searchResult = searchLib.onObject(hoveredObject, "isTileOrToken", 0.8)
+    local cardPos = hoveredObject.getPosition()
+    local searchRot = hoveredObject.getRotation()
+    local searchSize = hoveredObject.getBounds().size:scale(0.8):setAt("y", 1)
+
+    -- if this card is on a playermat, search an upright box
+    local owner = guidReferenceApi.getOwnerOfObject(hoveredObject)
+    if owner ~= "Mythos" then
+      searchRot = playermatApi.returnRotation(owner)
+
+      -- we're only searching 90% of the cards area to avoid matching tokens on other cards
+      searchSize = Vector( 2, 1, 3.2 ) * 0.9
+    end
+
+    local searchResult = searchLib.inArea(cardPos, searchRot, searchSize, "isTileOrToken")
 
     if #searchResult == 0 then
       broadcastToColor("No tokens found!", playerColor, "Yellow")
       return
     end
 
-    -- index the found tokens by memo (store the token closest to the card for each memo)
-    local cardPos = hoveredObject.getPosition()
+    -- index the found tokens by memo (store the token furthest to the card for each memo)
     local indexByMemo = {}
     local distanceByMemo = {}
     for _, obj in ipairs(searchResult) do
@@ -291,7 +302,7 @@ function removeOneUse(playerColor, hoveredObject)
         local objPos = obj.getPosition()
         local distance = Vector.between(cardPos, objPos):magnitude()
         local memo = obj.memo or "NO_MEMO"
-        if distanceByMemo[memo] == nil or distanceByMemo[memo] > distance then
+        if distanceByMemo[memo] == nil or distanceByMemo[memo] < distance then
           indexByMemo[memo] = obj
           distanceByMemo[memo] = distance
         end
