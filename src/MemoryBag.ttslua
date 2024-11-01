@@ -1,0 +1,397 @@
+function updateSave()
+  self.script_state = JSON.encode({ ml = memoryList, setupButton = setupButton })
+end
+
+function onLoad(savedData)
+  if savedData and savedData ~= "" then
+    local loadedData = JSON.decode(savedData)
+    memoryList = loadedData.ml
+    setupButton = loadedData.setupButton
+  end
+
+  memoryList = memoryList or {}
+  self.addContextMenuItem("Toggle setup button", toggleSetupButton)
+
+  -- make sure the model is loaded so that we can use the bounds
+  Wait.condition(function()
+    Wait.frames(function()
+      generateButtonData()
+      createMemoryActionButtons()
+    end, 5)
+  end, function() return not self.loading_custom end)
+end
+
+function generateButtonData()
+  local selfScale = self.getScale()
+  local selfBounds = self.getBoundsNormalized()
+  buttonScale = Vector(1 / selfScale.x, 1, 1 / selfScale.z)
+
+  buttonX = math.max(selfBounds.size.x / 5, 1.5) / selfScale.x
+  buttonY = -(selfBounds.size.y / 2 + selfBounds.offset.y) / selfScale.y + 0.5
+  buttonZ = {}
+  for i = 1, 4 do
+    buttonZ[i] = (selfBounds.size.z / 2 + i * 1.15 - 0.15) / selfScale.z
+  end
+
+  local upperButtonMult = 1.1
+  buttonData = {
+    ["Add"]       = {
+      tooltip = "Add highlighted objects to memory",
+      pos = { buttonX * upperButtonMult, buttonY, -buttonZ[1] },
+      fColor = { 0.25, 1, 0.25 }
+    },
+    ["Cancel"]    = {
+      tooltip = "Abort setup mode",
+      pos = { -buttonX * upperButtonMult, buttonY, -buttonZ[1] },
+    },
+    ["Internal"]    = {
+      tooltip = "Copy memory from internal bags",
+      pos = { -buttonX * upperButtonMult, buttonY, -buttonZ[4] },
+    },
+    ["Place"]     = {
+      pos = { buttonX, buttonY, buttonZ[1] },
+      fSize = 350,
+      w = 1200
+    },
+    ["Recall"]    = {
+      pos = { -buttonX, buttonY, buttonZ[1] },
+      fSize = 350,
+      w = 1200
+    },
+    ["Remove"]    = {
+      tooltip = "Remove highlighted objects from memory",
+      pos = { buttonX * upperButtonMult, buttonY, -buttonZ[2] },
+      fColor = { 1, 0.25, 0.25 }
+    },
+    ["Reset"]     = {
+      tooltip = "Completely reset memory",
+      pos = { -buttonX * upperButtonMult, buttonY, -buttonZ[3] },
+    },
+    ["Selection"] = {
+      tooltip = "Add / Remove highlight for selected objects",
+      pos = { -buttonX * upperButtonMult, buttonY, -buttonZ[2] },
+    },
+    ["Setup"]     = {
+      pos = { 0, buttonY, -buttonZ[1] },
+      fSize = 350
+    },
+    ["Update"]   = {
+      tooltip = "Update memory for placed objects",
+      pos = { buttonX * upperButtonMult, buttonY, -buttonZ[3] },
+      fColor = { 0.75, 0.75, 1 }
+    }
+  }
+end
+
+function createButtonByName(label)
+  self.createButton({
+    label = label,
+    tooltip = buttonData[label].tooltip or "",
+    position = buttonData[label].pos,
+    height = buttonData[label].h or 500,
+    width = buttonData[label].w or 1500,
+    font_size = buttonData[label].fSize or 325,
+    font_color = buttonData[label].fColor or { 1, 1, 1 },
+    function_owner = self,
+    color = { 0, 0, 0 },
+    scale = buttonScale,
+    click_function = "buttonClick_" .. string.lower(string.gsub(label, "%s+", ""))
+  })
+end
+
+-- context menu function to toggle the setup button visibility
+function toggleSetupButton()
+  if setupButton then
+    setupButton = false
+    broadcastToAll("Setup button disabled")
+  else
+    setupButton = true
+    broadcastToAll("Setup button enabled")
+  end
+  updateSave()
+  removeAllHighlights()
+  createMemoryActionButtons()
+end
+
+function buttonClick_setup()
+  tempList = {}
+  self.clearButtons()
+  createButtonsOnAllObjects()
+  createSetupActionButtons()
+end
+
+function createButtonsOnAllObjects()
+  buttonIndexMap = {}
+
+  local buttonCount = 0
+  for _, obj in ipairs(getObjects()) do
+    if obj ~= self and obj.type ~= "Scripting" and obj.type ~= "Hand" then
+      local objPos = obj.getPosition()
+      local objBounds = obj.getBounds()
+      local offSet = Vector(0, objBounds.size.y / 2 + 1, 0)
+      local scaleVec = Vector(-1, 1, 1)
+      local buttonPos = self.positionToLocal(objPos + offSet):scale(scaleVec)
+
+      local fName = "selectButton_" .. buttonCount
+      _G[fName] = function() buttonClick_selectObject(obj) end
+      self.createButton({
+        click_function = fName,
+        function_owner = self,
+        position = buttonPos,
+        height = 600,
+        width = 600,
+        color = { 0.75, 0.25, 0.25, 0.75 },
+        scale = buttonScale
+      })
+      buttonIndexMap[obj.getGUID()] = buttonCount
+      buttonCount = buttonCount + 1
+    end
+  end
+end
+
+function createSetupActionButtons()
+  createButtonByName("Cancel")
+  createButtonByName("Selection")
+  createButtonByName("Reset")
+  createButtonByName("Internal")
+  createButtonByName("Add")
+
+  if next(memoryList) then
+    createButtonByName("Remove")
+    createButtonByName("Update")
+  end
+end
+
+function buttonClick_selectObject(obj)
+  local guid = obj.getGUID()
+  local index = buttonIndexMap[guid]
+  if not index then return end
+
+  if tempList[guid] == nil then
+    self.editButton({ index = index, color = { 0, 1, 0, 0.75 } })
+    tempList[guid] = {
+      pos = roundVector(obj.getPosition(), 3),
+      rot = roundVector(obj.getRotation(), 0),
+      lock = obj.getLock()
+    }
+    obj.highlightOn({ 0, 1, 0 })
+  else
+    self.editButton({ index = index, color = { 0.75, 0.25, 0.25, 0.75 } })
+    tempList[guid] = nil
+    obj.highlightOff()
+  end
+end
+
+function buttonClick_cancel()
+  broadcastToAll("Setup Canceled")
+  removeAllHighlights()
+  createMemoryActionButtons()
+end
+
+function buttonClick_selection(_, playerColor)
+  local objList = Player[playerColor].getSelectedObjects()
+
+  if #objList == 0 then
+    broadcastToAll("No objects selected!")
+  else
+    broadcastToAll("Toggled selection for " .. #objList .. " Object(s)")
+    for _, obj in ipairs(objList) do
+      buttonClick_selectObject(obj)
+    end
+  end
+end
+
+function buttonClick_add()
+  local count = 0
+  for _ in pairs(tempList) do
+    count = count + 1
+  end
+  broadcastToAll("Added " .. count .. " Object(s) from selection")
+
+  -- copy data from tempList to memoryList
+  for guid, entry in pairs(tempList) do
+    memoryList[guid] = entry
+  end
+
+  updateSave()
+  removeAllHighlights()
+  createMemoryActionButtons()
+end
+
+function buttonClick_update()
+  local count = 0
+  for guid, entry in pairs(memoryList) do
+    local obj = getObjectFromGUID(guid)
+    if obj ~= nil then
+      count = count + 1
+      memoryList[guid] = {
+        pos = roundVector(obj.getPosition(), 3),
+        rot = roundVector(obj.getRotation(), 0),
+        lock = obj.getLock()
+      }
+    end
+  end
+  broadcastToAll("Updated data for " .. count .. " Object(s)")
+  updateSave()
+end
+
+function buttonClick_remove()
+  local count = 0
+  for guid in pairs(tempList) do
+    count = count + 1
+    memoryList[guid] = nil
+  end
+  broadcastToAll(count .. " Object(s) Removed", { 1, 1, 1 })
+
+  updateSave()
+  removeAllHighlights()
+  createMemoryActionButtons()
+end
+
+function buttonClick_setNew()
+  local count = 0
+  for _, obj in ipairs(getObjects()) do
+    if memoryList[obj.guid] then
+      count = count + 1
+      memoryList[obj.guid].pos = roundVector(obj.getPosition(), 3)
+      memoryList[obj.guid].rot = roundVector(obj.getRotation(), 0)
+      memoryList[obj.guid].lock = obj.getLock()
+    end
+  end
+  broadcastToAll("Updated Data for " .. count .. " Object(s)", { 1, 1, 1 })
+  updateSave()
+  createMemoryActionButtons()
+end
+
+function buttonClick_reset()
+  memoryList = {}
+  updateSave()
+  removeAllHighlights()
+  broadcastToAll("Tool Reset", { 1, 1, 1 })
+  self.clearButtons()
+
+  if setupButton then
+    createButtonByName("Setup")
+  end
+end
+
+function buttonClick_internal()
+  local count = 0
+  for _, bagObj in ipairs(self.getObjects()) do
+    local data = bagObj.lua_script_state
+    if data ~= nil then
+      local j = JSON.decode(data)
+      if j ~= nil and j.ml ~= nil then
+        count = count + 1
+        for guid, entry in pairs(j.ml) do
+          memoryList[guid] = entry
+        end
+      end
+    end
+  end
+
+  if count > 0 then
+    broadcastToAll("Added " .. count .. " internal bag(s) to existing memory")
+  end
+end
+
+function createMemoryActionButtons()
+  self.clearButtons()
+
+  if next(memoryList) then
+    createButtonByName("Place")
+    createButtonByName("Recall")
+  end
+
+  if setupButton then
+    createButtonByName("Setup")
+  end
+end
+
+-- Sends objects from bag/table to their saved position/rotation
+function buttonClick_place()
+  local data = self.getData()
+
+  -- get names of contained objects
+  local guidToName = {}
+  for _, bagObjData in ipairs(data.ContainedObjects or {}) do
+    guidToName[bagObjData["GUID"]] = bagObjData["Nickname"]
+  end
+
+  local updateGuids = {}
+  local placeCount = 0
+  local moveCount = 0
+  for guid, entry in pairs(memoryList) do
+    local obj = getObjectFromGUID(guid)
+    if obj ~= nil and (obj.getName() == guidToName[guid] or guidToName[guid] == nil) then
+      -- If obj is out on the table and has the same name (or there's no contained copy), move it
+      moveCount = moveCount + 1
+      obj.setPositionSmooth(entry.pos)
+      obj.setRotationSmooth(entry.rot)
+      obj.setLock(entry.lock)
+    elseif guidToName[guid] then
+      -- If obj is inside of the bag
+      placeCount = placeCount + 1
+      local item = self.takeObject({
+        guid = guid,
+        position = entry.pos,
+        rotation = entry.rot,
+        smooth = false
+      })
+      item.setLock(entry.lock)
+
+      if obj ~= nil then
+        updateGuids[guid] = item.getGUID()
+      end
+    end
+  end
+
+  -- update memoryList if we placed an item that got a new GUID
+  if next(updateGuids) then
+    for oldGuid, newGuid in pairs(updateGuids) do
+      memoryList[newGuid] = memoryList[oldGuid]
+      memoryList[oldGuid] = nil
+    end
+    updateSave()
+  end
+
+  if placeCount > 0 then
+    broadcastToAll(placeCount .. " Object(s) Placed", { 1, 1, 1 })
+  end
+
+  if moveCount > 0 then
+    broadcastToAll(moveCount .. " Object(s) Moved", { 1, 1, 1 })
+  end
+
+  if placeCount == 0 and moveCount == 0 then
+    broadcastToAll("Bag is empty and no matching objects were found in play", { 1, 1, 1 })
+  end
+end
+
+function buttonClick_recall()
+  local count = 0
+  for guid, _ in pairs(memoryList) do
+    local obj = getObjectFromGUID(guid)
+    if obj ~= nil then
+      self.putObject(obj)
+      count = count + 1
+    end
+  end
+  broadcastToAll(count .. " Object(s) Recalled", { 1, 1, 1 })
+end
+
+function removeAllHighlights()
+  for _, obj in ipairs(getObjects()) do
+    obj.highlightOff()
+  end
+end
+
+-- Round vector to the Nth decimal
+function roundVector(vec, dec)
+  local mult = 10 ^ (dec or 0)
+  local t = {}
+  for _, k in ipairs({ "x", "y", "z" }) do
+    t[k] = math.floor(vec[k] * mult + 0.5) / mult
+  end
+  return t
+end

@@ -146,7 +146,7 @@ function onLoad(savedData)
   updateHandVisibility()
   updateBlurseVisibility()
   math.randomseed(os.time())
-  TokenManager.initialiize()
+  TokenManager.initialize()
 
   -- add a button and context menu to the chaos token stat tracker
   local statTracker = guidReferenceApi.getObjectByOwnerAndType("Mythos", "StatTracker")
@@ -157,8 +157,8 @@ function onLoad(savedData)
         attributes = {
           onClick = "Global/handleStatTrackerClick",
           position = "0 0 -11",
-          width = "250",
-          height = "250",
+          width = "135",
+          height = "135",
           color = "#00000000"
         }
       }
@@ -2106,8 +2106,9 @@ end
 -- Token Manager
 ---------------------------------------------------------
 
-function TokenManager.initialiize()
+function TokenManager.initialize()
   TokenManager.generateOffsets(12)
+  TokenManager.initTokenTemplates()
 end
 
 -- Generates the offsets for tokens on a card (clues on locations are different and have their own function)
@@ -2220,7 +2221,12 @@ function TokenManager.spawnMultipleTokens(card, tokenType, tokenCount, shiftDown
       return
     end
     for i = 1, tokenCount do
-      offsets[i] = card.positionToWorld(tokenOffsets[tokenCount][i])
+      -- if spawning action tokens, increase offsets slightly since they are larger
+      if tokenType == "universalActionAbility" then
+        offsets[i] = card.positionToWorld(tokenOffsets[tokenCount][i] * Vector(1.2, 1, 1.2))
+      else
+        offsets[i] = card.positionToWorld(tokenOffsets[tokenCount][i])
+      end
     end
   end
 
@@ -2241,22 +2247,23 @@ function TokenManager.spawnMultipleTokens(card, tokenType, tokenCount, shiftDown
     return
   end
 
-  -- this is used to load the correct state for additional resource tokens (e.g. "Ammo")
+  -- if a special resource exists, spawn it directly
+  if stateTable[string.lower(subType or "")] then
+    tokenType = string.lower(subType)
+  end
+
+  -- special handling for some tokens like action/ability tokens
   local callbackName = nil
   local callbackParams = nil
-  local stateID = stateTable[string.lower(subType or "")]
-  if tokenType == "resource" then
-    callbackName = "updateStateToken"
-    callbackParams = stateID
-  elseif tokenType == "universalActionAbility" then
+  if tokenType == "universalActionAbility" then
     local matColor = playermatApi.getMatColorByPosition(card.getPosition())
     local activeInvestigatorData = playermatApi.getActiveInvestigatorData(matColor)
     callbackName = "updateUniversalActionAbilityToken"
-    callbackParams = { class = activeInvestigatorData.class, symbol = subType or activeInvestigatorData.class }
-
-    if temporary then
-      callbackParams.addTag = "Temporary"
-    end
+    callbackParams = {
+      class = activeInvestigatorData.class,
+      symbol = subType,
+      addTag = temporary and "Temporary" or nil
+    }
   end
 
   for i = 1, tokenCount do
@@ -2298,7 +2305,6 @@ function TokenManager.spawnToken(params)
     loadTokenType = "clueDoom"
   end
 
-  TokenManager.initTokenTemplates()
   local tokenTemplate = deepCopy(tokenTemplates[loadTokenType])
   if tokenTemplate == nil then
     error("Unknown token type '" .. loadTokenType .. "'")
@@ -2364,12 +2370,19 @@ function TokenManager.hasLocationData(card)
 end
 
 function TokenManager.initTokenTemplates()
-  if tokenTemplates ~= nil then return end
   tokenTemplates = {}
   local tokenSource = guidReferenceApi.getObjectByOwnerAndType("Mythos", "TokenSource")
   for _, tokenTemplate in ipairs(tokenSource.getData().ContainedObjects) do
-    local tokenName = tokenTemplate.Memo
-    tokenTemplates[tokenName] = tokenTemplate
+    tokenTemplates[tokenTemplate.Memo] = tokenTemplate
+  end
+
+  if tokenTemplates["resource"] ~= nil then
+    -- add templates for the resource token states
+    for subType, subTypeStateId in pairs(stateTable) do
+      if subTypeStateId ~= 1 then
+        tokenTemplates[subType] = TokenManager.getTemplateForState(subTypeStateId)
+      end
+    end
   end
 end
 
@@ -2643,17 +2656,36 @@ end
 
 -- generates the data to spawn an infinite bag of a specific type of resources
 function TokenManager.getDataForInfiniteBag(params)
-  -- re-assign parameters for convenience
-  local tokenType = params.tokenType
-  local position = params.position
-  local rotation = params.rotation
+  local tokenTemplate = tokenTemplates[params.tokenType]
+  if tokenTemplate == nil then
+    error("Unknown token type '" .. params.tokenType .. "'")
+    return
+  end
 
-  -- make sure the token templates are initialized
-  TokenManager.initTokenTemplates()
+  -- generate and return data for the infinite bag
+  local properTypeName = params.tokenType:gsub("^%l", string.upper)
+  return {
+    Name = "Infinite_Bag",
+    Nickname = properTypeName .. " Bag",
+    ContainedObjects = { tokenTemplate },
+    Transform = {
+      posX = params.position.x,
+      posY = params.position.y,
+      posZ = params.position.z,
+      rotX = params.rotation.x,
+      rotY = params.rotation.y,
+      rotZ = params.rotation.z,
+      scaleX = 1,
+      scaleY = 1,
+      scaleZ = 1
+    }
+  }
+end
 
+-- gets the data for a specific resource token state
+function TokenManager.getTemplateForState(subTypeStateId)
   -- create a copy of the resource token (to not modify the source)
   local template = deepCopy(tokenTemplates["resource"])
-  local subTypeStateId = stateTable[tokenType]
   local subTypeData = template["States"][subTypeStateId]
 
   -- add states to data
@@ -2669,24 +2701,7 @@ function TokenManager.getDataForInfiniteBag(params)
   subTypeData["Transform"].rotY = 0
   subTypeData["Transform"].rotZ = 0
 
-  -- generate and return data for the infinite bag
-  local properTypeName = tokenType:gsub("^%l", string.upper)
-  return {
-    Name = "Infinite_Bag",
-    Nickname = properTypeName .. " Bag",
-    ContainedObjects = { subTypeData },
-    Transform = {
-      posX = position.x,
-      posY = position.y,
-      posZ = position.z,
-      rotX = rotation.x,
-      rotY = rotation.y,
-      rotZ = rotation.z,
-      scaleX = 1,
-      scaleY = 1,
-      scaleZ = 1
-    }
-  }
+  return subTypeData
 end
 
 ---------------------------------------------------------
