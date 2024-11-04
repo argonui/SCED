@@ -164,28 +164,47 @@ function onDrop(playerColor)
   -- assume the first eligible object as intended sync object
   local syncObj = searchResult[1]
   local syncName = syncObj.getName()
-  local notes = syncObj.getGMNotes()
-  local md = JSON.decode(notes) or {}
+  local md = JSON.decode(syncObj.getGMNotes()) or {}
+
+  local found = loadDataFromMetadata({
+    md = md,
+    playerColor = playerColor,
+    syncName = syncName,
+    syncRotation = syncObj.getRotation()
+  })
+  if not found then
+    printToColor("Didn't find background for '" .. syncName .. "'!", playerColor, "Orange")
+  end
+end
+
+function loadDataFromMetadata(params)
+  local md = params.md
+  local syncRotation = params.syncRotation
+  local playerColor = params.playerColor
+  local syncName = params.syncName
 
   -- loop through background table
   for _, bgInfo in ipairs(BACKGROUNDS) do
     if bgInfo.id == md.id or bgInfo.id2 == md.id then
-      printToColor("Background for '" .. syncName .. "' loaded!", playerColor, "Green")
+      if syncName and playerColor then
+        printToColor("Background for '" .. syncName .. "' loaded!", playerColor, "Green")
+      end
       showIcons = bgInfo.icons
 
-      -- update rotation
-      local syncRotY = syncObj.getRotation().y
-      if md.type == "Investigator" then
-        syncRotY = syncRotY + 90
+      -- maybe update rotation
+      if syncRotation then
+        if md.type == "Investigator" then
+          syncRotation.y = syncRotation.y + 90
+        end
+        self.setRotation(self.getRotation():setAt("y", syncRotation.y))
       end
-      self.setRotation(self.getRotation():setAt("y", syncRotY))
 
       -- update the image
       updateImage(bgInfo.url)
-      return
+      return true
     end
   end
-  printToColor("Didn't find background for '" .. syncName .. "'!", playerColor, "Orange")
+  return false
 end
 
 -- called by context menu to change background image
