@@ -1,16 +1,57 @@
+require("core/Constants")
 local searchLib = require("util/SearchLib")
 
 local idList = {}
 
+-- some math for card sizing
+local cardRatio = 1.4
+local cardWidth = 235
+local cardHeight = cardWidth * cardRatio
+local hoverScale = 1.45
+local sliceRotateScale = 0.714 -- 1 / cardRatio
+
+-- template for the description
+local galleryTemplateStart = [[<style>
+  .sced-spacer { height: 60px; }
+  .sced-card {
+    width: ]] .. cardWidth .. [[px;
+    border-radius: 5px;
+    margin: 0;
+    transition: transform 0.25s ease-in-out;
+    box-shadow: 0px 5px 10px rgba(0, 0, 0, 0.4);
+  }
+  .sced-slice { background-repeat: no-repeat; height: ]] .. cardHeight .. [[px; }
+  .sced-card:hover { transform: scale(]] .. hoverScale .. [[); }
+  .sced-rotate { transform: scale(]] .. sliceRotateScale .. [[) rotate(270deg); }
+  .sced-rotate:hover { transform: scale(]] .. hoverScale .. [[) rotate(270deg); }
+  .sced-container {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 5px;
+    margin-top: 5px;
+    padding: 10px;
+  }
+  @media (max-width: 600px) {
+    .sced-spacer { height: 0px; }
+    .sced-card { width: 100%; }
+    .sced-card:hover { transform: none; }
+    .sced-slice { height: 140%; }
+  }
+</style>
+<div class="sced-container">]]
+local templateCard = [[  <img class="sced-card" src="{{IMAGE_URL}}"/>]]
+local templateSlice = [[  <div class="sced-card sced-slice{{ROTATION_CLASS}}" style="background-image: url('{{IMAGE_URL}}'); background-size: {{SHEET_SIZE_1}}px {{SHEET_SIZE_2}}px; background-position: -{{OFFSET_1}}px -{{OFFSET_2}}px;"></div>]]
+local galleryTemplateEnd = [[</div>]] .. "\n" .. [[<div class="sced-spacer"></div>]]
+
 function onLoad()
-  -- "generate" button
   local buttonParameters          = {}
   buttonParameters.function_owner = self
   buttonParameters.height         = 200
   buttonParameters.width          = 800
   buttonParameters.click_function = "generate"
   buttonParameters.color          = { 0, 0, 0, 0 }
-  buttonParameters.position       = { 0, 0.11, 0.74 }
+  buttonParameters.position       = Vector(0, 0.11, 0.74)
   buttonParameters.scale          = { 0.5, 1, 0.5 }
   self.createButton(buttonParameters)
 end
@@ -18,15 +59,7 @@ end
 -- generates a string for the deck notes that will instruct the Deck Importer to add the specified cards
 function generate(_, playerColor)
   idList = {}
-  for _, obj in ipairs(searchLib.onObject(self, "isCardOrDeck")) do
-    if obj.type == "Card" then
-      processCard(obj.getGMNotes(), obj.getName(), playerColor)
-    elseif obj.type == "Deck" then
-      for _, deepObj in ipairs(obj.getData().ContainedObjects) do
-        processCard(deepObj.GMNotes, deepObj.Nickname, playerColor)
-      end
-    end
-  end
+  getIdList(playerColor)
 
   if #idList == 0 then
     broadcastToColor("Didn't find any valid cards.", playerColor, "Red")
@@ -34,44 +67,75 @@ function generate(_, playerColor)
   else
     local cardString = #idList .. " cards"
     if #idList == 1 then
-      cardString = " 1 card"
+      cardString = "1 card"
     end
     broadcastToColor("Parsed " .. cardString .. ": Go to Notebook > Deck Instructions", playerColor, "Green")
   end
 
   -- sort the idList
-  table.sort(idList, sortById)
+  table.sort(idList, sortByMetadata)
 
   -- construct the string (new line for each instruction)
-  local description = "++SCED import instructions++"
+  local descriptionParts = {}
+  table.insert(descriptionParts, "++SCED import instructions++")
+
+  -- create the main part of the instructions
+  local createGallery = false
   for _, entry in ipairs(idList) do
-    description = description .. "\n- add: " .. entry.id .. " (**" .. entry.name .. "**)"
+    table.insert(descriptionParts, "\n- add: " .. entry.id .. " (")
+
+    -- maybe add hyperlink to card face
+    if entry.face then
+      createGallery = true
+      table.insert(descriptionParts, '<a href="' .. entry.face .. '">')
+    end
+
+    table.insert(descriptionParts, "**" .. entry.name .. "**")
+
+    -- maybe close hyperlink
+    if entry.face then
+      table.insert(descriptionParts, "</a>")
+    end
+
+    table.insert(descriptionParts, ")")
+
+    -- maybe add hyperlink for back
+    if entry.back then
+      createGallery = true
+      table.insert(descriptionParts, ' (<a href="' .. entry.back .. '">Back</a>)')
+    end
   end
 
-  -- get a timestamp
-  local timestamp = os.date("%Y-%m-%d %H:%M")
+  -- maybe create a card gallery for included cards
+  if createGallery then
+    addGallery(descriptionParts)
+  end
 
-  -- get notebook data
+  -- perform the concatenation of the parts to a single string
+  local description = table.concat(descriptionParts, "")
+
+  -- attempt to edit the existing tab
   for _, nb in ipairs(Notes.getNotebookTabs()) do
     if nb.title == "Deck Instructions" then
-      -- edit the existing tab
-      Notes.editNotebookTab({
-        index = nb.index,
-        body = nb.body .. "\n\n" .. timestamp .. "\n" .. description,
-      })
+      Notes.editNotebookTab({index = nb.index, body = os.date("%Y-%m-%d %H:%M") .. "\n\n" .. description })
       return
     end
   end
 
   -- add a new notebook tab for it (since there was no existing tab)
-  Notes.addNotebookTab({
-    title = "Deck Instructions",
-    body =
-        "Make sure to copy the section beginning with '++SCED import instructions++' to your ArkhamDB / arkham.build deck description." ..
-        "\nAfter doing so, the Deck Importer will be able to spawn these cards IF they are added to the mod's card index (for example by " ..
-        "throwing them into the 'Additional Cards Box' next to the Player Cards Panel in the upper left corner of the table." ..
-        "\nIt also supports '- remove:' instructions to automatically remove placeholder cards.\n\n" .. timestamp .. "\n" .. description
-  })
+  Notes.addNotebookTab({ title = "Deck Instructions", body = os.date("%Y-%m-%d %H:%M") .. "\n\n" .. description })
+end
+
+function getIdList(playerColor)
+  for _, obj in ipairs(searchLib.onObject(self, "isCardOrDeck")) do
+    if obj.type == "Card" then
+      processCard(obj.getData(), playerColor)
+    elseif obj.type == "Deck" then
+      for _, deepObjData in ipairs(obj.getData().ContainedObjects) do
+        processCard(deepObjData, playerColor)
+      end
+    end
+  end
 end
 
 -- use the ZoopGuid as fallback if no id present
@@ -83,22 +147,127 @@ function getIdFromData(metadata)
   end
 end
 
-function processCard(notes, name, playerColor)
-  local id = getIdFromData(JSON.decode(notes) or {})
-  if id then
-    table.insert(idList, { id = id, name = name })
+function addGallery(t)
+  addedImages = {}
+
+  table.insert(t, "\n\n" .. galleryTemplateStart .. "\n")
+
+  for _, entry in ipairs(idList) do
+    maybeAddImageToGallery(t, entry)
+  end
+
+  table.insert(t, galleryTemplateEnd)
+end
+
+function maybeAddImageToGallery(t, data)
+  if data.sheetH and data.sheetW then
+    -- add cards from decksheets
+    local element = templateSlice
+    element = element:gsub("{{SHEET_SIZE_1}}", data.sheetW * cardWidth)
+    element = element:gsub("{{SHEET_SIZE_2}}", data.sheetH * cardHeight)
+    element = element:gsub("{{OFFSET_1}}", (data.col - 1) * cardWidth)
+    element = element:gsub("{{OFFSET_2}}", (data.row - 1) * cardHeight)
+
+    if not data.sideways then
+      element = element:gsub("{{ROTATION_CLASS}}", "")
+    else
+      element = element:gsub("{{ROTATION_CLASS}}", " sced-rotate")
+    end
+    maybeAddSlice(t, element, data.face, data.cardId)
+
+    if data.uniqueBack then
+      maybeAddSlice(t, element, data.back, data.cardId)
+    else
+      maybeAddCard(t, data.back)
+    end
   else
-    broadcastToColor("Couldn't get ID for " .. name .. ".", playerColor, "Red")
+    -- add regular cards
+    maybeAddCard(t, data.face)
+    maybeAddCard(t, data.back)
   end
 end
 
-function sortById(a, b)
+function maybeAddCard(t, url)
+  if url and not addedImages[url] then
+    addedImages[url] = true
+    table.insert(t, templateCard:gsub("{{IMAGE_URL}}", url) .. "\n")
+  end
+end
+
+function maybeAddSlice(t, element, url, cardId)
+  if not url then return end
+
+  -- initialize table
+  addedImages[url] = addedImages[url] or {}
+
+  if not addedImages[url][cardId] then
+    addedImages[url][cardId] = true
+    table.insert(t, element:gsub("{{IMAGE_URL}}", url) .. "\n")
+  end
+end
+
+function processCard(cardData, playerColor)
+  local md = JSON.decode(cardData.GMNotes) or {}
+  local id = getIdFromData(md)
+  if id then
+    local cardDetails = {
+      id = id,
+      metadata = md,
+      cardId = math.floor(cardData.CardID % 100),
+      sideways = cardData["SidewaysCard"]
+    }
+
+    if cardData.Nickname ~= "" then
+      cardDetails.name = cardData.Nickname
+    elseif md.type == "Minicard" then
+      cardDetails.name = "Minicard"
+    else
+      cardDetails.name = "-"
+    end
+
+    -- add images unless minicard
+    if md.type ~= "Minicard" then
+      local _, customDeckData = next(cardData["CustomDeck"])
+      cardDetails.face = customDeckData["FaceURL"]
+
+      if customDeckData["NumHeight"] > 1 or customDeckData["NumWidth"] > 1 then
+        cardDetails.sheetH = customDeckData["NumHeight"]
+        cardDetails.sheetW = customDeckData["NumWidth"]
+        cardDetails.row, cardDetails.col = getGridPosition(cardDetails.cardId, customDeckData["NumWidth"])
+      end
+
+      -- also add the back if it's not one of the regular backs
+      if customDeckData["BackURL"] ~= CARD_BACK_URL.PlayerCard and customDeckData["BackURL"] ~= CARD_BACK_URL.PlayerCard then
+        cardDetails.back = customDeckData["BackURL"]
+        cardDetails.uniqueBack = customDeckData["UniqueBack"]
+      end
+    end
+
+    table.insert(idList, cardDetails)
+  else
+    broadcastToColor("Couldn't get ID for " .. cardData.Nickname .. ".", playerColor, "Red")
+  end
+end
+
+function sortByMetadata(a, b)
   local numA = tonumber(a.id)
   local numB = tonumber(b.id)
+  local isInvestigatorA = (a.metadata.type == "Investigator")
+  local isInvestigatorB = (b.metadata.type == "Investigator")
 
-  if numA and numB then
+  if isInvestigatorA and not isInvestigatorB then
+    return true
+  elseif not isInvestigatorA and isInvestigatorB then
+    return false
+  elseif numA and numB then
     return numA < numB
   else
     return a.name < b.name
   end
+end
+
+function getGridPosition(index, columns)
+  local row = math.floor(index / columns) + 1
+  local column = (index % columns) + 1
+  return row, column
 end
