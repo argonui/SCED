@@ -540,7 +540,7 @@ function removeBusyZones(playerColor, zoneDecks)
     end
   end
 
-  -- threshhold of 16 cards for skipping deck import to cover cases like Tekeli-li cards
+  -- threshold of 16 cards for skipping deck import to cover cases like Tekeli-li cards
   if cardsInDeckArea > 16 then
     for i = 1, 6 do
       zoneDecks["SetAside" .. i] = nil
@@ -558,7 +558,7 @@ function handleAllAttachments(cardsToSpawn, slotsCopy, bondedList, customization
   for cardId, reservedSlot in pairs(cardsWithAttachments) do
     if slotsCopy[cardId] and slotsCopy[cardId] > 0 then
       if customizations["attachments_" .. cardId] and type(reservedSlot) == "number" and reservedSlot < 6 then
-        handleAttachment(cardId, cardsToSpawn, customizations)
+        handleAttachment(cardId, cardsToSpawn, customizations, playerColor)
       elseif cardId == "09077" then
         handleUnderworldMarket(cardsToSpawn, customizations, playerColor)
       elseif cardId == "05002" then
@@ -570,7 +570,7 @@ function handleAllAttachments(cardsToSpawn, slotsCopy, bondedList, customization
   end
 end
 
-function handleAttachment(parentId, cardsToSpawn, customizations)
+function handleAttachment(parentId, cardsToSpawn, customizations, playerColor)
   -- get list of cards that are attached (split by ",")
   local attachmentList = {}
   for str in string.gmatch(customizations["attachments_" .. parentId], "([^,]+)") do
@@ -581,12 +581,14 @@ function handleAttachment(parentId, cardsToSpawn, customizations)
   local zone = "Blank" .. (cardsWithAttachments[parentId] + 1)
   for i = #attachmentList, 1, -1 do
     for j = #cardsToSpawn, 1, -1 do
-      if cardsToSpawn[j].metadata.id == attachmentList[i] and cardsToSpawn[j].zone == "Deck" then
+      if (cardsToSpawn[j].metadata.id == attachmentList[i] or (cardsToSpawn[j].metadata.id == attachmentList[i] .. "-t"))
+          and cardsToSpawn[j].zone == "Deck" then
         cardsToSpawn[j].zone = zone
         break
       end
     end
   end
+  printToAll("Loaded attachment selection from arkham.build selection for ID " .. parentId, playerColor)
 end
 
 function handleAncestralKnowledge(cardsToSpawn)
@@ -599,10 +601,12 @@ function handleAncestralKnowledge(cardsToSpawn)
     end
   end
 
-  -- move 5 random skills to SetAside3
+  -- move 5 random skills
+  local zone = "Blank" .. (cardsWithAttachments["07303"] + 1)
   for i = 1, 5 do
     local skillListIndex = math.random(#skillList)
-    cardsToSpawn[skillList[skillListIndex]].zone = "UnderSetAside3"
+    local skillCardId = table.remove(skillList, skillListIndex)
+    cardsToSpawn[skillCardId].zone = zone
   end
 end
 
@@ -716,7 +720,8 @@ function handleUnderworldMarket(cardsToSpawn, customizations, playerColor)
   -- change zone for cards
   for i = count, 1, -1 do
     for j = #cardsToSpawn, 1, -1 do
-      if cardsToSpawn[j].metadata.id == attachmentList[i] and cardsToSpawn[j].zone == "Deck" then
+      if (cardsToSpawn[j].metadata.id == attachmentList[i] or cardsToSpawn[j].metadata.id == (attachmentList[i] .. "-t"))
+          and cardsToSpawn[j].zone == "Deck" then
         cardsToSpawn[j].zone = "UnderSetAside6"
         break
       end
