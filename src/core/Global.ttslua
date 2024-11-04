@@ -1,3 +1,4 @@
+require("core/Constants")
 local blessCurseManagerApi          = require("chaosbag/BlessCurseManagerApi")
 local guidReferenceApi              = require("core/GUIDReferenceApi")
 local mythosAreaApi                 = require("core/MythosAreaApi")
@@ -13,9 +14,6 @@ local tokenSpawnTrackerApi          = require("core/token/TokenSpawnTrackerApi")
 ---------------------------------------------------------
 -- general setup
 ---------------------------------------------------------
-
-ENCOUNTER_DECK_POS                  = { -3.93, 1, 5.76 }
-ENCOUNTER_DECK_DISCARD_POSITION     = { -3.85, 1, 10.38 }
 
 -- GUIDs that will not be interactable (e.g. parts of the table)
 local NOT_INTERACTABLE              = {
@@ -35,13 +33,12 @@ local chaosTokensLastMatGUID        = nil
 
 -- chaos token stat tracking
 local tokenDrawingStats             = { ["Overall"] = {} }
+local lastDrawnTokens               = {}
 
 local bagSearchers                  = {}
 local hideTitleSplashWaitFunctionId = nil
 
 -- online functionality related variables
-local MOD_VERSION                   = "4.0.0"
-local SOURCE_REPO                   = "https://github.com/Chr1Z93/SCED-downloads/releases/latest/download/"
 local library, requestObj, modMeta, searchFilter, authorFilter
 local acknowledgedUpgradeVersions   = {}
 local authorList                    = {}
@@ -82,28 +79,6 @@ local actionsPerMatColor            = {}
 ---------------------------------------------------------
 -- data for tokens
 ---------------------------------------------------------
-
-ID_URL_MAP                          = {
-  ['blue']    = { name = "Elder Sign", url = 'https://i.imgur.com/nEmqjmj.png' },
-  ['p1']      = { name = "+1", url = 'https://i.imgur.com/uIx8jbY.png' },
-  ['0']       = { name = "0", url = 'https://i.imgur.com/btEtVfd.png' },
-  ['m1']      = { name = "-1", url = 'https://i.imgur.com/w3XbrCC.png' },
-  ['m2']      = { name = "-2", url = 'https://i.imgur.com/bfTg2hb.png' },
-  ['m3']      = { name = "-3", url = 'https://i.imgur.com/yfs8gHq.png' },
-  ['m4']      = { name = "-4", url = 'https://i.imgur.com/qrgGQRD.png' },
-  ['m5']      = { name = "-5", url = 'https://i.imgur.com/3Ym1IeG.png' },
-  ['m6']      = { name = "-6", url = 'https://i.imgur.com/c9qdSzS.png' },
-  ['m7']      = { name = "-7", url = 'https://i.imgur.com/4WRD42n.png' },
-  ['m8']      = { name = "-8", url = 'https://i.imgur.com/9t3rPTQ.png' },
-  ['skull']   = { name = "Skull", url = 'https://i.imgur.com/stbBxtx.png' },
-  ['cultist'] = { name = "Cultist", url = 'https://i.imgur.com/VzhJJaH.png' },
-  ['tablet']  = { name = "Tablet", url = 'https://i.imgur.com/1plY463.png' },
-  ['elder']   = { name = "Elder Thing", url = 'https://i.imgur.com/ttnspKt.png' },
-  ['red']     = { name = "Auto-fail", url = 'https://i.imgur.com/lns4fhz.png' },
-  ['bless']   = { name = "Bless", url = 'https://steamusercontent-a.akamaihd.net/ugc/1655601092778627699/339FB716CB25CA6025C338F13AFDFD9AC6FA8356/' },
-  ['curse']   = { name = "Curse", url = 'https://steamusercontent-a.akamaihd.net/ugc/1655601092778636039/2A25BD38E8C44701D80DD96BF0121DA21843672E/' },
-  ['frost']   = { name = "Frost", url = 'https://steamusercontent-a.akamaihd.net/ugc/1858293462583104677/195F93C063A8881B805CE2FD4767A9718B27B6AE/' }
-}
 
 TokenManager                        = {}
 local tokenOffsets                  = {}
@@ -174,7 +149,25 @@ function onLoad(savedData)
   updateHandVisibility()
   updateBlurseVisibility()
   math.randomseed(os.time())
-  TokenManager.initialiize()
+  TokenManager.initialize()
+
+  -- add a button and context menu to the chaos token stat tracker
+  local statTracker = guidReferenceApi.getObjectByOwnerAndType("Mythos", "StatTracker")
+  if statTracker then
+    statTracker.UI.setXmlTable({
+      {
+        tag = "Button",
+        attributes = {
+          onClick = "Global/handleStatTrackerClick",
+          position = "0 0 -11",
+          width = "135",
+          height = "135",
+          color = "#00000000"
+        }
+      }
+    })
+    statTracker.addContextMenuItem("Print my stats", function(playerColor) handleStatTrackerClick(Player[playerColor], "-3") end)
+  end
   Wait.frames(createActionTrackerUI, 10)
 
   -- initialization of library (delay to let Navigation Overlay build)
@@ -239,11 +232,6 @@ function onObjectEnterZone(zone, object)
       object.flip()
     end
 
-    -- disable any helpers on the card
-    if object.hasTag("CardWithHelper") then
-      object.call("setHelperState", false)
-    end
-
     -- maybe reset data about sealed tokens (if that function exists)
     if object.hasTag("CardThatSeals") then
       local func = object.getVar("resetSealedTokens")
@@ -258,25 +246,29 @@ end
 
 -- TTS event for objects that leave zones
 function onObjectLeaveZone(zone, object)
-  -- 1 frame delay to avoid error messages when exiting the game
-  Wait.frames(
-    function()
-      -- end here if one of the objects doesn't exist
-      if zone.isDestroyed() or object.isDestroyed() then return end
+  -- end here if one of the objects doesn't exist
+  if zone.isDestroyed() or object.isDestroyed() then return end
 
-      -- resync the state of the helper on the card with the option panel
-      if zone.type == "Hand" and object.hasTag("CardWithHelper") then
-        object.call("syncDisplayWithOptionPanel")
-      end
+  -- make sure that the object really left and isn't still in a hand zone
+  for _, objZone in ipairs(object.getZones()) do
+    if objZone.isDestroyed() or objZone.type == "Hand" then return end
+  end
 
-      -- make object visible
-      object.setHiddenFrom({})
-    end, 1)
+  -- make object visible
+  object.setHiddenFrom({})
 end
 
 -- handle card drawing via number typing for multihanded gameplay
 -- (and additionally allow Norman Withers to draw multiple cards via number)
 function onObjectNumberTyped(hoveredObject, playerColor, number)
+  -- adds cards to appropriate hand for Attachment Helper
+  if hoveredObject.getName() == "Attachment Helper" then
+    local matColor = playermatApi.getMatColorByPosition(hoveredObject.getPosition())
+    local handColor = playermatApi.getPlayerColor(matColor)
+    hoveredObject.deal(number, handColor)
+    return true
+  end
+
   -- only continue for decks or cards
   if hoveredObject.type ~= "Deck" and hoveredObject.type ~= "Card" then return end
 
@@ -644,18 +636,31 @@ function trackChaosToken(tokenName, matGUID, subtract)
   tokenName                               = getReadableTokenName(tokenName)
   tokenDrawingStats["Overall"][tokenName] = (tokenDrawingStats["Overall"][tokenName] or 0) + modifier
   tokenDrawingStats[matGUID][tokenName]   = (tokenDrawingStats[matGUID][tokenName] or 0) + modifier
+
+  -- add to list of last drawn tokens (if not subtracting)
+  if not subtract then
+    table.insert(lastDrawnTokens, { tokenName = tokenName, matGUID = matGUID })
+    if #lastDrawnTokens > 5 then
+      table.remove(lastDrawnTokens, 1)
+    end
+  end
 end
 
 -- Left-click: print stats, Right-click: reset stats
-function handleStatTrackerClick(_, _, isRightClick)
-  if isRightClick then
+function handleStatTrackerClick(player, clickType, _)
+  if clickType == "-2" then
+    -- right-clicked
     resetChaosTokenStatTracker()
-  else
-    local squidKing     = "Nobody"
-    local maxSquid      = 0
-    local foundAnyStats = false
+    return
+  end
 
-    for key, personalStats in pairs(tokenDrawingStats) do
+  local squidKing     = "Nobody"
+  local maxSquid      = 0
+  local foundAnyStats = false
+
+  for key, personalStats in pairs(tokenDrawingStats) do
+    -- skip if middle-clicked and not the color of the clicking player
+    if clickType ~= "-3" or guidReferenceApi.getOwnerOfObject(getObjectFromGUID(key)) == playermatApi.getMatColor(player.color) then
       local playerColor, playerName
 
       if key == "Overall" then
@@ -704,19 +709,43 @@ function handleStatTrackerClick(_, _, isRightClick)
         printToAll('Total: ' .. tostring(totalCount))
       end
     end
+  end
 
-    -- detect if any player drew tokens
-    if foundAnyStats then
-      printToAll("------------------------------")
-      printToAll(squidKing .. " is an auto-fail magnet.", { 255, 0, 0 })
-    else
-      printToAll("No tokens have been drawn yet.", "Yellow")
+  -- detect if any player drew tokens
+  if foundAnyStats then
+    -- end here if middle-clicked
+    if clickType == "-3" then return end
+
+    printToAll("------------------------------")
+
+    -- maybe print history for last 5 token draws
+    if #lastDrawnTokens > 0 then
+      local tokenStr = ""
+      for _, data in ipairs(lastDrawnTokens) do
+        local mat = getObjectFromGUID(data.matGUID)
+        if mat ~= nil then
+          local handColor = mat.getVar("playerColor")
+          tokenStr = tokenStr .. "[" .. Color.fromString(handColor):toHex() .. "]" .. data.tokenName .. "[-], "
+        else
+          tokenStr = tokenStr .. data.tokenName .. " ,"
+        end
+      end
+
+      -- remove last delimiter
+      tokenStr = string.sub(tokenStr, 1, -3)
+      printToAll("Last 5 (old to new): " .. tokenStr)
     end
+
+    printToAll(squidKing .. " is an auto-fail magnet.", { 255, 0, 0 })
+  else
+    printToAll("No tokens have been drawn yet.", "Yellow")
   end
 end
 
 -- resets the count for each token to 0
 function resetChaosTokenStatTracker()
+  printToAll("Chaos Token stat tracker has been reset.")
+  lastDrawnTokens = {}
   tokenDrawingStats = { ["Overall"] = {} }
 end
 
@@ -1884,7 +1913,7 @@ function applyOptionPanelChange(id, state)
     -- update master clue counter
     local counter = guidReferenceApi.getObjectByOwnerAndType("Mythos", "MasterClueCounter")
     counter.setVar("useClickableCounters", state)
-
+    
     -- option: Enable card helpers
   elseif id == "enableCardHelpers" then
     toggleCardHelpers(state)
@@ -2063,10 +2092,23 @@ function titleSplash(scenarioName)
   end
 end
 
--- instructs all card helpers to update their visibility
+-- turns off all card helpers, if they are on
 function toggleCardHelpers(state)
   for _, obj in ipairs(getObjectsWithTag("CardWithHelper")) do
-    obj.call("setHelperState", state)
+    local owner = guidReferenceApi.getOwnerOfObject(obj)
+    if owner == "Mythos" then return end
+
+    local mat = guidReferenceApi.getObjectByOwnerAndType(owner, "Playermat")
+    local relPos = mat.positionToLocal(obj.getPosition())
+    local metadata = JSON.decode(obj.getGMNotes()) or {}
+
+    if relPos.x > -1.5 and relPos.z > -0.3 and (metadata.type == "Asset"
+        or metadata.type == "Investigator"
+        or metadata.type == "Event") then
+      obj.call("setHelperState", state)
+    elseif relPos.x > -1.5 and relPos.z < -0.3 and (metadata.type == "Skill") then
+      obj.call("setHelperState", state)
+    end
   end
 end
 
@@ -2228,8 +2270,9 @@ end
 -- Token Manager
 ---------------------------------------------------------
 
-function TokenManager.initialiize()
+function TokenManager.initialize()
   TokenManager.generateOffsets(12)
+  TokenManager.initTokenTemplates()
 end
 
 -- Generates the offsets for tokens on a card (clues on locations are different and have their own function)
@@ -2342,7 +2385,12 @@ function TokenManager.spawnMultipleTokens(card, tokenType, tokenCount, shiftDown
       return
     end
     for i = 1, tokenCount do
-      offsets[i] = card.positionToWorld(tokenOffsets[tokenCount][i])
+      -- if spawning action tokens, increase offsets slightly since they are larger
+      if tokenType == "universalActionAbility" then
+        offsets[i] = card.positionToWorld(tokenOffsets[tokenCount][i] * Vector(1.2, 1, 1.2))
+      else
+        offsets[i] = card.positionToWorld(tokenOffsets[tokenCount][i])
+      end
     end
   end
 
@@ -2363,22 +2411,23 @@ function TokenManager.spawnMultipleTokens(card, tokenType, tokenCount, shiftDown
     return
   end
 
-  -- this is used to load the correct state for additional resource tokens (e.g. "Ammo")
+  -- if a special resource exists, spawn it directly
+  if stateTable[string.lower(subType or "")] then
+    tokenType = string.lower(subType)
+  end
+
+  -- special handling for some tokens like action/ability tokens
   local callbackName = nil
   local callbackParams = nil
-  local stateID = stateTable[string.lower(subType or "")]
-  if tokenType == "resource" then
-    callbackName = "updateStateToken"
-    callbackParams = stateID
-  elseif tokenType == "universalActionAbility" then
+  if tokenType == "universalActionAbility" then
     local matColor = playermatApi.getMatColorByPosition(card.getPosition())
     local activeInvestigatorData = playermatApi.getActiveInvestigatorData(matColor)
     callbackName = "updateUniversalActionAbilityToken"
-    callbackParams = { class = activeInvestigatorData.class, symbol = subType or activeInvestigatorData.class }
-
-    if temporary then
-      callbackParams.addTag = "Temporary"
-    end
+    callbackParams = {
+      class = activeInvestigatorData.class,
+      symbol = subType,
+      addTag = temporary and "Temporary" or nil
+    }
   end
 
   for i = 1, tokenCount do
@@ -2420,8 +2469,7 @@ function TokenManager.spawnToken(params)
     loadTokenType = "clueDoom"
   end
 
-  TokenManager.initTokenTemplates()
-  local tokenTemplate = tokenTemplates[loadTokenType]
+  local tokenTemplate = deepCopy(tokenTemplates[loadTokenType])
   if tokenTemplate == nil then
     error("Unknown token type '" .. loadTokenType .. "'")
     return
@@ -2486,12 +2534,19 @@ function TokenManager.hasLocationData(card)
 end
 
 function TokenManager.initTokenTemplates()
-  if tokenTemplates ~= nil then return end
   tokenTemplates = {}
   local tokenSource = guidReferenceApi.getObjectByOwnerAndType("Mythos", "TokenSource")
   for _, tokenTemplate in ipairs(tokenSource.getData().ContainedObjects) do
-    local tokenName = tokenTemplate.Memo
-    tokenTemplates[tokenName] = tokenTemplate
+    tokenTemplates[tokenTemplate.Memo] = tokenTemplate
+  end
+
+  if tokenTemplates["resource"] ~= nil then
+    -- add templates for the resource token states
+    for subType, subTypeStateId in pairs(stateTable) do
+      if subTypeStateId ~= 1 then
+        tokenTemplates[subType] = TokenManager.getTemplateForState(subTypeStateId)
+      end
+    end
   end
 end
 
@@ -2765,17 +2820,36 @@ end
 
 -- generates the data to spawn an infinite bag of a specific type of resources
 function TokenManager.getDataForInfiniteBag(params)
-  -- re-assign parameters for convenience
-  local tokenType = params.tokenType
-  local position = params.position
-  local rotation = params.rotation
+  local tokenTemplate = tokenTemplates[params.tokenType]
+  if tokenTemplate == nil then
+    error("Unknown token type '" .. params.tokenType .. "'")
+    return
+  end
 
-  -- make sure the token templates are initialized
-  TokenManager.initTokenTemplates()
+  -- generate and return data for the infinite bag
+  local properTypeName = params.tokenType:gsub("^%l", string.upper)
+  return {
+    Name = "Infinite_Bag",
+    Nickname = properTypeName .. " Bag",
+    ContainedObjects = { tokenTemplate },
+    Transform = {
+      posX = params.position.x,
+      posY = params.position.y,
+      posZ = params.position.z,
+      rotX = params.rotation.x,
+      rotY = params.rotation.y,
+      rotZ = params.rotation.z,
+      scaleX = 1,
+      scaleY = 1,
+      scaleZ = 1
+    }
+  }
+end
 
+-- gets the data for a specific resource token state
+function TokenManager.getTemplateForState(subTypeStateId)
   -- create a copy of the resource token (to not modify the source)
   local template = deepCopy(tokenTemplates["resource"])
-  local subTypeStateId = stateTable[tokenType]
   local subTypeData = template["States"][subTypeStateId]
 
   -- add states to data
@@ -2791,29 +2865,16 @@ function TokenManager.getDataForInfiniteBag(params)
   subTypeData["Transform"].rotY = 0
   subTypeData["Transform"].rotZ = 0
 
-  -- generate and return data for the infinite bag
-  local properTypeName = tokenType:gsub("^%l", string.upper)
-  return {
-    Name = "Infinite_Bag",
-    Nickname = properTypeName .. " Bag",
-    ContainedObjects = { subTypeData },
-    Transform = {
-      posX = position.x,
-      posY = position.y,
-      posZ = position.z,
-      rotX = rotation.x,
-      rotY = rotation.y,
-      rotZ = rotation.z,
-      scaleX = 1,
-      scaleY = 1,
-      scaleZ = 1
-    }
-  }
+  return subTypeData
 end
 
 ---------------------------------------------------------
 -- Callback functions for token spawning
 ---------------------------------------------------------
+
+function addTagToToken(obj, tag)
+  obj.addTag(tag)
+end
 
 function updateUniversalActionAbilityToken(obj, params)
   obj.call("updateClassAndSymbol", params)

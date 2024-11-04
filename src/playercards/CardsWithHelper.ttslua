@@ -10,41 +10,27 @@ Instructions:
 hasXML          = true  (whether the card has an XML display)
 isHelperEnabled = false (default state of the helper, should be 'false')
 
-2) In 'onLoad()'', call 'syncDisplayWithOptionPanel()'
+2) Add "CardWithHelper" tag to .json for the card object itself.
+
+3) Add `if isHelperEnabled then updateDisplay() end` to onLoad()
+
 ----------------------------------------------------------]]
-
-local GlobalApi = require("core/GlobalApi")
-
--- if the respective option is enabled in onLoad(), enable the helper
-function syncDisplayWithOptionPanel()
-  self.addTag("CardWithHelper")
-
-  -- check if this card is in a hand zone (because we're loading a saved game)
-  for _, zone in ipairs(self.getZones()) do
-    if zone.type == "Hand" then
-      setHelperState(false)
-      return
-    end
-  end
-
-  -- get state of the option panel
-  local options = GlobalApi.getOptionPanelState()
-  if options.enableCardHelpers then
-    setHelperState(true)
-  else
-    updateDisplay()
-  end
-end
 
 -- forces a new state
 function setHelperState(newState)
+  if doNotTurnOff == true then return end
   isHelperEnabled = newState
   updateSave()
   updateDisplay()
 end
 
 -- toggles the current state
-function toggleHelper()
+function toggleHelper(manual)
+  if manual and isHelperEnabled == true then -- do not allow helper to be forced to turn on
+    doNotTurnOff = true
+  elseif manual and isHelperEnabled == false then -- return to default behavior
+    doNotTurnOff = false
+  end
   isHelperEnabled = not isHelperEnabled
   updateSave()
   updateDisplay()
@@ -67,4 +53,8 @@ function actualDisplayUpdate()
     if hasXML then self.UI.hide("Helper") end
     if shutOff then shutOff() end
   end
+end
+
+function onPickUp()
+  setHelperState(false)
 end
