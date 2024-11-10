@@ -27,7 +27,7 @@ local Y_VISIBLE    = 0.25
 local Y_INVISIBLE  = -0.5
 
 -- Variable to check whether UI finished loading
-local isLoading = true;
+local isLoading = true
 
 -- Used for Summoned Servitor and Living Ink
 local VECTOR_COLOR = {
@@ -154,7 +154,7 @@ function createRowCheckboxes(rowIndex)
 end
 
 function getCheckboxPosition(row, col)
-  return tostring((xInitial + col * xOffset) * -100) .. " " .. tostring(customizations[row].checkboxes.posZ * 100) .. " " .. tostring(-22)
+  return translatePosition(xInitial + col * xOffset, customizations[row].checkboxes.posZ)
 end
 
 function createRowTextField(rowIndex)
@@ -169,8 +169,7 @@ function createRowTextField(rowIndex)
   local func = function(player, value) clickTextbox(rowIndex, value) end
   self.setVar(funcName, func)
 
-  local posVector = Vector(textField.position)
-  local actualPosition = tostring(posVector.x * -100) .. " " .. tostring(posVector.z * 100) .. " " .. tostring(-22)
+  local actualPosition = translatePosition(textField.position[1], textField.position[3])
   local newTextbox = {
     tag = "InputField",
     attributes = {
@@ -190,6 +189,14 @@ function createRowTextField(rowIndex)
     }
   }
   table.insert(xmlTable, newTextbox)
+end
+
+function translatePosition(posX, posZ)
+  -- position values are made strings to be usabled by the XML, height (z) is always -22
+  local translatedPosX = tostring(posX * -100)
+  local translatedPosY = tostring(posZ * 100)
+  local combinedPos = translatedPosX .. " " .. translatedPosY .. " " .. -22
+  return combinedPos
 end
 
 function updateDisplay()
@@ -219,44 +226,10 @@ function updateCheckboxes(rowIndex)
   for col = 1, checkboxCount do
     if col <= selected then
       local identifier = tostring(rowIndex) .. " " .. tostring(col)
-      if isLoading then
-        Wait.condition(
-          function()
-            Wait.frames(
-              function()
-                isLoading = false;
-                self.UI.setAttribute(identifier, "color", "#000000")
-              end,
-              1
-            )
-          end,
-          function()
-            return not self.UI.loading
-          end
-        )
-      else
-        self.UI.setAttribute(identifier, "color", "#000000")
-      end
+      waitForUILoad(identifier, "color", "#000000")
     else
       local identifier = tostring(rowIndex) .. " " .. tostring(col)
-      if isLoading then
-        Wait.condition(
-          function()
-            Wait.frames(
-              function()
-                isLoading = false;
-                self.UI.setAttribute(identifier, "color", "#48b02800")
-              end,
-              1
-            )
-          end,
-          function()
-            return not self.UI.loading
-          end
-        )
-      else
-        self.UI.setAttribute(identifier, "color", "#48b02800")
-      end
+      waitForUILoad(identifier, "color", "#48b02800")
     end
     checkboxIndex = checkboxIndex + 1
   end
@@ -265,24 +238,28 @@ end
 function updateTextField(rowIndex)
   local inputIndex = rowInputIndex[rowIndex]
   if selectedUpgrades[rowIndex] ~= nil and selectedUpgrades[rowIndex].text ~= nil then
-    if isLoading then
-      Wait.condition(
-        function()
-          Wait.frames(
-            function()
-              isLoading = false;
-              self.UI.setAttribute(rowIndex, "text", " " .. selectedUpgrades[rowIndex].text)
-            end,
-            1
-          )
-        end,
-        function()
-          return not self.UI.loading
-        end
-      )
-    else
-      self.UI.setAttribute(rowIndex, "text", " " .. selectedUpgrades[rowIndex].text)
-    end
+    waitForUILoad(rowIndex, "text", selectedUpgrades[rowIndex].text)
+  end
+end
+
+function waitForUILoad(id, attribute, value)
+  if isLoading then
+    Wait.condition(
+      function()
+        Wait.frames(
+          function()
+            isLoading = false;
+            self.UI.setAttribute(id, attribute, value)
+          end,
+          1
+        )
+      end,
+      function()
+        return not self.UI.loading
+      end
+    )
+  else
+    self.UI.setAttribute(id, attribute, value)
   end
 end
 
