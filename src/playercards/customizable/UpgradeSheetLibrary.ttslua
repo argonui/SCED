@@ -26,6 +26,9 @@ local playermatApi = require("playermat/PlayermatApi")
 local Y_VISIBLE    = 0.25
 local Y_INVISIBLE  = -0.5
 
+-- Variable to check whether UI finished loading
+local isLoading = true;
+
 -- Used for Summoned Servitor and Living Ink
 local VECTOR_COLOR = {
   unselected = { 0.5, 0.5, 0.5, 0.75 },
@@ -60,6 +63,22 @@ function onLoad(savedData)
   selfId = getSelfId()
 
   maybeLoadLivingInkSkills()
+  xmlTable = {
+    {
+      tag = "Defaults",
+      children = {
+        {
+          tag = "Button",
+          attributes = {
+            color = "#48b028",
+            height = 70,
+            width = 70,
+            scale = "0.1 0.1 0.1",
+          }
+        }
+      }
+    }
+  }
   createUi()
   maybeUpdateLivingInkSkillDisplay()
   maybeUpdateServitorSlotDisplay()
@@ -103,6 +122,7 @@ function createUi()
       createRowTextField(i)
     end
   end
+  self.UI.setXmlTable(xmlTable)
   maybeMakeLivingInkSkillSelectionButtons()
   maybeMakeServitorSlotSelectionButtons()
   updateDisplay()
@@ -120,27 +140,21 @@ function createRowCheckboxes(rowIndex)
     local func = function() clickCheckbox(rowIndex, col) end
     self.setVar(funcName, func)
     local checkboxPos = getCheckboxPosition(rowIndex, col)
-
-    self.createButton({
-      click_function = funcName,
-      function_owner = self,
-      position       = checkboxPos,
-      height         = boxSize * 10,
-      width          = boxSize * 10,
-      font_size      = 1000,
-      scale          = { 0.1, 0.1, 0.1 },
-      color          = { 0, 0, 0 },
-      font_color     = { 0, 0, 0 }
-    })
+    local identifier = tostring(rowIndex) .. " " .. tostring(col)
+    local newCheckbox = {
+      tag = "Button",
+      attributes = {
+        onClick = funcName,
+        position = checkboxPos,
+        id = identifier,
+      }
+    }
+    table.insert(xmlTable, newCheckbox)
   end
 end
 
 function getCheckboxPosition(row, col)
-  return {
-    x = xInitial + col * xOffset,
-    y = Y_VISIBLE,
-    z = customizations[row].checkboxes.posZ
-  }
+  return tostring((xInitial + col * xOffset) * -100) .. " " .. tostring(customizations[row].checkboxes.posZ * 100) .. " " .. tostring(-22)
 end
 
 function createRowTextField(rowIndex)
@@ -152,22 +166,30 @@ function createRowTextField(rowIndex)
     rowInputIndex[rowIndex] = #previousInputs
   end
   local funcName = "textbox" .. rowIndex
-  local func = function(_, _, val, sel) clickTextbox(rowIndex, val, sel) end
+  local func = function(player, value) clickTextbox(rowIndex, value) end
   self.setVar(funcName, func)
 
-  self.createInput({
-    input_function = funcName,
-    function_owner = self,
-    label          = "Click to type",
-    alignment      = 2,
-    position       = textField.position,
-    scale          = { 0.1, 0.1, 0.1 },
-    width          = textField.width * 10,
-    height         = inputFontsize * 10 + 75,
-    font_size      = inputFontsize * 10.5,
-    color          = "White",
-    value          = ""
-  })
+  local posVector = Vector(textField.position)
+  local actualPosition = tostring(posVector.x * -100) .. " " .. tostring(posVector.z * 100) .. " " .. tostring(-22)
+  local newTextbox = {
+    tag = "InputField",
+    attributes = {
+      onEndEdit = funcName,
+      id = rowIndex,
+      placeholder = "Click to type",
+      position = actualPosition,
+      alignment = "UpperLeft",
+      width = textField.width,
+      height = (inputFontsize + 15),
+      fontSize = inputFontsize,
+      resizeTextForBestFit = true,
+      fontStyle = "Bold",
+      rotation = "0 0 180",
+      scale = "0.2 0.2 0.2",
+      color = "#FFFFFF",
+    }
+  }
+  table.insert(xmlTable, newTextbox)
 end
 
 function updateDisplay()
@@ -195,16 +217,47 @@ function updateCheckboxes(rowIndex)
   end
   local checkboxIndex = rowCheckboxFirstIndex[rowIndex]
   for col = 1, checkboxCount do
-    local pos = getCheckboxPosition(rowIndex, col)
     if col <= selected then
-      pos.y = Y_VISIBLE
+      local identifier = tostring(rowIndex) .. " " .. tostring(col)
+      if isLoading then
+        Wait.condition(
+          function()
+            Wait.frames(
+              function()
+                isLoading = false;
+                self.UI.setAttribute(identifier, "color", "#000000")
+              end,
+              1
+            )
+          end,
+          function()
+            return not self.UI.loading
+          end
+        )
+      else
+        self.UI.setAttribute(identifier, "color", "#000000")
+      end
     else
-      pos.y = Y_INVISIBLE
+      local identifier = tostring(rowIndex) .. " " .. tostring(col)
+      if isLoading then
+        Wait.condition(
+          function()
+            Wait.frames(
+              function()
+                isLoading = false;
+                self.UI.setAttribute(identifier, "color", "#48b02800")
+              end,
+              1
+            )
+          end,
+          function()
+            return not self.UI.loading
+          end
+        )
+      else
+        self.UI.setAttribute(identifier, "color", "#48b02800")
+      end
     end
-    self.editButton({
-      index = checkboxIndex,
-      position = pos
-    })
     checkboxIndex = checkboxIndex + 1
   end
 end
@@ -212,10 +265,24 @@ end
 function updateTextField(rowIndex)
   local inputIndex = rowInputIndex[rowIndex]
   if selectedUpgrades[rowIndex] ~= nil and selectedUpgrades[rowIndex].text ~= nil then
-    self.editInput({
-      index = inputIndex,
-      value = " " .. selectedUpgrades[rowIndex].text
-    })
+    if isLoading then
+      Wait.condition(
+        function()
+          Wait.frames(
+            function()
+              isLoading = false;
+              self.UI.setAttribute(rowIndex, "text", " " .. selectedUpgrades[rowIndex].text)
+            end,
+            1
+          )
+        end,
+        function()
+          return not self.UI.loading
+        end
+      )
+    else
+      self.UI.setAttribute(rowIndex, "text", " " .. selectedUpgrades[rowIndex].text)
+    end
   end
 end
 
@@ -234,15 +301,13 @@ function clickCheckbox(row, col)
 end
 
 -- Updates saved value for given text box when it loses focus
-function clickTextbox(rowIndex, value, selected)
-  if selected == false then
-    if selectedUpgrades[rowIndex] == nil then
-      selectedUpgrades[rowIndex] = { }
-    end
-    selectedUpgrades[rowIndex].text = value:gsub("^%s*(.-)%s*$", "%1")
-    -- Editing isn't actually done yet, and will block the update.  Wait a frame so it's finished
-    Wait.frames(function() updateRowDisplay(rowIndex) end, 1)
+function clickTextbox(rowIndex, value)
+  if selectedUpgrades[rowIndex] == nil then
+    selectedUpgrades[rowIndex] = { }
   end
+  selectedUpgrades[rowIndex].text = value:gsub("^%s*(.-)%s*$", "%1")
+  -- Editing isn't actually done yet, and will block the update.  Wait a frame so it's finished
+  Wait.frames(function() updateRowDisplay(rowIndex) end, 1)
 end
 
 ---------------------------------------------------------
