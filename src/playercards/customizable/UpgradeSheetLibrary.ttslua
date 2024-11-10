@@ -1,6 +1,6 @@
 -- Common code for handling customizable card upgrade sheets
 -- Define UI elements in the base card file, then include this
--- UI element definition is an array of tables, each with this structure.  A row may include
+-- UI element definition is an array of tables, each with this structure. A row may include
 -- checkboxes (number defined by count), a text field, both, or neither (if the row has custom
 -- handling, as Living Ink does)
 -- {
@@ -19,18 +19,16 @@
 -- selectedUpgrades holds the state of checkboxes and text input, each element being:
 -- selectedUpgrades[row] = { xp = #, text = "" }
 
-local playermatApi = require("playermat/PlayermatApi")
+local playermatApi                   = require("playermat/PlayermatApi")
 
--- Y position for UI elements.  Visibility of checkboxes moves the checkbox inside the card object
--- when not selected.
-local Y_VISIBLE    = 0.25
-local Y_INVISIBLE  = -0.5
+-- Y position for UI elements
+local Y_VISIBLE                      = 0.25
 
 -- Variable to check whether UI finished loading
-local isLoading = true
+local isLoading                      = true
 
 -- Used for Summoned Servitor and Living Ink
-local VECTOR_COLOR = {
+local VECTOR_COLOR                   = {
   unselected = { 0.5, 0.5, 0.5, 0.75 },
   mystic     = { 0.597, 0.195, 0.796 }
 }
@@ -38,17 +36,11 @@ local VECTOR_COLOR = {
 -- These match with ArkhamDB's way of storing the data in the dropdown menu
 local SUMMONED_SERVITOR_SLOT_INDICES = { arcane = "1", ally = "0", none = "" }
 
-local rowCheckboxFirstIndex = { }
-local rowInputIndex = { }
-local selectedUpgrades = { }
+local rowCheckboxFirstIndex          = {}
+local selectedUpgrades               = {}
 
--- save state when going into bags / decks
-function onDestroy() self.script_state = onSave() end
-
-function onSave()
-  return JSON.encode({
-    selections = selectedUpgrades
-  })
+function updateSave()
+  self.script_state = JSON.encode({ selections = selectedUpgrades })
 end
 
 -- Startup procedure
@@ -106,7 +98,8 @@ function isUpgradeActive(row)
 end
 
 function resetSelections()
-  selectedUpgrades = { }
+  selectedUpgrades = {}
+  updateSave()
   updateDisplay()
 end
 
@@ -159,12 +152,6 @@ end
 
 function createRowTextField(rowIndex)
   local textField = customizations[rowIndex].textField
-
-  rowInputIndex[rowIndex] = 0
-  local previousInputs = self.getInputs()
-  if previousInputs ~= nil then
-    rowInputIndex[rowIndex] = #previousInputs
-  end
   local funcName = "textbox" .. rowIndex
   local func = function(player, value) clickTextbox(rowIndex, value) end
   self.setVar(funcName, func)
@@ -195,7 +182,7 @@ function translatePosition(posX, posZ)
   -- position values are made strings to be usabled by the XML, height (z) is always -22
   local translatedPosX = tostring(posX * -100)
   local translatedPosY = tostring(posZ * 100)
-  local combinedPos = translatedPosX .. " " .. translatedPosY .. " " .. -22
+  local combinedPos = translatedPosX .. " " .. translatedPosY .. " -22"
   return combinedPos
 end
 
@@ -236,7 +223,6 @@ function updateCheckboxes(rowIndex)
 end
 
 function updateTextField(rowIndex)
-  local inputIndex = rowInputIndex[rowIndex]
   if selectedUpgrades[rowIndex] ~= nil and selectedUpgrades[rowIndex].text ~= nil then
     waitForUILoad(rowIndex, "text", selectedUpgrades[rowIndex].text)
   end
@@ -248,15 +234,13 @@ function waitForUILoad(id, attribute, value)
       function()
         Wait.frames(
           function()
-            isLoading = false;
+            isLoading = false
             self.UI.setAttribute(id, attribute, value)
           end,
           1
         )
       end,
-      function()
-        return not self.UI.loading
-      end
+      function() return not self.UI.loading end
     )
   else
     self.UI.setAttribute(id, attribute, value)
@@ -265,7 +249,7 @@ end
 
 function clickCheckbox(row, col)
   if selectedUpgrades[row] == nil then
-    selectedUpgrades[row] = { }
+    selectedUpgrades[row] = {}
     selectedUpgrades[row].xp = 0
   end
   if selectedUpgrades[row].xp == col then
@@ -274,16 +258,18 @@ function clickCheckbox(row, col)
     selectedUpgrades[row].xp = col
   end
   updateCheckboxes(row)
+  updateSave()
   playermatApi.syncAllCustomizableCards()
 end
 
 -- Updates saved value for given text box when it loses focus
 function clickTextbox(rowIndex, value)
   if selectedUpgrades[rowIndex] == nil then
-    selectedUpgrades[rowIndex] = { }
+    selectedUpgrades[rowIndex] = {}
   end
   selectedUpgrades[rowIndex].text = value:gsub("^%s*(.-)%s*$", "%1")
-  -- Editing isn't actually done yet, and will block the update.  Wait a frame so it's finished
+  updateSave()
+  -- Editing isn't actually done yet, and will block the update. Wait a frame so it's finished
   Wait.frames(function() updateRowDisplay(rowIndex) end, 1)
 end
 
@@ -352,12 +338,13 @@ function updateSelectedLivingInkSkillText()
     skillString = skillString .. "agility" .. ","
   end
   if selectedUpgrades[1] == nil then
-    selectedUpgrades[1] = { }
+    selectedUpgrades[1] = {}
   end
   selectedUpgrades[1].text = skillString
+  updateSave()
 end
 
--- Refresh the vector circles indicating a skill is selected.  Since we can only have one table of
+-- Refresh the vector circles indicating a skill is selected. Since we can only have one table of
 -- vectors set, have to refresh all 4 at once
 function maybeUpdateLivingInkSkillDisplay()
   if selfId ~= "09079-c" then return end
@@ -419,26 +406,28 @@ end
 -- toggles the clicked slot
 function clickArcane()
   if selectedUpgrades[6] == nil then
-    selectedUpgrades[6] = { }
+    selectedUpgrades[6] = {}
   end
   if selectedUpgrades[6].text == SUMMONED_SERVITOR_SLOT_INDICES.arcane then
     selectedUpgrades[6].text = SUMMONED_SERVITOR_SLOT_INDICES.none
   else
     selectedUpgrades[6].text = SUMMONED_SERVITOR_SLOT_INDICES.arcane
   end
+  updateSave()
   maybeUpdateServitorSlotDisplay()
 end
 
 -- toggles the clicked slot
 function clickAlly()
   if selectedUpgrades[6] == nil then
-    selectedUpgrades[6] = { }
+    selectedUpgrades[6] = {}
   end
   if selectedUpgrades[6].text == SUMMONED_SERVITOR_SLOT_INDICES.ally then
     selectedUpgrades[6].text = SUMMONED_SERVITOR_SLOT_INDICES.none
   else
     selectedUpgrades[6].text = SUMMONED_SERVITOR_SLOT_INDICES.ally
   end
+  updateSave()
   maybeUpdateServitorSlotDisplay()
 end
 
@@ -446,7 +435,7 @@ end
 function maybeUpdateServitorSlotDisplay()
   if selfId ~= "09080-c" then return end
 
-  local center = SLOT_ICON_POSITIONS["arcane"]
+  local center         = SLOT_ICON_POSITIONS["arcane"]
   local arcaneVecList  = {
     Vector(center.x + 0.12, Y_VISIBLE, center.z + 0.05),
     Vector(center.x - 0.12, Y_VISIBLE, center.z + 0.05),
@@ -455,7 +444,7 @@ function maybeUpdateServitorSlotDisplay()
     Vector(center.x + 0.12, Y_VISIBLE, center.z + 0.05),
   }
 
-  center = SLOT_ICON_POSITIONS["ally"]
+  center               = SLOT_ICON_POSITIONS["ally"]
   local allyVecList    = {
     Vector(center.x + 0.07, Y_VISIBLE, center.z + 0.05),
     Vector(center.x - 0.07, Y_VISIBLE, center.z + 0.05),
