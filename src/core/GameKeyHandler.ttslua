@@ -9,6 +9,8 @@ local searchLib            = require("util/SearchLib")
 local tokenChecker         = require("core/token/TokenChecker")
 local victoryDisplayApi    = require("core/VictoryDisplayApi")
 
+local sentMessage = false
+
 function onLoad()
   addHotkey("Add doom to agenda", addDoomToAgenda)
   addHotkey("Add Bless/Curse context menu", addBlurseSealingMenu)
@@ -27,37 +29,28 @@ function onLoad()
   addHotkey("Take clue from location (Green)", takeClueFromLocationGreen)
   addHotkey("Take clue from location (Red)", takeClueFromLocationRed)
   addHotkey("Upkeep", triggerUpkeep)
-  addHotkey("Upkeep (Multi-handed)", triggerUpkeepMultihanded)
 end
 
 -- triggers the "Upkeep" function of the calling player's playermat
 function triggerUpkeep(playerColor)
-  if playerColor == "Black" then
-    broadcastToColor("Triggering 'Upkeep (Multihanded)' instead", playerColor, "Yellow")
-    triggerUpkeepMultihanded(playerColor)
+  if playerColor == "Black" and not sentMessage then
+    broadcastToColor("It is recommended to sit on a player mat", playerColor, "Yellow")
+    sentMessage = true
+  end
+  if #Player.getPlayers() == 1 then
+    local colors = Player.getAvailableColors()
+    for _, handColor in ipairs(colors) do
+      local matColor = playermatApi.getMatColor(handColor)
+      local data = playermatApi.getActiveInvestigatorData(matColor)
+      if data.id ~= "00000" then
+        playermatApi.doUpkeepFromHotkey(matColor, playerColor)
+      end
+    end
+    playAreaApi.readyCards()
     return
   end
   local matColor = playermatApi.getMatColor(playerColor)
   playermatApi.doUpkeepFromHotkey(matColor, playerColor)
-end
-
--- triggers the "Upkeep" function of the calling player's playermat AND
--- for all playermats that don't have a seated player, but an investigator card
-function triggerUpkeepMultihanded(playerColor)
-  if playerColor ~= "Black" then
-    triggerUpkeep(playerColor)
-  end
-  local colors = Player.getAvailableColors()
-  for _, handColor in ipairs(colors) do
-    local matColor = playermatApi.getMatColor(handColor)
-    local data = playermatApi.getActiveInvestigatorData(matColor)
-    if data.id ~= "00000" and Player[handColor].seated == false then
-      playermatApi.doUpkeepFromHotkey(matColor, playerColor)
-    end
-  end
-
-  -- also trigger the PlayArea's "Ready Cards" function
-  playAreaApi.readyCards()
 end
 
 -- adds 1 doom to the agenda
