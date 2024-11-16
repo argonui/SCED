@@ -205,6 +205,13 @@ function tryObjectEnterContainer(container, object)
   -- stop mini cards from forming decks
   if object.hasTag("Minicard") and container.hasTag("Minicard") then
     return false
+  elseif object.getName() ~= "Atlach-Nacha" and next(object.getAttachments()) ~= nil then
+    local removedTokens = object.removeAttachments()
+    if object.is_face_down then
+      for _, token in ipairs(removedTokens) do
+        token.setPosition(token.getPosition() + Vector(0, 0.5, 0))
+      end
+    end
   end
 
   playAreaApi.tryObjectEnterContainer(container, object)
@@ -306,26 +313,22 @@ function onPlayerAction(player, action, targets)
     end
     if #pickedCards < 6 then
       for _, pickedCard in ipairs(pickedCards) do
-        local hitList = Physics.cast({
-          origin = pickedCard.getPosition(),
-          direction = {0,1,0},
-          type = 3,
-          size = Vector(2.4, 0, 3.4),
-          orientation = pickedCard.getRotation(),
-          max_distance = 0.5,
-        })
-        for _, token in ipairs(hitList) do
-          local pickedToken = token.hit_object
-          if pickedToken.type == "Tile" then
-            pickedCard.addAttachment(pickedToken)
-          end
+        local searchResult = searchLib.onObject(pickedCard, "isTileOrToken")
+        for _, token in ipairs(searchResult) do
+          pickedCard.addAttachment(token)
         end
         Wait.condition(
           function()
-            pickedCard.removeAttachments()
+            if pickedCard ~= nil then
+              pickedCard.removeAttachments()
+            end
           end,
           function()
-            return pickedCard.resting and not tableContains(player.getHoldingObjects(), pickedCard)
+            if pickedCard ~= nil and player ~= nil and player.seated then
+              return pickedCard.resting and not tableContains(player.getHoldingObjects(), pickedCard)
+            else
+              return true
+            end
           end
         )
       end

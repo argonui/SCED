@@ -97,6 +97,15 @@ function onCollisionEnter(collisionInfo)
   if inArea(localPos, ENCOUNTER_DECK_AREA) or inArea(localPos, ENCOUNTER_DISCARD_AREA) then
     -- reset spawned tokens and remove tokens from cards in encounter deck / discard area
     Wait.frames(function() tokenSpawnTrackerApi.resetTokensSpawned(object) end, 1)
+    if next(object.getAttachments()) ~= nil then
+      local removedTokens = object.removeAttachments()
+      if object.is_face_down then
+        for _, token in ipairs(removedTokens) do
+          token.setPosition(token.getPosition() + Vector(0, 0.5, 0))
+          token.setRotation(Vector(0, 0, 180))
+        end
+      end
+    end
     removeTokensFromObject(object)
 
   elseif inArea(localPos, SCENARIO_REFERENCE_AREA) then
@@ -308,9 +317,11 @@ end
 -- removes tokens from the provided card/deck
 function removeTokensFromObject(object)
   local TRASH = guidReferenceApi.getObjectByOwnerAndType("Mythos", "Trash")
-  for _, obj in ipairs(searchLib.onObject(object, "isTileOrToken")) do
+  for _, obj in ipairs(searchLib.onObject(object)) do
     if obj.getGUID() ~= "4ee1f2" and -- table
         obj ~= self and
+        obj.type ~= "Deck" and
+        obj.type ~= "Card" and
         obj.memo ~= nil and
         obj.getLock() == false and
         not tokenChecker.isChaosToken(obj) then
