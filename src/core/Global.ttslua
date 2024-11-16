@@ -297,6 +297,39 @@ function onPlayerAction(player, action, targets)
       trash.putObject(target)
     end
     return false
+  elseif action == Player.Action.PickUp then
+    local pickedCards = {}
+    for _, target in ipairs(targets) do
+      if target.type == "Card" then
+        table.insert(pickedCards, target)
+      end
+    end
+    if #pickedCards < 6 then
+      for _, pickedCard in ipairs(pickedCards) do
+        local hitList = Physics.cast({
+          origin = pickedCard.getPosition(),
+          direction = {0,1,0},
+          type = 3,
+          size = Vector(2.4, 0, 3.4),
+          orientation = pickedCard.getRotation(),
+          max_distance = 0.5,
+        })
+        for _, token in ipairs(hitList) do
+          local pickedToken = token.hit_object
+          if pickedToken.type == "Tile" then
+            pickedCard.addAttachment(pickedToken)
+          end
+        end
+        Wait.condition(
+          function()
+            pickedCard.removeAttachments()
+          end,
+          function()
+            return pickedCard.resting and not tableContains(player.getHoldingObjects(), pickedCard)
+          end
+        )
+      end
+    end
   end
   return true
 end
@@ -2820,4 +2853,14 @@ end
 -- Note: There's intentionally no proper UI or button etc. for this, since we don't fully support rotated mats
 function moveAndRotatePlayermat(params)
   playermatApi.moveAndRotate(params.matColor, params.position, params.rotationY)
+end
+
+-- check if an element is in a table
+function tableContains(thisTable, thisElement)
+  for _, element in pairs(thisTable) do
+    if element == thisElement then
+      return true
+    end
+  end
+  return false
 end
