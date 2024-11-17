@@ -73,6 +73,9 @@ local RESOURCE_OPTIONS              = {
 local handVisibility                = {}
 local blurseVisibility              = {}
 
+-- track cards' settings
+cardSetting = {}
+
 ---------------------------------------------------------
 -- data for tokens
 ---------------------------------------------------------
@@ -206,14 +209,7 @@ function tryObjectEnterContainer(container, object)
   if object.hasTag("Minicard") and container.hasTag("Minicard") then
     return false
   elseif object.getName() ~= "Atlach-Nacha" and next(object.getAttachments()) ~= nil then
-    local removedTokens = object.removeAttachments()
-    if object.is_face_down then
-      for _, token in ipairs(removedTokens) do
-        --token.setRotation(token.getRotation() + Vector(0, 0, 180))
-        local sizeY = object.getBounds().size.y
-        token.setPosition(token.getPosition() + Vector(0, 2 * sizeY, 0))
-      end
-    end
+    handleTokenDetaching({ card = object })
   end
 
   playAreaApi.tryObjectEnterContainer(container, object)
@@ -315,7 +311,15 @@ function onPlayerAction(player, action, targets)
     end
     if #pickedCards < 6 then
       for _, pickedCard in ipairs(pickedCards) do
-        local searchResult = searchLib.onObject(pickedCard, "isTileOrToken")
+        local searchResult = searchLib.onObject(pickedCard, "isTileOrToken", 0.95)
+        if pickedCard.is_face_down and next(searchResult) ~= nil then
+          cardSetting[pickedCard] = {
+            hideFacedown = pickedCard.hide_when_face_down,
+            tooltip = pickedCard.tooltip
+          }
+          pickedCard.hide_when_face_down = false
+          pickedCard.tooltip = false
+        end
         for _, token in ipairs(searchResult) do
           if not token.locked then
             pickedCard.addAttachment(token)
@@ -324,7 +328,7 @@ function onPlayerAction(player, action, targets)
         Wait.condition(
           function()
             if pickedCard ~= nil then
-              pickedCard.removeAttachments()
+              handleTokenDetaching({ card = pickedCard })
             end
           end,
           function()
@@ -2870,4 +2874,21 @@ function tableContains(thisTable, thisElement)
     end
   end
   return false
+end
+
+function handleTokenDetaching(params)
+  local pickedCard = params["card"]
+  if cardSetting[pickedCard] ~= nil then
+    local pickedCardSetting = cardSetting[pickedCard]
+    pickedCard.hide_when_face_down = pickedCardSetting["hideFacedown"]
+    pickedCard.tooltip = pickedCardSetting["tooltip"]
+    cardSetting[pickedCard] = nil
+  end
+  local removedTokens = pickedCard.removeAttachments()
+  for _, token in ipairs(removedTokens) do
+    if token.getPosition().y < pickedCard.getPosition().y then
+      local posY = pickedCard.getPosition().y + 0.05
+      token.setPosition(token.getPosition():setAt("y", posY))
+    end
+  end
 end
