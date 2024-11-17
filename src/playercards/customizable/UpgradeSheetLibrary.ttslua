@@ -6,7 +6,7 @@
 -- {
 --   checkboxes = {
 --     posZ = -0.71,
---     count = 1,
+--     count = 1
 --   },
 --   textField = {
 --     position =  { 0.005, 0.25, -0.58 },
@@ -36,7 +36,9 @@ local VECTOR_COLOR                   = {
 -- These match with ArkhamDB's way of storing the data in the dropdown menu
 local SUMMONED_SERVITOR_SLOT_INDICES = { arcane = "1", ally = "0", none = "" }
 
-local rowCheckboxFirstIndex          = {}
+-- Unicode Characters used for the checkboxes
+local CHECKBOX_CHARS                 = { 10007, 10008 }
+
 local selectedUpgrades               = {}
 
 function updateSave()
@@ -53,24 +55,10 @@ function onLoad(savedData)
   end
 
   selfId = getSelfId()
+  math.randomseed(os.time())
 
   maybeLoadLivingInkSkills()
-  xmlTable = {
-    {
-      tag = "Defaults",
-      children = {
-        {
-          tag = "Button",
-          attributes = {
-            color = "#48b028",
-            height = 70,
-            width = 70,
-            scale = "0.1 0.1 0.1",
-          }
-        }
-      }
-    }
-  }
+  xmlTable = {}
   createUi()
   maybeUpdateLivingInkSkillDisplay()
   maybeUpdateServitorSlotDisplay()
@@ -83,7 +71,7 @@ end
 
 -- Grabs the ID from the metadata for special functions (Living Ink, Summoned Servitor)
 function getSelfId()
-  local metadata = JSON.decode(self.getGMNotes())
+  local metadata = JSON.decode(self.getGMNotes()) or {}
   return metadata.id
 end
 
@@ -104,9 +92,7 @@ function resetSelections()
 end
 
 function createUi()
-  if customizations == nil then
-    return
-  end
+  if customizations == nil then return end
   for i = 1, #customizations do
     if customizations[i].checkboxes ~= nil then
       createRowCheckboxes(i)
@@ -123,26 +109,45 @@ end
 
 function createRowCheckboxes(rowIndex)
   local checkboxes = customizations[rowIndex].checkboxes
-  rowCheckboxFirstIndex[rowIndex] = 0
-  local previousButtons = self.getButtons()
-  if previousButtons ~= nil then
-    rowCheckboxFirstIndex[rowIndex] = #previousButtons
-  end
+
   for col = 1, checkboxes.count do
+    -- set up click function
     local funcName = "checkboxRow" .. rowIndex .. "Col" .. col
     local func = function() clickCheckbox(rowIndex, col) end
     self.setVar(funcName, func)
-    local checkboxPos = getCheckboxPosition(rowIndex, col)
-    local identifier = tostring(rowIndex) .. " " .. tostring(col)
-    local newCheckbox = {
+
+    local cbPos = getCheckboxPosition(rowIndex, col)
+    local checkboxXml = {
       tag = "Button",
       attributes = {
         onClick = funcName,
-        position = checkboxPos,
-        id = identifier,
+        position = cbPos,
+        height = 75,
+        width = 75,
+        scale = "0.1 0.1 1",
+        color = "#00000000"
       }
     }
-    table.insert(xmlTable, newCheckbox)
+    table.insert(xmlTable, checkboxXml)
+
+    -- put a text element on top of the invisible buttons for the crosses
+    local cbId = "cb_" .. rowIndex .. "_" .. col
+    local cbData = getCheckboxData(cbId)
+    local labelXml = {
+      tag = "Text",
+      attributes = {
+        id = cbId,
+        position = cbPos,
+        rotation = "0 0 " .. cbData.angle,
+        height = 110,
+        width = 110,
+        scale = "0.1 0.1 1",
+        fontSize = cbData.size,
+        text = cbData.symbol,
+        textColor = "#000000FF"
+      }
+    }
+    table.insert(xmlTable, labelXml)
   end
 end
 
@@ -150,10 +155,26 @@ function getCheckboxPosition(row, col)
   return translatePosition(xInitial + col * xOffset, customizations[row].checkboxes.posZ)
 end
 
+-- gets randomized data for a checkbox
+function getCheckboxData(cbId)
+  -- nil handling
+  checkboxData = checkboxData or {}
+
+  -- generate data if not present
+  if not checkboxData[cbId] then
+    checkboxData[cbId] = {
+      angle  = math.random(-10, 10) + 180,
+      size   = round(math.random(85, 115) / 100 * 85, 0),
+      symbol = string.char(CHECKBOX_CHARS[math.random(#CHECKBOX_CHARS)])
+    }
+  end
+  return checkboxData[cbId]
+end
+
 function createRowTextField(rowIndex)
   local textField = customizations[rowIndex].textField
   local funcName = "textbox" .. rowIndex
-  local func = function(player, value) clickTextbox(rowIndex, value) end
+  local func = function(_, value) clickTextbox(rowIndex, value) end
   self.setVar(funcName, func)
 
   local actualPosition = translatePosition(textField.position[1], textField.position[3])
@@ -172,7 +193,7 @@ function createRowTextField(rowIndex)
       fontStyle = "Bold",
       rotation = "0 0 180",
       scale = "0.21 0.2 0.2",
-      color = "#FFFFFF",
+      color = "#FFFFFF"
     }
   }
   table.insert(xmlTable, newTextbox)
@@ -182,8 +203,7 @@ function translatePosition(posX, posZ)
   -- position values are made strings to be usabled by the XML, height (z) is always -22
   local translatedPosX = tostring(posX * -100)
   local translatedPosY = tostring(posZ * 100)
-  local combinedPos = translatedPosX .. " " .. translatedPosY .. " -22"
-  return combinedPos
+  return translatedPosX .. " " .. translatedPosY .. " -22"
 end
 
 function updateDisplay()
@@ -209,16 +229,9 @@ function updateCheckboxes(rowIndex)
   if selectedUpgrades[rowIndex] ~= nil and selectedUpgrades[rowIndex].xp ~= nil then
     selected = selectedUpgrades[rowIndex].xp
   end
-  local checkboxIndex = rowCheckboxFirstIndex[rowIndex]
+
   for col = 1, checkboxCount do
-    if col <= selected then
-      local identifier = tostring(rowIndex) .. " " .. tostring(col)
-      waitForUILoad(identifier, "color", "#000000")
-    else
-      local identifier = tostring(rowIndex) .. " " .. tostring(col)
-      waitForUILoad(identifier, "color", "#48b02800")
-    end
-    checkboxIndex = checkboxIndex + 1
+    waitForUILoad("cb_" .. rowIndex .. "_" .. col, "active", col <= selected)
   end
 end
 
@@ -308,7 +321,7 @@ function maybeMakeLivingInkSkillSelectionButtons()
     position       = { y = 0.2 },
     height         = 130,
     width          = 130,
-    color          = { 0, 0, 0, 0 },
+    color          = { 0, 0, 0, 0 }
   }
 
   for skillname, _ in pairs(selectedSkills) do
@@ -376,7 +389,7 @@ function getCircleVector(center)
   return {
     points    = vecList,
     color     = VECTOR_COLOR.mystic,
-    thickness = 0.02,
+    thickness = 0.02
   }
 end
 
@@ -394,7 +407,7 @@ function maybeMakeServitorSlotSelectionButtons()
     position       = { x = -1 * SLOT_ICON_POSITIONS.arcane.x, y = 0.2, z = SLOT_ICON_POSITIONS.arcane.z },
     height         = 130,
     width          = 130,
-    color          = { 0, 0, 0, 0 },
+    color          = { 0, 0, 0, 0 }
   }
   self.createButton(buttonData)
 
@@ -441,7 +454,7 @@ function maybeUpdateServitorSlotDisplay()
     Vector(center.x - 0.12, Y_VISIBLE, center.z + 0.05),
     Vector(center.x - 0.12, Y_VISIBLE, center.z - 0.05),
     Vector(center.x + 0.12, Y_VISIBLE, center.z - 0.05),
-    Vector(center.x + 0.12, Y_VISIBLE, center.z + 0.05),
+    Vector(center.x + 0.12, Y_VISIBLE, center.z + 0.05)
   }
 
   center               = SLOT_ICON_POSITIONS["ally"]
@@ -450,7 +463,7 @@ function maybeUpdateServitorSlotDisplay()
     Vector(center.x - 0.07, Y_VISIBLE, center.z + 0.05),
     Vector(center.x - 0.07, Y_VISIBLE, center.z - 0.05),
     Vector(center.x + 0.07, Y_VISIBLE, center.z - 0.05),
-    Vector(center.x + 0.07, Y_VISIBLE, center.z + 0.05),
+    Vector(center.x + 0.07, Y_VISIBLE, center.z + 0.05)
   }
 
   local arcaneVecColor = VECTOR_COLOR.unselected
@@ -466,12 +479,18 @@ function maybeUpdateServitorSlotDisplay()
     {
       points    = arcaneVecList,
       color     = arcaneVecColor,
-      thickness = 0.02,
+      thickness = 0.02
     },
     {
       points    = allyVecList,
       color     = allyVecColor,
-      thickness = 0.02,
+      thickness = 0.02
     }
   })
+end
+
+-- Round number (num) to the Nth decimal (dec)
+function round(num, dec)
+  local mult = 10 ^ (dec or 0)
+  return math.floor(num * mult + 0.5) / mult
 end
