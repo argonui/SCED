@@ -74,7 +74,7 @@ local handVisibility                = {}
 local blurseVisibility              = {}
 
 -- track cards' settings
-local cardSetting = {}
+local cardSetting                   = {}
 
 ---------------------------------------------------------
 -- data for tokens
@@ -208,7 +208,7 @@ function tryObjectEnterContainer(container, object)
   -- stop mini cards from forming decks
   if object.hasTag("Minicard") and container.hasTag("Minicard") then
     return false
-  elseif object.getName() ~= "Atlach-Nacha" and next(object.getAttachments()) ~= nil then
+  elseif object.type == "Card" and object.getName() ~= "Atlach-Nacha" then
     handleTokenDetaching({ card = object })
   end
 
@@ -312,34 +312,7 @@ function onPlayerAction(player, action, targets)
     if #pickedCards > 5 then return end
 
     for _, pickedCard in ipairs(pickedCards) do
-      local searchResult = searchLib.onObject(pickedCard, "isTileOrToken", 0.95)
-      if pickedCard.is_face_down and next(searchResult) ~= nil then
-        cardSetting[pickedCard] = {
-          hideFacedown = pickedCard.hide_when_face_down,
-          tooltip = pickedCard.tooltip
-        }
-        pickedCard.hide_when_face_down = false
-        pickedCard.tooltip = false
-      end
-      for _, token in ipairs(searchResult) do
-        if not token.locked then
-          pickedCard.addAttachment(token)
-        end
-      end
-      Wait.condition(
-        function()
-          if pickedCard ~= nil then
-            handleTokenDetaching({ card = pickedCard })
-          end
-        end,
-        function()
-          if pickedCard ~= nil and player ~= nil and player.seated then
-            return pickedCard.resting and not tableContains(player.getHoldingObjects(), pickedCard)
-          else
-            return true
-          end
-        end
-      )
+      handleTokenAttaching({ player = player, card = pickedCard })
     end
   end
   return true
@@ -1801,7 +1774,7 @@ function applyOptionPanelChange(id, state)
     -- update master clue counter
     local counter = guidReferenceApi.getObjectByOwnerAndType("Mythos", "MasterClueCounter")
     counter.setVar("useClickableCounters", state)
-    
+
     -- option: Enable card helpers
   elseif id == "enableCardHelpers" then
     toggleCardHelpers(state)
@@ -2876,27 +2849,64 @@ function tableContains(thisTable, thisElement)
   return false
 end
 
+function handleTokenAttaching(params)
+  local card = params.card
+  local player = params.player
+  local searchResult = searchLib.onObject(card, "isTileOrToken", 0.95)
+  if card.is_face_down and next(searchResult) ~= nil then
+    cardSetting[card] = {
+      hideFacedown = card.hide_when_face_down,
+      tooltip = card.tooltip
+    }
+    card.hide_when_face_down = false
+    card.tooltip = false
+  end
+  for _, token in ipairs(searchResult) do
+    if not token.locked then
+      card.addAttachment(token)
+    end
+  end
+  Wait.condition(
+    function()
+      if card ~= nil then
+        handleTokenDetaching(card)
+      end
+    end,
+    function()
+      if card ~= nil and player ~= nil and player.seated then
+        return card.resting and not tableContains(player.getHoldingObjects(), card)
+      else
+        return true
+      end
+    end
+  )
+end
+
 function handleTokenDetaching(params)
-  local pickedCard = params["card"]
-  if cardSetting[pickedCard] ~= nil then
-    local pickedCardSetting = cardSetting[pickedCard]
-    pickedCard.hide_when_face_down = pickedCardSetting["hideFacedown"]
-    pickedCard.tooltip = pickedCardSetting["tooltip"]
-    cardSetting[pickedCard] = nil
+  local card = params.card
+  if next(card.getAttachments()) == nil then return end
+
+  -- restore card settings
+  if cardSetting[card] ~= nil then
+    card.hide_when_face_down = cardSetting[card]["hideFacedown"]
+    card.tooltip = cardSetting[card]["tooltip"]
+    cardSetting[card] = nil
   end
 
-  local removedTokens = pickedCard.removeAttachments()
+  -- remove attachments
+  local removedTokens = card.removeAttachments()
   for _, token in ipairs(removedTokens) do
-    if token.getPosition().y < pickedCard.getPosition().y then
-      local posY = pickedCard.getPosition().y + 0.05
+    if token.getPosition().y < card.getPosition().y then
+      local posY = card.getPosition().y + 0.05
       token.setPosition(token.getPosition():setAt("y", posY))
     end
   end
-  
-  if pickedCard.hasTag("CardThatSeals") then
-    local func = pickedCard.getVar("updateStackSize") -- make sure function exists
+
+  -- redraw token xml
+  if card.hasTag("CardThatSeals") then
+    local func = card.getVar("updateStackSize") -- make sure function exists
     if func ~= nil then
-      pickedCard.call("updateStackSize")
+      card.call("updateStackSize")
     end
   end
 end
