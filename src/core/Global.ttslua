@@ -74,7 +74,7 @@ local handVisibility                = {}
 local blurseVisibility              = {}
 
 -- track cards' settings
-cardSetting = {}
+local cardSetting = {}
 
 ---------------------------------------------------------
 -- data for tokens
@@ -309,37 +309,37 @@ function onPlayerAction(player, action, targets)
         table.insert(pickedCards, target)
       end
     end
-    if #pickedCards < 6 then
-      for _, pickedCard in ipairs(pickedCards) do
-        local searchResult = searchLib.onObject(pickedCard, "isTileOrToken", 0.95)
-        if pickedCard.is_face_down and next(searchResult) ~= nil then
-          cardSetting[pickedCard] = {
-            hideFacedown = pickedCard.hide_when_face_down,
-            tooltip = pickedCard.tooltip
-          }
-          pickedCard.hide_when_face_down = false
-          pickedCard.tooltip = false
-        end
-        for _, token in ipairs(searchResult) do
-          if not token.locked then
-            pickedCard.addAttachment(token)
-          end
-        end
-        Wait.condition(
-          function()
-            if pickedCard ~= nil then
-              handleTokenDetaching({ card = pickedCard })
-            end
-          end,
-          function()
-            if pickedCard ~= nil and player ~= nil and player.seated then
-              return pickedCard.resting and not tableContains(player.getHoldingObjects(), pickedCard)
-            else
-              return true
-            end
-          end
-        )
+    if #pickedCards > 5 then return end
+
+    for _, pickedCard in ipairs(pickedCards) do
+      local searchResult = searchLib.onObject(pickedCard, "isTileOrToken", 0.95)
+      if pickedCard.is_face_down and next(searchResult) ~= nil then
+        cardSetting[pickedCard] = {
+          hideFacedown = pickedCard.hide_when_face_down,
+          tooltip = pickedCard.tooltip
+        }
+        pickedCard.hide_when_face_down = false
+        pickedCard.tooltip = false
       end
+      for _, token in ipairs(searchResult) do
+        if not token.locked then
+          pickedCard.addAttachment(token)
+        end
+      end
+      Wait.condition(
+        function()
+          if pickedCard ~= nil then
+            handleTokenDetaching({ card = pickedCard })
+          end
+        end,
+        function()
+          if pickedCard ~= nil and player ~= nil and player.seated then
+            return pickedCard.resting and not tableContains(player.getHoldingObjects(), pickedCard)
+          else
+            return true
+          end
+        end
+      )
     end
   end
   return true
@@ -2884,6 +2884,7 @@ function handleTokenDetaching(params)
     pickedCard.tooltip = pickedCardSetting["tooltip"]
     cardSetting[pickedCard] = nil
   end
+  
   local removedTokens = pickedCard.removeAttachments()
   for _, token in ipairs(removedTokens) do
     if token.getPosition().y < pickedCard.getPosition().y then
