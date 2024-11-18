@@ -73,6 +73,9 @@ local RESOURCE_OPTIONS              = {
 local handVisibility                = {}
 local blurseVisibility              = {}
 
+-- track cards' settings
+local cardSetting = {}
+
 ---------------------------------------------------------
 -- data for tokens
 ---------------------------------------------------------
@@ -205,6 +208,8 @@ function tryObjectEnterContainer(container, object)
   -- stop mini cards from forming decks
   if object.hasTag("Minicard") and container.hasTag("Minicard") then
     return false
+  elseif object.getName() ~= "Atlach-Nacha" and next(object.getAttachments()) ~= nil then
+    handleTokenDetaching({ card = object })
   end
 
   playAreaApi.tryObjectEnterContainer(container, object)
@@ -297,6 +302,45 @@ function onPlayerAction(player, action, targets)
       trash.putObject(target)
     end
     return false
+  elseif action == Player.Action.PickUp then
+    local pickedCards = {}
+    for _, target in ipairs(targets) do
+      if target.type == "Card" then
+        table.insert(pickedCards, target)
+      end
+    end
+    if #pickedCards > 5 then return end
+
+    for _, pickedCard in ipairs(pickedCards) do
+      local searchResult = searchLib.onObject(pickedCard, "isTileOrToken", 0.95)
+      if pickedCard.is_face_down and next(searchResult) ~= nil then
+        cardSetting[pickedCard] = {
+          hideFacedown = pickedCard.hide_when_face_down,
+          tooltip = pickedCard.tooltip
+        }
+        pickedCard.hide_when_face_down = false
+        pickedCard.tooltip = false
+      end
+      for _, token in ipairs(searchResult) do
+        if not token.locked then
+          pickedCard.addAttachment(token)
+        end
+      end
+      Wait.condition(
+        function()
+          if pickedCard ~= nil then
+            handleTokenDetaching({ card = pickedCard })
+          end
+        end,
+        function()
+          if pickedCard ~= nil and player ~= nil and player.seated then
+            return pickedCard.resting and not tableContains(player.getHoldingObjects(), pickedCard)
+          else
+            return true
+          end
+        end
+      )
+    end
   end
   return true
 end
@@ -2820,4 +2864,39 @@ end
 -- Note: There's intentionally no proper UI or button etc. for this, since we don't fully support rotated mats
 function moveAndRotatePlayermat(params)
   playermatApi.moveAndRotate(params.matColor, params.position, params.rotationY)
+end
+
+-- check if an element is in a table
+function tableContains(thisTable, thisElement)
+  for _, element in pairs(thisTable) do
+    if element == thisElement then
+      return true
+    end
+  end
+  return false
+end
+
+function handleTokenDetaching(params)
+  local pickedCard = params["card"]
+  if cardSetting[pickedCard] ~= nil then
+    local pickedCardSetting = cardSetting[pickedCard]
+    pickedCard.hide_when_face_down = pickedCardSetting["hideFacedown"]
+    pickedCard.tooltip = pickedCardSetting["tooltip"]
+    cardSetting[pickedCard] = nil
+  end
+
+  local removedTokens = pickedCard.removeAttachments()
+  for _, token in ipairs(removedTokens) do
+    if token.getPosition().y < pickedCard.getPosition().y then
+      local posY = pickedCard.getPosition().y + 0.05
+      token.setPosition(token.getPosition():setAt("y", posY))
+    end
+  end
+  
+  if pickedCard.hasTag("CardThatSeals") then
+    local func = pickedCard.getVar("updateStackSize") -- make sure function exists
+    if func ~= nil then
+      pickedCard.call("updateStackSize")
+    end
+  end
 end
