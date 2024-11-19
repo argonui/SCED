@@ -214,8 +214,6 @@ function tryObjectEnterContainer(container, object)
   -- stop mini cards from forming decks
   if object.hasTag("Minicard") and container.hasTag("Minicard") then
     return false
-  elseif object.type == "Card" then
-    finishCardMoving(object)
   end
 
   playAreaApi.tryObjectEnterContainer(container, object)
@@ -308,6 +306,12 @@ function onPlayerAction(player, action, targets)
       trash.putObject(target)
     end
     return false
+  elseif action == Player.Action.PickUp then
+    for _, target in ipairs(targets) do
+      if target.type == "Card" or target.type == "Deck" then
+        storeTokenTransform(target)
+      end
+    end
   end
 end
 
@@ -2847,15 +2851,8 @@ function moveCardWithTokens(params)
   local position = params.position
   local rotation = params.rotation
 
-  -- store local position/rotation of tokens
-  cardTokens[card] = {}
-  local cardRot = card.getRotation()
-  for _, token in ipairs(searchLib.onObject(card, "isTileOrToken", 0.95)) do
-    if not token.locked then
-      cardTokens[card].token = token
-      cardTokens[card].localPos = card.positionToLocal(token.getPosition())
-      cardTokens[card].localRot = token.getRotation() - cardRot
-    end
+  if not cardTokens[card] then
+    storeTokenTransform(card)
   end
 
   if position then
@@ -2866,12 +2863,15 @@ function moveCardWithTokens(params)
     card.setRotationSmooth(rotation)
   end
 
-  -- wait for the card to finish moving
+  if #cardTokens[card] == 0 then return end
+
+  -- wait for the card to finish moving, update token position/rotation regularly
   Wait.condition(
-    function() finishCardMoving(card) end,
+    function() cardTokens[card] = nil end,
     function()
-      if card ~= nil then
-        return card.resting and card.isSmoothMoving()
+      if card ~= nil and cardTokens[card] ~= nil and #cardTokens[card] ~= 0 then
+        updateTokenTransform(card)
+        return card.resting and not card.isSmoothMoving()
       else
         return true
       end
@@ -2879,16 +2879,27 @@ function moveCardWithTokens(params)
   )
 end
 
-function finishCardMoving(card)
-  if card == nil or cardTokens[card] == nil or #cardTokens[card] == 0 then return end
-
+function storeTokenTransform(card)
+  cardTokens[card] = {}
   local cardRot = card.getRotation()
-  for _, tokenData in ipairs(cardTokens[card]) do
-    tokenData.token.setPosition(card.positionToWorld(tokenData.localPos))
-    tokenData.token.setRotation(cardRot + tokenData.localRot)
+  for _, token in ipairs(searchLib.onObject(card, "isTileOrToken", 0.95)) do
+    if not token.locked then
+      local tokenPos = token.getPosition() + Vector(0, 0.1, 0) -- small offset so tokens don't collide with card
+      token.setPosition(tokenPos)
+      table.insert(cardTokens[card], {
+        token = token,
+        localPos = card.positionToLocal(tokenPos),
+        localRot = token.getRotation() - cardRot
+      })
+    end
   end
+end
 
-  cardTokens[card] = nil
+function updateTokenTransform(card)
+  for _, tokenData in ipairs(cardTokens[card] or {}) do
+    tokenData.token.setPosition(card.positionToWorld(tokenData.localPos))
+    tokenData.token.setRotation(card.getRotation() + tokenData.localRot)
+  end
 end
 
 -- removes tokens from the provided card/deck
@@ -2905,7 +2916,7 @@ function removeTokensFromObject(params)
 
   for _, obj in ipairs(searchLib.onObject(object, "isTileOrToken")) do
     if tokenChecker.isChaosToken(obj) then
-      returnChaosTokenToBag( { token = obj, fromBag = false } )
+      returnChaosTokenToBag({ token = obj, fromBag = false })
     elseif obj.getGUID() ~= "4ee1f2" and -- table
         obj ~= self and
         obj.memo ~= nil and
