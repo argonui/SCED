@@ -22,8 +22,8 @@ local RESET_VALUES              = {}
 local loadingFailedBefore       = false
 local optionsVisible            = false
 local options                   = {
-  ["importTrauma"] = true,
-  ["tidyPlayermats"] = true,
+  ["importTrauma"]     = true,
+  ["tidyPlayermats"]   = true,
   ["removeDrawnLines"] = false
 }
 local removeIgnoreLater         = {}
@@ -45,18 +45,28 @@ buttonParameters.function_owner = self
 -- option loading and GUI setup
 ---------------------------------------------------------
 
-function onSave()
-  return JSON.encode({ options = options })
+function getSaveData()
+  return { options = options }
+end
+
+function updateSave()
+  self.script_state = JSON.encode(getSaveData())
+end
+
+-- loads data and updates the UI to match
+function loadData(loadedData)
+  if not loadedData then return end
+
+  options = loadedData.options
+
+  for id, state in pairs(options) do
+    self.UI.setAttribute(id, "image", state and "option_on" or "option_off")
+  end
 end
 
 function onLoad(savedData)
-  if savedData ~= nil then
-    local loadedData = JSON.decode(savedData)
-    options = loadedData.options
-    -- update UI to match saved state
-    for id, state in pairs(options) do
-      self.UI.setAttribute(id, "image", state and "option_on" or "option_off")
-    end
+  if savedData ~= nil and savedData ~= "" then
+    loadData(JSON.decode(savedData))
   end
 
   -- index 0: button as label
@@ -98,6 +108,7 @@ function optionButtonClick(_, id)
   local newState = (currentState and "option_off" or "option_on")
   options[id] = not currentState
   self.UI.setAttribute(id, "image", newState)
+  updateSave()
 end
 
 -- shows or hides the option panel

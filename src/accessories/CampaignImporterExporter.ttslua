@@ -97,7 +97,7 @@ function importFromToken()
   end
 
   -- trigger the place function of the memory bag
-  if campaignBox and #campaignBox.getObjects() > 0 then
+  if campaignBox and campaignBox.type == "Bag" and #campaignBox.getObjects() > 0 then
     campaignBox.call("buttonClick_place")
     coWaitFrames(5)
   end
@@ -111,7 +111,28 @@ function importFromToken()
     if objData.Nickname == "Additional Player Cards" then
       local additionalIndex = guidReferenceApi.getObjectByOwnerAndType("Mythos", "AdditionalPlayerCardsBag")
       if additionalIndex then
+        objData.GUID = additionalIndex.getGUID()
         spawnData.position = additionalIndex.getPosition()
+
+        -- merge contained objects
+        local existingIndexData = additionalIndex.getData()
+        objData.ContainedObjects = objData.ContainedObjects or {}
+
+        -- lookup table by Nickname
+        local containedObjectLookUp = {}
+        for _, deepData in ipairs(objData.ContainedObjects) do
+          if deepData.Nickname ~= "" then
+            containedObjectLookUp[deepData.Nickname] = true
+          end
+        end
+
+        -- add existing objects to new box
+        for _, deepData in ipairs(existingIndexData.ContainedObjects or {}) do
+          if deepData.Nickname ~= "" and containedObjectLookUp[deepData.Nickname] ~= true then
+            table.insert(objData.ContainedObjects, deepData)
+          end
+        end
+
         additionalIndex.destruct()
       end
     else
@@ -174,6 +195,14 @@ function importFromToken()
   if importData["slotData"] then
     for matColor, slotData in pairs(importData["slotData"]) do
       playermatApi.loadSlotData(matColor, slotData)
+    end
+  end
+
+  -- restore Clean Up Helper state
+  if importData["CleanUpHelperState"] then
+    local cleanUpHelper = guidReferenceApi.getObjectByOwnerAndType("Mythos", "CleanUpHelper")
+    if cleanUpHelper ~= nil then
+      cleanUpHelper.call("loadData", importData["CleanUpHelperState"])
     end
   end
 
@@ -289,6 +318,12 @@ function exportToToken()
   for matColor, _ in pairs(guidReferenceApi.getObjectsByType("Playermat")) do
     local slotData = playermatApi.getSlotData(matColor)
     dataToSave.slotData[matColor] = slotData
+  end
+
+  -- get Clean Up Helper settings
+  local cleanUpHelper = guidReferenceApi.getObjectByOwnerAndType("Mythos", "CleanUpHelper")
+  if cleanUpHelper ~= nil then
+    dataToSave.CleanUpHelperState = cleanUpHelper.call("getSaveData", {})
   end
 
   -- get Navigation Overlay settings

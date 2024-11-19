@@ -26,6 +26,9 @@ local isReshuffling              = false
 local collisionEnabled           = false
 local currentScenario, useFrontData, tokenData, scenarioCard
 
+-- for stopping multiple collisions of the same object
+local collisionTable = {}
+
 function updateSave()
   local data = {
     currentScenario = currentScenario,
@@ -92,11 +95,17 @@ function onCollisionEnter(collisionInfo)
   -- early exit for better performance
   if object.type ~= "Card" then return end
 
+  -- only continue if card didn't already collide
+  if collisionTable[object] ~= nil then return end
+  collisionTable[object] = true
+  Wait.frames(function() collisionTable[object] = nil end, 1)
+
   local localPos = self.positionToLocal(object.getPosition())
 
   if inArea(localPos, ENCOUNTER_DECK_AREA) or inArea(localPos, ENCOUNTER_DISCARD_AREA) then
     -- reset spawned tokens and remove tokens from cards in encounter deck / discard area
     Wait.frames(function() tokenSpawnTrackerApi.resetTokensSpawned(object) end, 1)
+    GlobalApi.handleTokenDetaching(object)
     removeTokensFromObject(object)
 
   elseif inArea(localPos, SCENARIO_REFERENCE_AREA) then
