@@ -2869,11 +2869,7 @@ function handleTokenAttaching(params)
   end
 
   Wait.condition(
-    function()
-      if card ~= nil then
-        handleTokenDetaching({ card = card })
-      end
-    end,
+    function() handleTokenDetaching({ card = card }) end,
     function()
       if card ~= nil and player ~= nil and player.seated then
         return card.resting and not tableContains(player.getHoldingObjects(), card)
@@ -2886,7 +2882,7 @@ end
 
 function handleTokenDetaching(params)
   local card = params.card
-  if next(card.getAttachments()) == nil then return end
+  if card == nil or next(card.getAttachments()) == nil then return end
 
   -- restore card settings
   if cardSetting[card] ~= nil then
@@ -2909,6 +2905,30 @@ function handleTokenDetaching(params)
     local func = card.getVar("updateStackSize") -- make sure function exists
     if func ~= nil then
       card.call("updateStackSize")
+    end
+  end
+end
+
+-- removes tokens from the provided card/deck
+function removeTokensFromObject(params)
+  local object = params.object
+  local trash = guidReferenceApi.getObjectByOwnerAndType(params.owner, "Trash")
+
+  if object.hasTag("CardThatSeals") then
+    local func = object.getVar("resetSealedTokens") -- check if function exists (it won't for older custom content)
+    if func ~= nil then
+      object.call("resetSealedTokens")
+    end
+  end
+
+  for _, obj in ipairs(searchLib.onObject(object, "isTileOrToken")) do
+    if tokenChecker.isChaosToken(obj) then
+      returnChaosTokenToBag( { token = obj, fromBag = false } )
+    elseif obj.getGUID() ~= "4ee1f2" and -- table
+        obj ~= self and
+        obj.memo ~= nil and
+        obj.getLock() == false then
+      trash.putObject(obj)
     end
   end
 end
