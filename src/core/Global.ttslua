@@ -2867,7 +2867,7 @@ function moveCardWithTokens(params)
 
   -- wait for the card to finish moving, update token position/rotation regularly
   Wait.condition(
-    function() cardTokens[card] = nil end,
+    function() stopTokenTransformUpdating(card) end,
     function()
       if card ~= nil and cardTokens[card] ~= nil and #cardTokens[card] ~= 0 then
         updateTokenTransform(card)
@@ -2880,12 +2880,19 @@ function moveCardWithTokens(params)
 end
 
 function storeTokenTransform(card)
+  if cardTokens[card] ~= nil then
+    stopTokenTransformUpdating(card)
+  end
+
   cardTokens[card] = {}
   local cardRot = card.getRotation()
   for _, token in ipairs(searchLib.onObject(card, "isTileOrToken", 0.95)) do
     if not token.locked then
-      local tokenPos = token.getPosition() + Vector(0, 0.1, 0) -- small offset so tokens don't collide with card
+      -- offset to stop the token from colliding with the card
+      local tokenPos = token.getPosition() + Vector(0, 0.01, 0)
       token.setPosition(tokenPos)
+
+      -- store local transform data
       table.insert(cardTokens[card], {
         token = token,
         localPos = card.positionToLocal(tokenPos),
@@ -2899,7 +2906,15 @@ function updateTokenTransform(card)
   for _, tokenData in ipairs(cardTokens[card] or {}) do
     tokenData.token.setPosition(card.positionToWorld(tokenData.localPos))
     tokenData.token.setRotation(card.getRotation() + tokenData.localRot)
+    tokenData.token.locked = true
   end
+end
+
+function stopTokenTransformUpdating(card)
+  for _, tokenData in ipairs(cardTokens[card] or {}) do
+    tokenData.token.locked = false
+  end
+  cardTokens[card] = nil
 end
 
 -- removes tokens from the provided card/deck
