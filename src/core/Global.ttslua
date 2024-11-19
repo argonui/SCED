@@ -73,8 +73,8 @@ local RESOURCE_OPTIONS              = {
 local handVisibility                = {}
 local blurseVisibility              = {}
 
--- track cards' settings
-local cardSetting                   = {}
+-- track cards' tokens
+local cardTokens                    = {}
 
 ---------------------------------------------------------
 -- data for tokens
@@ -180,6 +180,11 @@ function getRandomSeed()
   return math.random(999)
 end
 
+function onObjectDrop(playerColor, object)
+  if object.type ~= "Card" then return end
+  handleCardDropping({ player = Player[playerColor], card = object })
+end
+
 -- Event hook for any object search. When chaos tokens are manipulated while the chaos bag
 -- container is being searched, a TTS bug can cause tokens to duplicate or vanish. We lock the
 -- chaos bag during search operations to avoid this.
@@ -208,8 +213,8 @@ function tryObjectEnterContainer(container, object)
   -- stop mini cards from forming decks
   if object.hasTag("Minicard") and container.hasTag("Minicard") then
     return false
-  elseif object.type == "Card" and object.getName() ~= "Atlach-Nacha" then
-    handleTokenDetaching({ card = object })
+  elseif object.type == "Card" then
+    handleCardResting({ card = object })
   end
 
   playAreaApi.tryObjectEnterContainer(container, object)
@@ -302,20 +307,7 @@ function onPlayerAction(player, action, targets)
       trash.putObject(target)
     end
     return false
-  elseif action == Player.Action.PickUp then
-    local pickedCards = {}
-    for _, target in ipairs(targets) do
-      if target.type == "Card" then
-        table.insert(pickedCards, target)
-      end
-    end
-    if #pickedCards > 5 then return end
-
-    for _, pickedCard in ipairs(pickedCards) do
-      handleTokenAttaching({ player = player, card = pickedCard })
-    end
   end
-  return true
 end
 
 ---------------------------------------------------------
@@ -2849,27 +2841,20 @@ function tableContains(thisTable, thisElement)
   return false
 end
 
-function handleTokenAttaching(params)
+function handleCardDropping(params)
   local card = params.card
   local player = params.player
-  local searchResult = searchLib.onObject(card, "isTileOrToken", 0.95)
-  if card.is_face_down and next(searchResult) ~= nil then
-    cardSetting[card] = {
-      hideFacedown = card.hide_when_face_down,
-      tooltip = card.tooltip
-    }
-    card.hide_when_face_down = false
-    card.tooltip = false
-  end
 
-  for _, token in ipairs(searchResult) do
-    if not token.locked then
-      card.addAttachment(token)
-    end
+  cardTokens[card] = {}
+  local cardRot = card.getRotation()
+  for _, token in ipairs(searchLib.onObject(card, "isTileOrToken", 0.95)) do
+    cardTokens[card].token = token
+    cardTokens[card].localPos = card.positionToLocal(token.getPosition())
+    cardTokens[card].localRot = token.getRotation() - cardRot
   end
 
   Wait.condition(
-    function() handleTokenDetaching({ card = card }) end,
+    function() handleCardResting({ card = card }) end,
     function()
       if card ~= nil and player ~= nil and player.seated then
         return card.resting and not tableContains(player.getHoldingObjects(), card)
@@ -2880,33 +2865,17 @@ function handleTokenAttaching(params)
   )
 end
 
-function handleTokenDetaching(params)
+function handleCardResting(params)
   local card = params.card
-  if card == nil or next(card.getAttachments()) == nil then return end
+  if card == nil or cardTokens[card] == nil or #cardTokens[card] == 0 then return end
 
-  -- restore card settings
-  if cardSetting[card] ~= nil then
-    card.hide_when_face_down = cardSetting[card]["hideFacedown"]
-    card.tooltip = cardSetting[card]["tooltip"]
-    cardSetting[card] = nil
+  local cardRot = card.getRotation()
+  for _, tokenData in ipairs(cardTokens[card]) do
+    tokenData.token.setPosition(card.positionToWorld(tokenData.localPos))
+    tokenData.token.setRotation(cardRot + tokenData.localRot)
   end
 
-  -- remove attachments
-  local removedTokens = card.removeAttachments()
-  for _, token in ipairs(removedTokens) do
-    if token.getPosition().y < card.getPosition().y then
-      local posY = card.getPosition().y + 0.05
-      token.setPosition(token.getPosition():setAt("y", posY))
-    end
-  end
-
-  -- redraw token xml
-  if card.hasTag("CardThatSeals") then
-    local func = card.getVar("updateStackSize") -- make sure function exists
-    if func ~= nil then
-      card.call("updateStackSize")
-    end
-  end
+  cardTokens[card] = nil
 end
 
 -- removes tokens from the provided card/deck
