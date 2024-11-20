@@ -114,7 +114,14 @@ function updateSave()
 end
 
 function onLoad(savedData)
-  sealedTokens = JSON.decode(savedData) or {}
+  -- verify sealed tokens
+  for _, guid in ipairs(JSON.decode(savedData) or {}) do
+    local token = getObjectFromGUID(guid)
+    if token ~= nil then
+      table.insert(sealedTokens, guid)
+    end
+  end
+
   ID_URL_MAP = chaosBagApi.getIdUrlMap()
   generateContextMenu()
   updateStackSize()
@@ -360,11 +367,15 @@ function resolveSealed(playerColor)
     broadcastToAll("No tokens sealed.", "Red")
     return
   end
+
   local closestMatColor = playermatApi.getMatColorByPosition(self.getPosition())
   local mat = guidReferenceApi.getObjectByOwnerAndType(closestMatColor, "Playermat")
   local guidToBeResolved = table.remove(sealedTokens)
   local resolvedToken = getObjectFromGUID(guidToBeResolved)
-  resolvedToken.UI.setXml("")
+  if resolvedToken ~= nil then
+    resolvedToken.UI.setXml("")
+  end
+
   updateStackSize()
   updateSave()
   chaosBagApi.drawChaosToken(mat, true, _, guidToBeResolved)
@@ -374,9 +385,16 @@ end
 function updateStackSize()
   if MAX_SEALED == 1 then return end
   if #sealedTokens == 0 then return end
+
   -- get topmost sealed token
   local topToken = getObjectFromGUID(sealedTokens[#sealedTokens])
-  local name = topToken.getName()
+  if topToken == nil then return end
+
+  -- handling for two-digit numbers
+  local fontsize = 380
+  if #sealedTokens > 9 then
+    fontsize = 360
+  end
 
   topToken.UI.setXmlTable({
     {
@@ -387,12 +405,12 @@ function updateStackSize()
         rotation = "0 0 180",
         scale = "0.2 0.2 1",
         position = "0 0 -12",
-        color = tokenColor[name] or "#77674DE6"
+        color = tokenColor[topToken.getName()] or "#77674DE6"
       },
       children = {
         tag = "Text",
         attributes = {
-          fontSize = "380",
+          fontSize = fontsize,
           font = "font_teutonic-arkham",
           color = "#ffffff",
           outline = "#000000",

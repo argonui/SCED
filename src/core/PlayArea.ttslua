@@ -50,8 +50,8 @@ local currentScenario, connectionsEnabled
 -- general code
 ---------------------------------------------------------
 
-function onSave()
-  return JSON.encode({
+function updateSave()
+  self.script_state = JSON.encode({
     trackedLocations   = locations,
     currentScenario    = currentScenario,
     connectionColor    = connectionColor,
@@ -165,9 +165,11 @@ function onUpdate()
     -- Even if the last location left the play area, need one last draw to clear the lines
     needsConnectionDraw = true
   end
+
   if needsConnectionRebuild then
     rebuildConnectionList()
   end
+
   if needsConnectionDraw then
     drawDraggingConnections()
   end
@@ -222,6 +224,7 @@ function maybeTrackLocation(card)
         else
           locations[card.getGUID()] = metadata.locationFront
         end
+        updateSave()
 
         -- only draw connection lines for not-excluded scenarios
         if showLocationLinks() then
@@ -243,6 +246,7 @@ function maybeUntrackLocation(card)
   -- area. If the object is now locked, don't remove it.
   if locations[card.getGUID()] ~= nil and not card.locked then
     locations[card.getGUID()] = nil
+    updateSave()
     rebuildConnectionList()
     drawBaseConnections()
   end
@@ -632,7 +636,7 @@ function updateSurface(newURL)
     guid = customDataHelper.getGUID()
   end
 
-  self.script_state = onSave()
+  updateSave()
   self.reload()
 
   if guid ~= nil then
@@ -664,6 +668,7 @@ function setConnectionDrawState(state)
   connectionsEnabled = state
   rebuildConnectionList()
   drawBaseConnections()
+  updateSave()
 end
 
 -- called by the option panel to edit the location connection color
@@ -671,6 +676,7 @@ function setConnectionColor(color)
   connectionColor = color
   rebuildConnectionList()
   drawBaseConnections()
+  updateSave()
 end
 
 function onScenarioChanged(scenarioName)
@@ -678,6 +684,7 @@ function onScenarioChanged(scenarioName)
   if not showLocationLinks() then
     broadcastToAll("Automatic location connections not available for this scenario")
   end
+  updateSave()
 end
 
 function getTrackedLocations()
