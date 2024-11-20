@@ -45,6 +45,9 @@ optionPanelData.slotEditing       = false
 local collisionEnabled            = false
 local currentlyEditingSlots       = false
 
+-- for stopping multiple collisions of the same object
+local collisionTable              = {}
+
 -- x-Values for discard buttons
 local DISCARD_BUTTON_X_START      = -1.365
 local DISCARD_BUTTON_X_OFFSET     = 0.455
@@ -121,7 +124,8 @@ local slotNameToChar              = {
   ["Hand (right)"] = "M",
   ["Hand (left)"]  = "M",
   ["Hand x2"]      = "N",
-  ["Tarot"]        = "A"
+  ["Tarot"]        = "A",
+  ["Blursed"]      = "zy"
 }
 
 -- slot symbol for the respective slot (from top left to bottom right) - intentionally global!
@@ -304,11 +308,11 @@ end
 ---@param id number Index of the discard button (from left to right, must be unique)
 function makeDiscardButton(id)
   local xValue = DISCARD_BUTTON_X_START + (id - 1) * DISCARD_BUTTON_X_OFFSET
-  local position = { xValue, 0.1, -0.94 }
-  local searchPosition = { -position[1], position[2], position[3] + 0.32 }
+  local position = Vector(xValue, 0.1, -0.94)
+  local searchPosition = Vector(-position[1], 1, position[3] + 0.32)
   local handlerName = 'handler' .. id
   self.setVar(handlerName, function()
-    local cardSizeSearch = { 2, 1, 3.2 }
+    local cardSizeSearch = Vector(2, 2, 3.2)
     local globalSearchPosition = self.positionToWorld(searchPosition)
     local searchResult = searchArea(globalSearchPosition, cardSizeSearch)
     return discardListOfObjects(searchResult)
@@ -327,13 +331,12 @@ end
 
 -- build a hybrid button to discard from searchPosition or move a card/deck to empty threat area on right click
 function makeDrawAreaButton()
-  local position = { -1.365, 0.1, -0.94 }
   self.createButton({
     label = "Discard / ➜",
     click_function = "discardOrMove",
     tooltip = "Right-click to move to threat area",
     function_owner = self,
-    position = position,
+    position = { -1.365, 0.1, -0.94 },
     scale = { 0.12, 0.12, 0.12 },
     width = 1190,
     height = 350,
@@ -342,8 +345,8 @@ function makeDrawAreaButton()
 end
 
 function discardOrMove(_, playerColor, isRightClick)
-  local searchPosition = { 1.365, 0.1, -0.62 }
-  local cardSizeSearch = { 2, 1, 3.2 }
+  local searchPosition = Vector(1.365, 1, -0.62)
+  local cardSizeSearch = Vector(2, 2, 3.2)
   local globalSearchPosition = self.positionToWorld(searchPosition)
   local searchResult = searchArea(globalSearchPosition, cardSizeSearch)
 
@@ -356,7 +359,7 @@ function discardOrMove(_, playerColor, isRightClick)
 
     for _, obj in ipairs(searchResult) do
       if obj.type == "Card" or obj.type == "Deck" then
-        obj.setPosition(threatAreaPos)
+        GlobalApi.moveCardWithTokens(obj, threatAreaPos)
       end
     end
   else
@@ -773,7 +776,7 @@ function createXML()
           raycastTarget = "false", -- this disables the click function temporarily
           onClick = "slotClickFunction",
           scale = "0.1 0.1 1",
-          width = "175",
+          width = "350",
           height = "175",
           position = x .. " " .. y .. " -11"
         },
@@ -1078,9 +1081,8 @@ end
 -- instruct Global to update this mat's hand visibility
 function onClick_visibilitySelect(player)
   if player.color == playerColor then
-    printToColor(
-      "This is meant to be clicked by other players to be able to see your hand (primarily for multi-handed gameplay). It won't do anything for you.",
-      playerColor)
+    printToColor("This is meant to be clicked by other players to be able to see your hand " ..
+      "(primarily for multi-handed gameplay). It won't do anything for you.", playerColor)
     return
   end
 
@@ -1088,19 +1090,25 @@ function onClick_visibilitySelect(player)
 end
 
 -- changes the UI state and the internal variable for the togglebuttons
-function onClick_toggleOption(player, _, id)
-  local state = optionPanelData[id]
-  local newState = not state
-  applyOptionPanelChange(id, newState, player.color)
-  self.UI.setAttribute(id, "image", newState and "option_on" or "option_off")
+function onClick_toggleOption(player, clickType, id)
+  updateMessageColor(player.color)
+  applyOptionPanelChange(id, not optionPanelData[id], clickType)
 end
 
-function applyOptionPanelChange(id, state, clickedByColor)
-  optionPanelData[id] = state
-  updateSave()
+function applyOptionPanelChange(id, state, clickType)
+  if clickType == "-1" then -- left-clicked
+    optionPanelData[id] = state
+    self.UI.setAttribute(id, "image", state and "option_on" or "option_off")
+  end
 
   if id == "slotEditing" then
-    toggleSlotEditing(_, clickedByColor)
+    if currentlyEditingSlots and clickType == "-2" then -- right-clicked
+      resetSlotSymbols()
+    elseif currentlyEditingSlots and clickType == "-3" then -- middle-clicked
+      resetSlotSymbols(true)
+    else
+      toggleSlotEditing()
+    end
   end
 end
 
@@ -1119,20 +1127,15 @@ function updateSlotSymbols()
 end
 
 -- toggle the "slot editing mode"
-function toggleSlotEditing(_, clickedByColor, isRightClick)
-  if isRightClick then
-    resetSlotSymbols()
-    return
-  end
-
-  updateMessageColor(clickedByColor)
-
-  -- toggle internal variable
+function toggleSlotEditing()
   currentlyEditingSlots = not currentlyEditingSlots
   updateSlotSymbols()
 
   if currentlyEditingSlots then
-    broadcastToColor("Click on a slot symbol (or an empty slot) to edit it.", messageColor, "Orange")
+    broadcastToColor("Check chat for instructions", messageColor, "Orange")
+    printToColor("Click on a slot symbol (or an empty slot) to edit it. " ..
+      "Right-click the 'Slot-Edit' button to return to the default slots. " .. 
+      "Middle-click the 'Slot-Edit' button to remove all slot symbols.", messageColor, "White")
   else
     updateSave()
   end
@@ -1168,10 +1171,36 @@ function getSlotRotation(slotName)
 end
 
 -- reset the slot symbols by making a deep copy of the default data and redrawing
-function resetSlotSymbols()
+---@param empty? boolean If true, will set the slot symbols to "any" (empty) instead of the defaults
+function resetSlotSymbols(empty)
   slotData = {}
   for _, slotName in ipairs(defaultSlotData) do
-    table.insert(slotData, slotName)
+    table.insert(slotData, empty and "any" or slotName)
+  end
+  updateSave()
+  updateSlotSymbols()
+end
+
+function modifySlot(newSlot, cardPosition)
+  local slotSnaps = {}
+  local snaps = self.getSnapPoints()
+  for i, snap in ipairs(snaps) do
+    if inArea(snap.position, MAIN_PLAY_AREA) then
+      table.insert(slotSnaps, snap)
+    end
+  end
+  cardPosition.y = 0
+  for snapId, snap in ipairs(slotSnaps) do
+    local snapPosition = Vector(snap.position.x, 0, snap.position.z)
+    if snapPosition == cardPosition then
+      slotData[snapId] = newSlot
+      if Player[playerColor].seated then
+        printToColor(newSlot .. " slot added to player mat", playerColor, playerColor)
+      else
+        local hostColor = Player.getPlayers()[1].color
+        printToColor(newSlot .. " slot added to player mat", hostColor, hostColor)
+      end
+    end
   end
   updateSave()
   updateSlotSymbols()
@@ -1235,6 +1264,11 @@ function onCollisionEnter(collisionInfo)
   -- only continue for cards
   if object.type ~= "Card" then return end
 
+  -- only continue if card didn't already collide
+  if collisionTable[object] ~= nil then return end
+  collisionTable[object] = true
+  Wait.frames(function() collisionTable[object] = nil end, 1)
+
   local md = JSON.decode(object.getGMNotes()) or {}
   syncCustomizableMetadata(object, md)
 
@@ -1246,15 +1280,21 @@ function onCollisionEnter(collisionInfo)
       -- this is mostly for helpers like Stella and Kohaku
       spawnTokensOrShowHelper(object)
     end
-
   elseif inArea(localCardPos, DECK_DISCARD_AREA) then
     tokenSpawnTrackerApi.resetTokensSpawned(object)
-    removeTokensFromObject(object)
-
+    GlobalApi.removeTokensFromObject(object, matColor)
   elseif object.is_face_down == false then
     -- main uses spawning
     if inArea(localCardPos, MAIN_PLAY_AREA) and (md.type == "Asset" or md.type == "Event") then
       spawnTokensOrShowHelper(object)
+
+      if md.id == "02158" or md.id == "01694" or md.id == "90027" or md.id == "60232" then
+        modifySlot("Ally", localCardPos)
+      elseif md.id == "02157" or md.id == "01695" then
+        modifySlot("Accessory", localCardPos)
+      elseif md.id == "10132" then
+        modifySlot("Blursed", localCardPos)
+      end
     end
 
     -- encounter types / committed skill cards in the threat area
@@ -1282,30 +1322,7 @@ function onObjectEnterContainer(container, object)
   local localCardPos = self.positionToLocal(object.getPosition())
   if inArea(localCardPos, DECK_DISCARD_AREA) then
     tokenSpawnTrackerApi.resetTokensSpawned(object)
-    removeTokensFromObject(object)
-  end
-end
-
--- removes tokens from the provided card/deck
-function removeTokensFromObject(object)
-  if object.hasTag("CardThatSeals") then
-    local func = object.getVar("resetSealedTokens") -- check if function exists (it won't for older custom content)
-    if func ~= nil then
-      object.call("resetSealedTokens")
-    end
-  end
-
-  for _, obj in ipairs(searchLib.onObject(object)) do
-    if tokenChecker.isChaosToken(obj) then
-      chaosBagApi.returnChaosTokenToBag(obj, false)
-    elseif obj.getGUID() ~= "4ee1f2" and -- table
-        obj ~= self and
-        obj.type ~= "Deck" and
-        obj.type ~= "Card" and
-        obj.memo ~= nil and
-        obj.getLock() == false then
-      ownedObjects.Trash.putObject(obj)
-    end
+    GlobalApi.removeTokensFromObject(object, matColor)
   end
 end
 

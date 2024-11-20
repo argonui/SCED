@@ -1,17 +1,18 @@
 tableHeightOffset = -9
 
-function onSave()
-  return JSON.encode({ tid = tableImageData, cd = checkData })
+function updateSave()
+  self.script_state = JSON.encode({ tid = tableImageData, cd = checkData })
 end
 
-function onload(saved_data)
-  if saved_data ~= "" then
-    local loaded_data = JSON.decode(saved_data)
+function onload(savedData)
+  if savedData and savedData ~= "" then
+    local loaded_data = JSON.decode(savedData)
     tableImageData = loaded_data.tid
     checkData = loaded_data.cd
   else
     tableImageData = {}
     checkData = { move = false, scale = false }
+    updateSave()
   end
 
   --Disables interactable status of objects with GUID in list
@@ -83,6 +84,7 @@ function click_saveSurface(_, color)
       if findInImageDataIndex(url, nickname) == nil then
         --Save doesn't exist already
         table.insert(tableImageData, { url = url, name = nickname })
+        updateSave()
         broadcastToAll("Image URL saved to memory.", { 0.2, 0.9, 0.2 })
         --Refresh buttons
         self.clearButtons()
@@ -111,6 +113,7 @@ end
 function click_deleteMemory(_, color, index)
   if permissionCheck(color) then
     table.remove(tableImageData, index)
+    updateSave()
     self.clearButtons()
     createOpenCloseButton()
     createSurfaceButtons()
@@ -166,27 +169,9 @@ function click_checkMove(_, color)
       local buttonEntry = findButton(self, find_func)
       self.editButton({ index = buttonEntry.index, label = string.char(10008) })
     end
+    updateSave()
   end
 end
-
---Checks/unchecks scale box for hands
---This button was disabled for technical reasons
---[[
-function click_checkScale(_, color)
-    if permissionCheck(color) then
-        local find_func = function(o) return o.click_function=="click_checkScale" end
-        if checkData.scale == true then
-            checkData.scale = false
-            local buttonEntry = findButton(self, find_func)
-            self.editButton({index=buttonEntry.index, label=""})
-        else
-            checkData.scale = true
-            local buttonEntry = findButton(self, find_func)
-            self.editButton({index=buttonEntry.index, label=string.char(10008)})
-        end
-    end
-end
-]]
 
 --Alters scale of elements and moves them
 function changeTableScale(width, depth)
@@ -506,13 +491,6 @@ function createScaleButtons()
     font_size = 200,
     font_color = { 1, 1, 1 }
   })
-  --Disabled due to me removing the feature for technical reasons
-  --[[
-    self.createButton({
-        label="Scale Hands:", click_function="none",
-        position={-8.3,0,4}, height=0, width=0, font_size=200, font_color={1,1,1}
-    })
-    ]]
   --Checkboxes
   local label = ""
   if checkData.move == true then label = string.char(10008) end
@@ -526,15 +504,6 @@ function createScaleButtons()
     width = 224,
     font_size = 200,
   })
-  --[[
-    local label = ""
-    if checkData.scale == true then label = string.char(10008) end
-    self.createButton({
-        label=label, click_function="click_checkScale",
-        function_owner=self, tooltip="Check to scale the width of hands when table is rescaled",
-        position={-6.8,0,4}, height=224, width=224, font_size=200,
-    })
-    ]]
   --Apply button
   self.createButton({
     label = "Apply Scale",
