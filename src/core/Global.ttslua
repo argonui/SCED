@@ -73,6 +73,9 @@ local RESOURCE_OPTIONS              = {
 local handVisibility                = {}
 local blurseVisibility              = {}
 
+-- track cards' tokens
+local cardTokens                    = {}
+
 ---------------------------------------------------------
 -- data for tokens
 ---------------------------------------------------------
@@ -175,6 +178,12 @@ end
 -- provides a random seed (from 1 to 999) to be used by "linked" objects like the action tokens
 function getRandomSeed()
   return math.random(999)
+end
+
+function onObjectDrop(_, object)
+  if object.type == "Card" or object.type == "Deck" then
+    moveCardWithTokens({ card = object })
+  end
 end
 
 -- Event hook for any object search. When chaos tokens are manipulated while the chaos bag
@@ -297,8 +306,13 @@ function onPlayerAction(player, action, targets)
       trash.putObject(target)
     end
     return false
+  elseif action == Player.Action.PickUp then
+    for _, target in ipairs(targets) do
+      if target.type == "Card" or target.type == "Deck" then
+        storeTokenTransform(target)
+      end
+    end
   end
-  return true
 end
 
 ---------------------------------------------------------
@@ -1756,8 +1770,8 @@ function applyOptionPanelChange(id, state)
 
     -- update master clue counter
     local counter = guidReferenceApi.getObjectByOwnerAndType("Mythos", "MasterClueCounter")
-    counter.setVar("useClickableCounters", state)
-    
+    counter.call("setClickableCounters", state)
+
     -- option: Enable card helpers
   elseif id == "enableCardHelpers" then
     toggleCardHelpers(state)
@@ -2820,4 +2834,131 @@ end
 -- Note: There's intentionally no proper UI or button etc. for this, since we don't fully support rotated mats
 function moveAndRotatePlayermat(params)
   playermatApi.moveAndRotate(params.matColor, params.position, params.rotationY)
+end
+
+-- check if an element is in a table
+function tableContains(thisTable, thisElement)
+  for _, element in pairs(thisTable) do
+    if element == thisElement then
+      return true
+    end
+  end
+  return false
+end
+
+function moveCardWithTokens(params)
+  local card = params.card
+  local position = params.position
+  local rotation = params.rotation
+
+  if not cardTokens[card] then
+    storeTokenTransform(card)
+  end
+
+  if rotation then
+    card.setRotation(rotation)
+  end
+
+  if position then
+    card.use_hands = false
+    card.setPositionSmooth(position)
+  end
+
+  if #cardTokens[card] == 0 then return end
+
+  -- wait for the card to finish moving, update token position/rotation regularly
+  Wait.condition(
+    function() stopTokenTransformUpdating(card) end,
+    function()
+      if card ~= nil and cardTokens[card] ~= nil and #cardTokens[card] ~= 0 then
+        updateTokenTransform(card)
+        return card.resting and not card.isSmoothMoving()
+      else
+        return true
+      end
+    end
+  )
+end
+
+function storeTokenTransform(card)
+  if cardTokens[card] ~= nil then
+    stopTokenTransformUpdating(card)
+  end
+
+  cardTokens[card] = {}
+  local cardRot = card.getRotation()
+  for _, token in ipairs(searchLib.onObject(card, "isTileOrToken", 0.95)) do
+    if not token.locked then
+      -- offset to stop the token from colliding with the card
+      local tokenPos = token.getPosition() + Vector(0, 0.05, 0)
+      token.setPosition(tokenPos)
+
+      -- store local transform data
+      table.insert(cardTokens[card], {
+        token = token,
+        localPos = card.positionToLocal(tokenPos),
+        localRot = token.getRotation() - cardRot
+      })
+    end
+  end
+end
+
+function updateTokenTransform(card)
+  for _, tokenData in ipairs(cardTokens[card] or {}) do
+    if tokenData.token ~= nil then
+      tokenData.token.setPosition(card.positionToWorld(tokenData.localPos))
+      tokenData.token.setRotation(card.getRotation() + tokenData.localRot)
+      tokenData.token.locked = true
+    end
+  end
+end
+
+function stopTokenTransformUpdating(card)
+  for _, tokenData in ipairs(cardTokens[card] or {}) do
+    if tokenData.token ~= nil then
+      tokenData.token.locked = false
+    end
+  end
+  cardTokens[card] = nil
+  card.use_hands = true
+end
+
+-- removes tokens from the provided card/deck
+function removeTokensFromObject(params)
+  local object = params.object
+  local trash = guidReferenceApi.getObjectByOwnerAndType(params.owner, "Trash")
+
+  if object.hasTag("CardThatSeals") then
+    local func = object.getVar("resetSealedTokens") -- check if function exists (it won't for older custom content)
+    if func ~= nil then
+      object.call("resetSealedTokens")
+    end
+  end
+
+  if cardTokens[object] then
+    -- check if this card was moved with tokens on it
+    for _, tokenData in ipairs(cardTokens[object]) do
+      if tokenData.token ~= nil then
+        tokenData.token.locked = false
+        if tokenChecker.isChaosToken(tokenData.token) then
+          returnChaosTokenToBag({ token = tokenData.token, fromBag = false })
+        else
+          trash.putObject(tokenData.token)
+        end
+      end
+    end
+    cardTokens[object] = nil
+  else
+    -- search area for tokens
+    for _, obj in ipairs(searchLib.onObject(object, "isTileOrToken")) do
+      if tokenChecker.isChaosToken(obj) then
+        returnChaosTokenToBag({ token = obj, fromBag = false })
+      elseif obj.getGUID() ~= "4ee1f2" and -- table
+          obj ~= self and
+          obj.memo ~= nil and
+          obj.getLock() == false then
+        trash.putObject(obj)
+      end
+    end
+  end
 end

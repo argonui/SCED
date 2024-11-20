@@ -26,6 +26,9 @@ local isReshuffling              = false
 local collisionEnabled           = false
 local currentScenario, useFrontData, tokenData, scenarioCard
 
+-- for stopping multiple collisions of the same object
+local collisionTable = {}
+
 function updateSave()
   local data = {
     currentScenario = currentScenario,
@@ -92,12 +95,17 @@ function onCollisionEnter(collisionInfo)
   -- early exit for better performance
   if object.type ~= "Card" then return end
 
+  -- only continue if card didn't already collide
+  if collisionTable[object] ~= nil then return end
+  collisionTable[object] = true
+  Wait.frames(function() collisionTable[object] = nil end, 1)
+
   local localPos = self.positionToLocal(object.getPosition())
 
   if inArea(localPos, ENCOUNTER_DECK_AREA) or inArea(localPos, ENCOUNTER_DISCARD_AREA) then
     -- reset spawned tokens and remove tokens from cards in encounter deck / discard area
     Wait.frames(function() tokenSpawnTrackerApi.resetTokensSpawned(object) end, 1)
-    removeTokensFromObject(object)
+    GlobalApi.removeTokensFromObject(object, "Mythos")
 
   elseif inArea(localPos, SCENARIO_REFERENCE_AREA) then
     -- detect scenario reference card and attempt to load data from it
@@ -158,7 +166,7 @@ function onObjectEnterContainer(container, object)
   local localPos = self.positionToLocal(container.getPosition())
   if inArea(localPos, ENCOUNTER_DECK_AREA) or inArea(localPos, ENCOUNTER_DISCARD_AREA) then
     tokenSpawnTrackerApi.resetTokensSpawned(object)
-    removeTokensFromObject(object)
+    GlobalApi.removeTokensFromObject(object, "Mythos")
   end
 end
 
@@ -303,18 +311,4 @@ function inArea(point, bounds)
     and point.x > bounds.lowerRight.x
     and point.z > bounds.upperLeft.z
     and point.z < bounds.lowerRight.z)
-end
-
--- removes tokens from the provided card/deck
-function removeTokensFromObject(object)
-  local TRASH = guidReferenceApi.getObjectByOwnerAndType("Mythos", "Trash")
-  for _, obj in ipairs(searchLib.onObject(object, "isTileOrToken")) do
-    if obj.getGUID() ~= "4ee1f2" and -- table
-        obj ~= self and
-        obj.memo ~= nil and
-        obj.getLock() == false and
-        not tokenChecker.isChaosToken(obj) then
-      TRASH.putObject(obj)
-    end
-  end
 end
