@@ -46,7 +46,7 @@ local collisionEnabled            = false
 local currentlyEditingSlots       = false
 
 -- for stopping multiple collisions of the same object
-local collisionTable = {}
+local collisionTable              = {}
 
 -- x-Values for discard buttons
 local DISCARD_BUTTON_X_START      = -1.365
@@ -1098,9 +1098,8 @@ end
 -- instruct Global to update this mat's hand visibility
 function onClick_visibilitySelect(player)
   if player.color == playerColor then
-    printToColor(
-      "This is meant to be clicked by other players to be able to see your hand (primarily for multi-handed gameplay). It won't do anything for you.",
-      playerColor)
+    printToColor("This is meant to be clicked by other players to be able to see your hand " ..
+      "(primarily for multi-handed gameplay). It won't do anything for you.", playerColor)
     return
   end
 
@@ -1108,19 +1107,25 @@ function onClick_visibilitySelect(player)
 end
 
 -- changes the UI state and the internal variable for the togglebuttons
-function onClick_toggleOption(player, _, id)
-  local state = optionPanelData[id]
-  local newState = not state
-  applyOptionPanelChange(id, newState, player.color)
-  self.UI.setAttribute(id, "image", newState and "option_on" or "option_off")
+function onClick_toggleOption(player, clickType, id)
+  updateMessageColor(player.color)
+  applyOptionPanelChange(id, not optionPanelData[id], clickType)
 end
 
-function applyOptionPanelChange(id, state, clickedByColor)
-  optionPanelData[id] = state
-  updateSave()
+function applyOptionPanelChange(id, state, clickType)
+  if clickType == "-1" then -- left-clicked
+    optionPanelData[id] = state
+    self.UI.setAttribute(id, "image", state and "option_on" or "option_off")
+  end
 
   if id == "slotEditing" then
-    toggleSlotEditing(_, clickedByColor)
+    if currentlyEditingSlots and clickType == "-2" then -- right-clicked
+      resetSlotSymbols()
+    elseif currentlyEditingSlots and clickType == "-3" then -- middle-clicked
+      resetSlotSymbols(true)
+    else
+      toggleSlotEditing()
+    end
   end
 end
 
@@ -1139,20 +1144,15 @@ function updateSlotSymbols()
 end
 
 -- toggle the "slot editing mode"
-function toggleSlotEditing(_, clickedByColor, isRightClick)
-  if isRightClick then
-    resetSlotSymbols()
-    return
-  end
-
-  updateMessageColor(clickedByColor)
-
-  -- toggle internal variable
+function toggleSlotEditing()
   currentlyEditingSlots = not currentlyEditingSlots
   updateSlotSymbols()
 
   if currentlyEditingSlots then
-    broadcastToColor("Click on a slot symbol (or an empty slot) to edit it.", messageColor, "Orange")
+    broadcastToColor("Check chat for instructions", messageColor, "Orange")
+    printToColor("Click on a slot symbol (or an empty slot) to edit it. " ..
+      "Right-click the 'Slot-Edit' button to return to the default slots. " .. 
+      "Middle-click the 'Slot-Edit' button to remove all slot symbols.", messageColor, "White")
   else
     updateSave()
   end
@@ -1188,10 +1188,11 @@ function getSlotRotation(slotName)
 end
 
 -- reset the slot symbols by making a deep copy of the default data and redrawing
-function resetSlotSymbols()
+---@param empty? boolean If true, will set the slot symbols to "any" (empty) instead of the defaults
+function resetSlotSymbols(empty)
   slotData = {}
   for _, slotName in ipairs(defaultSlotData) do
-    table.insert(slotData, slotName)
+    table.insert(slotData, empty and "any" or slotName)
   end
   updateSave()
   updateSlotSymbols()
