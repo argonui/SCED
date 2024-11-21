@@ -1,15 +1,15 @@
 require("core/Constants")
 local blessCurseManagerApi          = require("chaosbag/BlessCurseManagerApi")
 local guidReferenceApi              = require("core/GUIDReferenceApi")
-local mythosAreaApi                 = require("core/MythosAreaApi")
+local mythosAreaApi                 = require("mythos/MythosAreaApi")
 local navigationOverlayApi          = require("core/NavigationOverlayApi")
-local playAreaApi                   = require("core/PlayAreaApi")
+local playAreaApi                   = require("playarea/PlayAreaApi")
 local playermatApi                  = require("playermat/PlayermatApi")
 local searchLib                     = require("util/SearchLib")
 local soundCubeApi                  = require("core/SoundCubeApi")
-local tokenArrangerApi              = require("accessories/TokenArrangerApi")
-local tokenChecker                  = require("core/token/TokenChecker")
-local tokenSpawnTrackerApi          = require("core/token/TokenSpawnTrackerApi")
+local tokenArrangerApi              = require("tokens/TokenArrangerApi")
+local tokenChecker                  = require("tokens/TokenChecker")
+local tokenSpawnTrackerApi          = require("tokens/TokenSpawnTrackerApi")
 
 ---------------------------------------------------------
 -- general setup
@@ -180,12 +180,6 @@ function getRandomSeed()
   return math.random(999)
 end
 
-function onObjectDrop(_, object)
-  if object.type == "Card" or object.type == "Deck" then
-    moveCardWithTokens({ card = object })
-  end
-end
-
 -- Event hook for any object search. When chaos tokens are manipulated while the chaos bag
 -- container is being searched, a TTS bug can cause tokens to duplicate or vanish. We lock the
 -- chaos bag during search operations to avoid this.
@@ -306,12 +300,6 @@ function onPlayerAction(player, action, targets)
       trash.putObject(target)
     end
     return false
-  elseif action == Player.Action.PickUp then
-    for _, target in ipairs(targets) do
-      if target.type == "Card" or target.type == "Deck" then
-        storeTokenTransform(target)
-      end
-    end
   end
 end
 
@@ -2880,18 +2868,14 @@ function moveCardWithTokens(params)
       if card ~= nil and cardTokens[card] ~= nil and #cardTokens[card] ~= 0 then
         updateTokenTransform(card)
         return card.resting and not card.isSmoothMoving()
-      else
-        return true
       end
+
+      return true
     end
   )
 end
 
 function storeTokenTransform(card)
-  if cardTokens[card] ~= nil then
-    stopTokenTransformUpdating(card)
-  end
-
   cardTokens[card] = {}
   local cardRot = card.getRotation()
   for _, token in ipairs(searchLib.onObject(card, "isTileOrToken", 0.95)) do
@@ -2921,6 +2905,7 @@ function updateTokenTransform(card)
 end
 
 function stopTokenTransformUpdating(card)
+  if cardTokens[card] == nil then return end
   for _, tokenData in ipairs(cardTokens[card] or {}) do
     if tokenData.token ~= nil then
       tokenData.token.locked = false
