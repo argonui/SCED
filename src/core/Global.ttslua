@@ -180,18 +180,6 @@ function getRandomSeed()
   return math.random(999)
 end
 
-function onObjectDrop(_, object)
-  if object.type == "Card" or object.type == "Deck" then
-    moveCardWithTokens({ card = object })
-  end
-end
-
-function onObjectRotate(object, _, flip, _, _, oldFlip)
-  if flip ~= oldFlip then
-    stopTokenTransformUpdating(object)
-  end
-end
-
 -- Event hook for any object search. When chaos tokens are manipulated while the chaos bag
 -- container is being searched, a TTS bug can cause tokens to duplicate or vanish. We lock the
 -- chaos bag during search operations to avoid this.
@@ -312,12 +300,6 @@ function onPlayerAction(player, action, targets)
       trash.putObject(target)
     end
     return false
-  elseif action == Player.Action.PickUp then
-    for _, target in ipairs(targets) do
-      if target.type == "Card" or target.type == "Deck" then
-        storeTokenTransform(target)
-      end
-    end
   end
 end
 
@@ -2897,7 +2879,7 @@ function storeTokenTransform(card)
   cardTokens[card] = {}
   local cardRot = card.getRotation()
   for _, token in ipairs(searchLib.onObject(card, "isTileOrToken", 0.95)) do
-    if token.memo or not token.locked then
+    if not token.locked then
       -- offset to stop the token from colliding with the card
       local tokenPos = token.getPosition() + Vector(0, 0.05, 0)
       token.setPosition(tokenPos)
@@ -2931,24 +2913,6 @@ function stopTokenTransformUpdating(card)
   end
   cardTokens[card] = nil
   card.use_hands = true
-end
-
-function unregisterCard(card)
-  cardTokens[card] = nil
-end
-
-function unregisterTokenFromCard(params)
-  local card = params.card
-  local token = params.token
-
-  if cardTokens[card] == nil then return end
-
-  for i, tokenData in ipairs(cardTokens[card] or {}) do
-    if tokenData.token == token then
-      table.remove(cardTokens[card], i)
-      break
-    end
-  end
 end
 
 -- removes tokens from the provided card/deck
