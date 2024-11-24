@@ -72,9 +72,25 @@ function processContainedObjects(containedObjects, customDeck)
 end
 
 function addCardToIndex(cardData)
-  local length = string.len(cardData["Nickname"])
-  if length == 5 or length == 6 then
-    cardIdIndex[cardData["Nickname"]] = { data = cardData }
+  -- using the more efficient 'json.parse()' to speed this process up
+  local status, cardMetadata = pcall(function() return json.parse(cardData.GMNotes) end)
+
+  -- if an error happens, fallback to the regular parser
+  if status ~= true or cardMetadata == nil then
+    log("Fast parser failed for " .. cardData.Nickname .. ", using old parser instead.")
+    cardMetadata = JSON.decode(cardData.GMNotes)
+  end
+
+  if cardMetadata then
+    cardIdIndex[cardMetadata.id] = { data = cardData }
+  else
+    -- assume name is the ID as fallback
+    local length = string.len(cardData["Nickname"])
+    if length == 5 or length == 6 then
+      local cardId = cardData["Nickname"]
+      cardData["Nickname"] = nil
+      cardIdIndex[cardId] = { data = cardData }
+    end
   end
 end
 
@@ -129,6 +145,7 @@ function onObjectSpawn(obj)
       objData["CardID"]     = cardData.data["CardID"]
       objData["CustomDeck"] = cardData.data["CustomDeck"]
       objData["Name"]       = cardData.data["Name"]
+      objData["Nickname"]   = cardData.data["Nickname"] or objData["Nickname"]
       processCard(objData)
       obj.destruct()
       spawnObjectData({ data = objData })
