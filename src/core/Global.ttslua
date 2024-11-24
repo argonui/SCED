@@ -221,7 +221,8 @@ function onObjectEnterZone(zone, object)
       not tokenChecker.isChaosToken(object) and
       object.type == "Tile" and
       object.getMemo() and
-      not object.getLock() then
+      not object.getLock() and
+      object.interactable == true then
     local matcolor = playermatApi.getMatColorByPosition(object.getPosition())
     local trash = guidReferenceApi.getObjectByOwnerAndType(matcolor, "Trash")
     trash.putObject(object)
@@ -301,6 +302,10 @@ function onPlayerAction(player, action, targets)
     end
     return false
   end
+end
+
+function onObjectPickUp(_, object)
+  stopTokenTransformUpdating(object)
 end
 
 ---------------------------------------------------------
@@ -1590,8 +1595,8 @@ end
 -- first hit is the table surface, additional hits means something is there
 ---@return boolean: True if empty
 function checkPositionForContentSpawn(checkPos)
-  local searchResult = searchLib.atPosition(checkPos)
-  return #searchResult == 1
+  local searchResult = searchLib.atPosition(checkPos, "isInteractable")
+  return #searchResult == 0
 end
 
 -- downloading of the library file
@@ -2846,9 +2851,8 @@ function moveCardWithTokens(params)
   local position = params.position
   local rotation = params.rotation
 
-  if not cardTokens[card] then
-    storeTokenTransform(card)
-  end
+  stopTokenTransformUpdating(card)
+  storeTokenTransform(card)
 
   if rotation then
     card.setRotation(rotation)
@@ -2912,7 +2916,9 @@ function stopTokenTransformUpdating(card)
     end
   end
   cardTokens[card] = nil
-  card.use_hands = true
+  if card ~= nil then
+    card.use_hands = true
+  end
 end
 
 -- removes tokens from the provided card/deck
@@ -2948,7 +2954,8 @@ function removeTokensFromObject(params)
       elseif obj.getGUID() ~= "4ee1f2" and -- table
           obj ~= self and
           obj.memo ~= nil and
-          obj.getLock() == false then
+          obj.getLock() == false and
+          obj.interactable == true then
         trash.putObject(obj)
       end
     end
