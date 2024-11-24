@@ -225,7 +225,8 @@ function onObjectEnterZone(zone, object)
       not tokenChecker.isChaosToken(object) and
       object.type == "Tile" and
       object.getMemo() and
-      not object.getLock() then
+      not object.getLock() and
+      object.interactable == true then
     local matcolor = playermatApi.getMatColorByPosition(object.getPosition())
     local trash = guidReferenceApi.getObjectByOwnerAndType(matcolor, "Trash")
     trash.putObject(object)
@@ -328,46 +329,8 @@ function onObjectRotate(obj, _, flip, _, _, oldFlip)
   end
 end
 
-function onPlayerChangeColor()
-  updateActionTrackerNames()
-end
-
--- detect action token flipping
-function onObjectRotate(obj, _, flip, _, _, oldFlip)
-  if flip == oldFlip or not obj.hasTag("UniversalToken") or obj.hasTag("Temporary") then return end
-
-  local owner = guidReferenceApi.getOwnerOfObject(obj)
-  if owner == "Mythos" then return end
-
-  -- make sure we only do this for action tokens in the regular position
-  local mat = guidReferenceApi.getObjectByOwnerAndType(owner, "Playermat")
-  local relPos = mat.positionToLocal(obj.getPosition())
-  if relPos.x > -1.5 and relPos.x < -1 then
-    actionsPerMatColor[owner] = (actionsPerMatColor[owner] or 3) + (obj.is_face_down and 1 or -1)
-    actionsPerMatColor[owner] = math.max(math.min(actionsPerMatColor[owner], 3), 0)
-    updateActionTrackerTokens()
-  end
-end
-
-function onPlayerChangeColor()
-  updateActionTrackerNames()
-end
-
--- detect action token flipping
-function onObjectRotate(obj, _, flip, _, _, oldFlip)
-  if flip == oldFlip or not obj.hasTag("UniversalToken") or obj.hasTag("Temporary") then return end
-
-  local owner = guidReferenceApi.getOwnerOfObject(obj)
-  if owner == "Mythos" then return end
-
-  -- make sure we only do this for action tokens in the regular position
-  local mat = guidReferenceApi.getObjectByOwnerAndType(owner, "Playermat")
-  local relPos = mat.positionToLocal(obj.getPosition())
-  if relPos.x > -1.5 and relPos.x < -1 then
-    actionsPerMatColor[owner] = (actionsPerMatColor[owner] or 3) + (obj.is_face_down and 1 or -1)
-    actionsPerMatColor[owner] = math.max(math.min(actionsPerMatColor[owner], 3), 0)
-    updateActionTrackerTokens()
-  end
+function onObjectPickUp(_, object)
+  stopTokenTransformUpdating(object)
 end
 
 ---------------------------------------------------------
@@ -1782,8 +1745,8 @@ end
 -- first hit is the table surface, additional hits means something is there
 ---@return boolean: True if empty
 function checkPositionForContentSpawn(checkPos)
-  local searchResult = searchLib.atPosition(checkPos)
-  return #searchResult == 1
+  local searchResult = searchLib.atPosition(checkPos, "isInteractable")
+  return #searchResult == 0
 end
 
 -- downloading of the library file
@@ -3044,9 +3007,8 @@ function moveCardWithTokens(params)
   local position = params.position
   local rotation = params.rotation
 
-  if not cardTokens[card] then
-    storeTokenTransform(card)
-  end
+  stopTokenTransformUpdating(card)
+  storeTokenTransform(card)
 
   if rotation then
     card.setRotation(rotation)
@@ -3110,7 +3072,9 @@ function stopTokenTransformUpdating(card)
     end
   end
   cardTokens[card] = nil
-  card.use_hands = true
+  if card ~= nil then
+    card.use_hands = true
+  end
 end
 
 -- removes tokens from the provided card/deck
@@ -3146,7 +3110,8 @@ function removeTokensFromObject(params)
       elseif obj.getGUID() ~= "4ee1f2" and -- table
           obj ~= self and
           obj.memo ~= nil and
-          obj.getLock() == false then
+          obj.getLock() == false and
+          obj.interactable == true then
         trash.putObject(obj)
       end
     end
