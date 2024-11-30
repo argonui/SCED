@@ -1,12 +1,8 @@
+require("core/Constants")
+require("playercards/PlayerCardSpawner")
+
 local cardIdIndex  = {}
 local indexingDone = false
-
-local backUrl      = {
-  ScenarioCard =
-  "https://steamusercontent-a.akamaihd.net/ugc/2342503777940351785/F64D8EFB75A9E15446D24343DA0A6EEF5B3E43DB/",
-  PlayerCard =
-  "https://steamusercontent-a.akamaihd.net/ugc/2342503777940352139/A2D42E7E5C43D045D72CE5CFC907E4F886C8C690/"
-}
 
 function onLoad()
   self.addContextMenuItem("Rebuild Index", rebuildIndex)
@@ -82,14 +78,14 @@ function addCardToIndex(cardData)
   end
 
   if cardMetadata then
-    cardIdIndex[cardMetadata.id] = { data = cardData }
+    cardIdIndex[cardMetadata.id] = { data = cardData, metadata = cardMetadata }
   else
     -- assume name is the ID as fallback
     local length = string.len(cardData["Nickname"])
     if length == 5 or length == 6 then
       local cardId = cardData["Nickname"]
       cardData["Nickname"] = nil
-      cardIdIndex[cardId] = { data = cardData }
+      cardIdIndex[cardId] = { data = cardData, metadata = { id = cardId } }
     end
   end
 end
@@ -147,8 +143,13 @@ function onObjectSpawn(obj)
       objData["Name"]       = cardData.data["Name"]
       objData["Nickname"]   = cardData.data["Nickname"] or objData["Nickname"]
       processCard(objData)
+
+      local pos = obj.getPosition()
+      local rot = obj.getRotation()
+      local cardList = { { data = objData, metadata = md } }
       obj.destruct()
-      spawnObjectData({ data = objData })
+
+      Spawner.spawnCards(cardList, pos, rot, false)
     end
   end, 1)
 end
@@ -168,9 +169,9 @@ function processCard(cardData)
 
   local newBack
   if tags.PlayerCard then
-    newBack = backUrl.PlayerCard
+    newBack = CARD_BACK_URL.PlayerCard
   elseif tags.ScenarioCard then
-    newBack = backUrl.ScenarioCard
+    newBack = CARD_BACK_URL.ScenarioCard
   end
 
   local _, customDeckData = next(cardData["CustomDeck"])
