@@ -14,5 +14,39 @@ jobs:
       contents: write
       actions: read
     steps:
-      - uses: argonui/TTSModManager.action@v1.0.0
+      - uses: actions/checkout@v3
 
+      - name: Download TTSModManager
+        run: wget https://github.com/argonui/TTSModManager/releases/download/v1.3/TTSModManager-Linux
+        shell: bash
+
+      - name: Make TTSModManager executable
+        run: chmod +x TTSModManager-Linux
+        shell: bash
+
+      - name: Set dynamic filename
+        id: filename
+        run: |
+          if [ "${{ github.event_name }}" == "release" ]; then
+            stripped_name=$(echo "${{ github.event.release.tag_name }}" | sed -E 's/^[Vv]ersion[ ]*//')
+            echo "filename=Arkham SCE ${stripped_name}.json" >> $GITHUB_ENV
+          elif [ "${{ github.event_name }}" == "pull_request" ]; then
+            echo "filename=${{ github.head_ref }}.json" >> $GITHUB_ENV
+          else
+            echo "filename=default.json" >> $GITHUB_ENV
+
+      - name: Run TTSModManager
+        run: ./TTSModManager-Linux -moddir="./" -modfile="./${{ env.filename }}"
+        shell: bash
+
+      - name: Upload built mod
+        uses: actions/upload-artifact@v3
+        with:
+          name: TTSMod
+          path: ./${{ env.filename }}
+
+      - name: Add built mod to release
+        uses: softprops/action-gh-release@v0.1.15
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: ${{ env.filename }}
