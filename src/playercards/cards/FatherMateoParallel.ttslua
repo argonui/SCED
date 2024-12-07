@@ -1,13 +1,136 @@
+require("playercards/CardsWithHelper")
 local blessCurseManagerApi = require("chaosbag/BlessCurseManagerApi")
+local chaosBagApi          = require("chaosbag/ChaosBagApi")
+local guidReferenceApi     = require("core/GUIDReferenceApi")
 local playermatApi         = require("playermat/PlayermatApi")
+local tokenArrangerApi     = require("tokens/TokenArrangerApi")
 
-function onLoad()
-  self.addContextMenuItem("Enable menus", addSealingMenus)
+-- intentionally global
+hasXML                     = true
+isHelperEnabled            = false
+local loopId
+
+-- table to store state for matcolors (will hold GUID of sealed token)
+local buttonData           = {
+  White  = false,
+  Orange = false,
+  Green  = false,
+  Red    = false
+}
+
+function updateSave()
+  self.script_state = JSON.encode({
+    isHelperEnabled = isHelperEnabled,
+    buttonData      = buttonData,
+    loopId          = loopId
+  })
 end
 
-function addSealingMenus(playerColor)
-  self.clearContextMenu()
-  for _, obj in ipairs(playermatApi.getUsedInvestigatorCards()) do
-    blessCurseManagerApi.addBlurseSealingMenu(playerColor, obj, true)
+function onLoad(savedData)
+  if savedData and savedData ~= "" then
+    local loadedData = JSON.decode(savedData)
+    isHelperEnabled  = loadedData.isHelperEnabled
+    buttonData       = loadedData.buttonData
+    loopId           = loadedData.loopId
   end
+  if isHelperEnabled then updateDisplay() end
+end
+
+function initialize()
+  maybeUpdateButtonState()
+  loopId = Wait.time(maybeUpdateButtonState, 1, -1)
+end
+
+function shutOff()
+  if loopId then
+    Wait.stop(loopId)
+    loopId = nil
+  end
+end
+
+-- count tokens in the bag and maybe grey buttons
+function maybeUpdateButtonState()
+  local numInBag = blessCurseManagerApi.getBlessCurseInBag()
+  noBlessAvailable = (numInBag.Bless == 0)
+
+  for buttonId, state in pairs(buttonData) do
+    if noBlessAvailable and state == false then
+      self.UI.setAttribute(buttonId, "color", getButtonColor("Inactive"))
+    else
+      local handColor = playermatApi.getPlayerColor(buttonId)
+      if handColor then
+        self.UI.setAttribute(buttonId, "color", getButtonColor(handColor))
+      else
+        self.UI.setAttribute(buttonId, "active", false)
+      end
+    end
+    -- update button text (free trigger vs reaction trigger)
+    self.UI.setAttribute(buttonId, "text", state and "u" or "v")
+  end
+end
+
+function onClick_sidebutton(player, clickType, buttonId)
+  if buttonData[buttonId] == false then
+    -- nothing sealed yet
+    local numInBag = blessCurseManagerApi.getBlessCurseInBag()
+    noBlessAvailable = (numInBag.Bless == 0)
+
+    if noBlessAvailable then
+      broadcastToColor("There are no bless tokens available for sealing.", player.color, "Orange")
+      return
+    end
+
+    if not chaosBagApi.canTouchChaosTokens() then return end
+
+    local chaosBag = chaosBagApi.findChaosBag()
+    if not chaosBag then return end
+
+    local sealPos = playermatApi.transformLocalPosition(Vector(-1.177, 0, 0.002), buttonId)
+    local sealRot = playermatApi.returnRotation(buttonId)
+
+    for i, obj in ipairs(chaosBag.getObjects()) do
+      if obj.name == "Bless" then
+        chaosBag.takeObject({
+          position = sealPos + Vector(0, 0.5, 0),
+          rotation = sealRot,
+          index = i - 1,
+          smooth = false,
+          callback_function = function(token)
+            local guid = token.getGUID()
+            buttonData[buttonId] = guid
+
+            local handColor = playermatApi.getPlayerColor(buttonId)
+            broadcastToColor("Sealed bless for " .. handColor, player.color)
+
+            maybeUpdateButtonState()
+            updateSave()
+            tokenArrangerApi.layout()
+            blessCurseManagerApi.sealedToken("Bless", guid)
+          end
+        })
+        break
+      end
+    end
+  else
+    -- bless token was sealed
+    local mat = guidReferenceApi.getObjectByOwnerAndType(buttonId, "Playermat")
+    local drawnToken = chaosBagApi.drawChaosToken(mat, true, _, buttonData[buttonId])
+    if drawnToken then
+      buttonData[buttonId] = false
+      local handColor = playermatApi.getPlayerColor(buttonId)
+      broadcastToColor("Resolved sealed bless for " .. handColor, player.color)
+      maybeUpdateButtonState()
+      updateSave()
+    else
+      broadcastToColor("A different playermat still had tokens, returned them instead.", player.color, "Orange")
+    end
+  end
+end
+
+-- gets a hex color from a string and adds some transparency
+function getButtonColor(colorStr)
+  if colorStr == "Inactive" then
+    return "#353535E6"
+  end
+  return "#" .. Color.fromString(colorStr):toHex() .. "e6"
 end
