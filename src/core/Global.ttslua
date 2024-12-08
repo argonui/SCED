@@ -240,6 +240,14 @@ function onObjectEnterZone(zone, object)
       end
     end
 
+    -- maybe disable card helpers
+    if object.hasTag("CardWithHelper") then
+      local func = object.getVar("setHelperState")
+      if func ~= nil then
+        object.call("setHelperState", false)
+      end
+    end
+
     applyHidingToCard(object, zone.getValue())
   end
 end
@@ -1235,8 +1243,8 @@ function onClick_spawnPlaceholder(player)
   local spawnPos = { -39.5, 2, -87 }
 
   local meshTable = {
-    big = "https://raw.githubusercontent.com/RobMayer/TTSLibrary/master/advboxes/core_h_MSH.obj",
-    small = "https://raw.githubusercontent.com/RobMayer/TTSLibrary/master/advboxes/tuckbox_h_MSH.obj",
+    big = "https://steamusercontent-a.akamaihd.net/ugc/62583916778515295/AFB8F257CE1E4973F4C06160A2E156C147AEE1E3/",
+    small = "https://steamusercontent-a.akamaihd.net/ugc/62583916778515333/9F0BE0C211BE3BD1725B4B855F5D3C9C0D020394/",
     wide = "https://steamusercontent-a.akamaihd.net/ugc/2278324073260846176/33EFCAF30567F8756F665BE5A2A6502E9C61C7F7/"
   }
 
@@ -2184,22 +2192,35 @@ end
 
 -- Spawns a set of tokens on the given card.
 function TokenManager.spawnTokenGroup(params)
-  local card = params.card
-  local tokenType = params.tokenType
+  local card       = params.card
+  local tokenType  = params.tokenType
   local tokenCount = params.tokenCount
-  local shiftDown = params.shiftDown
-  local subType = params.subType
-  local temporary = params.temporary
+  local replenish  = params.replenish
+  local shiftDown  = params.shiftDown
+  local subType    = params.subType
+  local temporary  = params.temporary
 
   if tokenType == "damage" or tokenType == "horror" then
     TokenManager.spawnCounterToken(card, tokenType, tokenCount, shiftDown)
-  elseif tokenType == "resource" and optionPanel["useResourceCounters"] == "enabled" then
-    TokenManager.spawnResourceCounterToken(card, tokenCount)
-  elseif tokenType == "resource" and optionPanel["useResourceCounters"] == "custom" and tokenCount == 0 then
+  elseif shouldSpawnResourceCounter(tokenType, tokenCount, replenish) then
     TokenManager.spawnResourceCounterToken(card, tokenCount)
   else
     TokenManager.spawnMultipleTokens(card, tokenType, tokenCount, shiftDown, subType, temporary)
   end
+end
+
+function shouldSpawnResourceCounter(tokenType, tokenCount, replenish)
+  if tokenType == "resource" then
+    if optionPanel["useResourceCounters"] == "enabled" then
+      return true
+    elseif optionPanel["useResourceCounters"] == "custom" then
+      -- spawn a resource counter for cards with "0 uses" or small amount of replenshing tokens
+      if tokenCount == 0 or (replenish and tokenCount < 3) then
+        return true
+      end
+    end
+  end
+  return false
 end
 
 -- Spawns a single counter token and sets the value to tokenValue. Used for damage and horror tokens.
@@ -2434,11 +2455,12 @@ function TokenManager.spawnTokensFromUses(card, extraUses)
     end
     -- Shift each spawned group after the first down so they don't pile on each other
     TokenManager.spawnTokenGroup({
-      card = card,
-      tokenType = useInfo.token,
+      card       = card,
+      tokenType  = useInfo.token,
       tokenCount = tokenCount,
-      shiftDown = (i - 1) * 0.8,
-      subType = useInfo.type
+      replenish  = useInfo.replenish,
+      shiftDown  = (i - 1) * 0.8,
+      subType    = useInfo.type
     })
   end
 
@@ -2466,8 +2488,8 @@ end
 --     the right data for this card.
 function TokenManager.spawnPlayerCardTokensFromDataHelper(card, playerData)
   TokenManager.spawnTokenGroup({
-    card = card,
-    tokenType = playerData.tokenType,
+    card       = card,
+    tokenType  = playerData.tokenType,
     tokenCount = playerData.tokenCount
   })
   tokenSpawnTrackerApi.markTokensSpawned(card.getGUID())
@@ -2481,8 +2503,8 @@ function TokenManager.spawnLocationTokensFromDataHelper(card, locationData)
   local clueCount = TokenManager.getClueCountFromData(card, locationData)
   if clueCount > 0 then
     TokenManager.spawnTokenGroup({
-      card = card,
-      tokenType = "clue",
+      card       = card,
+      tokenType  = "clue",
       tokenCount = clueCount
     })
     tokenSpawnTrackerApi.markTokensSpawned(card.getGUID())
@@ -2627,10 +2649,10 @@ function TokenManager.replenishTokens(card, useInfo)
 
     -- spawn new token group
     TokenManager.spawnTokenGroup({
-      card = card,
-      tokenType = useInfo.token,
+      card       = card,
+      tokenType  = useInfo.token,
       tokenCount = newCount,
-      subType = useInfo.type
+      subType    = useInfo.type
     })
   end
 end
