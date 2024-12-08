@@ -1,0 +1,186 @@
+require("core/Constants")
+require("playercards/PlayerCardSpawner")
+
+local cardIdIndex  = {}
+local indexingDone = false
+
+function onLoad()
+  self.addContextMenuItem("Rebuild Index", rebuildIndex)
+  math.randomseed(os.time())
+  Wait.frames(startIndexBuild, 30)
+end
+
+function rebuildIndex()
+  if indexingDone then
+    startIndexBuild()
+  end
+end
+
+function startIndexBuild()
+  indexingDone = false
+  cardIdIndex  = {}
+  startLuaCoroutine(self, "buildIndex")
+end
+
+function buildIndex()
+  print("Building Encounter Card index")
+  cardCount = 0
+  indexingDone = false
+  processContainedObjects(self.getData().ContainedObjects)
+  indexingDone = true
+  return 1
+end
+
+-- Processes the contained objects for cards to add to the index
+function processContainedObjects(containedObjects, customDeck)
+  for _, objData in ipairs(containedObjects or {}) do
+    if objData.ContainedObjects then
+      -- recursively process nested containers
+      processContainedObjects(objData.ContainedObjects, objData.CustomDeck)
+    elseif objData.Name == "Card" or objData.Name == "CardCustom" then
+      if customDeck then
+        -- we might need to fix the "CustomDeck" entry for cards inside decks since TTS doesn't update it while they are in bags
+        local wantedCustomDeckIdStr = tostring(objData.CardID):sub(1, -3)
+        local presentCustomDeckIdNum = next(objData.CustomDeck)
+
+        -- type conversion (TTS seems to store these as strings, but reads them as numbers)
+        local wantedCustomDeckIdNum = tonumber(wantedCustomDeckIdStr)
+        if wantedCustomDeckIdNum ~= presentCustomDeckIdNum then
+          if customDeck[wantedCustomDeckIdNum] then
+            objData.CustomDeck = {}
+            objData.CustomDeck[wantedCustomDeckIdStr] = customDeck[wantedCustomDeckIdNum]
+            log("Corrected CustomDeckData for " .. objData.Nickname)
+          else
+            log("Could not correct CustomDeckData for " .. objData.Nickname)
+            return
+          end
+        end
+      end
+
+      addCardToIndex(objData)
+      cardCount = cardCount + 1
+      if cardCount > 19 then
+        cardCount = 0
+        coroutine.yield(0)
+      end
+    end
+  end
+end
+
+function addCardToIndex(cardData)
+  -- using the more efficient 'json.parse()' to speed this process up
+  local status, cardMetadata = pcall(function() return json.parse(cardData.GMNotes) end)
+
+  -- if an error happens, fallback to the regular parser
+  if status ~= true or cardMetadata == nil then
+    log("Fast parser failed for " .. cardData.Nickname .. ", using old parser instead.")
+    cardMetadata = JSON.decode(cardData.GMNotes)
+  end
+
+  if cardMetadata then
+    cardIdIndex[cardMetadata.id] = { data = cardData, metadata = cardMetadata }
+  else
+    -- assume name is the ID as fallback
+    local length = string.len(cardData["Nickname"])
+    if length == 5 or length == 6 then
+      local cardId = cardData["Nickname"]
+      cardData["Nickname"] = nil
+      cardIdIndex[cardId] = { data = cardData, metadata = { id = cardId } }
+    end
+  end
+end
+
+function isIndexReady()
+  if not indexingDone then
+    broadcastToAll("Still loading cards, please try again in a few seconds", { 0.9, 0.2, 0.2 })
+  end
+  return indexingDone
+end
+
+function getCardById(params)
+  if not isIndexReady() then return {} end
+  return cardIdIndex[params.id]
+end
+
+function onObjectEnterContainer(container)
+  if container ~= self then return end
+  delayedIndexUpdate()
+end
+
+function onObjectLeaveContainer(container)
+  if container ~= self then return end
+  delayedIndexUpdate()
+end
+
+-- updates the index if there weren't changes for a specified amount of time
+function delayedIndexUpdate()
+  if waitId then
+    Wait.stop(waitId)
+  end
+  waitId = Wait.time(rebuildIndex, 2)
+end
+
+-- attempt to replace cards
+function onObjectSpawn(obj)
+  if obj.hasTag("Replaced") then return end
+  if obj.type ~= "Card" then return end
+
+  local md = JSON.decode(obj.getGMNotes()) or {}
+  if not md.id then return end
+
+  -- check if it's in the index
+  local cardData = getCardById({ id = md.id })
+  if cardData == nil then return end
+
+  Wait.time(function()
+    --log("Replaced " .. obj.getName())
+
+    if obj ~= nil then
+      obj.addTag("Replaced")
+      local objData         = obj.getData()
+      objData["CardID"]     = cardData.data["CardID"]
+      objData["CustomDeck"] = cardData.data["CustomDeck"]
+      objData["Name"]       = cardData.data["Name"]
+      objData["Nickname"]   = cardData.data["Nickname"] or objData["Nickname"]
+      processCard(objData)
+
+      local pos = obj.getPosition()
+      local rot = obj.getRotation()
+      local cardList = { { data = objData, metadata = md } }
+      obj.destruct()
+
+      Spawner.spawnCards(cardList, pos, rot, false)
+    end
+  end, 1)
+end
+
+function processCard(cardData)
+  -- determine card type
+  local tags = {}
+  for _, tag in ipairs(cardData["Tags"] or {}) do
+    tags[tag] = true
+  end
+
+  -- has both or neither tag, can't work out back
+  if tags.PlayerCard == tags.ScenarioCard then
+    printToAll("Missing or double tag for '" .. cardData["Nickname"] .. "'.")
+    return false
+  end
+
+  local newBack
+  if tags.PlayerCard then
+    newBack = CARD_BACK_URL.PlayerCard
+  elseif tags.ScenarioCard then
+    newBack = CARD_BACK_URL.ScenarioCard
+  end
+
+  local _, customDeckData = next(cardData["CustomDeck"])
+  customDeckData["BackIsHidden"] = true
+
+  -- skip cards with decksheets as back
+  if (customDeckData["NumHeight"] == 1 and customDeckData["NumWidth"] == 1)
+      or customDeckData["UniqueBack"] == false then
+    customDeckData["BackURL"] = newBack
+  end
+  return true
+end
