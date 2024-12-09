@@ -39,6 +39,7 @@ end
 function initialize()
   maybeUpdateButtonState()
   loopId = Wait.time(maybeUpdateButtonState, 1, -1)
+  self.addContextMenuItem("Release all tokens", releaseAllTokens)
 end
 
 function shutOff()
@@ -46,6 +47,48 @@ function shutOff()
     Wait.stop(loopId)
     loopId = nil
   end
+  self.addContextMenuItem("Release all tokens", releaseAllTokens)
+end
+
+function resetSealedTokens()
+  buttonData = {
+    White  = false,
+    Orange = false,
+    Green  = false,
+    Red    = false
+  }
+  updateSave()
+end
+
+function releaseAllTokens(playerColor)
+  if not chaosBagApi.canTouchChaosTokens() then return end
+
+  local chaosbag = chaosBagApi.findChaosBag()
+
+  local count = 0
+  for buttonId, state in pairs(buttonData) do
+    if state then
+      local token = getObjectFromGUID(state)
+      if token then
+        count = count + 1
+        chaosbag.putObject(token)
+        blessCurseManagerApi.releasedToken(token.getName(), state)
+        state = false
+      end
+    end
+  end
+
+  if count == 0 then
+    printToColor("No tokens to release found!", playerColor)
+    return
+  end
+
+  local str = (count == 1) and "token" or "tokens"
+  printToColor("Returning " .. count .. " " .. str .. " to the token pool", playerColor)
+
+  tokenArrangerApi.layout()
+  updateSave()
+  Player[playerColor].clearSelectedObjects()
 end
 
 -- count tokens in the bag and maybe grey buttons
@@ -54,8 +97,8 @@ function maybeUpdateButtonState()
   noBlessAvailable = (numInBag.Bless == 0)
 
   local investigatorCards = playermatApi.getUsedInvestigatorCards()
-
   local tableLayoutHeight = 1800
+
   for buttonId, state in pairs(buttonData) do
     if investigatorCards[buttonId] then
       if noBlessAvailable and state == false then
