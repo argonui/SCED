@@ -8,6 +8,7 @@ local customSignatureDict    = {}
 local basicWeaknessList      = {}
 local uniqueWeaknessList     = {}
 local cycleIndex             = {}
+local dataCache              = {}
 
 local indexingDone           = false
 local otherCardsDetected     = false
@@ -101,6 +102,7 @@ function clearIndexes()
   customSignatureDict    = {}
   basicWeaknessList      = {}
   uniqueWeaknessList     = {}
+  dataCache              = {}
 end
 
 -- Clears the bag indexes and starts the coroutine to rebuild the indexes
@@ -508,16 +510,14 @@ function getCardsByName(params)
 end
 
 function getCardsByFilter(params)
-  local filters = params.filters
-  local exact   = params.exact
-  local results = {}
+  local filters    = params.filters
+  local exact      = params.exact
+  local results    = {}
 
   -- track cards (by ID) that we've added to avoid duplicates that may come from alternate IDs
   local addedCards = {}
   for _, cardData in pairs(cardIdIndex) do
-    if addedCards[cardData.metadata.id] then
-      goto nextCard
-    end
+    if addedCards[cardData.metadata.id] then goto nextCard end
 
     -- compare the name
     if filters.search then
@@ -527,60 +527,103 @@ function getCardsByFilter(params)
         goto nextCard
       end
     end
-    
-    log("passed name check: " .. cardData.metadata.id)
 
     -- compare trait (k)
-    if filters.k and (filters.k.operator == ":" or filters.k.operator == "!") then
+    if filters.k then
+      if not cardData.metadata.traits then goto nextCard end
+
       -- get traits from the search (separated by |)
       local searchTraits = {}
       for str in filters.k.value:gmatch("([^|]+)") do
         searchTraits[string.lower(str)] = true
       end
 
-      -- get traits for the card (like on the card, space + .)
-      local cardTraits = parseTraits(cardData.metadata.traits)
+      local cardTraits = parseTraits(cardData.metadata.id, cardData.metadata.traits)
 
       if filters.k.operator == ":" then
         for searchTrait, _ in pairs(searchTraits) do
-          if not cardTraits[searchTrait] then
-            log("Skipping " .. cardData.metadata.id .. " due to missing trait: " .. searchTrait)
-            goto nextCard
-          end
+          if not cardTraits[searchTrait] then goto nextCard end
         end
       elseif filters.k.operator == "!" then
         for searchTrait, _ in pairs(searchTraits) do
-          if cardTraits[searchTrait] then
-            log("Skipping " .. cardData.metadata.id .. " due to having trait: " .. searchTrait)
-            goto nextCard
-          end
+          if cardTraits[searchTrait] then goto nextCard end
         end
       end
     end
 
     -- compare level (p)
     if filters.p then
+      if not cardData.metadata.level then goto nextCard end
 
+      local searchLevel = tonumber(filters.p.value)
+      local cardLevel = cardData.metadata.level
+      local operator = filters.p.operator
+      if not cardLevel or
+          (operator == ":" and cardLevel ~= searchLevel) or
+          (operator == "<" and cardLevel >= searchLevel) or
+          (operator == ">" and cardLevel <= searchLevel) or
+          (operator == "!" and cardLevel == searchLevel) then
+        goto nextCard
+      end
     end
 
     -- compare cost (o)
     if filters.o then
+      if not cardData.metadata.cost then goto nextCard end
 
+      local searchCost = tonumber(filters.o.value)
+      local cardCost = cardData.metadata.cost
+      local operator = filters.o.operator
+      if (operator == ":" and cardCost ~= searchCost) or
+          (operator == "<" and cardCost >= searchCost) or
+          (operator == ">" and cardCost <= searchCost) or
+          (operator == "!" and cardCost == searchCost) then
+        goto nextCard
+      end
     end
 
     -- compare slot (z)
     if filters.z then
+      if not cardData.metadata.slot then goto nextCard end
 
+      local searchSlot   = string.lower(filters.z.value)
+      local cardSlot     = string.lower(cardData.metadata.slot)
+      local operator     = filters.z.operator
+      local containsSlot = string.find(cardSlot, searchSlot, 1, true)
+
+      if (operator == ":" and not containsSlot) or
+          (operator == "!" and containsSlot) then
+        goto nextCard
+      end
     end
 
     -- compare class (f)
     if filters.f then
+      if not cardData.metadata.class then goto nextCard end
 
+      local searchClass   = string.lower(filters.f.value)
+      local cardClass     = string.lower(cardData.metadata.class)
+      local operator      = filters.f.operator
+      local containsClass = string.find(cardClass, searchClass, 1, true)
+
+      if (operator == ":" and not containsClass) or
+          (operator == "!" and containsClass) then
+        goto nextCard
+      end
     end
 
     -- compare type (t)
     if filters.t then
+      if not cardData.metadata.type then goto nextCard end
 
+      local searchType = string.lower(filters.t.value)
+      local cardType   = string.lower(cardData.metadata.type)
+      local operator   = filters.t.operator
+
+      if (operator == ":" and cardType ~= searchType) or
+          (operator == "!" and cardType == searchType) then
+        goto nextCard
+      end
     end
 
     -- card has passed all filters and thus gets added
@@ -593,11 +636,21 @@ function getCardsByFilter(params)
   return results
 end
 
-function parseTraits(traitsString)
+function parseTraits(cardId, traitsString)
+  if dataCache.traits and dataCache.traits[cardId] then
+    return dataCache.traits[cardId]
+  end
+
   local traits = {}
   for str in traitsString:gmatch("[^.]+") do
     traits[string.lower(str:match("^%s*(.-)%s*$"))] = true
   end
+
+  if not dataCache.traits then
+    dataCache.traits = {}
+  end
+
+  dataCache.traits[cardId] = traits
   return traits
 end
 
