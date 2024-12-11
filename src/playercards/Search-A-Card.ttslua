@@ -91,7 +91,7 @@ end
 function sanitizeInput(input)
   input = input:gsub("%\n", "")
   inputParameters.value = input:match("^%s*(.-)%s*$")
-  self.removeInput(0)
+  self.clearInputs()
   self.createInput(inputParameters)
   updateSave()
 end
@@ -120,11 +120,15 @@ function startSearch()
       return
     end
   else
+    -- this is called here since the search could be started from the button
     sanitizeInput(inputParameters.value)
   end
 
+  -- parse search filters
+  local parsedFilters = parseSearchString(inputParameters.value)
+
   -- search all objects in bag
-  local cardList = allCardsBagApi.getCardsByName(inputParameters.value, searchExact)
+  local cardList = allCardsBagApi.getCardsByFilter(parsedFilters, searchExact)
   if cardList == nil or #cardList == 0 then
     printToAll("No match found.", "Red")
     return
@@ -145,4 +149,19 @@ function spawnCardList(cardList)
   local rot = self.getRotation()
   local pos = self.positionToWorld(Vector(0, 2, -0.08))
   Spawner.spawnCards(cardList, pos, rot, true)
+end
+
+function parseSearchString(input)
+  local filters = {}
+
+  for key, operator, value in input:gmatch("(%a)([:<>!])([^%s]+)") do
+    filters[key] = { operator = operator, value = value }
+  end
+
+  local mainSearchTerm = input:gsub("(%a[:<>!][^%s]+)", ""):match("^%s*(.-)%s*$")
+  if mainSearchTerm ~= "" then
+    filters.search = mainSearchTerm
+  end
+
+  return filters
 end
