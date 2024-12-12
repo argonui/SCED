@@ -532,16 +532,11 @@ function getCardsByFilter(params)
       if not cardData.metadata.traits then
         cardMatches = false
       else
-        -- get traits from the search (separated by |)
-        local searchTraits = {}
-        for str in filters.k.value:gmatch("([^|]+)") do
-          searchTraits[string.lower(str)] = true
-        end
-
-        local cardTraits = parseTraits(cardData.metadata.traits)
-        for searchTrait, _ in pairs(searchTraits) do
-          if (filters.k.operator == ":" and not cardTraits[searchTrait]) or
-              (filters.k.operator == "!" and cardTraits[searchTrait]) then
+        local searchTraits = parseSearchValue(filters.k.value)
+        local operator     = filters.k.operator
+        for _, searchTrait in ipairs(searchTraits) do
+          local containsTrait = string.find(cardData.metadata.traits, searchTrait, 1, true)
+          if (operator == ":" and not containsTrait) or (operator == "!" and containsTrait) then
             cardMatches = false
             break
           end
@@ -554,9 +549,9 @@ function getCardsByFilter(params)
       if not cardData.metadata.level then
         cardMatches = false
       else
-        local searchLevel = tonumber(filters.p.value)
-        local cardLevel = cardData.metadata.level
-        local operator = filters.p.operator
+        local searchLevel  = tonumber(filters.p.value)
+        local cardLevel    = cardData.metadata.level
+        local operator     = filters.p.operator
         if (operator == ":" and cardLevel ~= searchLevel) or
             (operator == "<" and cardLevel >= searchLevel) or
             (operator == ">" and cardLevel <= searchLevel) or
@@ -572,8 +567,8 @@ function getCardsByFilter(params)
         cardMatches = false
       else
         local searchCost = tonumber(filters.o.value)
-        local cardCost = cardData.metadata.cost
-        local operator = filters.o.operator
+        local cardCost   = cardData.metadata.cost
+        local operator   = filters.o.operator
         if (operator == ":" and cardCost ~= searchCost) or
             (operator == "<" and cardCost >= searchCost) or
             (operator == ">" and cardCost <= searchCost) or
@@ -592,9 +587,7 @@ function getCardsByFilter(params)
         local cardSlot     = string.lower(cardData.metadata.slot)
         local operator     = filters.z.operator
         local containsSlot = string.find(cardSlot, searchSlot, 1, true)
-
-        if (operator == ":" and not containsSlot) or
-            (operator == "!" and containsSlot) then
+        if (operator == ":" and not containsSlot) or (operator == "!" and containsSlot) then
           cardMatches = false
         end
       end
@@ -609,9 +602,7 @@ function getCardsByFilter(params)
         local cardClass     = string.lower(cardData.metadata.class)
         local operator      = filters.f.operator
         local containsClass = string.find(cardClass, searchClass, 1, true)
-
-        if (operator == ":" and not containsClass) or
-            (operator == "!" and containsClass) then
+        if (operator == ":" and not containsClass) or (operator == "!" and containsClass) then
           cardMatches = false
         end
       end
@@ -625,9 +616,7 @@ function getCardsByFilter(params)
         local searchType = string.lower(filters.t.value)
         local cardType   = string.lower(cardData.metadata.type)
         local operator   = filters.t.operator
-
-        if (operator == ":" and cardType ~= searchType) or
-            (operator == "!" and cardType == searchType) then
+        if (operator == ":" and cardType ~= searchType) or (operator == "!" and cardType == searchType) then
           cardMatches = false
         end
       end
@@ -642,12 +631,13 @@ function getCardsByFilter(params)
   return results
 end
 
-function parseTraits(traitsString)
-  local traits = {}
-  for str in traitsString:gmatch("[^.]+") do
-    traits[string.lower(str:match("^%s*(.-)%s*$"))] = true
+-- get parts of the search value (separated by |)
+function parseSearchValue(searchValue)
+  local tbl = {}
+  for str in searchValue:gmatch("([^|]+)") do
+    table.insert(tbl, string.lower(str))
   end
-  return traits
+  return tbl
 end
 
 -- Gets a random basic weakness from the bag. Once a given ID has been returned it will be
