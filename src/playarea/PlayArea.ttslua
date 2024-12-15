@@ -608,11 +608,31 @@ function shiftContents(playerColor, direction)
     return
   end
 
-  for _, object in ipairs(zone.getObjects()) do
-    if not (SHIFT_EXCLUSION[object.getGUID()] or object.hasTag("displacement_excluded")) then
-      object.translate(SHIFT_OFFSETS[direction])
+  -- ignore explore / tekeli-li deck
+  local tempIgnore     = {}
+  local exploreHelper  = getObjectByName("Explore Helper")
+  local tekeliliHelper = getObjectByName("Tekeli-li Helper")
+
+  if tekeliliHelper then
+    for _, obj in ipairs(searchLib.onObject(tekeliliHelper, "isCardOrDeck")) do
+      tempIgnore[obj.getGUID()] = true
     end
   end
+  if exploreHelper then
+    for _, obj in ipairs(searchLib.onObject(exploreHelper, "isCardOrDeck")) do
+      tempIgnore[obj.getGUID()] = true
+    end
+  end
+
+  -- perform the actual shifting
+  local offset = SHIFT_OFFSETS[direction]
+  for _, object in ipairs(zone.getObjects()) do
+    local guid = object.getGUID()
+    if not (SHIFT_EXCLUSION[guid] or object.hasTag("displacement_excluded") or tempIgnore[guid]) then
+      object.translate(offset)
+    end
+  end
+
   Wait.time(drawBaseConnections, 0.1)
 end
 
@@ -742,4 +762,13 @@ function buildSnaps()
     end
   end
   self.setSnapPoints(snaps)
+end
+
+function getObjectByName(name)
+  for _, obj in ipairs(getObjects()) do
+    if obj.getName() == name then
+      return obj
+    end
+  end
+  return nil
 end

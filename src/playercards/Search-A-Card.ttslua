@@ -91,7 +91,7 @@ end
 function sanitizeInput(input)
   input = input:gsub("%\n", "")
   inputParameters.value = input:match("^%s*(.-)%s*$")
-  self.removeInput(0)
+  self.clearInputs()
   self.createInput(inputParameters)
   updateSave()
 end
@@ -120,11 +120,15 @@ function startSearch()
       return
     end
   else
+    -- this is called here since the search could be started from the button
     sanitizeInput(inputParameters.value)
   end
 
+  -- parse search filters
+  local parsedFilters = parseSearchString(inputParameters.value)
+
   -- search all objects in bag
-  local cardList = allCardsBagApi.getCardsByName(inputParameters.value, searchExact)
+  local cardList = allCardsBagApi.getCardsByFilter(parsedFilters, searchExact)
   if cardList == nil or #cardList == 0 then
     printToAll("No match found.", "Red")
     return
@@ -145,4 +149,85 @@ function spawnCardList(cardList)
   local rot = self.getRotation()
   local pos = self.positionToWorld(Vector(0, 2, -0.08))
   Spawner.spawnCards(cardList, pos, rot, true)
+end
+
+function parseSearchString(input)
+  local filters = {}
+  local searchTerm = {}
+  local i = 1
+  local length = #input
+
+  local function skipWhitespace()
+    while i <= length and input:sub(i, i):match("%s") do
+      i = i + 1
+    end
+  end
+
+  local function parseQuotedValue()
+    local start = i
+    i = i + 1 -- Skip the opening quote
+    while i <= length and input:sub(i, i) ~= '"' do
+      i = i + 1
+    end
+    if i > length then
+      printToAll("Unclosed quoted value")
+    end
+    local value = input:sub(start + 1, i - 1)
+    i = i + 1 -- Skip the closing quote
+    return value
+  end
+
+  local function parseUnquotedValue()
+    local start = i
+    while i <= length and not input:sub(i, i):match("[%s\"<>:!]") do
+      i = i + 1
+    end
+    return input:sub(start, i - 1)
+  end
+
+  local function parseFilter()
+    local key = input:sub(i, i)
+    i = i + 1
+    local operator = input:sub(i, i)
+    if not operator:match("[:<>!]") then
+      printToAll("Invalid operator: " .. operator)
+    end
+    i = i + 1
+    skipWhitespace()
+    local value
+    if input:sub(i, i) == '"' then
+      value = parseQuotedValue()
+    else
+      value = parseUnquotedValue()
+    end
+    filters[key] = { operator = operator, value = value }
+  end
+
+  skipWhitespace()
+  while i <= length do
+    local char = input:sub(i, i)
+    if char:match("%a") then
+      if i + 1 <= length and input:sub(i + 1, i + 1):match("[:<>!]") then
+        parseFilter()
+      else
+        -- Treat as part of the main search term
+        table.insert(searchTerm, char)
+        i = i + 1
+      end
+    elseif char:match("[%s\"]") then
+      table.insert(searchTerm, char)
+      i = i + 1
+    else
+      printToAll("Unexpected character: " .. char)
+    end
+    skipWhitespace()
+  end
+
+  -- Combine the search term parts into a single string
+  local term = table.concat(searchTerm):match("^%s*(.-)%s*$")
+  if term ~= "" then
+    filters.search = term
+  end
+
+  return filters
 end
