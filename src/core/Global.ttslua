@@ -1286,7 +1286,10 @@ function onClick_spawnPlaceholder(player)
   placeholder.setDescription("by " .. (item.author or "Unknown"))
   placeholder.setGMNotes(item.filename)
   placeholder.setLuaScript(dummy.getLuaScript())
-  Player.getPlayers()[1].pingTable(spawnPos)
+
+  if player.color ~= "Grey" then
+    player.pingTable(spawnPos)
+  end
 
   -- hide download window
   changeWindowVisibilityForColor(player.color, "downloadWindow", false)
@@ -1580,7 +1583,9 @@ function contentDownloadCallback(request, params)
 
         -- ping object
         local pingPlayer = params.player or Player.getPlayers()[1]
-        pingPlayer.pingTable(obj.getPosition())
+        if pingPlayer.color ~= "Grey" then
+          pingPlayer.pingTable(obj.getPosition())
+        end
       end, 0.1)
     end
   end
@@ -1704,7 +1709,9 @@ function playermatRemovalSelected(player, selectedIndex, id)
 
   if mat then
     -- confirmation dialog about deletion
-    player.pingTable(mat.getPosition())
+    if player.color ~= "Grey" then
+      player.pingTable(mat.getPosition())
+    end
     player.showConfirmDialog(
       "Do you really want to remove " .. matColor .. "'s playermat and related objects? This can't be reversed.",
       function()
@@ -1794,6 +1801,16 @@ function applyOptionPanelChange(id, state)
   elseif id == "enableCardHelpers" then
     toggleCardHelpers(state)
 
+    -- option: Show '1' on damage / horror
+  elseif id == "showOneDamageHorror" then
+    for _, obj in ipairs(getObjects()) do
+      local memo = obj.getMemo()
+      if memo == "damage" or memo == "horror" then
+        local func = obj.getVar("updateLabel")
+        if func then obj.call("updateLabel") end
+      end
+    end
+
     -- option: Play area connection drawing
   elseif id == "playAreaConnections" then
     playAreaApi.setConnectionDrawState(state)
@@ -1851,7 +1868,10 @@ end
 ---@return string|nil GUID GUID of the spawnedObj (or nil if object was removed)
 function spawnOrRemoveHelper(state, name, position, rotation, owner)
   if state then
-    Player.getPlayers()[1].pingTable(position)
+    local pingPlayer = Player.getPlayers()[1]
+    if pingPlayer.color ~= "Grey" then
+      pingPlayer.pingTable(position)
+    end
     local spawnedGUID = spawnHelperObject(name, position, rotation).getGUID()
     local cleanName = name:gsub("%s+", "")
     guidReferenceApi.editIndex(owner or "Mythos", cleanName, spawnedGUID)
@@ -1916,24 +1936,25 @@ end
 function onClick_defaultSettings()
   -- clean reset of variables
   optionPanel = {
-    cardLanguage = "en",
-    changePlayAreaImage = false,
-    enableCardHelpers = true,
+    cardLanguage            = "en",
+    changePlayAreaImage     = false,
+    enableCardHelpers       = true,
     playAreaConnectionColor = { a = 1, b = 0.4, g = 0.4, r = 0.4 },
-    playAreaConnections = true,
-    playAreaSnapTags = true,
-    showAttachmentHelper = false,
-    showCleanUpHelper = false,
-    showCYOA = false,
-    showDisplacementTool = false,
-    showDrawButton = false,
-    showHandHelper = false,
-    showSearchAssistant = false,
-    showTitleSplash = true,
-    useClassTexture = true,
-    useClueClickers = false,
-    useResourceCounters = "disabled",
-    useSnapTags = true
+    playAreaConnections     = true,
+    playAreaSnapTags        = true,
+    showAttachmentHelper    = false,
+    showCleanUpHelper       = false,
+    showCYOA                = false,
+    showDisplacementTool    = false,
+    showDrawButton          = false,
+    showHandHelper          = false,
+    showOneDamageHorror     = false,
+    showSearchAssistant     = false,
+    showTitleSplash         = true,
+    useClassTexture         = true,
+    useClueClickers         = false,
+    useResourceCounters     = "disabled",
+    useSnapTags             = true
   }
 
   -- applying changes
@@ -1974,15 +1995,15 @@ function toggleCardHelpers(state)
     local owner = guidReferenceApi.getOwnerOfObject(obj)
     if owner == "Mythos" then return end
 
-    local mat = guidReferenceApi.getObjectByOwnerAndType(owner, "Playermat")
-    local relPos = mat.positionToLocal(obj.getPosition())
+    local mat      = guidReferenceApi.getObjectByOwnerAndType(owner, "Playermat")
+    local relPos   = mat.positionToLocal(obj.getPosition())
     local metadata = JSON.decode(obj.getGMNotes()) or {}
+    local cardType = metadata.type
 
-    if relPos.x > -1.5 and relPos.z > -0.3 and (metadata.type == "Asset"
-        or metadata.type == "Investigator"
-        or metadata.type == "Event") then
+    if relPos.x > -1.5 and relPos.z > -0.3 and
+        (cardType == "Asset" or cardType == "Investigator" or cardType == "Event") then
       obj.call("setHelperState", state)
-    elseif relPos.x > -1.5 and relPos.z < -0.3 and (metadata.type == "Skill") then
+    elseif relPos.x > -1.5 and relPos.z < -0.3 and cardType == "Skill" then
       obj.call("setHelperState", state)
     end
   end
