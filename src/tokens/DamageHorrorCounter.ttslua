@@ -44,14 +44,15 @@ function createXml()
   params = getXmlParameters()
   if not params then return end
 
-  local uiColor, uiFontSize, uiVal = getUiColorSizeAndVal()
+  local uiData = getUiData()
+  local pos    = params.posX .. " " .. params.posY .. " -6"
+  local rot    = "0 0 180"
 
-  local pos = params.posX .. " " .. params.posY .. " -6"
-  local rot = "0 0 180"
   if self.is_face_down then
     pos = params.posX .. " " .. params.posY .. " 6"
     rot = "0 180 180"
   end
+
   local xml = {
     {
       tag = "Button",
@@ -60,7 +61,7 @@ function createXml()
         image = "circle",
         onClick = "addOrSubtract",
         scale = "0.35 0.35 1",
-        colors = uiColor,
+        colors = uiData.colors,
         position = pos,
         rotation = rot,
         height = params.size,
@@ -71,9 +72,9 @@ function createXml()
           tag = "Text",
           attributes = {
             id = "xmlTxt",
-            fontSize = uiFontSize,
+            fontSize = uiData.fontSize,
             font = "font_arkham-numbers",
-            text = uiVal,
+            text = uiData.text,
             color = "#FFFFFF"
           }
         }
@@ -96,14 +97,20 @@ function onRotate(_, flip, _, _, oldFlip)
 end
 
 -- value == 1 -> no label/background (unless option is enabled)
-function getUiColorSizeAndVal()
+function getUiData()
+  local uiData = {
+    colors        = getColorBlock(params.color),
+    fontSize      = val < 10 and "700" or "350",
+    rayCastTarget = GlobalApi.getOptionPanelState()["makeDamageHorrorClickable"],
+    text          = val
+  }
+
   if val == 1 and not GlobalApi.getOptionPanelState()["showOneDamageHorror"] then
-    return getColorBlock("#00000000"), "700", ""
-  elseif val < 10 then
-    return getColorBlock(params.color), "700", val
-  else
-    return getColorBlock(params.color), "350", val
+    uiData.colors = getColorBlock("#00000000")
+    uiData.text   = ""
   end
+
+  return uiData
 end
 
 function getColorBlock(hexColor)
@@ -111,11 +118,12 @@ function getColorBlock(hexColor)
 end
 
 function updateLabel()
-  local uiColor, uiFontSize, uiVal = getUiColorSizeAndVal()
+  local uiData = getUiData()
 
-  self.UI.setAttribute("xmlBtn", "colors", uiColor)
-  self.UI.setAttribute("xmlTxt", "fontSize", uiFontSize)
-  self.UI.setAttribute("xmlTxt", "text", uiVal)
+  self.UI.setAttribute("xmlBtn", "colors", uiData.colors)
+  self.UI.setAttribute("xmlBtn", "rayCastTarget", uiData.rayCastTarget)
+  self.UI.setAttribute("xmlTxt", "fontSize", uiData.fontSize)
+  self.UI.setAttribute("xmlTxt", "text", uiData.text)
 end
 
 -- sets the value to 'newVal'
