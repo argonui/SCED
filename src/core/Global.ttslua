@@ -37,6 +37,7 @@ local lastDrawnTokens               = {}
 
 local bagSearchers                  = {}
 local hideTitleSplashWaitFunctionId = nil
+local lastZoneEnterObject           = nil
 
 -- online functionality related variables
 local library, requestObj, modMeta, searchFilter, authorFilter
@@ -219,16 +220,32 @@ end
 
 -- TTS event for objects that enter zones
 function onObjectEnterZone(zone, object)
+  if lastZoneEnterObject == object then return end
+  lastZoneEnterObject = object
+  Wait.frames(function() lastZoneEnterObject = nil end, 3)
+
   -- detect the "token discard zones" beneath the hand zones
-  if zone.getName() == "TokenDiscardZone" and
-      not tokenChecker.isChaosToken(object) and
-      object.type == "Tile" and
-      object.getMemo() and
-      not object.getLock() and
-      object.interactable == true then
-    local matcolor = playermatApi.getMatColorByPosition(object.getPosition())
-    local trash = guidReferenceApi.getObjectByOwnerAndType(matcolor, "Trash")
-    trash.putObject(object)
+  if zone.getName() == "TokenDiscardZone" then
+    if object.type == "Card" then
+      local attachments = object.getAttachments()
+      if not attachments then return end
+
+      local matcolor = playermatApi.getMatColorByPosition(object.getPosition())
+      local trash    = guidReferenceApi.getObjectByOwnerAndType(matcolor, "Trash")
+
+      for i = #attachments, 1, -1 do
+        local deepObj = attachments[i]
+        if (deepObj["name"] == "Custom Token" or deepObj["name"] == "Custom Tile") and
+        not tokenChecker.isChaosTokenName(deepObj["nickname"]) and deepObj["memo"] ~= nil then
+          trash.putObject(object.removeAttachment(deepObj["index"]))
+        end
+      end
+    elseif object.type == "Tile" and not tokenChecker.isChaosToken(object) and object.getMemo() and
+        not object.getLock() and object.interactable == true then
+      local matcolor = playermatApi.getMatColorByPosition(object.getPosition())
+      local trash = guidReferenceApi.getObjectByOwnerAndType(matcolor, "Trash")
+      trash.putObject(object)
+    end
   elseif zone.type == "Hand" and object.type == "Card" then
     -- make sure the card is face-up
     if object.is_face_down then
@@ -2890,14 +2907,14 @@ function moveAndRotatePlayermat(params)
 end
 
 function handleTokenAttaching(params)
-  local card         = params.card
+  local card = params.card
   if card == nil then return end
 
   local player       = params.player
-  local searchResult = searchLib.onObject(card, "isTileOrToken", 0.95)
+  local searchResult = searchLib.onObject(card, "isTileOrToken", 0.9)
 
   if card.is_face_down and next(searchResult) ~= nil then
-    cardSettings[card] = {
+    cardSettings[card]       = {
       hideFacedown = card.hide_when_face_down,
       tooltip      = card.tooltip
     }
@@ -2950,6 +2967,7 @@ function handleTokenDetaching(params)
       card.call("updateStackSize")
     end
   end
+  return removedTokens
 end
 
 function moveCardWithTokens(params)
