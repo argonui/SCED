@@ -68,13 +68,17 @@ function processContainedObjects(containedObjects, customDeck)
 end
 
 function addCardToIndex(cardData)
-  -- using the more efficient 'json.parse()' to speed this process up
-  local status, cardMetadata = pcall(function() return json.parse(cardData.GMNotes) end)
+  local status, cardMetadata
 
-  -- if an error happens, fallback to the regular parser
-  if status ~= true or cardMetadata == nil then
-    log("Fast parser failed for " .. cardData.Nickname .. ", using old parser instead.")
-    cardMetadata = JSON.decode(cardData.GMNotes)
+  if cardData.GMNotes and cardData.GMNotes ~= "" then
+    -- using the more efficient 'json.parse()' to speed this process up
+    status, cardMetadata = pcall(function() return json.parse(cardData.GMNotes) end)
+
+    -- if an error happens, fallback to the regular parser
+    if status ~= true or cardMetadata == nil then
+      log("Fast parser failed for " .. cardData.Nickname .. ", using old parser instead.")
+      cardMetadata = JSON.decode(cardData.GMNotes)
+    end
   end
 
   if cardMetadata then
@@ -120,11 +124,18 @@ function delayedIndexUpdate()
   waitId = Wait.time(rebuildIndex, 2)
 end
 
--- attempt to replace cards
+-- attempt to replace cards / decks
 function onObjectSpawn(obj)
   if obj.hasTag("Replaced") then return end
-  if obj.type ~= "Card" then return end
 
+  if obj.type == "Card" then
+    handleSpawnedCard(obj)
+  elseif obj.type == "Deck" then
+    handleSpawnedDeck(obj)
+  end
+end
+
+function handleSpawnedCard(obj)
   local md = JSON.decode(obj.getGMNotes()) or {}
   if not md.id then return end
 
@@ -133,16 +144,9 @@ function onObjectSpawn(obj)
   if cardData == nil then return end
 
   Wait.time(function()
-    --log("Replaced " .. obj.getName())
-
     if obj ~= nil then
-      obj.addTag("Replaced")
-      local objData         = obj.getData()
-      objData["CardID"]     = cardData.data["CardID"]
-      objData["CustomDeck"] = cardData.data["CustomDeck"]
-      objData["Name"]       = cardData.data["Name"]
-      objData["Nickname"]   = cardData.data["Nickname"] or objData["Nickname"]
-      processCard(objData)
+      local objData = obj.getData()
+      updateOriginalCardData(objData, cardData)
 
       local pos = obj.getPosition()
       local rot = obj.getRotation()
@@ -154,23 +158,81 @@ function onObjectSpawn(obj)
   end, 1)
 end
 
-function processCard(cardData)
-  -- determine card type
-  local tags = {}
-  for _, tag in ipairs(cardData["Tags"] or {}) do
-    tags[tag] = true
-  end
+function handleSpawnedDeck(deck)
+  if deck.hasTag("Replaced") then return end
 
+  Wait.time(function()
+    if deck ~= nil then
+      deck.addTag("Replaced")
+      local deckData         = deck.getData()
+      local changedSomething = false
+      local cardIdConversion = {}
+      local newDeckData      = {}
+      for _, objData in ipairs(deckData.ContainedObjects) do
+        local md = JSON.decode(objData["GMNotes"]) or {}
+        if md.id then
+          local cardData = getCardById({ id = md.id })
+          if cardData then
+            local originalId = objData["CardID"]
+            local state = updateOriginalCardData(objData, cardData)
+            if state then
+              changedSomething                   = true
+
+              -- store changed card IDs / new deck data
+              cardIdConversion[originalId]       = cardData.data["CardID"]
+              local customDeckId, customDeckData = next(cardData.data["CustomDeck"])
+              newDeckData[customDeckId]          = customDeckData
+            end
+          end
+        end
+      end
+
+      if changedSomething then
+        -- update deck data with changes
+        local newDeckIds = {}
+        for _, id in pairs(deckData["DeckIDs"]) do
+          table.insert(newDeckIds, cardIdConversion[id] or id)
+        end
+        deckData["DeckIDs"] = newDeckIds
+
+        for k, v in pairs(newDeckData) do
+          deckData["CustomDeck"][k] = v
+        end
+
+        deck.destruct()
+        spawnObjectData({ data = deckData })
+      end
+    end
+  end, 1)
+end
+
+function updateOriginalCardData(originalData, replaceData)
+  originalData["CardID"]     = replaceData.data["CardID"]
+  originalData["CustomDeck"] = replaceData.data["CustomDeck"]
+  originalData["Name"]       = replaceData.data["Name"]
+  originalData["Nickname"]   = replaceData.data["Nickname"] or originalData["Nickname"]
+
+  local tagMap               = turnTableIntoMap(replaceData.data["Tags"] or {})
+  if tagMap["Replaced"] then return false end
+
+  tagMap["Replaced"]   = true
+  originalData["Tags"] = turnMapIntoTable(tagMap)
+
+  processCard(originalData, tagMap)
+  return true
+end
+
+function processCard(cardData, tagMap)
   -- has both or neither tag, can't work out back
-  if tags.PlayerCard == tags.ScenarioCard then
+  if tagMap.PlayerCard == tagMap.ScenarioCard then
     printToAll("Missing or double tag for '" .. cardData["Nickname"] .. "'.")
     return false
   end
 
   local newBack
-  if tags.PlayerCard then
+  if tagMap.PlayerCard then
     newBack = CARD_BACK_URL.PlayerCard
-  elseif tags.ScenarioCard then
+  elseif tagMap.ScenarioCard then
     newBack = CARD_BACK_URL.ScenarioCard
   end
 
@@ -178,9 +240,24 @@ function processCard(cardData)
   customDeckData["BackIsHidden"] = true
 
   -- skip cards with decksheets as back
-  if (customDeckData["NumHeight"] == 1 and customDeckData["NumWidth"] == 1)
-      or customDeckData["UniqueBack"] == false then
+  if (customDeckData["NumHeight"] == 1 and customDeckData["NumWidth"] == 1) or customDeckData["UniqueBack"] == false then
     customDeckData["BackURL"] = newBack
   end
   return true
+end
+
+function turnTableIntoMap(t)
+  local m = {}
+  for _, v in ipairs(t) do
+    m[v] = true
+  end
+  return m
+end
+
+function turnMapIntoTable(map)
+  local t = {}
+  for k, _ in pairs(map) do
+    table.insert(t, k)
+  end
+  return t
 end
