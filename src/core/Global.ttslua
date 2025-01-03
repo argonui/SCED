@@ -37,6 +37,7 @@ local lastDrawnTokens               = {}
 
 local bagSearchers                  = {}
 local hideTitleSplashWaitFunctionId = nil
+local lastZoneEnterObject           = nil
 
 -- online functionality related variables
 local library, requestObj, modMeta, searchFilter, authorFilter
@@ -78,6 +79,7 @@ local actionsPerMatColor            = {}
 
 -- track cards' tokens
 local cardTokens                    = {}
+local cardSettings                  = {}
 
 ---------------------------------------------------------
 -- data for tokens
@@ -212,6 +214,8 @@ function tryObjectEnterContainer(container, object)
   -- stop mini cards from forming decks
   if object.hasTag("Minicard") and container.hasTag("Minicard") then
     return false
+  elseif object.type == "Card" and object.getName() ~= "Atlach-Nacha" then
+    handleTokenDetaching({ card = object })
   end
 
   playAreaApi.tryObjectEnterContainer(container, object)
@@ -220,16 +224,32 @@ end
 
 -- TTS event for objects that enter zones
 function onObjectEnterZone(zone, object)
+  if lastZoneEnterObject == object then return end
+  lastZoneEnterObject = object
+  Wait.frames(function() lastZoneEnterObject = nil end, 3)
+
   -- detect the "token discard zones" beneath the hand zones
-  if zone.getName() == "TokenDiscardZone" and
-      not tokenChecker.isChaosToken(object) and
-      object.type == "Tile" and
-      object.getMemo() and
-      not object.getLock() and
-      object.interactable == true then
-    local matcolor = playermatApi.getMatColorByPosition(object.getPosition())
-    local trash = guidReferenceApi.getObjectByOwnerAndType(matcolor, "Trash")
-    trash.putObject(object)
+  if zone.getName() == "TokenDiscardZone" then
+    if object.type == "Card" then
+      local attachments = object.getAttachments()
+      if not attachments then return end
+
+      local matcolor = playermatApi.getMatColorByPosition(object.getPosition())
+      local trash    = guidReferenceApi.getObjectByOwnerAndType(matcolor, "Trash")
+
+      for i = #attachments, 1, -1 do
+        local deepObj = attachments[i]
+        if (deepObj["name"] == "Custom Token" or deepObj["name"] == "Custom Tile") and
+        not tokenChecker.isChaosTokenName(deepObj["nickname"]) and deepObj["memo"] ~= nil then
+          trash.putObject(object.removeAttachment(deepObj["index"]))
+        end
+      end
+    elseif object.type == "Tile" and not tokenChecker.isChaosToken(object) and object.getMemo() and
+        not object.getLock() and object.interactable == true then
+      local matcolor = playermatApi.getMatColorByPosition(object.getPosition())
+      local trash = guidReferenceApi.getObjectByOwnerAndType(matcolor, "Trash")
+      trash.putObject(object)
+    end
   elseif zone.type == "Hand" and object.type == "Card" then
     -- make sure the card is face-up
     if object.is_face_down then
@@ -304,15 +324,22 @@ function onObjectNumberTyped(hoveredObject, playerColor, number)
   end
 end
 
--- disable delete action (only applies to promoted players) and discard objects instead
 function onPlayerAction(player, action, targets)
   if action == Player.Action.Delete and not player.admin then
+    -- disable delete action (only applies to promoted players) and discard objects instead
     for _, target in ipairs(targets) do
       local matColor = playermatApi.getMatColorByPosition(target.getPosition())
       local trash = guidReferenceApi.getObjectByOwnerAndType(matColor, "Trash")
       trash.putObject(target)
     end
     return false
+  elseif action == Player.Action.PickUp then
+    -- attach tokens to each card -> might need to add a limit if performance is an issue
+    for _, target in ipairs(targets) do
+      if target.type == "Card" and not target.hasTag("Minicard") then
+        handleTokenAttaching({ player = player, card = target })
+      end
+    end
   end
 end
 
@@ -3036,18 +3063,72 @@ function moveAndRotatePlayermat(params)
   playermatApi.moveAndRotate(params.matColor, params.position, params.rotationY)
 end
 
--- check if an element is in a table
-function tableContains(thisTable, thisElement)
-  for _, element in pairs(thisTable) do
-    if element == thisElement then
-      return true
+function handleTokenAttaching(params)
+  local card = params.card
+  if card == nil then return end
+
+  local player       = params.player
+  local searchResult = searchLib.onObject(card, "isTileOrToken", 0.9)
+
+  if card.is_face_down and next(searchResult) ~= nil then
+    cardSettings[card]       = {
+      hideFacedown = card.hide_when_face_down,
+      tooltip      = card.tooltip
+    }
+    card.hide_when_face_down = false
+    card.tooltip             = false
+  end
+
+  for _, token in ipairs(searchResult) do
+    if not token.locked then
+      card.addAttachment(token)
     end
   end
-  return false
+
+  Wait.condition(
+    function() handleTokenDetaching({ card = card }) end,
+    function()
+      if card ~= nil and player ~= nil and player.seated then
+        return card.resting and card.held_by_color ~= player.color
+      else
+        return true
+      end
+    end
+  )
+end
+
+function handleTokenDetaching(params)
+  local card = params.card
+  if card == nil or next(card.getAttachments()) == nil then return end
+
+  -- restore card settings
+  if cardSettings[card] ~= nil then
+    card.hide_when_face_down = cardSettings[card]["hideFacedown"]
+    card.tooltip             = cardSettings[card]["tooltip"]
+    cardSettings[card]       = nil
+  end
+
+  -- remove attachments (move tokens below the card on top)
+  local removedTokens = card.removeAttachments()
+  for _, token in ipairs(removedTokens) do
+    if token.getPosition().y < card.getPosition().y then
+      local posY = card.getPosition().y + 0.05
+      token.setPosition(token.getPosition():setAt("y", posY))
+    end
+  end
+
+  -- redraw token xml for cards with sealing
+  if card.hasTag("CardThatSeals") then
+    local func = card.getVar("updateStackSize") -- make sure function exists
+    if func ~= nil then
+      card.call("updateStackSize")
+    end
+  end
+  return removedTokens
 end
 
 function moveCardWithTokens(params)
-  local card = params.card
+  local card     = params.card
   local position = params.position
   local rotation = params.rotation
 
@@ -3073,7 +3154,6 @@ function moveCardWithTokens(params)
         updateTokenTransform(card)
         return card.resting and not card.isSmoothMoving()
       end
-
       return true
     end
   )
@@ -3124,6 +3204,8 @@ end
 -- removes tokens from the provided card/deck
 function removeTokensFromObject(params)
   local object = params.object
+  if object == nil then return end
+
   local trash = guidReferenceApi.getObjectByOwnerAndType(params.owner, "Trash")
 
   if object.hasTag("CardThatSeals") then
