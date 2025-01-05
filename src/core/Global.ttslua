@@ -74,9 +74,6 @@ local RESOURCE_OPTIONS              = {
 local handVisibility                = {}
 local blurseVisibility              = {}
 
--- track action count per player
-local actionsPerMatColor            = {}
-
 -- track cards' tokens
 local cardTokens                    = {}
 local cardSettings                  = {}
@@ -240,7 +237,7 @@ function onObjectEnterZone(zone, object)
       for i = #attachments, 1, -1 do
         local deepObj = attachments[i]
         if (deepObj["name"] == "Custom Token" or deepObj["name"] == "Custom Tile") and
-        not tokenChecker.isChaosTokenName(deepObj["nickname"]) and deepObj["memo"] ~= nil then
+            not tokenChecker.isChaosTokenName(deepObj["nickname"]) and deepObj["memo"] ~= nil then
           trash.putObject(object.removeAttachment(deepObj["index"]))
         end
       end
@@ -349,23 +346,31 @@ end
 
 -- detect action token flipping
 function onObjectRotate(obj, _, flip, _, _, oldFlip)
-  if flip == oldFlip or not obj.hasTag("UniversalToken") or obj.hasTag("Temporary") then return end
+  if flip == oldFlip then return end
+  maybeUpdateActionTrackerTokens(obj, 50)
+end
 
-  local owner = guidReferenceApi.getOwnerOfObject(obj)
-  if owner == "Mythos" then return end
+function onObjectSpawn(obj)
+  maybeUpdateActionTrackerTokens(obj, 3)
+end
 
-  -- make sure we only do this for action tokens in the regular position
-  local mat = guidReferenceApi.getObjectByOwnerAndType(owner, "Playermat")
-  local relPos = mat.positionToLocal(obj.getPosition())
-  if relPos.x > -1.6 and relPos.x < -0.8 and relPos.z > -0.23 and relPos.z < 0.33 then
-    actionsPerMatColor[owner] = (actionsPerMatColor[owner] or 3) + (obj.is_face_down and 1 or -1)
-    actionsPerMatColor[owner] = math.max(math.min(actionsPerMatColor[owner], 3), 0)
-    updateActionTrackerTokens()
-  end
+function onObjectDestroy(obj)
+  maybeUpdateActionTrackerTokens(obj, 3)
+end
+
+function onObjectDrop(_, obj)
+  maybeUpdateActionTrackerTokens(obj, 20)
 end
 
 function onObjectPickUp(_, object)
   stopTokenTransformUpdating(object)
+end
+
+function maybeUpdateActionTrackerTokens(obj, delayFrames)
+  if obj == nil or obj.isDestroyed() or not obj.hasTag("UniversalToken") then return end
+  local owner = guidReferenceApi.getOwnerOfObject(obj)
+  if owner == "Mythos" then return end
+  updateActionTrackerTokensForColor(owner, delayFrames)
 end
 
 ---------------------------------------------------------
@@ -1569,7 +1574,7 @@ function createActionTrackerUI()
       color = "black",
       active = true,
       height = 30 * #usedMatColors,
-      width = "200",
+      width = 260,
       offsetXY = "2 0",
       columnWidths = "100 25 25 25",
       padding = "4 4 4 4",
@@ -1608,18 +1613,19 @@ function createActionTrackerUI()
       }
     }
 
-    for j = 1, 3 do
+    for j = 1, 5 do
       local actionXml = {
         tag = "Cell",
         children = {
           tag = "Panel",
-          attributes = { id = "playerAction" .. j .. matColor, color = "green" }
+          attributes = { id = "playerAction" .. j .. matColor, color = "black" }
         }
       }
       table.insert(playerRow.children, actionXml)
     end
     table.insert(actionTrackerXml.children, playerRow)
   end
+
   local xml = UI.getXmlTable()
   table.insert(xml, actionTrackerXml)
   updateGlobalXml(xml)
@@ -1633,24 +1639,34 @@ function updateActionTrackerVisibility()
     isUsed[matColor] = true
   end
 
-  UI.setAttribute("actionTracker", "height" , 30 * #usedMatColors)
+  UI.setAttribute("actionTracker", "height", 30 * #usedMatColors)
   for matColor, _ in pairs(guidReferenceApi.getObjectsByType("Playermat")) do
     UI.setAttribute("playerRow" .. matColor, "active", isUsed[matColor] or false)
   end
 end
 
 -- updates the color of the actions based on the playermats actions tokens
-function updateActionTrackerTokens(params)
-  if params then
-    actionsPerMatColor[params.matColor] = params.actionCount
+function updateActionTrackerTokens()
+  for _, matColor in ipairs(playermatApi.getUsedMatColors()) do
+    updateActionTrackerTokensForColor(matColor, 1)
   end
+end
 
-  for matColor, actionCount in pairs(actionsPerMatColor) do
-    for i = 1, 3 do
-      local color = (i <= actionCount) and "green" or "grey"
+function updateActionTrackerTokensForColor(matColor, delayFrames)
+  Wait.frames(function()
+    local actionCount = determineActionCount(matColor)
+    for i = 1, 5 do
+      local color = "black"
+      if i <= actionCount.total then
+        if i <= actionCount.available then
+          color = "green"
+        else
+          color = "grey"
+        end
+      end
       UI.setAttribute("playerAction" .. i .. matColor, "color", color)
     end
-  end
+  end, delayFrames or 50)
 end
 
 -- updates the displayed names in the action tracker
@@ -1662,6 +1678,30 @@ function updateActionTrackerNames()
     UI.setAttribute("playerName" .. matColor, "text", nameList[matColor])
   end
   updateActionTrackerVisibility()
+end
+
+function determineActionCount(matColor)
+  local localPos     = Vector(-1.2, 0.1, -0.28)
+  local pos          = playermatApi.transformLocalPosition(localPos, matColor):setAt("y", 3)
+  local rot          = playermatApi.returnRotation(matColor)
+  local size         = Vector(5, 6, 0.1)
+  local searchResult = searchLib.inArea(pos, rot, size, "isUniversalToken")
+
+  local actionCount  = {
+    available = 0,
+    used      = 0,
+    total     = #searchResult
+  }
+
+  for _, obj in ipairs(searchResult) do
+    if obj.is_face_down then
+      actionCount.used = actionCount.used + 1
+    else
+      actionCount.available = actionCount.available + 1
+    end
+  end
+
+  return actionCount
 end
 
 -- generates a list of display names (Steam name or investigator)
