@@ -71,8 +71,9 @@ local RESOURCE_OPTIONS              = {
 }
 
 -- track player-specific visibilities
-local handVisibility                = {}
+local actionTrackerVisibility       = {}
 local blurseVisibility              = {}
+local handVisibility                = {}
 
 -- track cards' tokens
 local cardTokens                    = {}
@@ -117,9 +118,10 @@ function onSave()
 
   return JSON.encode({
     acknowledgedUpgradeVersions = acknowledgedUpgradeVersions,
+    actionTrackerVisibility     = actionTrackerVisibility,
+    blurseVisibility            = blurseVisibility,
     chaosTokensLastMatGUID      = chaosTokensLastMatGUID,
     chaosTokensGUID             = chaosTokensGUID,
-    blurseVisibility            = blurseVisibility,
     handVisibility              = handVisibility,
     optionPanel                 = optionPanel
   })
@@ -129,8 +131,9 @@ function onLoad(savedData)
   if savedData and savedData ~= "" then
     local loadedData            = JSON.decode(savedData)
     acknowledgedUpgradeVersions = loadedData.acknowledgedUpgradeVersions
-    chaosTokensLastMatGUID      = loadedData.chaosTokensLastMatGUID
+    actionTrackerVisibility     = loadedData.actionTrackerVisibility
     blurseVisibility            = loadedData.blurseVisibility
+    chaosTokensLastMatGUID      = loadedData.chaosTokensLastMatGUID
     handVisibility              = loadedData.handVisibility
     optionPanel                 = loadedData.optionPanel
 
@@ -1370,6 +1373,11 @@ function onClick_toggleUi(player, windowId)
     -- store the state of the Bless/Curse Manager UI to restore it onLoad()
     blurseVisibility[player.color] = changeWindowVisibilityForColor(player.color, "blessCurseManager")
     return
+  elseif windowId == "actionTracker" then
+    -- store the state of the Action Tracker UI to restore it onLoad()
+    actionTrackerVisibility[player.color] = changeWindowVisibilityForColor(player.color, "actionTracker")
+    printToColor("Action Tracker " .. (actionTrackerVisibility[player.color] and "enabled." or "disabled."), player.color)
+    return
   end
 
   changeWindowVisibilityForColor(player.color, windowId)
@@ -1576,12 +1584,23 @@ function createActionTrackerUI()
     isUsed[matColor] = true
   end
 
+  local visibilityString = ""
+  for playerColor, state in ipairs(actionTrackerVisibility) do
+    if state then
+      visibilityString = visibilityString .. playerColor .. "|"
+    end
+  end
+
+  -- remove last delimiter
+  visibilityString = visibilityString:sub(1, -2)
+
   local actionTrackerXml = {
     tag = "TableLayout",
     attributes = {
       id            = "actionTracker",
       color         = "black",
-      active        = true,
+      visibility    = visibilityString,
+      active        = visibilityString ~= "",
       height        = 30 * #usedMatColors,
       width         = "300",
       offsetXY      = "2 0",
@@ -1635,10 +1654,11 @@ function createActionTrackerUI()
   local xml = UI.getXmlTable()
   table.insert(xml, actionTrackerXml)
   updateGlobalXml(xml)
+  updateActionTrackerToggleButton(#usedMatColors)
 end
 
--- updates the visibility of the action tracker's player rows
-function updateActionTrackerVisibility()
+-- updates the layout of the action tracker
+function updateActionTrackerRows()
   local usedMatColors = playermatApi.getUsedMatColors()
   local isUsed = {}
   for _, matColor in ipairs(usedMatColors) do
@@ -1649,6 +1669,12 @@ function updateActionTrackerVisibility()
   for matColor, _ in pairs(guidReferenceApi.getObjectsByType("Playermat")) do
     UI.setAttribute("playerRow" .. matColor, "active", isUsed[matColor] or false)
   end
+
+  updateActionTrackerToggleButton(#usedMatColors)
+end
+
+function updateActionTrackerToggleButton(usedMatCount)
+  UI.setAttribute("actionTrackerToggleButton", "offsetXY", "1 " .. tostring(15 * usedMatCount) + 14)
 end
 
 -- updates the color of the actions based on the playermats actions tokens
@@ -1678,12 +1704,13 @@ function updateActionTrackerName(matColor)
     textColor = playermatApi.getPlayerColor(matColor)
     fontStyle = "Normal"
   end
+
   UI.setAttributes("playerName" .. matColor, {
     color     = textColor,
     fontStyle = fontStyle,
     text      = getDisplayName(matColor)
   })
-  updateActionTrackerVisibility()
+  updateActionTrackerRows()
 end
 
 function isMiniReady(matColor)
@@ -1977,7 +2004,7 @@ function removePlayermat(matColor)
   guidReferenceApi.editIndex(matColor)
 
   -- update the action tracker
-  updateActionTrackerVisibility()
+  updateActionTrackerRows()
 end
 
 -- sets the option panel to the correct state (corresponding to 'optionPanel')
