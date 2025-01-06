@@ -341,13 +341,22 @@ function onPlayerAction(player, action, targets)
 end
 
 function onPlayerChangeColor()
-  updateActionTrackerNames()
+  -- updates the displayed names in the action tracker
+  for matColor, _ in pairs(guidReferenceApi.getObjectsByType("Playermat")) do
+    updateActionTrackerName(matColor)
+  end
 end
 
--- detect action token flipping
 function onObjectRotate(obj, _, flip, _, _, oldFlip)
   if flip == oldFlip then return end
-  maybeUpdateActionTrackerTokens(obj, 50)
+
+  if obj.hasTag("Minicard") then
+    for matColor, _ in pairs(guidReferenceApi.getObjectsByType("Playermat")) do
+      Wait.frames(function() updateActionTrackerName(matColor) end, 50)
+    end
+  else
+    maybeUpdateActionTrackerTokens(obj, 50)
+  end
 end
 
 function onObjectSpawn(obj)
@@ -370,7 +379,7 @@ function maybeUpdateActionTrackerTokens(obj, delayFrames)
   if obj == nil or obj.isDestroyed() or not obj.hasTag("UniversalToken") then return end
   local owner = guidReferenceApi.getOwnerOfObject(obj)
   if owner == "Mythos" then return end
-  updateActionTrackerTokensForColor(owner, delayFrames)
+  updateActionTrackerTokens(owner, delayFrames)
 end
 
 ---------------------------------------------------------
@@ -1570,19 +1579,19 @@ function createActionTrackerUI()
   local actionTrackerXml = {
     tag = "TableLayout",
     attributes = {
-      id = "actionTracker",
-      color = "black",
-      active = true,
-      height = 30 * #usedMatColors,
-      width = 260,
-      offsetXY = "2 0",
-      columnWidths = "100 25 25 25",
-      padding = "4 4 4 4",
-      cellSpacing = "5",
+      id            = "actionTracker",
+      color         = "black",
+      active        = true,
+      height        = 30 * #usedMatColors,
+      width         = "275",
+      offsetXY      = "2 0",
+      columnWidths  = "0 25 25 25 25 25",
+      padding       = "4 4 4 4",
+      cellSpacing   = "5",
       rectAlignment = "MiddleLeft",
-      raycastTarget = "true",
-      outlineSize = "2 2",
-      outline = "#303030"
+      raycastTarget = true,
+      outlineSize   = "2 2",
+      outline       = "#303030"
     },
     children = {}
   }
@@ -1602,14 +1611,13 @@ function createActionTrackerUI()
             {
               tag = "Text",
               attributes = {
-                id = "playerName" .. matColor,
-                class = "playerName",
+                id    = "playerName" .. matColor,
                 color = playerColor,
-                text = nameList[matColor]
+                text  = nameList[matColor]
               }
             }
           }
-        },
+        }
       }
     }
 
@@ -1646,20 +1654,14 @@ function updateActionTrackerVisibility()
 end
 
 -- updates the color of the actions based on the playermats actions tokens
-function updateActionTrackerTokens()
-  for _, matColor in ipairs(playermatApi.getUsedMatColors()) do
-    updateActionTrackerTokensForColor(matColor, 1)
-  end
-end
-
-function updateActionTrackerTokensForColor(matColor, delayFrames)
+function updateActionTrackerTokens(matColor, delayFrames)
   Wait.frames(function()
     local actionCount = determineActionCount(matColor)
     for i = 1, 5 do
       local color = "black"
       if i <= actionCount.total then
         if i <= actionCount.available then
-          color = "green"
+          color = "#C89B3C" -- gold for accessibility
         else
           color = "grey"
         end
@@ -1670,14 +1672,32 @@ function updateActionTrackerTokensForColor(matColor, delayFrames)
 end
 
 -- updates the displayed names in the action tracker
-function updateActionTrackerNames()
-  local nameList = getListOfPlayerNames()
-  for matColor, _ in pairs(guidReferenceApi.getObjectsByType("Playermat")) do
-    local playerColor = playermatApi.getPlayerColor(matColor)
-    UI.setAttribute("playerName" .. matColor, "color", playerColor)
-    UI.setAttribute("playerName" .. matColor, "text", nameList[matColor])
+function updateActionTrackerName(matColor)
+  local nameList  = getListOfPlayerNames()
+  local textColor = "grey"
+  local fontStyle = "Italic"
+
+  if isMiniReady(matColor) then
+    textColor = playermatApi.getPlayerColor(matColor)
+    fontStyle = "Normal"
   end
+  UI.setAttribute("playerName" .. matColor, "color", textColor)
+  UI.setAttribute("playerName" .. matColor, "fontStyle", fontStyle)
+  UI.setAttribute("playerName" .. matColor, "text", nameList[matColor])
   updateActionTrackerVisibility()
+end
+
+function isMiniReady(matColor)
+  local investigatorData = playermatApi.getActiveInvestigatorData(matColor)
+  if not investigatorData then return false end
+
+  for _, obj in ipairs(getObjectsWithTag("Minicard")) do
+    if not obj.is_face_down then
+      local md = JSON.decode(obj.getGMNotes()) or {}
+      if md.id == investigatorData.miniId then return true end
+    end
+  end
+  return false
 end
 
 function determineActionCount(matColor)
