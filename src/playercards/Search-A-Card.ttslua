@@ -82,12 +82,18 @@ function input_func(_, _, input, stillEditing)
   if not stillEditing then
     inputParameters.value = input
   elseif string.find(input, "%\n") ~= nil then
-    inputParameters.value = input.gsub(input, "%\n", "")
+    sanitizeInput(input)
     startSearch()
-    self.removeInput(0)
-    self.createInput(inputParameters)
-    updateSave()
   end
+end
+
+-- remove linebreaks, leading & trailing whitespace and recreate the input
+function sanitizeInput(input)
+  input = input:gsub("%\n", "")
+  inputParameters.value = input:match("^%s*(.-)%s*$")
+  self.clearInputs()
+  self.createInput(inputParameters)
+  updateSave()
 end
 
 function startSearch()
@@ -113,14 +119,21 @@ function startSearch()
       spawnCardList({ singleCard })
       return
     end
+  else
+    -- this is called here since the search could be started from the button
+    sanitizeInput(inputParameters.value)
   end
 
+  -- parse search filters
+  local parsedFilters = parseSearchString(inputParameters.value)
+
   -- search all objects in bag
-  local cardList = allCardsBagApi.getCardsByName(inputParameters.value, searchExact)
+  local cardList = allCardsBagApi.getCardsByFilter(parsedFilters, searchExact)
   if cardList == nil or #cardList == 0 then
     printToAll("No match found.", "Red")
     return
   end
+
   if (#cardList > 100) then
     printToAll("Matched more than 100 cards, please try a more specific search.", "Yellow")
     return
@@ -136,4 +149,82 @@ function spawnCardList(cardList)
   local rot = self.getRotation()
   local pos = self.positionToWorld(Vector(0, 2, -0.08))
   Spawner.spawnCards(cardList, pos, rot, true)
+end
+
+function parseSearchString(input)
+  local filters = {}
+  local searchTerm = {}
+  local i = 1
+  local length = #input
+
+  local function skipWhitespace()
+    while i <= length and input:sub(i, i):match("%s") do
+      i = i + 1
+    end
+  end
+
+  local function parseQuotedValue()
+    local start = i
+    i = i + 1 -- Skip the opening quote
+    while i <= length and input:sub(i, i) ~= '"' do
+      i = i + 1
+    end
+    if i > length then
+      printToAll("Unclosed quoted value")
+    end
+    local value = input:sub(start + 1, i - 1)
+    i = i + 1 -- Skip the closing quote
+    return value
+  end
+
+  local function parseUnquotedValue()
+    local start = i
+    while i <= length and not input:sub(i, i):match("[%s\"<>:!]") do
+      i = i + 1
+    end
+    return input:sub(start, i - 1)
+  end
+
+  local function parseFilter()
+    local key = input:sub(i, i)
+    i = i + 1
+    local operator = input:sub(i, i)
+    if not operator:match("[:<>!]") then
+      printToAll("Invalid operator: " .. operator)
+    end
+    i = i + 1
+    skipWhitespace()
+    local value
+    if input:sub(i, i) == '"' then
+      value = parseQuotedValue()
+    else
+      value = parseUnquotedValue()
+    end
+    filters[key] = { operator = operator, value = value }
+  end
+
+  skipWhitespace()
+  while i <= length do
+    local char = input:sub(i, i)
+    if char:match("%a") then
+      if i + 1 <= length and input:sub(i + 1, i + 1):match("[:<>!]") then
+        parseFilter()
+      else
+        -- Treat as part of the main search term
+        table.insert(searchTerm, char)
+        i = i + 1
+      end
+    else
+      table.insert(searchTerm, char)
+      i = i + 1
+    end
+  end
+
+  -- Combine the search term parts into a single string
+  local term = table.concat(searchTerm)
+  if term ~= "" then
+    filters.search = term:match("^%s*(.-)%s*$")
+  end
+
+  return filters
 end
