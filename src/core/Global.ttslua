@@ -1583,7 +1583,7 @@ function createActionTrackerUI()
       color         = "black",
       active        = true,
       height        = 30 * #usedMatColors,
-      width         = "275",
+      width         = "300",
       offsetXY      = "2 0",
       columnWidths  = "0 25 25 25 25 25",
       padding       = "4 4 4 4",
@@ -1595,8 +1595,6 @@ function createActionTrackerUI()
     },
     children = {}
   }
-
-  local nameList = getListOfPlayerNames()
 
   -- Loop through playermats and create rows in the Action Tracker
   for matColor, _ in pairs(guidReferenceApi.getObjectsByType("Playermat")) do
@@ -1613,7 +1611,7 @@ function createActionTrackerUI()
               attributes = {
                 id    = "playerName" .. matColor,
                 color = playerColor,
-                text  = nameList[matColor]
+                text  = getDisplayName(matColor)
               }
             }
           }
@@ -1673,7 +1671,6 @@ end
 
 -- updates the displayed names in the action tracker
 function updateActionTrackerName(matColor)
-  local nameList  = getListOfPlayerNames()
   local textColor = "grey"
   local fontStyle = "Italic"
 
@@ -1681,9 +1678,11 @@ function updateActionTrackerName(matColor)
     textColor = playermatApi.getPlayerColor(matColor)
     fontStyle = "Normal"
   end
-  UI.setAttribute("playerName" .. matColor, "color", textColor)
-  UI.setAttribute("playerName" .. matColor, "fontStyle", fontStyle)
-  UI.setAttribute("playerName" .. matColor, "text", nameList[matColor])
+  UI.setAttributes("playerName" .. matColor, {
+    color     = textColor,
+    fontStyle = fontStyle,
+    text      = getDisplayName(matColor)
+  })
   updateActionTrackerVisibility()
 end
 
@@ -1724,16 +1723,14 @@ function determineActionCount(matColor)
   return actionCount
 end
 
--- generates a list of display names (Steam name or investigator)
-function getListOfPlayerNames()
-  local list = {}
-  for _, color in ipairs(Player.getAvailableColors()) do
-    local matColor = playermatApi.getMatColor(color)
-    if matColor then
-      list[matColor] = Player[color].steam_name or playermatApi.getInvestigatorName(matColor)
-    end
+-- returns the display name (steam name or investigator)
+function getDisplayName(matColor)
+  local playerColor = playermatApi.getPlayerColor(matColor)
+  if Player[playerColor] and Player[playerColor].steam_name then
+    return Player[playerColor].steam_name
+  else
+    return playermatApi.getInvestigatorName(matColor)
   end
-  return list
 end
 
 -- this helper function updates the global XML while preserving the visibility of windows
