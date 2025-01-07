@@ -1,4 +1,6 @@
 local deckLib                   = require("util/DeckLib")
+local guidReferenceApi          = require("core/GUIDReferenceApi")
+local mythosAreaApi             = require("mythos/MythosAreaApi")
 local playermatApi              = require("playermat/PlayermatApi")
 local searchLib                 = require("util/SearchLib")
 
@@ -79,77 +81,113 @@ end
 -- start the search (change UI, set handCards aside, draw cards)
 function startSearch(messageColor, number)
   if ongoingSearch then return end
-  matColor = playermatApi.getMatColorByPosition(self.getPosition())
-  handColor = playermatApi.getPlayerColor(matColor)
+
+  if self.getPosition().x > -15 then
+    if messageColor == "Black" then
+      printToColor("This does not work when playing as black.", messageColor, "Red")
+      return
+    end
+    matColor  = playermatApi.getMatColor(messageColor)
+    owner     = "Mythos"
+    handColor = messageColor
+  else
+    matColor  = playermatApi.getMatColorByPosition(self.getPosition())
+    owner     = matColor
+    handColor = playermatApi.getPlayerColor(matColor)
+  end
+
   topCardDetected = false
 
   -- get draw deck
-  local deckAreaObjects = playermatApi.getDeckAreaObjects(matColor)
+  local deckAreaObjects
+  if owner == "Mythos" then
+    deckAreaObjects = mythosAreaApi.getEncounterDeckObjects()
+  else
+    deckAreaObjects = playermatApi.getDeckAreaObjects(matColor)
+  end
+
   if deckAreaObjects.draw == nil and deckAreaObjects.topCard == nil then
-    printToColor(matColor .. " draw deck could not be found!", messageColor, "Red")
+    printToColor(owner .. " draw deck could not be found!", messageColor, "Red")
     return
   end
 
-  -- check for harbinger
-  local harbinger
-  if deckAreaObjects.topCard then
-    harbinger = isHarbinger(deckAreaObjects.topCard.getGMNotes())
-  elseif deckAreaObjects.draw and not deckAreaObjects.draw.is_face_down then
-    local cards = deckAreaObjects.draw.getObjects()
-    harbinger = isHarbinger(cards[#cards].gm_notes)
-  end
+  if owner ~= "Mythos" then
+    -- check for harbinger
+    local harbinger
+    if deckAreaObjects.topCard then
+      harbinger = isHarbinger(deckAreaObjects.topCard.getGMNotes())
+    elseif deckAreaObjects.draw and not deckAreaObjects.draw.is_face_down then
+      local cards = deckAreaObjects.draw.getObjects()
+      harbinger = isHarbinger(cards[#cards].gm_notes)
+    end
 
-  if harbinger then
-    printToColor("The Harbinger is on top of your deck, searching isn't allowed", messageColor)
-    return
+    if harbinger then
+      printToColor("The Harbinger is on top of your deck, searching isn't allowed.", messageColor)
+      return
+    end
   end
 
   -- get bounds to know the height of the deck
-  local bounds = deckAreaObjects.draw.getBounds()
+  local bounds = (deckAreaObjects.draw and deckAreaObjects.draw.getBounds()) or (deckAreaObjects.topCard and deckAreaObjects.topCard.getBounds())
   drawDeckPosition = bounds.center + Vector(0, bounds.size.y / 2 + 0.2, 0)
-  printToColor("Place target(s) of search on set aside spot.", messageColor, "Green")
 
-  -- get playermat orientation
-  local offset = self.getBoundsNormalized().center.z < 0 and 15 or -15
+  if owner ~= "Mythos" then
+    printToColor("Place target(s) of search on set aside spot.", messageColor, "Green")
 
-  -- get position and rotation for set aside cards
-  local handData   = Player[handColor].getHandTransform()
-  local handCards  = Player[handColor].getHandObjects()
-  setAsidePosition = (handData.position + offset * handData.right):setAt("y", 1.5)
-  setAsideRotation = Vector(handData.rotation.x, handData.rotation.y + 180, 180)
+    -- get playermat orientation
+    local offset = self.getBoundsNormalized().center.z < 0 and 15 or -15
 
-  -- place hand cards set aside
-  if #handCards > 0 then
-    deckLib.placeOrMergeIntoDeck(handCards, setAsidePosition, setAsideRotation)
+    -- get position and rotation for set aside cards
+    local handData   = Player[handColor].getHandTransform()
+    local handCards  = Player[handColor].getHandObjects()
+    setAsidePosition = (handData.position + offset * handData.right):setAt("y", 1.5)
+    setAsideRotation = Vector(handData.rotation.x, handData.rotation.y + 180, 180)
+
+    -- place hand cards set aside
+    if #handCards > 0 then
+      deckLib.placeOrMergeIntoDeck(handCards, setAsidePosition, setAsideRotation)
+    end
+
+    -- add a temporary snap point for the set aside spot
+    addedSnapPoint = { position = setAsidePosition, rotation = setAsideRotation }
+    local snapPoints = Global.getSnapPoints() or {}
+    table.insert(snapPoints, addedSnapPoint)
+    Global.setSnapPoints(snapPoints)
+
+    -- add a temporary box for the set aside spot
+    local vectorLines = Global.getVectorLines() or {}
+    local boxSize = Vector(2.5, 0, 3.5)
+    addedVectorLines = generateBoxData(setAsidePosition, boxSize, setAsideRotation.y, handColor)
+
+    for _, line in ipairs(addedVectorLines) do
+      table.insert(vectorLines, line)
+    end
+    Global.setVectorLines(vectorLines)
   end
 
-  -- add a temporary snap point for the set aside spot
-  addedSnapPoint = { position = setAsidePosition, rotation = setAsideRotation }
-  local snapPoints = Global.getSnapPoints() or {}
-  table.insert(snapPoints, addedSnapPoint)
-  Global.setSnapPoints(snapPoints)
-
-  -- add a temporary box for the set aside spot
-  local vectorLines = Global.getVectorLines() or {}
-  local boxSize = Vector(2.5, 0, 3.5)
-  addedVectorLines = generateBoxData(setAsidePosition, boxSize, setAsideRotation.y, handColor)
-
-  for _, line in ipairs(addedVectorLines) do
-    table.insert(vectorLines, line)
-  end
-  Global.setVectorLines(vectorLines)
-
-  -- handling for Norman Withers
+  -- handling for Norman Withers / Eye of Ghatanothoa
   if deckAreaObjects.topCard then
     deckAreaObjects.topCard.deal(1, handColor)
     number = number - 1
     topCardDetected = true
   end
 
-  searchView()
-
   if number > 0 then
-    deckAreaObjects.draw.deal(number, handColor)
+    searchView()
+
+    if owner == "Mythos" then
+      -- create an additional hand zone
+      local handZone = guidReferenceApi.getObjectByOwnerAndType(matColor, "HandZone")
+      local data = handZone.getData()
+      data.Transform.posX = -15
+      data.Transform.posZ = self.getPosition().z
+      data.Transform.rotY = 90
+      local newHand = spawnObjectData({ data = data })
+      guidReferenceApi.editIndex(matColor, "HandZone2", newHand.getGUID())
+      Wait.frames(function() deckAreaObjects.draw.deal(number, handColor, 2) end, 3)
+    else
+      deckAreaObjects.draw.deal(number, handColor)
+    end
   end
 end
 
@@ -160,28 +198,52 @@ end
 
 -- place handCards back into deck and optionally shuffle
 function endSearch(_, _, isRightClick)
-  local handCards = Player[handColor].getHandObjects()
+  local handCards
+
+  if owner == "Mythos" then
+    handCards = Player[handColor].getHandObjects(2)
+  else
+    handCards = Player[handColor].getHandObjects()
+  end
 
   -- place cards on deck
-  deckLib.placeOrMergeIntoDeck(handCards, drawDeckPosition, setAsideRotation)
+  deckLib.placeOrMergeIntoDeck(handCards, drawDeckPosition, setAsideRotation or self.getRotation():setAt("z", 180))
 
-  -- draw set aside cards (from the ground!)
-  Wait.time(drawSetAsideCards, 0.5 + #handCards * 0.1)
+  if owner == "Mythos" then
+    local handZone2 = guidReferenceApi.getObjectByOwnerAndType(matColor, "HandZone2")
+    if handZone2 then
+      Wait.time(function() handZone2.destruct() end, 0.5 + #handCards * 0.1)
+      guidReferenceApi.editIndex(matColor, "HandZone2", nil)
+    end
+  else
+    -- draw set aside cards (from the ground!)
+    Wait.time(drawSetAsideCards, 0.5 + #handCards * 0.1)
+  end
 
   normalView()
 
   Wait.time(function()
     -- maybe shuffle deck
     if not isRightClick then
-      local deckAreaObjects = playermatApi.getDeckAreaObjects(matColor)
+      local deckAreaObjects
+      if owner == "Mythos" then
+        deckAreaObjects = mythosAreaApi.getEncounterDeckObjects()
+      else
+        deckAreaObjects = playermatApi.getDeckAreaObjects(matColor)
+      end
+
       if deckAreaObjects.draw then
         deckAreaObjects.draw.shuffle()
       end
     end
 
-    -- Norman Withers handling
+    -- Norman Withers / Eye of Ghatanothoa handling
     if topCardDetected then
-      playermatApi.flipTopCardFromDeck(matColor)
+      if owner == "Mythos" then
+        mythosAreaApi.flipTopCardFromDeck()
+      else
+        playermatApi.flipTopCardFromDeck(matColor)
+      end
     end
   end, 1 + #handCards * 0.1)
 end
