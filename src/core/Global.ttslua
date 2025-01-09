@@ -71,8 +71,9 @@ local RESOURCE_OPTIONS              = {
 }
 
 -- track player-specific visibilities
-local handVisibility                = {}
+local actionTrackerVisibility       = {}
 local blurseVisibility              = {}
+local handVisibility                = {}
 
 -- track cards' tokens
 local cardTokens                    = {}
@@ -117,9 +118,10 @@ function onSave()
 
   return JSON.encode({
     acknowledgedUpgradeVersions = acknowledgedUpgradeVersions,
+    actionTrackerVisibility     = actionTrackerVisibility,
+    blurseVisibility            = blurseVisibility,
     chaosTokensLastMatGUID      = chaosTokensLastMatGUID,
     chaosTokensGUID             = chaosTokensGUID,
-    blurseVisibility            = blurseVisibility,
     handVisibility              = handVisibility,
     optionPanel                 = optionPanel
   })
@@ -129,8 +131,9 @@ function onLoad(savedData)
   if savedData and savedData ~= "" then
     local loadedData            = JSON.decode(savedData)
     acknowledgedUpgradeVersions = loadedData.acknowledgedUpgradeVersions
-    chaosTokensLastMatGUID      = loadedData.chaosTokensLastMatGUID
+    actionTrackerVisibility     = loadedData.actionTrackerVisibility
     blurseVisibility            = loadedData.blurseVisibility
+    chaosTokensLastMatGUID      = loadedData.chaosTokensLastMatGUID
     handVisibility              = loadedData.handVisibility
     optionPanel                 = loadedData.optionPanel
 
@@ -170,8 +173,9 @@ function onLoad(savedData)
     })
     statTracker.addContextMenuItem("Print my stats", function(playerColor) handleStatTrackerClick(Player[playerColor], "-3") end)
   end
+  Wait.frames(createActionTrackerUI, 10)
 
-  -- initialization of loadable objects library (delay to let Navigation Overlay build)
+  -- initialization of library (delay to let Navigation Overlay build)
   Wait.time(function()
     WebRequest.get(SOURCE_REPO .. 'library.json', libraryDownloadCallback)
   end, 1)
@@ -338,8 +342,46 @@ function onPlayerAction(player, action, targets)
   end
 end
 
+function onPlayerChangeColor()
+  -- updates the displayed names in the action tracker
+  for matColor, _ in pairs(guidReferenceApi.getObjectsByType("Playermat")) do
+    updateActionTrackerName(matColor)
+  end
+end
+
+function onObjectRotate(obj, _, flip, _, _, oldFlip)
+  if flip == oldFlip then return end
+
+  if obj.hasTag("Minicard") then
+    for matColor, _ in pairs(guidReferenceApi.getObjectsByType("Playermat")) do
+      Wait.frames(function() updateActionTrackerName(matColor) end, 50)
+    end
+  else
+    maybeUpdateActionTrackerTokens(obj, 50)
+  end
+end
+
+function onObjectSpawn(obj)
+  maybeUpdateActionTrackerTokens(obj, 3)
+end
+
+function onObjectDestroy(obj)
+  maybeUpdateActionTrackerTokens(obj, 3)
+end
+
+function onObjectDrop(_, obj)
+  maybeUpdateActionTrackerTokens(obj, 20)
+end
+
 function onObjectPickUp(_, object)
   stopTokenTransformUpdating(object)
+end
+
+function maybeUpdateActionTrackerTokens(obj, delayFrames)
+  if obj == nil or obj.isDestroyed() or not obj.hasTag("UniversalToken") then return end
+  local owner = guidReferenceApi.getOwnerOfObject(obj)
+  if owner == "Mythos" then return end
+  updateActionTrackerTokens(owner, delayFrames)
 end
 
 ---------------------------------------------------------
@@ -1330,6 +1372,11 @@ function onClick_toggleUi(player, windowId)
     -- store the state of the Bless/Curse Manager UI to restore it onLoad()
     blurseVisibility[player.color] = changeWindowVisibilityForColor(player.color, "blessCurseManager")
     return
+  elseif windowId == "actionTracker" then
+    -- store the state of the Action Tracker UI to restore it onLoad()
+    actionTrackerVisibility[player.color] = changeWindowVisibilityForColor(player.color, "actionTracker")
+    printToColor("Action Tracker " .. (actionTrackerVisibility[player.color] and "enabled." or "disabled."), player.color)
+    return
   end
 
   changeWindowVisibilityForColor(player.color, windowId)
@@ -1528,20 +1575,213 @@ function updateDownloadItemList(skipAuthorUpdate)
   Wait.time(onClick_select, 0.2)
 end
 
+function createActionTrackerUI()
+  -- make list of currently used mat colors
+  local usedMatColors = playermatApi.getUsedMatColors()
+  local isUsed = {}
+  for _, matColor in ipairs(usedMatColors) do
+    isUsed[matColor] = true
+  end
+
+  local visibilityString = ""
+  for playerColor, state in ipairs(actionTrackerVisibility) do
+    if state then
+      visibilityString = visibilityString .. playerColor .. "|"
+    end
+  end
+
+  -- remove last delimiter
+  visibilityString = visibilityString:sub(1, -2)
+
+  local actionTrackerXml = {
+    tag = "TableLayout",
+    attributes = {
+      id            = "actionTracker",
+      color         = "black",
+      visibility    = visibilityString,
+      active        = visibilityString ~= "",
+      height        = 30 * #usedMatColors,
+      width         = "300",
+      offsetXY      = "-2 400",
+      columnWidths  = "0 25 25 25 25 25",
+      padding       = "4 4 4 4",
+      cellSpacing   = "5",
+      rectAlignment = "LowerRight",
+      raycastTarget = true,
+      outlineSize   = "2 2",
+      outline       = "#303030"
+    },
+    children = {}
+  }
+
+  -- Loop through playermats and create rows in the Action Tracker
+  for matColor, _ in pairs(guidReferenceApi.getObjectsByType("Playermat")) do
+    local playerColor = playermatApi.getPlayerColor(matColor)
+    local playerRow = {
+      tag = "Row",
+      attributes = { id = "playerRow" .. matColor, active = isUsed[matColor] or false },
+      children = {
+        {
+          tag = "Cell",
+          children = {
+            {
+              tag = "Text",
+              attributes = {
+                id    = "playerName" .. matColor,
+                color = playerColor,
+                text  = getDisplayName(matColor)
+              }
+            }
+          }
+        }
+      }
+    }
+
+    for j = 1, 5 do
+      local actionXml = {
+        tag = "Cell",
+        children = {
+          tag = "Panel",
+          attributes = { id = "playerAction" .. j .. matColor, color = "black" }
+        }
+      }
+      table.insert(playerRow.children, actionXml)
+    end
+    table.insert(actionTrackerXml.children, playerRow)
+  end
+
+  local xml = UI.getXmlTable()
+  table.insert(xml, actionTrackerXml)
+  updateGlobalXml(xml)
+end
+
+-- updates the layout of the action tracker
+function updateActionTrackerRows()
+  local usedMatColors = playermatApi.getUsedMatColors()
+  local isUsed = {}
+  for _, matColor in ipairs(usedMatColors) do
+    isUsed[matColor] = true
+  end
+
+  UI.setAttribute("actionTracker", "height", 30 * #usedMatColors)
+  for matColor, _ in pairs(guidReferenceApi.getObjectsByType("Playermat")) do
+    UI.setAttribute("playerRow" .. matColor, "active", isUsed[matColor] or false)
+  end
+end
+
+-- updates the color of the actions based on the playermats actions tokens
+function updateActionTrackerTokens(matColor, delayFrames)
+  Wait.frames(function()
+    local actionCount = determineActionCount(matColor)
+    for i = 1, 5 do
+      local color = "black"
+      if i <= actionCount.total then
+        if actionCount.order[i] == true then
+          color = "#C89B3C" -- gold for accessibility
+        else
+          color = "grey"
+        end
+      end
+      UI.setAttribute("playerAction" .. i .. matColor, "color", color)
+    end
+  end, delayFrames or 50)
+end
+
+-- updates the displayed names in the action tracker
+function updateActionTrackerName(matColor)
+  local textColor = "grey"
+  local fontStyle = "Italic"
+
+  if isMiniReady(matColor) then
+    textColor = playermatApi.getPlayerColor(matColor)
+    fontStyle = "Normal"
+  end
+
+  UI.setAttributes("playerName" .. matColor, {
+    color     = textColor,
+    fontStyle = fontStyle,
+    text      = getDisplayName(matColor)
+  })
+  updateActionTrackerRows()
+end
+
+function isMiniReady(matColor)
+  local investigatorData = playermatApi.getActiveInvestigatorData(matColor)
+  if not investigatorData then return false end
+
+  for _, obj in ipairs(getObjectsWithTag("Minicard")) do
+    if not obj.is_face_down then
+      local md = JSON.decode(obj.getGMNotes()) or {}
+      if md.id == investigatorData.miniId then return true end
+    end
+  end
+  return false
+end
+
+function determineActionCount(matColor)
+  local playermat = guidReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
+  if not playermat then return end
+
+  local localPos     = Vector(-1.2, 0.1, -0.28)
+  local pos          = playermatApi.transformLocalPosition(localPos, matColor):setAt("y", 3)
+  local rot          = playermatApi.returnRotation(matColor)
+  local size         = Vector(5, 6, 0.1)
+  local searchResult = searchLib.inArea(pos, rot, size, "isUniversalToken")
+
+  local actionCount  = {
+    available = 0,
+    used      = 0,
+    total     = #searchResult,
+    order     = {}
+  }
+
+  -- sort tokens from left to right
+  local tokenPositions = {}
+  for _, obj in ipairs(searchResult) do
+    tokenPositions[obj] = playermat.positionToLocal(obj.getPosition())
+  end
+
+  table.sort(searchResult, function(a, b) return tokenPositions[a].x > tokenPositions[b].x end)
+
+  for _, obj in ipairs(searchResult) do
+    if obj.is_face_down then
+      actionCount.used = actionCount.used + 1
+    else
+      actionCount.available = actionCount.available + 1
+    end
+    table.insert(actionCount.order, not obj.is_face_down)
+  end
+
+  return actionCount
+end
+
+-- returns the display name (steam name or investigator)
+function getDisplayName(matColor)
+  local playerColor = playermatApi.getPlayerColor(matColor)
+  if Player[playerColor] and Player[playerColor].steam_name then
+    return Player[playerColor].steam_name
+  else
+    return playermatApi.getInvestigatorName(matColor)
+  end
+end
+
 -- this helper function updates the global XML while preserving the visibility of windows
 function updateGlobalXml(newXml)
   -- preserve visibility settings for these elements
   local windowIdList = {
     "playAreaGallery",
     "downloadWindow",
-    "optionPanel"
+    "optionPanel",
+    "blessCurseManager"
   }
 
   -- get current state and update newXml
   for _, windowId in ipairs(windowIdList) do
     local element = getXmlTableElementById(newXml, windowId)
-    element.attributes.active = UI.getAttribute(windowId, "active")
-    element.attributes.visibility = UI.getAttribute(windowId, "visibility")
+    if element and element.attributes then
+      element.attributes.active = UI.getAttribute(windowId, "active")
+      element.attributes.visibility = UI.getAttribute(windowId, "visibility")
+    end
   end
 
   UI.setXmlTable(newXml)
@@ -1764,6 +2004,12 @@ function removePlayermat(matColor)
   for _, obj in pairs(matObjects) do
     obj.destruct()
   end
+
+  -- update index
+  guidReferenceApi.editIndex(matColor)
+
+  -- update the action tracker
+  updateActionTrackerRows()
 end
 
 -- sets the option panel to the correct state (corresponding to 'optionPanel')
@@ -1872,6 +2118,14 @@ end
 function spawnOrRemoveHelperForPlayermats(helperName, state)
   for color, data in pairs(playermatApi.getHelperSpawnData("All", helperName)) do
     spawnOrRemoveHelper(state, helperName, data.position, data.rotation, color)
+  end
+
+  -- also spawn/remove the search assistant for the encounter deck
+  if helperName == "Search Assistant" then
+    local mythosArea = guidReferenceApi.getObjectByOwnerAndType("Mythos", "MythosArea")
+    local pos = mythosArea.positionToWorld(Vector(0.880, 0.1, 0.868))
+    local rot = mythosArea.getRotation()
+    spawnOrRemoveHelper(state, helperName, pos, rot, "Mythos")
   end
 end
 
@@ -2913,7 +3167,18 @@ function handleTokenAttaching(params)
   local player       = params.player
   local searchResult = searchLib.onObject(card, "isTileOrToken", 0.9)
 
-  if card.is_face_down and next(searchResult) ~= nil then
+  local cardPos = card.getPosition()
+  local eligibleTokens = {}
+  for _, token in ipairs(searchResult) do
+    if not token.locked and token.getPosition().y > (cardPos.y + 0.025) then
+      table.insert(eligibleTokens, token)
+    end
+  end
+
+  if #eligibleTokens == 0 then return end
+
+  -- maybe change settings (and save them to restore later)
+  if card.is_face_down then
     cardSettings[card]       = {
       hideFacedown = card.hide_when_face_down,
       tooltip      = card.tooltip
@@ -2922,10 +3187,8 @@ function handleTokenAttaching(params)
     card.tooltip             = false
   end
 
-  for _, token in ipairs(searchResult) do
-    if not token.locked then
-      card.addAttachment(token)
-    end
+  for _, token in ipairs(eligibleTokens) do
+    card.addAttachment(token)
   end
 
   Wait.condition(
@@ -2951,14 +3214,21 @@ function handleTokenDetaching(params)
     cardSettings[card]       = nil
   end
 
+  local cardPosition = card.getPosition()
+
   -- remove attachments (move tokens below the card on top)
   local removedTokens = card.removeAttachments()
   for _, token in ipairs(removedTokens) do
-    if token.getPosition().y < card.getPosition().y then
-      local posY = card.getPosition().y + 0.05
+    if token.getPosition().y < cardPosition.y then
+      local posY = cardPosition.y + 0.05
       token.setPosition(token.getPosition():setAt("y", posY))
     end
   end
+
+  -- trigger playarea connections
+  local locked = card.getLock()
+  card.setLock(not locked)
+  Wait.frames(function() card.setLock(locked) end, 1)
 
   -- redraw token xml for cards with sealing
   if card.hasTag("CardThatSeals") then
@@ -2967,6 +3237,7 @@ function handleTokenDetaching(params)
       card.call("updateStackSize")
     end
   end
+
   return removedTokens
 end
 
