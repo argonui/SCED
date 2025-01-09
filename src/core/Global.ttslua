@@ -1684,7 +1684,7 @@ function updateActionTrackerTokens(matColor, delayFrames)
     for i = 1, 5 do
       local color = "black"
       if i <= actionCount.total then
-        if i <= actionCount.available then
+        if actionCount.order[i] == true then
           color = "#C89B3C" -- gold for accessibility
         else
           color = "grey"
@@ -1727,6 +1727,9 @@ function isMiniReady(matColor)
 end
 
 function determineActionCount(matColor)
+  local playermat = guidReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
+  if not playermat then return end
+
   local localPos     = Vector(-1.2, 0.1, -0.28)
   local pos          = playermatApi.transformLocalPosition(localPos, matColor):setAt("y", 3)
   local rot          = playermatApi.returnRotation(matColor)
@@ -1736,8 +1739,17 @@ function determineActionCount(matColor)
   local actionCount  = {
     available = 0,
     used      = 0,
-    total     = #searchResult
+    total     = #searchResult,
+    order     = {}
   }
+
+  -- sort tokens from left to right
+  local tokenPositions = {}
+  for _, obj in ipairs(searchResult) do
+    tokenPositions[obj] = playermat.positionToLocal(obj.getPosition())
+  end
+
+  table.sort(searchResult, function(a, b) return tokenPositions[a].x > tokenPositions[b].x end)
 
   for _, obj in ipairs(searchResult) do
     if obj.is_face_down then
@@ -1745,6 +1757,7 @@ function determineActionCount(matColor)
     else
       actionCount.available = actionCount.available + 1
     end
+    table.insert(actionCount.order, not obj.is_face_down)
   end
 
   return actionCount
