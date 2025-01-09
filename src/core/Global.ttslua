@@ -2913,7 +2913,18 @@ function handleTokenAttaching(params)
   local player       = params.player
   local searchResult = searchLib.onObject(card, "isTileOrToken", 0.9)
 
-  if card.is_face_down and next(searchResult) ~= nil then
+  local cardPos = card.getPosition()
+  local eligibleTokens = {}
+  for _, token in ipairs(searchResult) do
+    if not token.locked and token.getPosition().y > (cardPos.y + 0.025) then
+      table.insert(eligibleTokens, token)
+    end
+  end
+
+  if #eligibleTokens == 0 then return end
+
+  -- maybe change settings (and save them to restore later)
+  if card.is_face_down then
     cardSettings[card]       = {
       hideFacedown = card.hide_when_face_down,
       tooltip      = card.tooltip
@@ -2922,10 +2933,8 @@ function handleTokenAttaching(params)
     card.tooltip             = false
   end
 
-  for _, token in ipairs(searchResult) do
-    if not token.locked then
-      card.addAttachment(token)
-    end
+  for _, token in ipairs(eligibleTokens) do
+    card.addAttachment(token)
   end
 
   Wait.condition(
