@@ -7,6 +7,9 @@ function onLoad()
   local buttonParameters          = {}
   buttonParameters.function_owner = self
 
+  local handSizeButtonParameters          = {}
+  handSizeButtonParameters.function_owner = self
+
   -- index 0: button as hand size label
   buttonParameters.hover_color    = "White"
   buttonParameters.label          = 0
@@ -17,6 +20,17 @@ function onLoad()
   buttonParameters.font_size      = 1000
   buttonParameters.font_color     = "White"
   self.createButton(buttonParameters)
+
+  -- index 1: button as max handsize label
+  handSizeButtonParameters.hover_color    = "White"
+  handSizeButtonParameters.label          = 8
+  handSizeButtonParameters.click_function = "none"
+  handSizeButtonParameters.position       = {.7, .11, -.7}
+  handSizeButtonParameters.height         = 0
+  handSizeButtonParameters.width          = 0
+  handSizeButtonParameters.font_size      = 300
+  handSizeButtonParameters.font_color     = "Blue"
+  self.createButton(handSizeButtonParameters)
 
   -- make sure this part executes after the playermats are loaded
   Wait.time(function()
@@ -37,6 +51,28 @@ function updateColors()
   self.setName(handColor .. " Hand Helper")
 end
 
+function getHandSizeModifier()
+  local modSize = 0
+  objList = playermatApi.searchAroundPlayermat(matColor, "isCardOrDeck") -- need to make sure Discard Pile isn't searched
+  for _, obj in ipairs(objList) do
+    if obj.type == "Card" then
+      local md = JSON.decode(obj.getGMNotes()) or {}
+      if md.id == "60205" then -- Arcane Enlightenment
+        modSize = modSize + 1
+      elseif md.id == "02020" then -- Laboratory Assistant
+        modSize = modSize + 2
+      elseif md.id == "60202" then -- Vault of Knowledge
+        modSize = modSize + 2
+      elseif md.id == "03041" then -- Drawing the Sign
+        modSize = modSize - 5
+      elseif md.id == "71023" then -- Dr. Mya Badry
+        modSize = modSize + 2
+      end
+    end
+  end
+  return modSize
+end
+
 -- count cards in hand
 function updateValue()
   -- update colors if handColor doesn't own a handzone
@@ -53,13 +89,27 @@ function updateValue()
   -- count cards in hand
   local hand = Player[handColor].getHandObjects()
   local size = 0
+  local maxSize = 8
 
   for _, obj in pairs(hand) do
     if obj.type == "Card" then
       size = size + 1
+      local md = JSON.decode(obj.getGMNotes()) or {}
+      if md.id == "10109" then -- Pelt Shipment
+        maxSize = maxSize - 3
+      end
     end
+  end
+  maxSize = maxSize + getHandSizeModifier()
+  local handSizeColor = "Blue"
+
+  if size >= maxSize then
+    handSizeColor = "Red"
+  elseif size == maxSize - 1 then
+    handSizeColor = "Yellow"
   end
 
   -- update button label and color
   self.editButton({ index = 0, font_color = "White", label = size })
+  self.editButton({ index = 1, font_color = handSizeColor, label = maxSize })
 end
