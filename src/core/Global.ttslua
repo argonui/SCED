@@ -362,11 +362,15 @@ function onObjectRotate(obj, _, flip, _, _, oldFlip)
 end
 
 function onObjectSpawn(obj)
-  maybeUpdateActionTrackerTokens(obj, 3)
+  maybeUpdateActionTrackerTokens(obj, 5)
 end
 
 function onObjectDestroy(obj)
-  maybeUpdateActionTrackerTokens(obj, 3)
+  if obj.hasTag("UniversalToken") then
+    local owner = guidReferenceApi.getOwnerOfObject(obj)
+    if owner == "Mythos" then return end
+    updateActionTrackerTokens(owner, 5)
+  end
 end
 
 function onObjectDrop(_, obj)
@@ -1360,6 +1364,7 @@ function onClick_toggleUi(player, windowId)
   -- let the Navigation Overlay handle the toggling of its visibility modes
   if windowId == "Navigation Overlay" then
     navigationOverlayApi.cycleVisibility(player.color)
+    changeWindowVisibilityForColor(player.color, "optionPanel", false)
     return
   end
 
@@ -1368,14 +1373,37 @@ function onClick_toggleUi(player, windowId)
     changeWindowVisibilityForColor(player.color, "playAreaGallery", false)
   elseif windowId == "playAreaGallery" then
     changeWindowVisibilityForColor(player.color, "downloadWindow", false)
+  elseif windowId == "optionPanel" then
+    local newState = changeWindowVisibilityForColor(player.color, windowId)
+
+    -- show/hide secondary windows
+    if newState == true then
+      changeWindowVisibilityForColor(player.color, "blessCurseManager", false)
+      changeWindowVisibilityForColor(player.color, "actionTracker", false)
+      changeWindowVisibilityForColor(player.color, "navPanelFull", false)
+      changeWindowVisibilityForColor(player.color, "navPanelPlay", false)
+    else
+      if blurseVisibility[player.color] then
+        changeWindowVisibilityForColor(player.color, "blessCurseManager", blurseVisibility[player.color])
+      end
+      if actionTrackerVisibility[player.color] then
+        changeWindowVisibilityForColor(player.color, "actionTracker", actionTrackerVisibility[player.color])
+      end
+      navigationOverlayApi.updateVisibility()
+    end
+    return
   elseif windowId == "blessCurseManager" then
     -- store the state of the Bless/Curse Manager UI to restore it onLoad()
     blurseVisibility[player.color] = changeWindowVisibilityForColor(player.color, "blessCurseManager")
+
+    changeWindowVisibilityForColor(player.color, "optionPanel", false)
     return
   elseif windowId == "actionTracker" then
     -- store the state of the Action Tracker UI to restore it onLoad()
     actionTrackerVisibility[player.color] = changeWindowVisibilityForColor(player.color, "actionTracker")
     printToColor("Action Tracker " .. (actionTrackerVisibility[player.color] and "enabled." or "disabled."), player.color)
+
+    changeWindowVisibilityForColor(player.color, "optionPanel", false)
     return
   end
 
@@ -1602,10 +1630,12 @@ function createActionTrackerUI()
       active        = visibilityString ~= "",
       height        = 30 * #usedMatColors,
       width         = "300",
-      offsetXY      = "-2 400",
+      offsetXY      = "-2 396",
       columnWidths  = "0 25 25 25 25 25",
       padding       = "4 4 4 4",
       cellSpacing   = "5",
+      allowDragging = true,
+      returnToOriginalPositionWhenReleased = false,
       rectAlignment = "LowerRight",
       raycastTarget = true,
       outlineSize   = "2 2",
