@@ -324,14 +324,23 @@ function onObjectNumberTyped(hoveredObject, playerColor, number)
 end
 
 function onPlayerAction(player, action, targets)
-  if action == Player.Action.Delete and not player.admin then
-    -- disable delete action (only applies to promoted players) and discard objects instead
-    for _, target in ipairs(targets) do
-      local matColor = playermatApi.getMatColorByPosition(target.getPosition())
-      local trash = guidReferenceApi.getObjectByOwnerAndType(matColor, "Trash")
-      trash.putObject(target)
+  if action == Player.Action.Delete then
+    if player.admin then
+      for _, target in ipairs(targets) do
+        maybeUpdateActionTrackerTokens(target, 5)
+      end
+    else
+      -- disable delete action (only applies to promoted players) and discard objects instead
+      for _, target in ipairs(targets) do
+        local matColor = playermatApi.getMatColorByPosition(target.getPosition())
+        local trash = guidReferenceApi.getObjectByOwnerAndType(matColor, "Trash")
+
+        maybeUpdateActionTrackerTokens(target, 20)
+
+        trash.putObject(target)
+      end
+      return false
     end
-    return false
   elseif action == Player.Action.PickUp then
     -- attach tokens to each card -> might need to add a limit if performance is an issue
     for _, target in ipairs(targets) do
@@ -363,14 +372,6 @@ end
 
 function onObjectSpawn(obj)
   maybeUpdateActionTrackerTokens(obj, 5)
-end
-
-function onObjectDestroy(obj)
-  if obj.hasTag("UniversalToken") then
-    local owner = guidReferenceApi.getOwnerOfObject(obj)
-    if owner == "Mythos" then return end
-    updateActionTrackerTokens(owner, 5)
-  end
 end
 
 function onObjectDrop(_, obj)
