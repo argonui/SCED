@@ -1,32 +1,30 @@
 require("core/Constants")
-local deckLib                    = require("util/DeckLib")
-local GlobalApi                  = require("core/GlobalApi")
-local guidReferenceApi           = require("core/GUIDReferenceApi")
-local playAreaApi                = require("playarea/PlayAreaApi")
-local playermatApi               = require("playermat/PlayermatApi")
-local searchLib                  = require("util/SearchLib")
-local tokenArrangerApi           = require("tokens/TokenArrangerApi")
-local tokenSpawnTrackerApi       = require("tokens/TokenSpawnTrackerApi")
+local deckLib                     = require("util/DeckLib")
+local GlobalApi                   = require("core/GlobalApi")
+local guidReferenceApi            = require("core/GUIDReferenceApi")
+local playAreaApi                 = require("playarea/PlayAreaApi")
+local playermatApi                = require("playermat/PlayermatApi")
+local searchLib                   = require("util/SearchLib")
+local tokenArrangerApi            = require("tokens/TokenArrangerApi")
+local tokenSpawnTrackerApi        = require("tokens/TokenSpawnTrackerApi")
 
-local ENCOUNTER_DECK_AREA        = {
-  upperLeft = { x = 1.05, z = 0.15 },
-  lowerRight = { x = 0.70, z = 0.59 }
+local ENCOUNTER_DECK_DISCARD_AREA = {
+  upperLeft  = { x = 1.770, z = 0.15 },
+  lowerRight = { x = 0.700, z = 0.59 },
+  center     = { x = 1.235, y = 0.5, z = 0.37 },
+  size       = Vector(0.5, 3, 0.2)
 }
-local ENCOUNTER_DISCARD_AREA     = {
-  upperLeft = { x = 1.77, z = 0.15 },
-  lowerRight = { x = 1.42, z = 0.59 }
-}
-local SCENARIO_REFERENCE_AREA    = {
-  upperLeft = { x = -1.45, z = 0.15 },
+local SCENARIO_REFERENCE_AREA     = {
+  upperLeft  = { x = -1.45, z = 0.15 },
   lowerRight = { x = -1.75, z = 0.59 }
 }
 
-local isReshuffling              = false
-local collisionEnabled           = false
+local isReshuffling               = false
+local collisionEnabled            = false
 local currentScenario, useFrontData, tokenData, scenarioCard
 
 -- for stopping multiple collisions of the same object
-local collisionTable = {}
+local collisionTable              = {}
 
 function updateSave()
   local data = {
@@ -101,12 +99,11 @@ function onCollisionEnter(collisionInfo)
 
   local localPos = self.positionToLocal(object.getPosition())
 
-  if inArea(localPos, ENCOUNTER_DECK_AREA) or inArea(localPos, ENCOUNTER_DISCARD_AREA) then
+  if inArea(localPos, ENCOUNTER_DECK_DISCARD_AREA) then
     -- reset spawned tokens and remove tokens from cards in encounter deck / discard area
     Wait.frames(function() tokenSpawnTrackerApi.resetTokensSpawned(object) end, 1)
     GlobalApi.handleTokenDetaching(object)
     GlobalApi.removeTokensFromObject(object, "Mythos")
-
   elseif inArea(localPos, SCENARIO_REFERENCE_AREA) then
     -- detect scenario reference card and attempt to load data from it
     local md = JSON.decode(object.getGMNotes()) or {}
@@ -164,7 +161,7 @@ end
 -- and resets the spawn state for the cards when they do.
 function onObjectEnterContainer(container, object)
   local localPos = self.positionToLocal(container.getPosition())
-  if inArea(localPos, ENCOUNTER_DECK_AREA) or inArea(localPos, ENCOUNTER_DISCARD_AREA) then
+  if inArea(localPos, ENCOUNTER_DECK_DISCARD_AREA) then
     tokenSpawnTrackerApi.resetTokensSpawned(object)
     GlobalApi.removeTokensFromObject(object, "Mythos")
   end
@@ -206,26 +203,39 @@ end
 -- encounter card drawing
 ---------------------------------------------------------
 
--- gets the encounter deck (for internal functions and Api calls)
-function getEncounterDeck()
-  local searchResult = searchLib.atPosition(ENCOUNTER_DECK_POS, "isCardOrDeck")
+-- gets the encounter deck objects (for internal functions and Api calls)
+function getEncounterDeckObjects()
+  local encounterDeckObjects = {}
+  local center = self.positionToWorld(ENCOUNTER_DECK_DISCARD_AREA.center)
+  local size   = ENCOUNTER_DECK_DISCARD_AREA.size * self.getScale()
 
-  if #searchResult > 0 then
-    return searchResult[1]
+  for _, object in ipairs(searchLib.inArea(center, self.getRotation(), size, "isCardOrDeck")) do
+    if self.positionToLocal(object.getPosition()).x > 1.25 then
+      encounterDeckObjects.discard = object
+    elseif object.type == "Card" and not object.is_face_down then
+      encounterDeckObjects.topCard = object
+    else
+      encounterDeckObjects.draw = object
+    end
   end
+
+  return encounterDeckObjects
 end
 
 -- 'params' contains the position, rotation and a boolean to force a faceup draw
 function drawEncounterCard(params)
-  local encounterDeck = getEncounterDeck()
+  local encounterDeckObjects = getEncounterDeckObjects()
   local reshuffledAlready
 
-  if encounterDeck then
+  if encounterDeckObjects.draw or encounterDeckObjects.topCard then
     reshuffledAlready = false
-    if encounterDeck.type == "Deck" then
-      actualEncounterCardDraw(encounterDeck.takeObject(), params)
+    if encounterDeckObjects.topCard then
+      actualEncounterCardDraw(encounterDeckObjects.topCard, params)
+      flipTopCardFromDeck()
+    elseif encounterDeckObjects.draw.type == "Deck" then
+      actualEncounterCardDraw(encounterDeckObjects.draw.takeObject(), params)
     else
-      actualEncounterCardDraw(encounterDeck, params)
+      actualEncounterCardDraw(encounterDeckObjects.draw, params)
     end
   else
     -- nothing here, time to reshuffle
@@ -263,39 +273,66 @@ end
 ---@return boolean: Whether the operation was successfully performed
 function reshuffleEncounterDeck()
   -- flag to avoid multiple calls
-  if isReshuffling then
-    return false
-  end
+  if isReshuffling then return false end
   isReshuffling = true
 
   -- disable flag after 1s delay
   Wait.time(function() isReshuffling = false end, 1)
 
-  local encounterDeck = getEncounterDeck()
-  local discardPile = searchLib.atPosition(ENCOUNTER_DISCARD_POSITION, "isCardOrDeck")
+  local encounterDeckObjects = getEncounterDeckObjects()
 
-  if #discardPile > 0 then
-    local discardDeck = discardPile[1]
-
+  if encounterDeckObjects.discard then
     -- flips discard pile
-    if not discardDeck.is_face_down then
-      discardDeck.setRotation({ 0, -90, 180 })
+    if not encounterDeckObjects.discard.is_face_down then
+      encounterDeckObjects.discard.setRotation({ 0, -90, 180 })
     end
 
     -- make a new encounter deck
-    if encounterDeck == nil then
-      discardDeck.setPosition(Vector(ENCOUNTER_DECK_POS) + Vector({ 0, 1, 0 }))
-      encounterDeck = discardDeck
+    if encounterDeckObjects.draw == nil then
+      encounterDeckObjects.discard.setPosition(Vector(ENCOUNTER_DECK_POS) + Vector({ 0, 1, 0 }))
+      encounterDeckObjects.draw = encounterDeckObjects.discard
     else
-      encounterDeck.putObject(discardDeck)
+      encounterDeckObjects.draw.putObject(encounterDeckObjects.discard)
     end
-    encounterDeck.shuffle()
+
+    if encounterDeckObjects.topCard then
+      encounterDeckObjects.draw.putObject(encounterDeckObjects.topCard)
+      flipTopCardFromDeck(1)
+    end
+
+    encounterDeckObjects.draw.shuffle()
     broadcastToAll("Shuffled encounter discard into deck.", "White")
     return true
   else
+    if encounterDeckObjects.draw and encounterDeckObjects.topCard then
+      encounterDeckObjects.draw.putObject(encounterDeckObjects.topCard)
+      encounterDeckObjects.draw.shuffle()
+      flipTopCardFromDeck(1)
+      return true
+    end
+
     broadcastToAll("Encounter discard pile is already empty.", "Red")
     return false
   end
+end
+
+-- utility function to flip the top card to the revealed side
+function flipTopCardFromDeck(additionalDelay)
+  Wait.time(function()
+    local encounterDeckObjects = getEncounterDeckObjects()
+    if encounterDeckObjects.topCard ~= nil then return end
+
+    if encounterDeckObjects.draw ~= nil then
+      if encounterDeckObjects.draw.type == "Card" then
+        encounterDeckObjects.draw.flip()
+      else
+        -- get bounds to know the height of the deck
+        local bounds = encounterDeckObjects.draw.getBounds()
+        local pos = bounds.center + Vector(0, bounds.size.y / 2 + 0.2, 0)
+        encounterDeckObjects.draw.takeObject({ position = pos, flip = true })
+      end
+    end
+  end, 0.1 + (additionalDelay or 0))
 end
 
 ---------------------------------------------------------

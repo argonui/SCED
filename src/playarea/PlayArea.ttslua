@@ -116,11 +116,19 @@ function onCollisionEnter(collisionInfo)
 end
 
 function onCollisionExit(collisionInfo)
-  maybeUntrackLocation(collisionInfo.collision_object)
+  if not collisionEnabled then return end
+
+  local object = collisionInfo.collision_object
+
+  -- only continue for cards
+  if object.type ~= "Card" then return end
+
+  maybeUntrackLocation(object)
 end
 
 -- Destroyed objects don't trigger onCollisionExit(), so check on destruction to untrack as well
 function onObjectDestroy(object)
+  if object.type ~= "Card" then return end
   maybeUntrackLocation(object)
 end
 
@@ -128,14 +136,14 @@ function onObjectPickUp(_, object)
   if object.type ~= "Card" then return end
 
   -- onCollisionExit USUALLY fires first, so we have to check the card to see if it's a location we should be tracking
-  if showLocationLinks() and isInPlayArea(object) and object.getGMNotes() ~= nil and object.getGMNotes() ~= "" then
-    local pickedUpGuid = object.getGUID()
+  if showLocationLinks() and isInPlayArea(object) then
     local metadata = JSON.decode(object.getGMNotes()) or {}
     if metadata.type == "Location" then
       -- onCollisionExit sometimes comes 1 frame after onObjectPickUp (rather than before it or in
       -- the same frame). This causes a mismatch in the data between dragging the on-table, and
       -- that one frame draws connectors on the card which then show up as shadows for snap points.
       -- Waiting ensures we always do thing in the expected Exit->PickUp order
+      local pickedUpGuid = object.getGUID()
       Wait.frames(function()
         if object.is_face_down then
           draggingGuids[pickedUpGuid] = metadata.locationBack
