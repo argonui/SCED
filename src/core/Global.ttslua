@@ -374,8 +374,21 @@ function onObjectSpawn(obj)
   maybeUpdateActionTrackerTokens(obj, 5)
 end
 
-function onObjectDrop(_, obj)
-  maybeUpdateActionTrackerTokens(obj, 20)
+function onObjectDrop(playerColor, obj)
+  if obj.hasTag("Minicard") then
+    for _, card in ipairs(searchLib.belowPosition(obj.getPosition(), "isCard")) do
+      local md = JSON.decode(card.getGMNotes()) or {}
+      if md.type == "Investigator" and (md.id or md.TtsZoopGuid) then
+        local miniMd = JSON.decode(obj.getGMNotes()) or {}
+        miniMd.type = "Minicard"
+        miniMd.id = (md.id or md.TtsZoopGuid) .. "-m"
+        obj.setGMNotes(JSON.encode_pretty(miniMd))
+        printToColor("Updated minicard ID to match investigator", playerColor, "Green")
+      end
+    end
+  else
+    maybeUpdateActionTrackerTokens(obj, 20)
+  end
 end
 
 function onObjectPickUp(_, object)
@@ -1620,7 +1633,9 @@ function createActionTrackerUI()
   end
 
   -- remove last delimiter
-  visibilityString = visibilityString:sub(1, -2)
+  if visibilityString ~= "" then
+    visibilityString = visibilityString:sub(1, -2)
+  end
 
   local actionTrackerXml = {
     tag = "TableLayout",
@@ -1751,8 +1766,9 @@ function isMiniReady(matColor)
   local investigatorData = playermatApi.getActiveInvestigatorData(matColor)
   if not investigatorData then return false end
 
-  for _, obj in ipairs(getObjectsWithTag("Minicard")) do
-    if not obj.is_face_down then
+  local playAreaZone = guidReferenceApi.getObjectByOwnerAndType("Mythos", "PlayAreaZone")
+  for _, obj in ipairs(playAreaZone.getObjects()) do
+    if obj.hasTag("Minicard") and not obj.is_face_down then
       local md = JSON.decode(obj.getGMNotes()) or {}
       if md.id == investigatorData.miniId then return true end
     end
@@ -2790,6 +2806,8 @@ function TokenManager.spawnTokensFromUses(card, extraUses)
   local uses = TokenManager.getUses(card)
   if uses == nil then return end
 
+  card.resting = true
+
   -- go through tokens to spawn
   local tokenCount
   for i, useInfo in ipairs(uses) do
@@ -2818,10 +2836,12 @@ function TokenManager.spawnTokensFromDataHelper(card)
   TokenManager.initDataHelperData()
   local playerData = TokenManager.getPlayerCardData(card)
   if playerData ~= nil then
+    card.resting = true
     TokenManager.spawnPlayerCardTokensFromDataHelper(card, playerData)
   end
   local specificLocationData = TokenManager.getLocationData(card)
   if specificLocationData ~= nil then
+    card.resting = true
     TokenManager.spawnLocationTokensFromDataHelper(card, specificLocationData)
   end
 end
@@ -3212,7 +3232,7 @@ function handleTokenAttaching(params)
   local cardPos = card.getPosition()
   local eligibleTokens = {}
   for _, token in ipairs(searchResult) do
-    if not token.locked and token.getPosition().y > (cardPos.y + 0.025) then
+    if not token.locked and token.getPosition().y > (cardPos.y + 0.01) then
       table.insert(eligibleTokens, token)
     end
   end
@@ -3241,7 +3261,9 @@ function handleTokenAttaching(params)
       else
         return true
       end
-    end
+    end,
+    3,
+    function() handleTokenDetaching({ card = card }) end
   )
 end
 
