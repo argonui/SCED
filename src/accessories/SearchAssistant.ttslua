@@ -90,17 +90,17 @@ end
 function startSearch(messageColor, number)
   if ongoingSearch then return end
 
-  if self.getPosition().x > -15 then
+  -- intentionally global
+  owner = guidReferenceApi.getOwnerOfObject(self)
+  if owner == "Mythos" then
     if messageColor == "Black" then
       printToColor("This does not work when playing as black.", messageColor, "Red")
       return
     end
     matColor  = playermatApi.getMatColor(messageColor)
-    owner     = "Mythos"
     handColor = messageColor
   else
-    matColor  = playermatApi.getMatColorByPosition(self.getPosition())
-    owner     = matColor
+    matColor  = owner
     handColor = playermatApi.getPlayerColor(matColor)
   end
 
@@ -139,7 +139,7 @@ function startSearch(messageColor, number)
   local bounds = (deckAreaObjects.draw and deckAreaObjects.draw.getBounds()) or (deckAreaObjects.topCard and deckAreaObjects.topCard.getBounds())
   drawDeckPosition = bounds.center + Vector(0, bounds.size.y / 2 + 0.2, 0)
 
-  local handData   = Player[handColor].getHandTransform()
+  local handData = Player[handColor].getHandTransform()
 
   if owner ~= "Mythos" then
     printToColor("Place target(s) of search on set aside spot.", messageColor, "Green")
@@ -176,20 +176,14 @@ function startSearch(messageColor, number)
     -- create an additional hand zone
     local handZone = guidReferenceApi.getObjectByOwnerAndType(matColor, "HandZone")
     local data = handZone.getData()
-    data.Transform.posX = -20
-    data.Transform.posZ = self.getPosition().z
-    data.Transform.rotY = handData.rotation.y
-    local newHand = spawnObjectData({ data = data })
+    local position = (self.getPosition() + handData.forward * 7.5):setAt("y", data.Transform.posY)
+    local newHand = spawnObjectData({ data = data, position = position })
     guidReferenceApi.editIndex(matColor, "HandZone2", newHand.getGUID())
   end
 
   -- handling for Norman Withers / Eye of Ghatanothoa
   if deckAreaObjects.topCard then
-    if owner == "Mythos" then
-      Wait.frames(function() deckAreaObjects.topCard.deal(1, handColor, 2) end, 3)
-    else
-      deckAreaObjects.topCard.deal(1, handColor)
-    end
+    Wait.frames(function() deckAreaObjects.topCard.deal(1, handColor, (owner == "Mythos") and 2 or 1) end, 3)
 
     number = number - 1
     topCardDetected = true
@@ -198,11 +192,7 @@ function startSearch(messageColor, number)
   searchView()
 
   if number > 0 then
-    if owner == "Mythos" then
-      Wait.frames(function() deckAreaObjects.draw.deal(number, handColor, 2) end, 3)
-    else
-      deckAreaObjects.draw.deal(number, handColor)
-    end
+    Wait.frames(function() deckAreaObjects.draw.deal(number, handColor, (owner == "Mythos") and 2 or 1) end, 3)
   end
 end
 
@@ -218,11 +208,7 @@ function endSearch2() endSearch(false) end
 function endSearch(shuffle)
   local handCards
 
-  if owner == "Mythos" then
-    handCards = Player[handColor].getHandObjects(2)
-  else
-    handCards = Player[handColor].getHandObjects()
-  end
+  handCards = Player[handColor].getHandObjects((owner == "Mythos") and 2 or 1)
 
   -- place cards on deck
   deckLib.placeOrMergeIntoDeck(handCards, drawDeckPosition, setAsideRotation or self.getRotation():setAt("z", 180))
