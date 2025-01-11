@@ -1,4 +1,5 @@
-local playermatApi = require("playermat/PlayermatApi")
+local playermatApi     = require("playermat/PlayermatApi")
+local searchLib        = require("util/SearchLib")
 
 -- forward declaration of variables that are used across functions
 local matColor, handColor, hovering
@@ -29,7 +30,7 @@ function onLoad()
   handSizeButtonParameters.height         = 0
   handSizeButtonParameters.width          = 0
   handSizeButtonParameters.font_size      = 300
-  handSizeButtonParameters.font_color     = "Blue"
+  handSizeButtonParameters.font_color     = "Green"
   self.createButton(handSizeButtonParameters)
 
   -- make sure this part executes after the playermats are loaded
@@ -53,9 +54,16 @@ end
 
 function getHandSizeModifier()
   local modSize = 0
-  objList = playermatApi.searchAroundPlayermat(matColor, "isCardOrDeck") -- need to make sure Discard Pile isn't searched
-  for _, obj in ipairs(objList) do
-    if obj.type == "Card" then
+  local deckAreaObjects = playermatApi.getDeckAreaObjects(matColor)
+
+  -- look for  cards around playermat that modify hand size
+  for _, obj in ipairs(playermatApi.searchAroundPlayermat(matColor, "isCard")) do
+    if not obj.is_face_down and
+      obj ~= deckAreaObjects.draw and
+      obj ~= deckAreaObjects.topCard and
+      obj ~= deckAreaObjects.discard then
+
+      -- handle specific cards
       local md = JSON.decode(obj.getGMNotes()) or {}
       if md.id == "60205" then -- Arcane Enlightenment
         modSize = modSize + 1
@@ -103,10 +111,12 @@ function updateValue()
   maxSize = maxSize + getHandSizeModifier()
   local handSizeColor = "Blue"
 
-  if size >= maxSize then
+  if size > maxSize then
     handSizeColor = "Red"
-  elseif size == maxSize - 1 then
+  elseif size >= maxSize - 1 then
     handSizeColor = "Yellow"
+  else
+    handSizeColor = "Green"
   end
 
   -- update button label and color
