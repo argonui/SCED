@@ -1,39 +1,39 @@
-local playermatApi     = require("playermat/PlayermatApi")
+local playermatApi  = require("playermat/PlayermatApi")
 
 -- forward declaration of variables that are used across functions
 local matColor, handColor, newModifier
 
 local handModifiers = {
-  ["60205"] = 1, -- Arcane Enlightenment
-  ["02020"] = 2, -- Laboratory Assistant
-  ["60202"] = 2, -- Vault of Knowledge
+  ["60205"] = 1,  -- Arcane Enlightenment
+  ["02020"] = 2,  -- Laboratory Assistant
+  ["60202"] = 2,  -- Vault of Knowledge
   ["03041"] = -5, -- Drawing the Sign
-  ["71023"] = 2 -- Dr. Mya Badry
-  }
+  ["71023"] = 2   -- Dr. Mya Badry
+}
 
 function onLoad()
-  local buttonParameters          = {}
-  buttonParameters.function_owner = self
+  local buttonParameters                  = {}
+  buttonParameters.function_owner         = self
 
   local handSizeButtonParameters          = {}
   handSizeButtonParameters.function_owner = self
 
   -- index 0: button as hand size label
-  buttonParameters.hover_color    = "White"
-  buttonParameters.label          = 0
-  buttonParameters.click_function = "none"
-  buttonParameters.position       = Vector(0, 0.11, 0.15)
-  buttonParameters.height         = 0
-  buttonParameters.width          = 0
-  buttonParameters.font_size      = 1000
-  buttonParameters.font_color     = "White"
+  buttonParameters.hover_color            = "White"
+  buttonParameters.label                  = 0
+  buttonParameters.click_function         = "none"
+  buttonParameters.position               = Vector(0, 0.11, 0.15)
+  buttonParameters.height                 = 0
+  buttonParameters.width                  = 0
+  buttonParameters.font_size              = 1000
+  buttonParameters.font_color             = "White"
   self.createButton(buttonParameters)
 
   -- index 1: button as max handsize label
   handSizeButtonParameters.hover_color    = "White"
   handSizeButtonParameters.label          = 8
   handSizeButtonParameters.click_function = "none"
-  handSizeButtonParameters.position       = {.65, .11, -.65}
+  handSizeButtonParameters.position       = { .65, .11, -.65 }
   handSizeButtonParameters.height         = 0
   handSizeButtonParameters.width          = 0
   handSizeButtonParameters.font_size      = 320
@@ -68,19 +68,24 @@ function updateColors()
 end
 
 function getHandSizeModifier()
+  desCount = nil
   local modSize = newModifier or 0
   local deckAreaObjects = playermatApi.getDeckAreaObjects(matColor)
 
-  -- look for  cards around playermat that modify hand size
+  -- look for  cards around playermat that modify hand size (also store value from DES if found)
   for _, obj in ipairs(playermatApi.searchAroundPlayermat(matColor, "isCard")) do
     if not obj.is_face_down and
-      obj ~= deckAreaObjects.draw and
-      obj ~= deckAreaObjects.topCard and
-      obj ~= deckAreaObjects.discard then
-
+        obj ~= deckAreaObjects.draw and
+        obj ~= deckAreaObjects.topCard and
+        obj ~= deckAreaObjects.discard then
       -- handle specific cards
       local md = JSON.decode(obj.getGMNotes()) or {}
       modSize = modSize + (handModifiers[md.id] or 0)
+
+      -- store DES value in a global variable for later
+      if md.id == "06159" then
+        desCount = obj.call("updateValue")
+      end
     end
   end
   return modSize
@@ -88,17 +93,13 @@ end
 
 function setBaseHandSize(player)
   Player[player].showInputDialog("Set Base Max Hand Size", "5",
-    function (text)
-      modifiedBase = text
-    end
+    function(text) modifiedBase = text end
   )
 end
 
 function addHandSizeModifier(player)
   Player[player].showInputDialog("Add Max Hand Size Modifier (e.g. for Tarot reading)", "-2",
-    function (text)
-      newModifier = (newModifier or 0) + tonumber(text)
-    end
+    function(text) newModifier = (newModifier or 0) + tonumber(text) end
   )
 end
 
@@ -155,32 +156,28 @@ function updateValue()
     end
   end
 
-  local modifierText
-  if getHandSizeModifier() > -1 then
-    modifierText = "+" .. getHandSizeModifier()
-  else
-    modifierText = getHandSizeModifier()
-  end
-  self.setDescription(baseDescription .. " Base maximum hand size is " .. maxSize .. ". Current total modifiers are " .. modifierText .. ".")
-  
-  local maxSizeLabel = maxSize + getHandSizeModifier()
+  local handSizeModifier = getHandSizeModifier()
+  local maxSizeLabel = maxSize + handSizeModifier
+  local modifierText = (handSizeModifier > -1 and "+" or "") .. handSizeModifier
 
-  local handSizeColor
-  if size > maxSizeLabel then
+  -- if DES is around, use it for determining the label color
+  local actualHandSize = desCount or size
+  local handSizeColor = "Green"
+  if actualHandSize > maxSizeLabel then
     handSizeColor = "Red"
-  elseif size >= maxSizeLabel - 1 then
+  elseif actualHandSize >= maxSizeLabel - 1 then
     handSizeColor = "Yellow"
-  else
-    handSizeColor = "Green"
   end
+
+  self.setDescription(baseDescription .. " Base maximum hand size is " .. maxSize .. ". Current total modifiers are " .. modifierText .. ".")
 
   if maxSizeLabel > 9 or size > 9 then
-    self.editButton({ index = 1, font_size = 220, position = {.65, .11, -.7}})
+    self.editButton({ index = 1, font_size = 220, position = { .65, .11, -.7 } })
   else
-    self.editButton({ index = 1, font_size = 320, position = {.65, .11, -.65}})
+    self.editButton({ index = 1, font_size = 320, position = { .65, .11, -.65 } })
   end
 
   -- update button label and color
   self.editButton({ index = 0, font_color = "White", label = size })
-  self.editButton({ index = 1, font_color = handSizeColor, label = math.max(maxSizeLabel, 0)})
+  self.editButton({ index = 1, font_color = handSizeColor, label = math.max(maxSizeLabel, 0) })
 end
