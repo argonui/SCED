@@ -1,5 +1,5 @@
 local searchLib = require("util/SearchLib")
-local fontColor, lastRejectedName
+local fontColor, lastRejectedName, lastSyncedName
 local BACKGROUNDS = {
   {
     title     = "Ancestral Knowledge",
@@ -125,13 +125,14 @@ local BACKGROUNDS = {
 }
 
 -- save state and options to restore onLoad
-function onSave() return JSON.encode({ cardsInBag, showIcons }) end
+function onSave() return JSON.encode({ cardsInBag, showIcons, lastSyncedName }) end
 
 -- load variables and create context menu
 function onLoad(savedData)
   local loadedData = JSON.decode(savedData)
   cardsInBag       = loadedData[1]
   showIcons        = loadedData[2]
+  lastSyncedName   = loadedData[3]
   fontColor        = getFontColor()
   recreateButtons()
 
@@ -142,6 +143,10 @@ function onLoad(savedData)
     refresh()
   end)
   self.addContextMenuItem("Draw all cards", function(color) self.deal(self.getQuantity(), color) end)
+end
+
+function getLastSyncedName()
+  return lastSyncedName
 end
 
 -- gets the font color based on background url
@@ -174,6 +179,8 @@ function onDrop(playerColor)
   })
   if not found then
     printToColor("Didn't find background for '" .. syncName .. "'!", playerColor, "Orange")
+  else
+    lastSyncedName = syncName
   end
 end
 
@@ -216,7 +223,8 @@ function selectImage(color)
   end
 
   -- prompt user to select option
-  Player[color].showOptionsDialog("Select image:", options, 1, function(_, optionIndex)
+  Player[color].showOptionsDialog("Select image:", options, 1, function(optionText, optionIndex)
+    lastSyncedName = optionText
     showIcons = BACKGROUNDS[optionIndex].icons
     updateImage(BACKGROUNDS[optionIndex].url)
   end)
