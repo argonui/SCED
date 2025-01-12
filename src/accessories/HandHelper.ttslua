@@ -1,8 +1,15 @@
 local playermatApi     = require("playermat/PlayermatApi")
-local searchLib        = require("util/SearchLib")
 
 -- forward declaration of variables that are used across functions
-local matColor, handColor, hovering
+local matColor, handColor, newModifier
+
+local handModifiers = {
+  ["60205"] = 1, -- Arcane Enlightenment
+  ["02020"] = 2, -- Laboratory Assistant
+  ["60202"] = 2, -- Vault of Knowledge
+  ["03041"] = -5, -- Drawing the Sign
+  ["71023"] = 2 -- Dr. Mya Badry
+  }
 
 function onLoad()
   local buttonParameters          = {}
@@ -15,7 +22,7 @@ function onLoad()
   buttonParameters.hover_color    = "White"
   buttonParameters.label          = 0
   buttonParameters.click_function = "none"
-  buttonParameters.position       = Vector(0, 0.11, 0)
+  buttonParameters.position       = Vector(0, 0.11, 0.15)
   buttonParameters.height         = 0
   buttonParameters.width          = 0
   buttonParameters.font_size      = 1000
@@ -26,12 +33,20 @@ function onLoad()
   handSizeButtonParameters.hover_color    = "White"
   handSizeButtonParameters.label          = 8
   handSizeButtonParameters.click_function = "none"
-  handSizeButtonParameters.position       = {.7, .11, -.7}
+  handSizeButtonParameters.position       = {.65, .11, -.65}
   handSizeButtonParameters.height         = 0
   handSizeButtonParameters.width          = 0
-  handSizeButtonParameters.font_size      = 300
+  handSizeButtonParameters.font_size      = 320
   handSizeButtonParameters.font_color     = "Green"
   self.createButton(handSizeButtonParameters)
+
+  -- add right-click menu options
+  self.addContextMenuItem("Set Hand Size", setBaseHandSize)
+  self.addContextMenuItem("Modify Hand Size", addHandSizeModifier)
+  self.addContextMenuItem("Reset to Default", resetHandSize)
+
+  -- get description for modification later
+  baseDescription = self.getDescription()
 
   -- make sure this part executes after the playermats are loaded
   Wait.time(function()
@@ -53,7 +68,7 @@ function updateColors()
 end
 
 function getHandSizeModifier()
-  local modSize = 0
+  local modSize = newModifier or 0
   local deckAreaObjects = playermatApi.getDeckAreaObjects(matColor)
 
   -- look for  cards around playermat that modify hand size
@@ -65,20 +80,31 @@ function getHandSizeModifier()
 
       -- handle specific cards
       local md = JSON.decode(obj.getGMNotes()) or {}
-      if md.id == "60205" then -- Arcane Enlightenment
-        modSize = modSize + 1
-      elseif md.id == "02020" then -- Laboratory Assistant
-        modSize = modSize + 2
-      elseif md.id == "60202" then -- Vault of Knowledge
-        modSize = modSize + 2
-      elseif md.id == "03041" then -- Drawing the Sign
-        modSize = modSize - 5
-      elseif md.id == "71023" then -- Dr. Mya Badry
-        modSize = modSize + 2
-      end
+      modSize = modSize + (handModifiers[md.id] or 0)
     end
   end
   return modSize
+end
+
+function setBaseHandSize(player)
+  Player[player].showInputDialog("Set Base Max Hand Size", "5",
+    function (text)
+      modifiedBase = text
+    end
+  )
+end
+
+function addHandSizeModifier(player)
+  Player[player].showInputDialog("Add Max Hand Size Modifier (e.g. for Tarot reading)", "-2",
+    function (text)
+      newModifier = (newModifier or 0) + tonumber(text)
+    end
+  )
+end
+
+function resetHandSize()
+  newModifier = nil
+  modifiedBase = nil
 end
 
 function getInvestigatorHandSize()
@@ -92,11 +118,11 @@ function getInvestigatorHandSize()
     for _, obj in ipairs(playermatApi.searchAroundPlayermat(matColor)) do
       if obj.getName() == "Attachment Helper" then
         if obj.call("getLastSyncedName") == "George Barnaby" then
-          log(obj.getQuantity())
           return obj.getQuantity()
         end
       end
     end
+    return 5
   end
   return 8
 end
@@ -117,7 +143,7 @@ function updateValue()
   -- count cards in hand
   local hand = Player[handColor].getHandObjects()
   local size = 0
-  local maxSize = getInvestigatorHandSize()
+  local maxSize = modifiedBase or getInvestigatorHandSize()
 
   for _, obj in pairs(hand) do
     if obj.type == "Card" then
@@ -128,24 +154,33 @@ function updateValue()
       end
     end
   end
-  maxSize = maxSize + getHandSizeModifier()
-  local handSizeColor = "Blue"
 
-  if size > maxSize then
+  local modifierText
+  if getHandSizeModifier() > -1 then
+    modifierText = "+" .. getHandSizeModifier()
+  else
+    modifierText = getHandSizeModifier()
+  end
+  self.setDescription(baseDescription .. " Base maximum hand size is " .. maxSize .. ". Current total modifiers are " .. modifierText .. ".")
+  
+  local maxSizeLabel = maxSize + getHandSizeModifier()
+
+  local handSizeColor
+  if size > maxSizeLabel then
     handSizeColor = "Red"
-  elseif size >= maxSize - 1 then
+  elseif size >= maxSizeLabel - 1 then
     handSizeColor = "Yellow"
   else
     handSizeColor = "Green"
   end
 
-  if maxSize > 9 or size > 9 then
-    self.editButton({ index = 1, font_size = 200})
+  if maxSizeLabel > 9 or size > 9 then
+    self.editButton({ index = 1, font_size = 220, position = {.65, .11, -.7}})
   else
-    self.editButton({ index = 1, font_size = 300})
+    self.editButton({ index = 1, font_size = 320, position = {.65, .11, -.65}})
   end
 
   -- update button label and color
   self.editButton({ index = 0, font_color = "White", label = size })
-  self.editButton({ index = 1, font_color = handSizeColor, label = math.max(maxSize, 0)})
+  self.editButton({ index = 1, font_color = handSizeColor, label = math.max(maxSizeLabel, 0)})
 end
