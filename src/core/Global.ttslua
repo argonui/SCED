@@ -491,10 +491,19 @@ function activeRedrawEffect(params)
   if #matchingTokensInPlay == 0 then
     broadcastToAll("No eligible token found in play area", "Red")
   elseif #matchingTokensInPlay == 1 then
-    returnAndRedraw(_, matchingTokensInPlay[1].getGUID())
+    if redrawData.sealToken == true then
+      returnAndRedraw(_, matchingTokensInPlay[1].getGUID(), true)
+    else
+      returnAndRedraw(_, matchingTokensInPlay[1].getGUID())
+    end
   else
     -- draw XML to allow choosing the token to return to bag
     isTokenXMLActive = true
+    local textLabel = "Redraw"
+    if redrawData.sealToken == true then
+      textLabel = "Seal"
+    end
+
     for _, token in ipairs(matchingTokensInPlay) do
       token.UI.setXmlTable({
         {
@@ -512,11 +521,12 @@ function activeRedrawEffect(params)
           children = {
             {
               tag = "Text",
+              id = "tokenText",
               attributes = {
                 fontSize = "100",
                 font = "font_teutonic-arkham",
                 color = "#ffffff",
-                text = "Redraw"
+                text = textLabel
               }
             },
             {
@@ -536,13 +546,20 @@ function activeRedrawEffect(params)
 end
 
 -- returns a chaos token to the chaos bag and redraws another
-function returnAndRedraw(_, tokenGUID)
+function returnAndRedraw(_, tokenGUID, sealToken)
   local returnedToken = getObjectFromGUID(tokenGUID)
   local tokenName = returnedToken.getName()
   local indexOfReturnedToken = getTokenIndex(returnedToken)
   local matColor = playermatApi.getMatColorByPosition(returnedToken.getPosition())
   local mat = guidReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
 
+  if sealToken == nil then
+    if returnedToken.UI.getAttribute(tokenText, "text") == "Seal" then
+      sealToken = true
+    else
+      sealToken = false
+    end
+  end
   local takeParameters = {
     position = returnedToken.getPosition(),
     rotation = returnedToken.getRotation()
@@ -557,24 +574,6 @@ function returnAndRedraw(_, tokenGUID)
   local params = { token = returnedToken, fromBag = true }
   returnChaosTokenToBag(params)
 
-  chaosTokens[indexOfReturnedToken] = drawChaosToken({
-    mat = mat,
-    drawAdditional = true,
-    tokenType = redrawData.drawSpecificToken, -- currently only used for Nkosi Mabati
-    takeParameters = takeParameters
-  })
-
-  -- remove these tokens from the bag
-  if redrawData.returnToPool then
-    -- let the bless/curse manager handle these
-    if tokenName == "Bless" or tokenName == "Curse" then
-      blessCurseManagerApi.removeToken(tokenName)
-    else
-      local invertedTable = createChaosTokenNameLookupTable()
-      removeChaosToken(invertedTable[tokenName])
-    end
-  end
-
   -- remove XML from tokens in play
   isTokenXMLActive = false
   for _, token in ipairs(chaosTokens) do
@@ -583,8 +582,31 @@ function returnAndRedraw(_, tokenGUID)
 
   redrawData = {}
 
-  -- return a reference to the freshly drawn token
-  return chaosTokens[indexOfReturnedToken]
+  -- if the token return should be sealed then ... ?
+  if sealToken == true then
+    return tokenName
+  else -- this was the original function
+    chaosTokens[indexOfReturnedToken] = drawChaosToken({
+      mat = mat,
+      drawAdditional = true,
+      tokenType = redrawData.drawSpecificToken, -- currently only used for Nkosi Mabati
+      takeParameters = takeParameters
+    })
+  
+    -- remove these tokens from the bag
+    if redrawData.returnToPool then
+      -- let the bless/curse manager handle these
+      if tokenName == "Bless" or tokenName == "Curse" then
+        blessCurseManagerApi.removeToken(tokenName)
+      else
+        local invertedTable = createChaosTokenNameLookupTable()
+        removeChaosToken(invertedTable[tokenName])
+      end
+    end
+    
+    -- return a reference to the freshly drawn token
+    return chaosTokens[indexOfReturnedToken]
+  end
 end
 
 -- Checks to see if the chaos bag can be manipulated. If a player is searching the bag when tokens
