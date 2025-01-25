@@ -15,6 +15,9 @@ local tokenSpawnTrackerApi          = require("tokens/TokenSpawnTrackerApi")
 -- general setup
 ---------------------------------------------------------
 
+-- wait ids for various functions
+local waitIds                       = {}
+
 -- GUIDs that will not be interactable (e.g. parts of the table)
 local NOT_INTERACTABLE              = {
   "6161b4", -- Decoration-Map
@@ -36,7 +39,6 @@ local tokenDrawingStats             = { ["Overall"] = {} }
 local lastDrawnTokens               = {}
 
 local bagSearchers                  = {}
-local hideTitleSplashWaitFunctionId = nil
 local lastZoneEnterObject           = nil
 
 -- online functionality related variables
@@ -1730,7 +1732,11 @@ end
 
 -- updates the color of the actions based on the playermats actions tokens
 function updateActionTrackerTokens(matColor, delayFrames)
-  Wait.frames(function()
+  if waitIds["actionTrackerTokens" .. matColor] then
+    Wait.stop(waitIds["actionTrackerTokens" .. matColor])
+    waitIds["actionTrackerTokens" .. matColor] = nil
+  end
+  waitIds["actionTrackerTokens" .. matColor] = Wait.frames(function()
     local actionCount = determineActionCount(matColor)
     for i = 1, 5 do
       local color = "black"
@@ -1743,6 +1749,7 @@ function updateActionTrackerTokens(matColor, delayFrames)
       end
       UI.setAttribute("playerAction" .. i .. matColor, "color", color)
     end
+    waitIds["actionTrackerTokens" .. matColor] = nil
   end, delayFrames or 50)
 end
 
@@ -2301,9 +2308,9 @@ end
 function titleSplash(scenarioName)
   if optionPanel['showTitleSplash'] then
     -- if there's any ongoing title being displayed, hide it and cancel the waiting function
-    if hideTitleSplashWaitFunctionId then
-      Wait.stop(hideTitleSplashWaitFunctionId)
-      hideTitleSplashWaitFunctionId = nil
+    if waitIds["hideTitleSplash"] then
+      Wait.stop(waitIds["hideTitleSplash"])
+      waitIds["hideTitleSplash"] = nil
       UI.setAttribute('title_splash', 'active', false)
     end
 
@@ -2311,9 +2318,9 @@ function titleSplash(scenarioName)
     -- wait timer to hide the scenario name
     UI.setValue('title_splash_text', scenarioName)
     UI.show('title_splash')
-    hideTitleSplashWaitFunctionId = Wait.time(function()
+    waitIds["hideTitleSplash"] = Wait.time(function()
       UI.hide('title_splash')
-      hideTitleSplashWaitFunctionId = nil
+      waitIds["hideTitleSplash"] = nil
     end, 4)
 
     soundCubeApi.playSoundByName("Deep Bell")
