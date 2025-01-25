@@ -1,7 +1,10 @@
 local playermatApi  = require("playermat/PlayermatApi")
 
 -- forward declaration of variables that are used across functions
-local matColor, handColor, newModifier
+local matColor, handColor, newModifier, modifiedBase
+
+-- cache for decoded metadata
+local metadataCache = {}
 
 local handModifiers = {
   ["60205"] = 1,  -- Arcane Enlightenment
@@ -79,7 +82,7 @@ function getHandSizeModifier()
         obj ~= deckAreaObjects.topCard and
         obj ~= deckAreaObjects.discard then
       -- handle specific cards
-      local md = JSON.decode(obj.getGMNotes()) or {}
+      local md = getMetadata(obj)
       modSize = modSize + (handModifiers[md.id] or 0)
 
       -- store DES value in a global variable for later
@@ -106,6 +109,14 @@ end
 function resetHandSize()
   newModifier = nil
   modifiedBase = nil
+end
+
+function getMetadata(obj)
+  local name = obj.getName()
+  if metadataCache[name] == nil then
+    metadataCache[name] = JSON.decode(obj.getGMNotes()) or {}
+  end
+  return metadataCache[name]
 end
 
 function getInvestigatorHandSize()
@@ -149,7 +160,7 @@ function updateValue()
   for _, obj in pairs(hand) do
     if obj.type == "Card" then
       size = size + 1
-      local md = JSON.decode(obj.getGMNotes()) or {}
+      local md = getMetadata(obj)
       if md.id == "10109" then -- Pelt Shipment
         maxSize = maxSize - 3
       end
