@@ -18,19 +18,6 @@ local tokenSpawnTrackerApi        = require("tokens/TokenSpawnTrackerApi")
 -- wait ids for various functions
 local waitIds                     = {}
 
--- GUIDs that will not be interactable (e.g. parts of the table)
-local NOT_INTERACTABLE            = {
-  "6161b4", -- Decoration-Map
-  "9f334f", -- MythosArea
-  "463022", -- Panel behind tentacle stand
-  "f182ee", -- InvestigatorCount
-  "7bff34", -- Tentacle stand
-  "8646eb", -- horizontal border left
-  "75937e", -- horizontal border right
-  "612072", -- vertical border left
-  "975c39", -- vertical border right
-}
-
 local chaosTokens                 = {}
 local chaosTokensLastMatGUID      = nil
 
@@ -216,11 +203,7 @@ function onLoad(savedData)
     updateOptionPanelState()
   end
 
-  for _, guid in ipairs(NOT_INTERACTABLE) do
-    local obj = getObjectFromGUID(guid)
-    if obj ~= nil then obj.interactable = false end
-  end
-
+  makeNotInteractable()
   getModVersion()
   updateHandVisibility()
   updateBlurseVisibility()
@@ -251,6 +234,13 @@ function onLoad(savedData)
   Wait.time(function()
     WebRequest.get(SOURCE_REPO .. 'library.json', libraryDownloadCallback)
   end, 1)
+end
+
+-- makes objects with the "NotInteractable" tag not interactable
+function makeNotInteractable()
+  for _, obj in ipairs(getObjectsWithTag("NotInteractable")) do
+    obj.interactable = false
+  end
 end
 
 -- provides a random seed (from 1 to 999) to be used by "linked" objects like the action tokens
@@ -445,7 +435,11 @@ function onObjectRotate(obj, _, flip, _, _, oldFlip)
 end
 
 function onObjectSpawn(obj)
-  maybeUpdateActionTrackerTokens(obj, 5)
+  if obj.hasTag("NotInteractable") then
+    obj.interactable = false
+  else
+    maybeUpdateActionTrackerTokens(obj, 5)
+  end
 end
 
 function onObjectDrop(playerColor, obj)
@@ -3527,9 +3521,7 @@ function removeTokensFromObject(params)
     for _, obj in ipairs(searchLib.onObject(object, "isTileOrToken")) do
       if tokenChecker.isChaosToken(obj) then
         returnChaosTokenToBag({ token = obj, fromBag = false })
-      elseif obj.getGUID() ~= "4ee1f2" and -- table
-          obj ~= self and
-          obj.memo ~= nil and
+      elseif obj.memo ~= nil and
           obj.getLock() == false and
           obj.interactable == true then
         trash.putObject(obj)
