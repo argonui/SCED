@@ -118,12 +118,19 @@ function startSearch(messageColor, number)
   -- create an additional hand zone
   local handZone = guidReferenceApi.getObjectByOwnerAndType(matColor, "HandZone")
   local data = handZone.getData()
+  handCount = Player[handColor].getHandCount() + 1
   local position = (self.getPosition() - handData.forward * 7.5):setAt("y", data.Transform.posY)
-  if owner ~= "Mythos" then position = position:setAt("z", data.Transform.posZ) end
+
+  if owner == "Mythos" then
+    handZoneName = "HandZoneMythos"
+  else
+    handZoneName = "HandZone2"
+    position = position:setAt("z", data.Transform.posZ)
+  end
 
   local newHand = spawnObjectData({ data = data, position = position })
   newHand.scale({ x = 1, y = 1, z = 0.6 })
-  guidReferenceApi.editIndex(matColor, "HandZone2", newHand.getGUID())
+  guidReferenceApi.editIndex(matColor, handZoneName, newHand.getGUID())
 
   -- add XML labels
   newHand.UI.setXmlTable({
@@ -255,7 +262,7 @@ function startSearch(messageColor, number)
 
   -- handling for Norman Withers / Eye of Ghatanothoa
   if deckAreaObjects.topCard then
-    Wait.frames(function() deckAreaObjects.topCard.deal(1, handColor, 2) end, 3)
+    Wait.frames(function() deckAreaObjects.topCard.deal(1, handColor, handCount) end, 3)
     number = number - 1
     topCardDetected = true
   end
@@ -263,7 +270,7 @@ function startSearch(messageColor, number)
   searchView()
 
   if number > 0 then
-    Wait.frames(function() deckAreaObjects.draw.deal(number, handColor, 2) end, 3 + (topCardDetected and 30 or 0))
+    Wait.frames(function() deckAreaObjects.draw.deal(number, handColor, handCount) end, 3 + (topCardDetected and 30 or 0))
   end
 end
 
@@ -273,15 +280,16 @@ function isHarbinger(notes)
 end
 
 function endSearch(_, shuffle)
-  local handCards = Player[handColor].getHandObjects(2)
+  local handToCheck = math.min(Player[handColor].getHandCount(), handCount)
+  local handCards = Player[handColor].getHandObjects(handToCheck)
 
   -- place cards on deck
   deckLib.placeOrMergeIntoDeck(handCards, drawDeckPosition, self.getRotation():setAt("z", 180))
 
-  local handZone2 = guidReferenceApi.getObjectByOwnerAndType(matColor, "HandZone2")
-  if handZone2 then
-    Wait.time(function() handZone2.destruct() end, 0.5 + #handCards * 0.1)
-    guidReferenceApi.editIndex(matColor, "HandZone2", nil)
+  local additionalHand = guidReferenceApi.getObjectByOwnerAndType(matColor, handZoneName)
+  if additionalHand then
+    Wait.time(function() additionalHand.destruct() end, 0.5 + #handCards * 0.1)
+    guidReferenceApi.editIndex(matColor, handZoneName, nil)
   end
 
   normalView()
