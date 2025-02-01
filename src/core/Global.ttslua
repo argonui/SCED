@@ -1,40 +1,109 @@
 require("core/Constants")
-local blessCurseManagerApi          = require("chaosbag/BlessCurseManagerApi")
-local guidReferenceApi              = require("core/GUIDReferenceApi")
-local mythosAreaApi                 = require("mythos/MythosAreaApi")
-local navigationOverlayApi          = require("core/NavigationOverlayApi")
-local playAreaApi                   = require("playarea/PlayAreaApi")
-local playermatApi                  = require("playermat/PlayermatApi")
-local searchLib                     = require("util/SearchLib")
-local soundCubeApi                  = require("core/SoundCubeApi")
-local tokenArrangerApi              = require("tokens/TokenArrangerApi")
-local tokenChecker                  = require("tokens/TokenChecker")
-local tokenSpawnTrackerApi          = require("tokens/TokenSpawnTrackerApi")
+local blessCurseManagerApi        = require("chaosbag/BlessCurseManagerApi")
+local guidReferenceApi            = require("core/GUIDReferenceApi")
+local mythosAreaApi               = require("mythos/MythosAreaApi")
+local navigationOverlayApi        = require("core/NavigationOverlayApi")
+local playAreaApi                 = require("playarea/PlayAreaApi")
+local playermatApi                = require("playermat/PlayermatApi")
+local searchLib                   = require("util/SearchLib")
+local soundCubeApi                = require("core/SoundCubeApi")
+local tokenArrangerApi            = require("tokens/TokenArrangerApi")
+local tokenChecker                = require("tokens/TokenChecker")
+local tokenSpawnTrackerApi        = require("tokens/TokenSpawnTrackerApi")
 
 ---------------------------------------------------------
 -- general setup
 ---------------------------------------------------------
 
 -- wait ids for various functions
-local waitIds                       = {}
+local waitIds                     = {}
 
-local chaosTokens                   = {}
-local chaosTokensLastMatGUID        = nil
+local chaosTokens                 = {}
+local chaosTokensLastMatGUID      = nil
 
 -- chaos token stat tracking
-local tokenDrawingStats             = { ["Overall"] = {} }
-local lastDrawnTokens               = {}
+local tokenDrawingStats           = { ["Overall"] = {} }
+local lastDrawnTokens             = {}
+local autoFailMessages = {
+  "<Name> has mastered the art of failure!",
+  "The Auto-fail seems to have <Name>'s address.",
+  "If there's an Auto-fail in the bag, <Name> will find it.",
+  "Failure is <Name>'s best friend.",
+  "The Auto-fail token loves <Name>—too much.",
+  "It's official: <Name> is cursed!",
+  "Nobody attracts disaster quite like <Name>.",
+  "The Auto-fail just can't resist <Name>.",
+  "<Name> is the patron saint of bad luck.",
+  "Some call it bad luck, <Name> calls it <Day>.",
+  "<Name> is the Auto-fail whisperer.",
+  "<Name> is an Auto-fail magnet.",
+  "Destiny has chosen <Name>... for failure.",
+  "<Name> collects Auto-fails like they’re souvenirs.",
+  "The Auto-fail token simply adores <Name>.",
+  "Some call it unlucky, <Name> calls it a challenge.",
+  "The chaos bag has a vendetta against <Name>.",
+  "If failing were an art, <Name> would be a master painter.",
+  "Auto-fails are like moths to <Name>'s flame.",
+  "It's not bad luck—it’s a lifestyle for <Name>."
+}
 
-local bagSearchers                  = {}
-local lastZoneEnterObject           = nil
+local elderSignMessages = {
+  "<Name> is blessed by the elder gods!",
+  "Luck flows through <Name>'s veins.",
+  "<Name> is the chosen one!",
+  "When there's an Elder Sign to draw, <Name> delivers.",
+  "Fate smiles upon <Name>.",
+  "<Name> is a certified miracle worker.",
+  "The Elder Sign practically leaps into <Name>'s hand.",
+  "All hail <Name>, master of fortune!",
+  "<Name> bends luck to their will.",
+  "Is <Name> lucky, or is it magic? Nobody knows.",
+  "<Name> is the Elder Sign whisperer.",
+  "<Name> is the luckiest investigator in Arkham.",
+  "Providence shines upon <Name>. Truly inspiring!",
+  "<Name> might as well own the Elder Sign.",
+  "The Elder Sign knows exactly where <Name> is.",
+  "When <Name> plays, the Elder Sign is a sure thing.",
+  "With <Name> in the group, victory is inevitable.",
+  "Chaos itself bows to <Name>'s luck.",
+  "<Name>'s touch turns chaos into triumph.",
+  "Elder Signs follow <Name> like moths to a flame."
+}
+
+local dualMessages = {
+  "<Name> is the embodiment of extreme luck—both good and bad!",
+  "No one has soared so high and fallen so hard as <Name>.",
+  "Fate can’t decide what to do with <Name>—miracle one moment, disaster the next!",
+  "<Name> has been both the chosen one and the forsaken one.",
+  "No player has ever been as blessed and as cursed as <Name>.",
+  "<Name> is a walking paradox: the luckiest and unluckiest at the same time.",
+  "When <Name> wins, they *win big*. When they lose… well, you get the idea.",
+  "The chaos bag giveth, and the chaos bag taketh away—just ask <Name>.",
+  "<Name> has been on the wildest ride of fate ever seen in Arkham.",
+  "The only constant in <Name>'s journey is unpredictability.",
+  "Destiny can’t make up its mind about <Name>: ultimate triumph or crushing defeat?",
+  "From utter devastation to legendary victories, <Name> has seen it all this game.",
+  "<Name> is the luckiest unlucky player—or the unluckiest lucky player?",
+  "The gods of chaos have taken a *special* interest in <Name> today.",
+  "One moment, <Name> is a hero; the next, a tragic cautionary tale.",
+  "If luck were a rollercoaster, <Name> just rode it with no safety bar.",
+  "Arkham’s fate played favorites with <Name>—but kept changing its mind!",
+  "Never before has someone been so blessed *and* so doomed as <Name>.",
+  "<Name> defied the odds in *both* directions this game!",
+  "Legend will speak of <Name>’s ridiculous streak of fortune *and* disaster."
+}
+
+
+local bagSearchers                = {}
+local lastZoneEnterObject         = nil
 
 -- online functionality related variables
 local library, requestObj, modMeta, searchFilter, authorFilter
-local acknowledgedUpgradeVersions   = {}
-local authorList                    = {}
-local contentToShow                 = "campaign"
-local currentListItem               = 1
-local tabIdTable                    = {
+local acknowledgedUpgradeVersions = {}
+local authorList                  = {}
+local contentToShow               = "campaign"
+local currentListItem             = 1
+local tabIdTable                  = {
   tab1 = "campaign",
   tab2 = "scenario",
   tab3 = "fanmade-campaign",
@@ -43,8 +112,8 @@ local tabIdTable                    = {
 }
 
 -- optionPanel data (intentionally not local!)
-optionPanel                         = {}
-local LANGUAGES                     = {
+optionPanel                       = {}
+local LANGUAGES                   = {
   { code = "zh_CN", name = "简体中文" },
   { code = "zh_TW", name = "繁體中文" },
   { code = "de", name = "Deutsch" },
@@ -53,27 +122,27 @@ local LANGUAGES                     = {
   { code = "fr", name = "Français" },
   { code = "it", name = "Italiano" }
 }
-local RESOURCE_OPTIONS              = {
+local RESOURCE_OPTIONS            = {
   "enabled",
   "custom",
   "disabled"
 }
 
 -- track player-specific visibilities
-local actionTrackerVisibility       = {}
-local blurseVisibility              = {}
-local handVisibility                = {}
+local actionTrackerVisibility     = {}
+local blurseVisibility            = {}
+local handVisibility              = {}
 
 -- track cards' tokens
-local cardTokens                    = {}
-local cardSettings                  = {}
+local cardTokens                  = {}
+local cardSettings                = {}
 
 ---------------------------------------------------------
 -- data for tokens
 ---------------------------------------------------------
 
-TokenManager                        = {}
-local tokenOffsets                  = {}
+TokenManager                      = {}
+local tokenOffsets                = {}
 
 -- Table of data extracted from the token source bag, keyed by the Memo on each token which
 -- should match the token type keys ("resource", "clue", etc)
@@ -81,7 +150,7 @@ local tokenTemplates
 local playerCardData, locationData
 
 -- stateIDs for the multi-stated resource tokens
-local stateTable                    = {
+local stateTable                  = {
   ["resource"] = 1,
   ["ammo"]     = 2,
   ["bounty"]   = 3,
@@ -156,7 +225,8 @@ function onLoad(savedData)
         }
       }
     })
-    statTracker.addContextMenuItem("Print my stats", function(playerColor) handleStatTrackerClick(Player[playerColor], "-3") end)
+    statTracker.addContextMenuItem("Print my stats",
+      function(playerColor) handleStatTrackerClick(Player[playerColor], "-3") end)
   end
   Wait.frames(createActionTrackerUI, 10)
 
@@ -551,7 +621,7 @@ function returnAndRedraw(_, tokenGUID)
   end
 
   -- perform the actual token replacing
-  trackChaosToken(tokenName, mat.getGUID(), true)
+  trackChaosToken(tokenName, mat.getMemo(), true)
   local params = { token = returnedToken, fromBag = true }
   returnChaosTokenToBag(params)
 
@@ -678,7 +748,7 @@ function drawChaosToken(params)
     local tokenData = mythosAreaApi.returnTokenData().tokenData or {}
     local specificData = tokenData[name] or {}
     token.setDescription(specificData.description or "")
-    trackChaosToken(name, matGUID)
+    trackChaosToken(name, params.mat.getMemo())
 
     if not params.takeParameters then
       table.insert(chaosTokens, token)
@@ -708,19 +778,19 @@ end
 -- chaos token stat tracker
 ---------------------------------------------------------
 
-function trackChaosToken(tokenName, matGUID, subtract)
+function trackChaosToken(tokenName, matColor, subtract)
   -- initialize tables
-  if not tokenDrawingStats[matGUID] then tokenDrawingStats[matGUID] = {} end
+  if not tokenDrawingStats[matColor] then tokenDrawingStats[matColor] = {} end
 
   -- increase stats by 1 (or decrease if token is returned)
   local modifier                          = (subtract and -1 or 1)
   tokenName                               = getReadableTokenName(tokenName)
   tokenDrawingStats["Overall"][tokenName] = (tokenDrawingStats["Overall"][tokenName] or 0) + modifier
-  tokenDrawingStats[matGUID][tokenName]   = (tokenDrawingStats[matGUID][tokenName] or 0) + modifier
+  tokenDrawingStats[matColor][tokenName]  = (tokenDrawingStats[matColor][tokenName] or 0) + modifier
 
   -- add to list of last drawn tokens (if not subtracting)
   if not subtract then
-    table.insert(lastDrawnTokens, { tokenName = tokenName, matGUID = matGUID })
+    table.insert(lastDrawnTokens, { tokenName = tokenName, matColor = matColor })
     if #lastDrawnTokens > 5 then
       table.remove(lastDrawnTokens, 1)
     end
@@ -731,31 +801,35 @@ end
 function handleStatTrackerClick(player, clickType, _)
   if clickType == "-2" then
     -- right-clicked
-    resetChaosTokenStatTracker()
+    resetChaosTokenStatTracker(player)
     return
   end
 
-  local squidKing     = "Nobody"
-  local maxSquid      = 0
-  local foundAnyStats = false
+  local mostAutoFails, mostElderSigns = "Nobody", "Nobody"
+  local maxAutoFails, maxElderSigns   = 0, 0
+  local foundAnyStats                 = false
 
-  for key, personalStats in pairs(tokenDrawingStats) do
+  for matColor, personalStats in pairs(tokenDrawingStats) do
     -- skip if middle-clicked and not the color of the clicking player
-    if clickType ~= "-3" or guidReferenceApi.getOwnerOfObject(getObjectFromGUID(key)) == playermatApi.getMatColor(player.color) then
+    if clickType ~= "-3" or matColor == playermatApi.getMatColor(player.color) then
       local playerColor, playerName
 
-      if key == "Overall" then
+      if matColor == "Overall" then
         playerColor = "White"
-        playerName = "Overall"
+        playerName  = "Overall"
       else
-        local matColor = playermatApi.getMatColorByPosition(getObjectFromGUID(key).getPosition())
         playerColor = playermatApi.getPlayerColor(matColor)
-        playerName = Player[playerColor].steam_name or playerColor
+        playerName  = Player[playerColor].steam_name or playerColor
 
-        local playerSquidCount = personalStats["Auto-fail"] or 0
-        if playerSquidCount > maxSquid then
-          squidKing = playerName
-          maxSquid = playerSquidCount
+        -- track auto-fails / elder signs
+        if (personalStats["Auto-fail"] or 0) > maxAutoFails then
+          mostAutoFails = playerColor
+          maxAutoFails  = personalStats["Auto-fail"]
+        end
+
+        if (personalStats["Elder Sign"] or 0) > maxElderSigns then
+          mostElderSigns = playerColor
+          maxElderSigns  = personalStats["Elder Sign"]
         end
       end
 
@@ -803,13 +877,12 @@ function handleStatTrackerClick(player, clickType, _)
     if #lastDrawnTokens > 0 then
       local tokenStr = ""
       for _, data in ipairs(lastDrawnTokens) do
-        local mat = getObjectFromGUID(data.matGUID)
-        if mat ~= nil then
-          local handColor = mat.getVar("playerColor")
-          tokenStr = tokenStr .. "[" .. Color.fromString(handColor):toHex() .. "]" .. data.tokenName .. "[-], "
-        else
-          tokenStr = tokenStr .. data.tokenName .. " ,"
+        local handColor = playermatApi.getPlayerColor(data.matColor)
+        local tokenName = data.tokenName
+        if handColor ~= nil then
+          tokenName = "[" .. Color.fromString(handColor):toHex() .. "]" .. tokenName .. "[-]"
         end
+        tokenStr = tokenStr .. tokenName .. ", "
       end
 
       -- remove last delimiter
@@ -817,17 +890,33 @@ function handleStatTrackerClick(player, clickType, _)
       printToAll("Last 5 (old to new): " .. tokenStr)
     end
 
-    printToAll(squidKing .. " is an auto-fail magnet.", { 255, 0, 0 })
+    -- print the player with the most auto-fails / elder signs
+    if mostAutoFails == mostElderSigns then
+      outputRandomMessage(mostAutoFails, dualMessages, { r = 200 / 255, g = 100 / 255, b = 255 / 255 })
+    else
+      outputRandomMessage(mostAutoFails, autoFailMessages, { r = 215 / 255, g = 30 / 255, b = 60 / 255 })
+      outputRandomMessage(mostElderSigns, elderSignMessages, { r = 30 / 255, g = 185 / 255, b = 215 / 255 })
+    end
   else
     printToAll("No tokens have been drawn yet.", "Yellow")
   end
 end
 
+function outputRandomMessage(playerColor, list, msgColor)
+  if playerColor == "Nobody" then return end
+  local playerName = getColoredName(playerColor)
+  printToAll(list[math.random(#list)]:gsub("<Name>", playerName):gsub("<Day>", os.date("%A")), msgColor)
+end
+
 -- resets the count for each token to 0
-function resetChaosTokenStatTracker()
-  printToAll("Chaos Token stat tracker has been reset.")
-  lastDrawnTokens = {}
-  tokenDrawingStats = { ["Overall"] = {} }
+function resetChaosTokenStatTracker(player)
+  player.showConfirmDialog("Are you sure you want to reset the Chaos Token stats?",
+    function()
+      printToAll("Chaos Token stat tracker has been reset.")
+      lastDrawnTokens = {}
+      tokenDrawingStats = { ["Overall"] = {} }
+    end
+  )
 end
 
 ---------------------------------------------------------
@@ -1412,8 +1501,9 @@ function onClick_toggleUi(player, windowId)
     return
   elseif windowId == "actionTracker" then
     -- store the state of the Action Tracker UI to restore it onLoad()
-    actionTrackerVisibility[player.color] = changeWindowVisibilityForColor(player.color, "actionTracker")
-    printToColor("Action Tracker " .. (actionTrackerVisibility[player.color] and "enabled." or "disabled."), player.color)
+    local visibility = changeWindowVisibilityForColor(player.color, "actionTracker")
+    actionTrackerVisibility[player.color] = visibility
+    printToColor("Action Tracker " .. (visibility and "enabled." or "disabled."), player.color)
 
     changeWindowVisibilityForColor(player.color, "optionPanel", false)
     return
@@ -1638,22 +1728,22 @@ function createActionTrackerUI()
   local actionTrackerXml = {
     tag = "TableLayout",
     attributes = {
-      id            = "actionTracker",
-      color         = "black",
-      visibility    = visibilityString,
-      active        = visibilityString ~= "",
-      height        = 30 * #usedMatColors,
-      width         = "300",
-      offsetXY      = "-2 396",
-      columnWidths  = "0 25 25 25 25 25",
-      padding       = "4 4 4 4",
-      cellSpacing   = "5",
-      allowDragging = true,
+      id                                   = "actionTracker",
+      color                                = "black",
+      visibility                           = visibilityString,
+      active                               = visibilityString ~= "",
+      height                               = 30 * #usedMatColors,
+      width                                = "300",
+      offsetXY                             = "-2 396",
+      columnWidths                         = "0 25 25 25 25 25",
+      padding                              = "4 4 4 4",
+      cellSpacing                          = "5",
+      allowDragging                        = true,
       returnToOriginalPositionWhenReleased = false,
-      rectAlignment = "LowerRight",
-      raycastTarget = true,
-      outlineSize   = "2 2",
-      outline       = "#303030"
+      rectAlignment                        = "LowerRight",
+      raycastTarget                        = true,
+      outlineSize                          = "2 2",
+      outline                              = "#303030"
     },
     children = {}
   }
@@ -1819,11 +1909,23 @@ end
 -- returns the display name (steam name or investigator)
 function getDisplayName(matColor)
   local playerColor = playermatApi.getPlayerColor(matColor)
+
+  -- if the mat was removed or something wierd happened, just return the matColor
+  if not playerColor then return matColor end
+
+  -- return steam name if there's a seated player
   if Player[playerColor] and Player[playerColor].steam_name then
     return Player[playerColor].steam_name
-  else
-    return playermatApi.getInvestigatorName(matColor)
   end
+
+  -- return investigator name if possible
+  local investigatorName = playermatApi.getInvestigatorName(matColor)
+  if investigatorName ~= "" then
+    return investigatorName
+  end
+
+  -- default to playerColor
+  return playerColor
 end
 
 -- this helper function updates the global XML while preserving the visibility of windows
@@ -2690,15 +2792,12 @@ end
 
 -- Spawns a single token at the given global position by copying it from the template bag.
 function TokenManager.spawnToken(params)
-  local position       = params.position
   local rotation       = params.rotation
   local tokenType      = params.tokenType
   local callbackName   = params.callbackName
   local callbackParams = params.callbackParams
   local scriptstate    = params.scriptstate
-
-  -- initialize data table
-  local spawnData = { position = position }
+  local spawnData      = { position = params.position }
 
   -- maybe set callback function
   if callbackName then
@@ -3182,12 +3281,18 @@ function isTableEmpty(tbl)
   end
 end
 
--- returns the colored steam name or color
+-- returns the colored steam name, investigator name or color
 ---@param playerColor string Color of the player
 function getColoredName(playerColor)
   local displayName = playerColor
   if playerColor ~= "Grey" and Player[playerColor].steam_name then
     displayName = Player[playerColor].steam_name
+  else
+    local matColor = playermatApi.getMatColor(playerColor)
+    local investigatorName = playermatApi.getInvestigatorName(matColor)
+    if investigatorName ~= "" then
+      displayName = investigatorName
+    end
   end
 
   -- add bb-code
@@ -3234,10 +3339,9 @@ function handleTokenAttaching(params)
   local card = params.card
   if card == nil then return end
 
-  local player       = params.player
-  local searchResult = searchLib.onObject(card, "isTileOrToken", 0.9)
-
-  local cardPos = card.getPosition()
+  local player         = params.player
+  local searchResult   = searchLib.onObject(card, "isTileOrToken", 0.9)
+  local cardPos        = card.getPosition()
   local eligibleTokens = {}
   for _, token in ipairs(searchResult) do
     if not token.locked and token.getPosition().y > (cardPos.y + 0.01) then
