@@ -57,25 +57,6 @@ function search12(_, playerColor) startSearch(playerColor, 12) end
 function searchView()
   ongoingSearch = true
   self.clearButtons()
-
-  -- create the "End Search" button
-  local buttonParameters          = {}
-  buttonParameters.function_owner = self
-  buttonParameters.font_size      = 150
-  buttonParameters.width          = 850
-  buttonParameters.height         = 250
-  buttonParameters.color          = "White"
-  buttonParameters.click_function = "endSearch1"
-  buttonParameters.tooltip        = "Return cards and shuffle"
-  buttonParameters.position       = { 0, 0.11, -0.4 }
-  buttonParameters.label          = "Shuffle in"
-  self.createButton(buttonParameters)
-
-  buttonParameters.click_function = "endSearch2"
-  buttonParameters.tooltip        = "Return cards without shuffling"
-  buttonParameters.position       = { 0, 0.11, 0.4 }
-  buttonParameters.label          = "Keep order"
-  self.createButton(buttonParameters)
 end
 
 function onNumberTyped(playerColor, number)
@@ -84,7 +65,7 @@ function onNumberTyped(playerColor, number)
   end
 end
 
--- start the search (change UI, set handCards aside, draw cards)
+-- start the search (change UI, draw cards)
 function startSearch(messageColor, number)
   if ongoingSearch then return end
 
@@ -143,35 +124,27 @@ function startSearch(messageColor, number)
   local handZone = guidReferenceApi.getObjectByOwnerAndType(matColor, "HandZone")
   local data = handZone.getData()
   local position = (self.getPosition() - handData.forward * 7.5):setAt("y", data.Transform.posY)
+  if owner ~= "Mythos" then position = position:setAt("z", data.Transform.posZ) end
   local newHand = spawnObjectData({ data = data, position = position })
+  newHand.scale({x = 1, y = 1, z = .6})
   guidReferenceApi.editIndex(matColor, "HandZone2", newHand.getGUID())
+  helperGuid = self.getGUID()
 
   -- add XML labels
   newHand.UI.setXmlTable({
     {
-      tag = "Defaults",
-      children = {
-        tag = "Text",
-        attributes = {
-          class = "sideButton",
-          font = "font_teutonic-arkham",
-          fontSize = "180",
-        }
-      }
-    },
-    {
       tag = "Panel",
       attributes = {
-        height = 200,
-        width = 2000,
-        scale = ".025 .1 1",
+        height = 120,
+        width = 1500,
+        scale = ".025 .167 1",
         rotation = "0 0 0",
-        position = "0 -45 30",
+        position = "0 64 30",
       },
       children = {
         {
           tag = "TableLayout",
-          attributes = { cellSpacing = "250", cellBackgroundColor="#b6e2f0"},
+          attributes = { cellSpacing = "250" },
           children = {
             {
               tag = "Row",
@@ -181,11 +154,11 @@ function startSearch(messageColor, number)
                   children = {
                     {
                       tag = "Panel",
-                      attributes = { color = "#b6e2f0" },
+                      attributes = { color = "#b6e2f099" },
                       children = {
                         {
                           tag = "Text",
-                          attributes = { class = "sideButton" },
+                          attributes = { font = "font_teutonic-arkham", fontSize = "100" },
                           value = "← Top"
                         }
                       }
@@ -197,11 +170,11 @@ function startSearch(messageColor, number)
                   children = {
                     {
                       tag = "Panel",
-                      attributes = { color = "#b6e2f0" },
+                      attributes = { color = "#b6e2f099" },
                       children = {
                         {
                           tag = "Text",
-                          attributes = { class = "sideButton" },
+                          attributes = { font = "font_teutonic-arkham", fontSize = "100" },
                           value = "Bottom →"
                         }
                       }
@@ -213,12 +186,81 @@ function startSearch(messageColor, number)
           }
         }
       }
+    },
+    {
+      tag = "Panel",
+      attributes = {
+        height = 170,
+        width = 1500,
+        scale = ".025 .167 1",
+        rotation = "0 0 0",
+        position = "0 -67 30",
+      },
+      children = {
+        {
+          tag = "TableLayout",
+          attributes = { cellSpacing = "250", cellBackgroundColor="#b6e2f0"},
+          children = {
+          {
+            tag = "Row",
+            children = {
+              {
+                tag = "Cell",
+                children = {
+                  {
+                    tag = "Panel",
+                    attributes = { color = "#b6e2f0D9" },
+                    children = {
+                      {
+                        tag = "Button",
+                        attributes = {
+                          color="#ffffff00",
+                          fontSize = "150",
+                          onClick = helperGuid .. "/endSearch(true)",
+                          tooltip = "Return cards and shuffle",
+                          font = "font_teutonic-arkham",
+                          textColors = "#000000|#009acb|#005a77"
+                          },
+                        value = "Shuffle in"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                tag = "Cell",
+                children = {
+                  {
+                    tag = "Panel",
+                    attributes = { color = "#b6e2f0D9" },
+                    children = {
+                      {
+                        tag = "Button",
+                        attributes = {
+                          color="#ffffff00",
+                          fontSize = "150",
+                          onClick = helperGuid .. "/endSearch(false)",
+                          tooltip = "Return cards without shuffling",
+                          font = "font_teutonic-arkham",
+                          textColors = "#000000|#009acb|#005a77"
+                        },
+                        value = "Keep Order"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     }
+  }
   })
 
   -- handling for Norman Withers / Eye of Ghatanothoa
   if deckAreaObjects.topCard then
-    Wait.frames(function() deckAreaObjects.topCard.deal(1, handColor, 2 or 1) end, 3)
+    Wait.frames(function() deckAreaObjects.topCard.deal(1, handColor, 2) end, 3)
 
     number = number - 1
     topCardDetected = true
@@ -227,7 +269,7 @@ function startSearch(messageColor, number)
   searchView()
 
   if number > 0 then
-    Wait.frames(function() deckAreaObjects.draw.deal(number, handColor, 2 or 1) end, 3 + (topCardDetected and 30 or 0))
+    Wait.frames(function() deckAreaObjects.draw.deal(number, handColor, 2) end, 3 + (topCardDetected and 30 or 0))
   end
 end
 
@@ -236,14 +278,10 @@ function isHarbinger(notes)
   return md.id == "08006"
 end
 
--- place handCards back into deck and optionally shuffle
-function endSearch1() endSearch(true) end
-function endSearch2() endSearch(false) end
-
-function endSearch(shuffle)
+function endSearch(_, shuffle)
   local handCards
 
-  handCards = Player[handColor].getHandObjects(2 or 1)
+  handCards = Player[handColor].getHandObjects(2)
 
   -- place cards on deck
   deckLib.placeOrMergeIntoDeck(handCards, drawDeckPosition, setAsideRotation or self.getRotation():setAt("z", 180))
@@ -258,7 +296,7 @@ function endSearch(shuffle)
 
   Wait.time(function()
     -- maybe shuffle deck
-    if shuffle then
+    if shuffle == "true" then
       local deckAreaObjects
       if owner == "Mythos" then
         deckAreaObjects = mythosAreaApi.getEncounterDeckObjects()
