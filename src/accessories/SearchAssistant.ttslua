@@ -4,7 +4,7 @@ local mythosAreaApi            = require("mythos/MythosAreaApi")
 local playermatApi             = require("playermat/PlayermatApi")
 
 -- forward declaration of variables that are used across functions
-local matColor, handColor, setAsideRotation, drawDeckPosition, topCardDetected
+local matColor, handColor, drawDeckPosition, topCardDetected
 local ongoingSearch            = false
 
 local quickParameters          = {}
@@ -15,9 +15,23 @@ quickParameters.height         = 1000
 quickParameters.color          = "White"
 quickParameters.scale          = Vector(0.3, 1, 0.3)
 
+local buttonLabels = {
+  { label = 3, position = { -0.5, 0.11, -0.5 } },
+  { label = 6, position = { 0.5, 0.11, -0.5 } },
+  { label = 9, position = { -0.5, 0.11, 0.5 } },
+  { label = 12, position = { 0.5, 0.11, 0.5 } }
+}
+
 function onLoad()
+  createClickFunctions()
   normalView()
   self.max_typed_number = 9999
+end
+
+function createClickFunctions()
+  for _, data in ipairs(buttonLabels) do
+    _G["search" .. data.label] = function(_, playerColor, isRightClick) startSearch(playerColor, data.label) end
+  end
 end
 
 -- regular view with search box
@@ -26,32 +40,13 @@ function normalView()
   self.clearButtons()
 
   -- create buttons to search 3, 6 or 9 cards
-  quickParameters.click_function = "search3"
-  quickParameters.label          = "3"
-  quickParameters.position       = { -0.5, 0.11, -0.5 }
-  self.createButton(quickParameters)
-
-  quickParameters.click_function = "search6"
-  quickParameters.label          = "6"
-  quickParameters.position       = { 0.5, 0.11, -0.5 }
-  self.createButton(quickParameters)
-
-  quickParameters.click_function = "search9"
-  quickParameters.label          = "9"
-  quickParameters.position       = { -0.5, 0.11, 0.5 }
-  self.createButton(quickParameters)
-
-  quickParameters.click_function = "search12"
-  quickParameters.label          = "12"
-  quickParameters.position       = { 0.5, 0.11, 0.5 }
-  self.createButton(quickParameters)
+  for _, data in ipairs(buttonLabels) do
+    quickParameters.click_function = "search" .. data.label
+    quickParameters.label          = data.label
+    quickParameters.position       = data.position
+    self.createButton(quickParameters)
+  end
 end
-
--- click functions
-function search3(_, playerColor) startSearch(playerColor, 3) end
-function search6(_, playerColor) startSearch(playerColor, 6) end
-function search9(_, playerColor) startSearch(playerColor, 9) end
-function search12(_, playerColor) startSearch(playerColor, 12) end
 
 -- view during a search with "done" buttons
 function searchView()
@@ -125,10 +120,10 @@ function startSearch(messageColor, number)
   local data = handZone.getData()
   local position = (self.getPosition() - handData.forward * 7.5):setAt("y", data.Transform.posY)
   if owner ~= "Mythos" then position = position:setAt("z", data.Transform.posZ) end
+
   local newHand = spawnObjectData({ data = data, position = position })
   newHand.scale({ x = 1, y = 1, z = 0.6 })
   guidReferenceApi.editIndex(matColor, "HandZone2", newHand.getGUID())
-  helperGuid = self.getGUID()
 
   -- add XML labels
   newHand.UI.setXmlTable({
@@ -216,7 +211,7 @@ function startSearch(messageColor, number)
                           attributes = {
                             color = "#ffffff00",
                             fontSize = "150",
-                            onClick = helperGuid .. "/endSearch(true)",
+                            onClick = self.getGUID() .. "/endSearch(true)",
                             tooltip = "Return cards and shuffle",
                             font = "font_teutonic-arkham",
                             textColors = "#000000|#009acb|#005a77"
@@ -239,7 +234,7 @@ function startSearch(messageColor, number)
                           attributes = {
                             color = "#ffffff00",
                             fontSize = "150",
-                            onClick = helperGuid .. "/endSearch(false)",
+                            onClick = self.getGUID() .. "/endSearch(false)",
                             tooltip = "Return cards without shuffling",
                             font = "font_teutonic-arkham",
                             textColors = "#000000|#009acb|#005a77"
@@ -261,7 +256,6 @@ function startSearch(messageColor, number)
   -- handling for Norman Withers / Eye of Ghatanothoa
   if deckAreaObjects.topCard then
     Wait.frames(function() deckAreaObjects.topCard.deal(1, handColor, 2) end, 3)
-
     number = number - 1
     topCardDetected = true
   end
@@ -279,12 +273,10 @@ function isHarbinger(notes)
 end
 
 function endSearch(_, shuffle)
-  local handCards
-
-  handCards = Player[handColor].getHandObjects(2)
+  local handCards = Player[handColor].getHandObjects(2)
 
   -- place cards on deck
-  deckLib.placeOrMergeIntoDeck(handCards, drawDeckPosition, setAsideRotation or self.getRotation():setAt("z", 180))
+  deckLib.placeOrMergeIntoDeck(handCards, drawDeckPosition, self.getRotation():setAt("z", 180))
 
   local handZone2 = guidReferenceApi.getObjectByOwnerAndType(matColor, "HandZone2")
   if handZone2 then
