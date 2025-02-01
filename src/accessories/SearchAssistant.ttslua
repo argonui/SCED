@@ -1,23 +1,37 @@
-local deckLib                   = require("util/DeckLib")
-local guidReferenceApi          = require("core/GUIDReferenceApi")
-local mythosAreaApi             = require("mythos/MythosAreaApi")
-local playermatApi              = require("playermat/PlayermatApi")
+local deckLib                  = require("util/DeckLib")
+local guidReferenceApi         = require("core/GUIDReferenceApi")
+local mythosAreaApi            = require("mythos/MythosAreaApi")
+local playermatApi             = require("playermat/PlayermatApi")
 
 -- forward declaration of variables that are used across functions
-local matColor, handColor, setAsideRotation, drawDeckPosition, topCardDetected
-local ongoingSearch = false
+local matColor, handColor, drawDeckPosition, topCardDetected
+local ongoingSearch            = false
 
-local quickParameters           = {}
-quickParameters.function_owner  = self
-quickParameters.font_size       = 700
-quickParameters.width           = 1000
-quickParameters.height          = 1000
-quickParameters.color           = "White"
-quickParameters.scale           = Vector(0.3, 1, 0.3)
+local quickParameters          = {}
+quickParameters.function_owner = self
+quickParameters.font_size      = 700
+quickParameters.width          = 1000
+quickParameters.height         = 1000
+quickParameters.color          = "White"
+quickParameters.scale          = Vector(0.3, 1, 0.3)
+
+local buttonLabels = {
+  { label = 3, position = { -0.5, 0.11, -0.5 } },
+  { label = 6, position = { 0.5, 0.11, -0.5 } },
+  { label = 9, position = { -0.5, 0.11, 0.5 } },
+  { label = 12, position = { 0.5, 0.11, 0.5 } }
+}
 
 function onLoad()
+  createClickFunctions()
   normalView()
   self.max_typed_number = 9999
+end
+
+function createClickFunctions()
+  for _, data in ipairs(buttonLabels) do
+    _G["search" .. data.label] = function(_, playerColor, isRightClick) startSearch(playerColor, data.label) end
+  end
 end
 
 -- regular view with search box
@@ -26,32 +40,13 @@ function normalView()
   self.clearButtons()
 
   -- create buttons to search 3, 6 or 9 cards
-  quickParameters.click_function = "search3"
-  quickParameters.label          = "3"
-  quickParameters.position       = { -0.5, 0.11, -0.5 }
-  self.createButton(quickParameters)
-
-  quickParameters.click_function = "search6"
-  quickParameters.label          = "6"
-  quickParameters.position       = { 0.5, 0.11, -0.5 }
-  self.createButton(quickParameters)
-
-  quickParameters.click_function = "search9"
-  quickParameters.label          = "9"
-  quickParameters.position       = { -0.5, 0.11, 0.5 }
-  self.createButton(quickParameters)
-
-  quickParameters.click_function = "search12"
-  quickParameters.label          = "12"
-  quickParameters.position       = { 0.5, 0.11, 0.5 }
-  self.createButton(quickParameters)
+  for _, data in ipairs(buttonLabels) do
+    quickParameters.click_function = "search" .. data.label
+    quickParameters.label          = data.label
+    quickParameters.position       = data.position
+    self.createButton(quickParameters)
+  end
 end
-
--- click functions
-function search3(_, playerColor) startSearch(playerColor, 3) end
-function search6(_, playerColor) startSearch(playerColor, 6) end
-function search9(_, playerColor) startSearch(playerColor, 9) end
-function search12(_, playerColor) startSearch(playerColor, 12) end
 
 -- view during a search with "done" buttons
 function searchView()
@@ -123,12 +118,19 @@ function startSearch(messageColor, number)
   -- create an additional hand zone
   local handZone = guidReferenceApi.getObjectByOwnerAndType(matColor, "HandZone")
   local data = handZone.getData()
+  handCount = Player[handColor].getHandCount() + 1
   local position = (self.getPosition() - handData.forward * 7.5):setAt("y", data.Transform.posY)
-  if owner ~= "Mythos" then position = position:setAt("z", data.Transform.posZ) end
+
+  if owner == "Mythos" then
+    handZoneName = "HandZoneMythos"
+  else
+    handZoneName = "HandZone2"
+    position = position:setAt("z", data.Transform.posZ)
+  end
+
   local newHand = spawnObjectData({ data = data, position = position })
-  newHand.scale({x = 1, y = 1, z = .6})
-  guidReferenceApi.editIndex(matColor, "HandZone2", newHand.getGUID())
-  helperGuid = self.getGUID()
+  newHand.scale({ x = 1, y = 1, z = 0.6 })
+  guidReferenceApi.editIndex(matColor, handZoneName, newHand.getGUID())
 
   -- add XML labels
   newHand.UI.setXmlTable({
@@ -199,52 +201,53 @@ function startSearch(messageColor, number)
       children = {
         {
           tag = "TableLayout",
-          attributes = { cellSpacing = "250", cellBackgroundColor="#b6e2f0"},
+          attributes = { cellSpacing = "250", cellBackgroundColor = "#b6e2f0" },
           children = {
-          {
-            tag = "Row",
-            children = {
-              {
-                tag = "Cell",
-                children = {
-                  {
-                    tag = "Panel",
-                    attributes = { color = "#b6e2f0D9" },
-                    children = {
-                      {
-                        tag = "Button",
-                        attributes = {
-                          color="#ffffff00",
-                          fontSize = "150",
-                          onClick = helperGuid .. "/endSearch(true)",
-                          tooltip = "Return cards and shuffle",
-                          font = "font_teutonic-arkham",
-                          textColors = "#000000|#009acb|#005a77"
+            {
+              tag = "Row",
+              children = {
+                {
+                  tag = "Cell",
+                  children = {
+                    {
+                      tag = "Panel",
+                      attributes = { color = "#b6e2f0D9" },
+                      children = {
+                        {
+                          tag = "Button",
+                          attributes = {
+                            color = "#ffffff00",
+                            fontSize = "150",
+                            onClick = self.getGUID() .. "/endSearch(true)",
+                            tooltip = "Return cards and shuffle",
+                            font = "font_teutonic-arkham",
+                            textColors = "#000000|#009acb|#005a77"
                           },
-                        value = "Shuffle in"
+                          value = "Shuffle in"
+                        }
                       }
                     }
                   }
-                }
-              },
-              {
-                tag = "Cell",
-                children = {
-                  {
-                    tag = "Panel",
-                    attributes = { color = "#b6e2f0D9" },
-                    children = {
-                      {
-                        tag = "Button",
-                        attributes = {
-                          color="#ffffff00",
-                          fontSize = "150",
-                          onClick = helperGuid .. "/endSearch(false)",
-                          tooltip = "Return cards without shuffling",
-                          font = "font_teutonic-arkham",
-                          textColors = "#000000|#009acb|#005a77"
-                        },
-                        value = "Keep Order"
+                },
+                {
+                  tag = "Cell",
+                  children = {
+                    {
+                      tag = "Panel",
+                      attributes = { color = "#b6e2f0D9" },
+                      children = {
+                        {
+                          tag = "Button",
+                          attributes = {
+                            color = "#ffffff00",
+                            fontSize = "150",
+                            onClick = self.getGUID() .. "/endSearch(false)",
+                            tooltip = "Return cards without shuffling",
+                            font = "font_teutonic-arkham",
+                            textColors = "#000000|#009acb|#005a77"
+                          },
+                          value = "Keep Order"
+                        }
                       }
                     }
                   }
@@ -255,13 +258,11 @@ function startSearch(messageColor, number)
         }
       }
     }
-  }
   })
 
   -- handling for Norman Withers / Eye of Ghatanothoa
   if deckAreaObjects.topCard then
-    Wait.frames(function() deckAreaObjects.topCard.deal(1, handColor, 2) end, 3)
-
+    Wait.frames(function() deckAreaObjects.topCard.deal(1, handColor, handCount) end, 3)
     number = number - 1
     topCardDetected = true
   end
@@ -269,7 +270,7 @@ function startSearch(messageColor, number)
   searchView()
 
   if number > 0 then
-    Wait.frames(function() deckAreaObjects.draw.deal(number, handColor, 2) end, 3 + (topCardDetected and 30 or 0))
+    Wait.frames(function() deckAreaObjects.draw.deal(number, handColor, handCount) end, 3 + (topCardDetected and 30 or 0))
   end
 end
 
@@ -279,17 +280,16 @@ function isHarbinger(notes)
 end
 
 function endSearch(_, shuffle)
-  local handCards
-
-  handCards = Player[handColor].getHandObjects(2)
+  local handToCheck = math.min(Player[handColor].getHandCount(), handCount)
+  local handCards = Player[handColor].getHandObjects(handToCheck)
 
   -- place cards on deck
-  deckLib.placeOrMergeIntoDeck(handCards, drawDeckPosition, setAsideRotation or self.getRotation():setAt("z", 180))
+  deckLib.placeOrMergeIntoDeck(handCards, drawDeckPosition, self.getRotation():setAt("z", 180))
 
-  local handZone2 = guidReferenceApi.getObjectByOwnerAndType(matColor, "HandZone2")
-  if handZone2 then
-    Wait.time(function() handZone2.destruct() end, 0.5 + #handCards * 0.1)
-    guidReferenceApi.editIndex(matColor, "HandZone2", nil)
+  local additionalHand = guidReferenceApi.getObjectByOwnerAndType(matColor, handZoneName)
+  if additionalHand then
+    Wait.time(function() additionalHand.destruct() end, 0.5 + #handCards * 0.1)
+    guidReferenceApi.editIndex(matColor, handZoneName, nil)
   end
 
   normalView()
