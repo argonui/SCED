@@ -2,11 +2,9 @@ local deckLib                   = require("util/DeckLib")
 local guidReferenceApi          = require("core/GUIDReferenceApi")
 local mythosAreaApi             = require("mythos/MythosAreaApi")
 local playermatApi              = require("playermat/PlayermatApi")
-local searchLib                 = require("util/SearchLib")
 
 -- forward declaration of variables that are used across functions
-local matColor, handColor, setAsidePosition, setAsideRotation, drawDeckPosition, topCardDetected
-local addedVectorLines, addedSnapPoint
+local matColor, handColor, setAsideRotation, drawDeckPosition, topCardDetected
 local ongoingSearch = false
 
 local quickParameters           = {}
@@ -141,49 +139,86 @@ function startSearch(messageColor, number)
 
   local handData = Player[handColor].getHandTransform()
 
-  if owner ~= "Mythos" then
-    printToColor("Place target(s) of search on set aside spot.", messageColor, "Green")
+  -- create an additional hand zone
+  local handZone = guidReferenceApi.getObjectByOwnerAndType(matColor, "HandZone")
+  local data = handZone.getData()
+  local position = (self.getPosition() - handData.forward * 7.5):setAt("y", data.Transform.posY)
+  local newHand = spawnObjectData({ data = data, position = position })
+  guidReferenceApi.editIndex(matColor, "HandZone2", newHand.getGUID())
 
-    -- get playermat orientation
-    local offset = self.getBoundsNormalized().center.z < 0 and 15 or -15
-
-    -- get position and rotation for set aside cards
-    local handCards  = Player[handColor].getHandObjects()
-    setAsidePosition = (handData.position + offset * handData.right):setAt("y", 1.5)
-    setAsideRotation = Vector(handData.rotation.x, handData.rotation.y + 180, 180)
-
-    -- place hand cards set aside
-    if #handCards > 0 then
-      deckLib.placeOrMergeIntoDeck(handCards, setAsidePosition, setAsideRotation)
-    end
-
-    -- add a temporary snap point for the set aside spot
-    addedSnapPoint = { position = setAsidePosition, rotation = setAsideRotation }
-    local snapPoints = Global.getSnapPoints() or {}
-    table.insert(snapPoints, addedSnapPoint)
-    Global.setSnapPoints(snapPoints)
-
-    -- add a temporary box for the set aside spot
-    local vectorLines = Global.getVectorLines() or {}
-    local boxSize = Vector(2.5, 0, 3.5)
-    addedVectorLines = generateBoxData(setAsidePosition, boxSize, setAsideRotation.y, handColor)
-
-    for _, line in ipairs(addedVectorLines) do
-      table.insert(vectorLines, line)
-    end
-    Global.setVectorLines(vectorLines)
-  else
-    -- create an additional hand zone
-    local handZone = guidReferenceApi.getObjectByOwnerAndType(matColor, "HandZone")
-    local data = handZone.getData()
-    local position = (self.getPosition() + handData.forward * 7.5):setAt("y", data.Transform.posY)
-    local newHand = spawnObjectData({ data = data, position = position })
-    guidReferenceApi.editIndex(matColor, "HandZone2", newHand.getGUID())
-  end
+  -- add XML labels
+  newHand.UI.setXmlTable({
+    {
+      tag = "Defaults",
+      children = {
+        tag = "Text",
+        attributes = {
+          class = "sideButton",
+          font = "font_teutonic-arkham",
+          fontSize = "180",
+        }
+      }
+    },
+    {
+      tag = "Panel",
+      attributes = {
+        height = 200,
+        width = 2000,
+        scale = ".025 .1 1",
+        rotation = "0 0 0",
+        position = "0 -45 30",
+      },
+      children = {
+        {
+          tag = "TableLayout",
+          attributes = { cellSpacing = "250", cellBackgroundColor="#b6e2f0"},
+          children = {
+            {
+              tag = "Row",
+              children = {
+                {
+                  tag = "Cell",
+                  children = {
+                    {
+                      tag = "Panel",
+                      attributes = { color = "#b6e2f0" },
+                      children = {
+                        {
+                          tag = "Text",
+                          attributes = { class = "sideButton" },
+                          value = "← Top"
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  tag = "Cell",
+                  children = {
+                    {
+                      tag = "Panel",
+                      attributes = { color = "#b6e2f0" },
+                      children = {
+                        {
+                          tag = "Text",
+                          attributes = { class = "sideButton" },
+                          value = "Bottom →"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  })
 
   -- handling for Norman Withers / Eye of Ghatanothoa
   if deckAreaObjects.topCard then
-    Wait.frames(function() deckAreaObjects.topCard.deal(1, handColor, (owner == "Mythos") and 2 or 1) end, 3)
+    Wait.frames(function() deckAreaObjects.topCard.deal(1, handColor, 2 or 1) end, 3)
 
     number = number - 1
     topCardDetected = true
@@ -192,7 +227,7 @@ function startSearch(messageColor, number)
   searchView()
 
   if number > 0 then
-    Wait.frames(function() deckAreaObjects.draw.deal(number, handColor, (owner == "Mythos") and 2 or 1) end, 3 + (topCardDetected and 30 or 0))
+    Wait.frames(function() deckAreaObjects.draw.deal(number, handColor, 2 or 1) end, 3 + (topCardDetected and 30 or 0))
   end
 end
 
@@ -208,20 +243,15 @@ function endSearch2() endSearch(false) end
 function endSearch(shuffle)
   local handCards
 
-  handCards = Player[handColor].getHandObjects((owner == "Mythos") and 2 or 1)
+  handCards = Player[handColor].getHandObjects(2 or 1)
 
   -- place cards on deck
   deckLib.placeOrMergeIntoDeck(handCards, drawDeckPosition, setAsideRotation or self.getRotation():setAt("z", 180))
 
-  if owner == "Mythos" then
-    local handZone2 = guidReferenceApi.getObjectByOwnerAndType(matColor, "HandZone2")
-    if handZone2 then
-      Wait.time(function() handZone2.destruct() end, 0.5 + #handCards * 0.1)
-      guidReferenceApi.editIndex(matColor, "HandZone2", nil)
-    end
-  else
-    -- draw set aside cards (from the ground!)
-    Wait.time(drawSetAsideCards, 0.5 + #handCards * 0.1)
+  local handZone2 = guidReferenceApi.getObjectByOwnerAndType(matColor, "HandZone2")
+  if handZone2 then
+    Wait.time(function() handZone2.destruct() end, 0.5 + #handCards * 0.1)
+    guidReferenceApi.editIndex(matColor, "HandZone2", nil)
   end
 
   normalView()
@@ -250,87 +280,4 @@ function endSearch(shuffle)
       end
     end
   end, 1 + #handCards * 0.1)
-end
-
-function drawSetAsideCards()
-  for _, obj in ipairs(searchLib.atPosition(setAsidePosition, "isCardOrDeck")) do
-    local count = 1
-    if obj.type == "Deck" then
-      count = #obj.getObjects()
-    end
-    obj.deal(count, handColor)
-  end
-  removeAddedSnapAndLines()
-end
-
-function removeAddedSnapAndLines()
-  local vectorLines = Global.getVectorLines() or {}
-  local snapPoints = Global.getSnapPoints() or {}
-
-  -- look for previously added data and remove it (iterate in reverse because we're removing entries)
-  for i = #vectorLines, 1, -1 do
-    for _, boxLine in ipairs(addedVectorLines) do
-      if vectorLines[i].points[1] == boxLine.points[1] and vectorLines[i].points[2] == boxLine.points[2] then
-        table.remove(vectorLines, i)
-        break
-      end
-    end
-  end
-
-  for i = #snapPoints, 1, -1 do
-    if snapPoints[i].position == addedSnapPoint.position then
-      table.remove(snapPoints, i)
-      break
-    end
-  end
-
-  Global.setVectorLines(vectorLines)
-  Global.setSnapPoints(snapPoints)
-end
-
--- generates the lines data for a rectangular box
----@param center tts__Vector Center of the box
----@param size tts__Vector X and Z dimension of the box
----@param rotation number Rotation around the Y-axis for the box
----@param boxColor string Color for the box
----@return table lines Vector line data for the box
-function generateBoxData(center, size, rotation, boxColor)
-  local halfWidth = size.x / 2
-  local halfDepth = size.z / 2
-
-  -- corners of the box in local coordinates
-  local corners = {
-    Vector(-halfWidth, 0, -halfDepth),
-    Vector(halfWidth, 0, -halfDepth),
-    Vector(halfWidth, 0, halfDepth),
-    Vector(-halfWidth, 0, halfDepth)
-  }
-
-  -- translate corners to global coordinates
-  for i, cornerVec in ipairs(corners) do
-    local rotatedCornerVec = cornerVec:rotateOver('y', rotation)
-    corners[i] = rotatedCornerVec + center
-  end
-
-  -- generate the lines data
-  local lines = {
-    {
-      points = { corners[1], corners[2] },
-      color = boxColor
-    },
-    {
-      points = { corners[2], corners[3] },
-      color = boxColor
-    },
-    {
-      points = { corners[3], corners[4] },
-      color = boxColor
-    },
-    {
-      points = { corners[4], corners[1] },
-      color = boxColor
-    }
-  }
-
-  return lines
 end
