@@ -1,0 +1,61 @@
+require("playercards/CardsWithHelper")
+local guidReferenceApi = require("core/GUIDReferenceApi")
+local playermatApi    = require("playermat/PlayermatApi")
+local tokenManagerApi = require("tokens/TokenManagerApi")
+
+-- intentionally global
+hasXML                = true
+isHelperEnabled       = false
+
+function updateSave()
+  self.script_state = JSON.encode({ isHelperEnabled = isHelperEnabled })
+end
+
+function onLoad(savedData)
+  if savedData and savedData ~= "" then
+    local loadedData = JSON.decode(savedData)
+    isHelperEnabled = loadedData.isHelperEnabled
+    if isHelperEnabled then updateDisplay() end
+  end
+end
+
+function reload()
+  local position = self.getPosition()
+  local matColor = playermatApi.getMatColorByPosition(position)
+  local mat = guidReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
+  local rot = mat.getRotation()
+
+  local cardMetadata = JSON.decode(self.getGMNotes())
+  local cardRotation = self.getRotation()
+
+
+  local yRotDiff = round(cardRotation.y, 0) - rot.y
+
+  if yRotDiff < 0 then
+    yRotDiff = yRotDiff + 360
+  end
+
+  -- rotate card to the next multiple of 90° towards 0°
+  local cardRotY = rot.y
+  if yRotDiff > 90 and yRotDiff <= 180 then
+    cardRotY = rot.y + 90
+  elseif yRotDiff > 180 and yRotDiff < 270 then
+    cardRotY = rot.y + 270
+  end
+
+  self.setRotationSmooth(cardRotation:setAt("y", cardRotY))
+
+  local useInfo = cardMetadata.uses
+  useInfo[1].replenish = 2
+
+  Wait.time( function () tokenManagerApi.maybeReplenishCard(self, useInfo) end, .3) -- wait to make sure card has finished rotating
+end
+
+-- rounds a number to the specified amount of decimal places
+---@param num number Initial value
+---@param numDecimalPlaces number Amount of decimal places
+---@return number: rounded number
+function round(num, numDecimalPlaces)
+  local mult = 10 ^ (numDecimalPlaces or 0)
+  return math.floor(num * mult + 0.5) / mult
+end
