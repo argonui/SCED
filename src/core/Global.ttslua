@@ -3495,6 +3495,59 @@ function stopTokenTransformUpdating(card)
   end
 end
 
+-- readies a card respective to its owner
+---@param params table Parameters for the function:
+--- card tts__Object Card to ready
+--- ownerRotation? tts__Vector Rotation of the owner
+--- smooth? boolean Should the card be rotated smoothly?
+function maybeReadyCard(params)
+  local card          = params.card
+  local ownerRotation = params.ownerRotation
+  local smooth        = params.smooth
+
+  if card.getVar("do_not_ready") or card.hasTag("DoNotReady") then return end
+
+  -- if not provided, get the rotation of the owner
+  if not ownerRotation then
+    local owner = guidReferenceApi.getOwnerOfObject(card)
+    if owner == "Mythos" then
+      ownerRotation = playAreaApi.returnRotation()
+    else
+      ownerRotation = playermatApi.returnRotation(owner)
+    end
+  end
+
+  local cardRotation = card.getRotation()
+  local roundedRotY  = round(cardRotation.y, 0)
+  local yRotDiff     = roundedRotY - ownerRotation.y
+
+  if yRotDiff < 0 then
+    yRotDiff = yRotDiff + 360
+  end
+
+  -- rotate cards to the next multiple of 90° towards 0°
+  local cardRotY = ownerRotation.y
+  if yRotDiff > 90 and yRotDiff <= 180 then
+    cardRotY = ownerRotation.y + 90
+  elseif yRotDiff > 180 and yRotDiff < 270 then
+    cardRotY = ownerRotation.y + 270
+  end
+
+  -- optionally use a smooth rotation
+  if smooth then
+    card.setRotationSmooth(cardRotation:setAt("y", cardRotY))
+  else
+    card.setRotation(cardRotation:setAt("y", cardRotY))
+  end
+
+  -- returns whether the card is now fully readied (and wasn't ready before)
+  if cardRotY == ownerRotation.y and roundedRotY ~= ownerRotation.y then
+    return true
+  else
+    return false
+  end
+end
+
 -- removes tokens from the provided card/deck
 function removeTokensFromObject(params)
   local object = params.object
@@ -3534,4 +3587,10 @@ function removeTokensFromObject(params)
       end
     end
   end
+end
+
+-- rounds a number (num) to the Nth decimal (dec)
+function round(num, dec)
+  local mult = 10 ^ (dec or 0)
+  return math.floor(num * mult + 0.5) / mult
 end
