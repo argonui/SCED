@@ -498,7 +498,11 @@ end
 function returnChaosTokens()
   local chaosBag = findChaosBag()
   for _, token in pairs(chaosTokens) do
-    if token ~= nil then chaosBag.putObject(token) end
+    if token ~= nil then
+      token.memo = nil
+      token.destroyAttachments()
+      chaosBag.putObject(token)
+    end
   end
   chaosTokens = {}
   isTokenXMLActive = false
@@ -508,6 +512,8 @@ end
 function returnChaosTokenToBag(params)
   local name = params.token.getName()
   local chaosBag = findChaosBag()
+  params.token.memo = nil
+  params.token.destroyAttachments()
   chaosBag.putObject(params.token)
   tokenArrangerApi.layout()
   if name == "Bless" or name == "Curse" then
@@ -629,6 +635,12 @@ function returnAndRedraw(_, tokenGUID)
   local params = { token = returnedToken, fromBag = true }
   returnChaosTokenToBag(params)
 
+  -- remove XML from tokens in play
+  isTokenXMLActive = false
+  for _, token in ipairs(chaosTokens) do
+    token.UI.setXml("")
+  end
+
   chaosTokens[indexOfReturnedToken] = drawChaosToken({
     mat = mat,
     drawAdditional = true,
@@ -645,12 +657,6 @@ function returnAndRedraw(_, tokenGUID)
       local invertedTable = createChaosTokenNameLookupTable()
       removeChaosToken(invertedTable[tokenName])
     end
-  end
-
-  -- remove XML from tokens in play
-  isTokenXMLActive = false
-  for _, token in ipairs(chaosTokens) do
-    token.UI.setXml("")
   end
 
   redrawData = {}
@@ -749,32 +755,51 @@ function drawChaosToken(params)
 
     -- get data for token description
     local name = token.getName()
-    if name == "Bless" or name == "Curse" then -- Lucky Penny shenanigans
-      token.UI.setXmlTable({
-        {
-          tag = "Panel",
-          attributes = {
-            height = 275,
-            width = 275,
-            scale = "0.4 0.4 1",
-            rotation = "0 0 180",
-            position = "0 0 -15",
-            color = "rgba(0,0,0,0.7)"
-          },
-          children = {
-            {
-              tag = "Text",
-              attributes = {
-                font = "font_arkhamicons",
-                onClick = "Global/luckyPenny(" .. token.getGUID() .. ")",
-                text = "zy",
-                color = "White",
-                fontSize = "125"
+    if (name == "Bless" or name == "Curse") then
+      -- look for Lucky Penny
+      local objList = {}
+      local luckyPennyCard = nil
+      local isLuckyPennyEnabled = nil
+
+      for _, obj in ipairs(params.mat.call("searchAroundSelf", "isCard")) do
+        if not obj.is_face_down then table.insert(objList, obj) end
+      end
+
+      for j, card in ipairs(objList) do
+        local metadata = JSON.decode(card.getGMNotes()) or {}
+        if metadata.id == "07224" then
+          luckyPennyCard = card
+          isLuckyPennyEnabled = luckyPennyCard.getVar("forcedEffectOn")
+        end
+      end
+      
+      if luckyPennyCard ~= nil and isLuckyPennyEnabled then -- Lucky Penny shenanigans
+        token.UI.setXmlTable({
+          {
+            tag = "Panel",
+            attributes = {
+              height = 275,
+              width = 275,
+              scale = "0.4 0.4 1",
+              rotation = "0 0 180",
+              position = "0 0 -15",
+              color = "rgba(0,0,0,0.7)"
+            },
+            children = {
+              {
+                tag = "Text",
+                attributes = {
+                  font = "font_arkhamicons",
+                  onClick = "Global/luckyPenny(" .. token.getGUID() .. ")",
+                  text = "zy",
+                  color = "White",
+                  fontSize = "125"
+              }
             }
           }
         }
-      }
-    })
+      })
+      end
     end
     local tokenData = mythosAreaApi.returnTokenData().tokenData or {}
     local specificData = tokenData[name] or {}
@@ -792,44 +817,33 @@ end
 
 function luckyPenny(_, tokenGUID)
   local blurseToken = getObjectFromGUID(tokenGUID)
+
   local coinFlip = math.random(2)
   if coinFlip == 1 then
-    newToken = "token-bless"
     blurseToken.memo = "Bless"
   else
-    newToken = "token-curse"
     blurseToken.memo = "Curse"
   end
-  blurseToken.UI.setXmlTable({
-    {
-      tag = "VerticalLayout",
-      attributes = {
-        height = 1250,
-        width = 400,
-        padding = "0 0 20 25",
-        scale = "0.4 0.4 1",
-        rotation = "0 0 180",
-        position = "0 -375 -15",
-        spacing = "50"
-      },
-      children = {
-        {
-          tag = "Image",
-          attributes = {
-            height = 400,
-            width = 400,
-            image = newToken,
-          }
-        },
-        {
-          tag = "Image",
-          attributes = {
-            image = "up-arrow"
-          }
-        }
-      }
-    }
-  })
+  local pos = blurseToken.getPosition() + Vector(1.35, 0.1, 0)
+  local id = blurseToken.memo:lower()
+  local url = ID_URL_MAP[id].url or ""
+
+  if url ~= "" then
+    spawnObject({
+      type = 'Custom_Tile',
+      position = pos,
+      scale = { 0.5, 1.0, 0.5 },
+      rotation = { 0, 270, 0 },
+      callback_function = function(obj)
+        blurseToken.UI.setXml("")
+        blurseToken.addAttachment(obj)
+      end
+    }).setCustomObject({
+      type = 2,
+      image = url,
+      thickness = 0.1
+    })
+  end
 end
 
 ---------------------------------------------------------
