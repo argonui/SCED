@@ -113,6 +113,7 @@ local tabIdTable                  = {
 
 -- optionPanel data (intentionally not local!)
 optionPanel                       = {}
+local sentOptionPanelMessage      = {}
 local LANGUAGES                   = {
   { code = "zh_CN", name = "简体中文" },
   { code = "zh_TW", name = "繁體中文" },
@@ -234,6 +235,11 @@ function onLoad(savedData)
   Wait.time(function()
     WebRequest.get(SOURCE_REPO .. 'library.json', libraryDownloadCallback)
   end, 1)
+
+  -- load specific option panel state for debugging / developing
+  if LOAD_DEBUG_OPTION_PANEL then
+    Wait.frames(function() loadOptionPanelState(DEBUG_OPTION_PANEL_STATE) end, 90)
+  end
 end
 
 -- makes objects with the "NotInteractable" tag not interactable
@@ -1458,6 +1464,55 @@ function onClick_spawnPlaceholder(player)
   changeWindowVisibilityForColor(player.color, "downloadWindow", false)
 end
 
+function onClick_toggleOptionPanel(player, clickType)
+  if clickType == "-1" then
+    -- regular behaviour for left-click
+    local newState = changeWindowVisibilityForColor(player.color, "optionPanel")
+
+    -- show/hide secondary windows
+    if newState == true then
+      changeWindowVisibilityForColor(player.color, "blessCurseManager", false)
+      changeWindowVisibilityForColor(player.color, "actionTracker", false)
+      changeWindowVisibilityForColor(player.color, "navPanelFull", false)
+      changeWindowVisibilityForColor(player.color, "navPanelPlay", false)
+
+      if not sentOptionPanelMessage[player.color] then
+        printToColor("Right-click the Option Panel button to show presets.", player.color)
+        sentOptionPanelMessage[player.color] = true
+      end
+    else
+      if blurseVisibility[player.color] then
+        changeWindowVisibilityForColor(player.color, "blessCurseManager", blurseVisibility[player.color])
+      end
+      if actionTrackerVisibility[player.color] then
+        changeWindowVisibilityForColor(player.color, "actionTracker", actionTrackerVisibility[player.color])
+      end
+      navigationOverlayApi.updateVisibility()
+    end
+  elseif clickType == "-2" then
+    -- right-click: show option presets
+    local presetNames = {}
+    for name, _ in pairs(OPTION_PRESETS) do
+      table.insert(presetNames, name)
+    end
+
+    player.showOptionsDialog("Choose an option preset", presetNames, 1,
+      function (presetName)
+        loadOptionPanelState(OPTION_PRESETS[presetName])
+        printToAll("Loaded option preset: " .. presetName, "Green")
+      end)
+  elseif clickType == "-3" then
+    -- middle-click: directly load mods for your name
+    local options = OPTION_PRESETS[player.steam_name]
+    if options then
+      loadOptionPanelState(options)
+      printToAll("Loaded " .. player.steam_name .. "'s preferred options.", "Green")
+    else
+      printToAll("Didn't find " .. player.steam_name .. "'s preferred options.", "Yellow")
+    end
+  end
+end
+
 -- toggles the visibility of the respective UI
 ---@param player tts__Player Player that triggered this
 ---@param windowId string Name of the UI to toggle
@@ -1474,25 +1529,6 @@ function onClick_toggleUi(player, windowId)
     changeWindowVisibilityForColor(player.color, "playAreaGallery", false)
   elseif windowId == "playAreaGallery" then
     changeWindowVisibilityForColor(player.color, "downloadWindow", false)
-  elseif windowId == "optionPanel" then
-    local newState = changeWindowVisibilityForColor(player.color, windowId)
-
-    -- show/hide secondary windows
-    if newState == true then
-      changeWindowVisibilityForColor(player.color, "blessCurseManager", false)
-      changeWindowVisibilityForColor(player.color, "actionTracker", false)
-      changeWindowVisibilityForColor(player.color, "navPanelFull", false)
-      changeWindowVisibilityForColor(player.color, "navPanelPlay", false)
-    else
-      if blurseVisibility[player.color] then
-        changeWindowVisibilityForColor(player.color, "blessCurseManager", blurseVisibility[player.color])
-      end
-      if actionTrackerVisibility[player.color] then
-        changeWindowVisibilityForColor(player.color, "actionTracker", actionTrackerVisibility[player.color])
-      end
-      navigationOverlayApi.updateVisibility()
-    end
-    return
   elseif windowId == "blessCurseManager" then
     -- store the state of the Bless/Curse Manager UI to restore it onLoad()
     blurseVisibility[player.color] = changeWindowVisibilityForColor(player.color, "blessCurseManager")
@@ -2359,7 +2395,7 @@ end
 
 -- loads saved options
 ---@param newOptions table Contains the new state for the option panel
-function loadSettings(newOptions)
+function loadOptionPanelState(newOptions)
   for id, state in pairs(newOptions) do
     if optionPanel[id] ~= state then
       optionPanel[id] = state
