@@ -545,7 +545,11 @@ function activeRedrawEffect(params)
   -- determine if only some tokens are able to be returned to the bag
   local matchingTokensInPlay = {}
   for _, token in ipairs(chaosTokens) do
-    local tokenName = getReadableTokenName(token.getName())
+    if token.memo ~= nil then
+      tokenName = token.memo
+    else
+      tokenName = getReadableTokenName(token.getName())
+    end
 
     -- allow valid tokens or not invalid tokens, also allow any token if both lists empty
     if (redrawData.validTokens[tokenName] ~= nil and isTableEmpty(redrawData.invalidTokens)) or
@@ -745,6 +749,33 @@ function drawChaosToken(params)
 
     -- get data for token description
     local name = token.getName()
+    if name == "Bless" or name == "Curse" then -- Lucky Penny shenanigans
+      token.UI.setXmlTable({
+        {
+          tag = "Panel",
+          attributes = {
+            height = 275,
+            width = 275,
+            scale = "0.4 0.4 1",
+            rotation = "0 0 180",
+            position = "0 0 -15",
+            color = "rgba(0,0,0,0.7)"
+          },
+          children = {
+            {
+              tag = "Text",
+              attributes = {
+                font = "font_arkhamicons",
+                onClick = "Global/luckyPenny(" .. token.getGUID() .. ")",
+                text = "zy",
+                color = "White",
+                fontSize = "125"
+            }
+          }
+        }
+      }
+    })
+    end
     local tokenData = mythosAreaApi.returnTokenData().tokenData or {}
     local specificData = tokenData[name] or {}
     token.setDescription(specificData.description or "")
@@ -757,6 +788,48 @@ function drawChaosToken(params)
   else
     returnChaosTokens()
   end
+end
+
+function luckyPenny(_, tokenGUID)
+  local blurseToken = getObjectFromGUID(tokenGUID)
+  local coinFlip = math.random(2)
+  if coinFlip == 1 then
+    newToken = "token-bless"
+    blurseToken.memo = "Bless"
+  else
+    newToken = "token-curse"
+    blurseToken.memo = "Curse"
+  end
+  blurseToken.UI.setXmlTable({
+    {
+      tag = "VerticalLayout",
+      attributes = {
+        height = 1250,
+        width = 400,
+        padding = "0 0 20 25",
+        scale = "0.4 0.4 1",
+        rotation = "0 0 180",
+        position = "0 -375 -15",
+        spacing = "50"
+      },
+      children = {
+        {
+          tag = "Image",
+          attributes = {
+            height = 400,
+            width = 400,
+            image = newToken,
+          }
+        },
+        {
+          tag = "Image",
+          attributes = {
+            image = "up-arrow"
+          }
+        }
+      }
+    }
+  })
 end
 
 ---------------------------------------------------------
