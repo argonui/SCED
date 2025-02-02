@@ -15,12 +15,6 @@ local tokenSpawnTrackerApi        = require("tokens/TokenSpawnTrackerApi")
 -- general setup
 ---------------------------------------------------------
 
-local loadDebugOptionPanelState   = false
-local debugOptionPanelState       = {
-  showSearchAssistant = true,
-  showCleanUpHelper   = true
-}
-
 -- wait ids for various functions
 local waitIds                     = {}
 
@@ -242,8 +236,8 @@ function onLoad(savedData)
   end, 1)
 
   -- load specific option panel state for debugging / developing
-  if loadDebugOptionPanelState then
-    Wait.frames(function() loadOptionPanelState(debugOptionPanelState) end, 90)
+  if LOAD_DEBUG_OPTION_PANEL then
+    Wait.frames(function() loadOptionPanelState(DEBUG_OPTION_PANEL_STATE) end, 90)
   end
 end
 
@@ -1469,24 +1463,10 @@ function onClick_spawnPlaceholder(player)
   changeWindowVisibilityForColor(player.color, "downloadWindow", false)
 end
 
--- toggles the visibility of the respective UI
----@param player tts__Player Player that triggered this
----@param windowId string Name of the UI to toggle
-function onClick_toggleUi(player, windowId)
-  -- let the Navigation Overlay handle the toggling of its visibility modes
-  if windowId == "Navigation Overlay" then
-    navigationOverlayApi.cycleVisibility(player.color)
-    changeWindowVisibilityForColor(player.color, "optionPanel", false)
-    return
-  end
-
-  -- hide the playAreaGallery / downloadWindow if visible
-  if windowId == "downloadWindow" then
-    changeWindowVisibilityForColor(player.color, "playAreaGallery", false)
-  elseif windowId == "playAreaGallery" then
-    changeWindowVisibilityForColor(player.color, "downloadWindow", false)
-  elseif windowId == "optionPanel" then
-    local newState = changeWindowVisibilityForColor(player.color, windowId)
+function onClick_toggleOptionPanel(player, clickType)
+  if clickType == "-1" then
+    -- regular behaviour for left-click
+    local newState = changeWindowVisibilityForColor(player.color, "optionPanel")
 
     -- show/hide secondary windows
     if newState == true then
@@ -1503,7 +1483,34 @@ function onClick_toggleUi(player, windowId)
       end
       navigationOverlayApi.updateVisibility()
     end
+  else
+    -- for right-/middle-click attempt to load options
+    local options = PREFERRED_OPTIONS[player.steam_name]
+    if options then
+      loadOptionPanelState(options)
+      printToAll("Loaded " .. player.steam_name .. "'s preferred options.", "Green")
+    else
+      printToAll("Didn't find " .. player.steam_name .. "'s preferred options.", "Yellow")
+    end
+  end
+end
+
+-- toggles the visibility of the respective UI
+---@param player tts__Player Player that triggered this
+---@param windowId string Name of the UI to toggle
+function onClick_toggleUi(player, windowId)
+  -- let the Navigation Overlay handle the toggling of its visibility modes
+  if windowId == "Navigation Overlay" then
+    navigationOverlayApi.cycleVisibility(player.color)
+    changeWindowVisibilityForColor(player.color, "optionPanel", false)
     return
+  end
+
+  -- hide the playAreaGallery / downloadWindow if visible
+  if windowId == "downloadWindow" then
+    changeWindowVisibilityForColor(player.color, "playAreaGallery", false)
+  elseif windowId == "playAreaGallery" then
+    changeWindowVisibilityForColor(player.color, "downloadWindow", false)
   elseif windowId == "blessCurseManager" then
     -- store the state of the Bless/Curse Manager UI to restore it onLoad()
     blurseVisibility[player.color] = changeWindowVisibilityForColor(player.color, "blessCurseManager")
