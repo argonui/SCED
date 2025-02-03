@@ -416,6 +416,30 @@ function onPlayerAction(player, action, targets)
         handleTokenAttaching({ player = player, card = target })
       end
     end
+  elseif action == Player.Action.Drop then
+    -- handle dynamic tokens being dropped
+    local dynamicTokensPerCard = {}
+    for _, target in ipairs(targets) do
+      if target.getName() == "DynamicToken" then
+        local searchResult = searchLib.belowPosition(target.getPosition(), "isCard")
+        if #searchResult > 0 then
+          local card = searchResult[1]
+          dynamicTokensPerCard[card] = dynamicTokensPerCard[card] or {}
+          table.insert(dynamicTokensPerCard[card], target)
+        end
+      end
+    end
+
+    for card, dynamicTokens in pairs(dynamicTokensPerCard) do
+      local result = TokenManager.addUseToCard({ card = card, useType = "resource", additionalCount = #dynamicTokens })
+      if result == true then
+        for _, token in ipairs(dynamicTokens) do
+          if token ~= nil then
+            token.destruct()
+          end
+        end
+      end
+    end
   end
 end
 
