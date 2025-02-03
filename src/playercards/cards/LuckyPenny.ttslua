@@ -1,0 +1,91 @@
+require("playercards/CardsWithHelper")
+local guidReferenceApi         = require("core/GUIDReferenceApi")
+local playermatApi             = require("playermat/PlayermatApi")
+
+-- intentionally global
+hasXML          = true
+isHelperEnabled = false
+forcedEffectOn = false
+
+function updateSave()
+  self.script_state = JSON.encode({ isHelperEnabled = isHelperEnabled, forcedEffectOn = forcedEffectOn })
+end
+
+function onLoad(savedData)
+  if savedData and savedData ~= "" then
+    local loadedData = JSON.decode(savedData)
+    isHelperEnabled = loadedData.isHelperEnabled
+    forcedEffectOn = loadedData.forcedEffectOn
+  end
+
+  local matColor = playermatApi.getMatColorByPosition(self.getPosition())
+  local mat = guidReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
+  if forcedEffectOn == false then
+    mat.setVar("luckyPennyEnabled", false)
+  else
+    mat.setVar("luckyPennyEnabled", true)
+  end
+
+  if isHelperEnabled then
+    updateDisplay()
+  end
+  createHelperXML()
+end
+
+function initialize()
+  local matColor = playermatApi.getMatColorByPosition(self.getPosition())
+  local mat = guidReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
+  forcedEffectOn = mat.getVar("luckyPennyEnabled")
+  createHelperXML()
+end
+
+function createHelperXML()
+  self.UI.setXml("")
+  if forcedEffectOn == false then
+    buttonLabel = "Enable Forced"
+  else
+    buttonLabel = "Disable Forced"
+  end
+  
+  local xmlTable = { {
+    tag = "Button",
+    attributes = {
+      active = "false",
+      id = "Helper",
+      height = 450,
+      width = 1400,
+      rotation = "0 0 180",
+      scale = "0.1 0.1 1",
+      position = "0 -55 -22",
+      padding = "50 50 50 50",
+      font = "font_teutonic-arkham",
+      fontSize = 250,
+      onClick = "toggleForcedEffect",
+      color = "#77674DE6",
+      textColor = "White"
+    },
+    value = buttonLabel
+  } }
+  self.UI.setXmlTable(xmlTable)
+end
+
+function toggleForcedEffect()
+  forcedEffectOn = not forcedEffectOn
+  local matColor = playermatApi.getMatColorByPosition(self.getPosition())
+  local mat = guidReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
+  local luckyPennyEnabled = mat.getVar("luckyPennyEnabled")
+  mat.setVar("luckyPennyEnabled", not luckyPennyEnabled)
+  updateDisplay()
+  createHelperXML()
+end
+
+function onDestroy()
+  shutOff()
+end
+
+function shutOff()
+  local matColor = playermatApi.getMatColorByPosition(self.getPosition())
+  local mat = guidReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
+  mat.setVar("luckyPennyEnabled", false)
+  forcedEffectOn = false
+end

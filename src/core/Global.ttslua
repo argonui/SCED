@@ -504,7 +504,11 @@ end
 function returnChaosTokens()
   local chaosBag = findChaosBag()
   for _, token in pairs(chaosTokens) do
-    if token ~= nil then chaosBag.putObject(token) end
+    if token ~= nil then
+      token.memo = nil
+      token.destroyAttachments()
+      chaosBag.putObject(token)
+    end
   end
   chaosTokens = {}
   isTokenXMLActive = false
@@ -514,6 +518,8 @@ end
 function returnChaosTokenToBag(params)
   local name = params.token.getName()
   local chaosBag = findChaosBag()
+  params.token.memo = nil
+  params.token.destroyAttachments()
   chaosBag.putObject(params.token)
   tokenArrangerApi.layout()
   if name == "Bless" or name == "Curse" then
@@ -551,7 +557,11 @@ function activeRedrawEffect(params)
   -- determine if only some tokens are able to be returned to the bag
   local matchingTokensInPlay = {}
   for _, token in ipairs(chaosTokens) do
-    local tokenName = getReadableTokenName(token.getName())
+    if token.memo ~= nil then
+      tokenName = token.memo
+    else
+      tokenName = getReadableTokenName(token.getName())
+    end
 
     -- allow valid tokens or not invalid tokens, also allow any token if both lists empty
     if (redrawData.validTokens[tokenName] ~= nil and isTableEmpty(redrawData.invalidTokens)) or
@@ -631,6 +641,12 @@ function returnAndRedraw(_, tokenGUID)
   local params = { token = returnedToken, fromBag = true }
   returnChaosTokenToBag(params)
 
+  -- remove XML from tokens in play
+  isTokenXMLActive = false
+  for _, token in ipairs(chaosTokens) do
+    token.UI.setXml("")
+  end
+
   chaosTokens[indexOfReturnedToken] = drawChaosToken({
     mat = mat,
     drawAdditional = true,
@@ -647,12 +663,6 @@ function returnAndRedraw(_, tokenGUID)
       local invertedTable = createChaosTokenNameLookupTable()
       removeChaosToken(invertedTable[tokenName])
     end
-  end
-
-  -- remove XML from tokens in play
-  isTokenXMLActive = false
-  for _, token in ipairs(chaosTokens) do
-    token.UI.setXml("")
   end
 
   redrawData = {}
@@ -751,6 +761,38 @@ function drawChaosToken(params)
 
     -- get data for token description
     local name = token.getName()
+        
+    if name == "Bless" or name == "Curse" then
+      local isLuckyPennyEnabled = params.mat.getVar("luckyPennyEnabled")
+      if isLuckyPennyEnabled then
+        token.UI.setXmlTable({
+          {
+            tag = "Panel",
+            attributes = {
+              height = 275,
+              width = 275,
+              scale = "0.4 0.4 1",
+              rotation = "0 0 180",
+              position = "0 0 -15",
+              color = "rgba(0,0,0,0.7)"
+            },
+            children = {
+              {
+                tag = "Text",
+                attributes = {
+                  font = "font_arkhamicons",
+                  onClick = "Global/luckyPenny(" .. token.getGUID() .. ")",
+                  text = "zy",
+                  color = "White",
+                  fontSize = "125"
+                }
+              }
+            }
+          }
+        })
+      end
+    end
+
     local tokenData = mythosAreaApi.returnTokenData().tokenData or {}
     local specificData = tokenData[name] or {}
     token.setDescription(specificData.description or "")
@@ -762,6 +804,37 @@ function drawChaosToken(params)
     return token
   else
     returnChaosTokens()
+  end
+end
+
+function luckyPenny(_, tokenGUID)
+  local blurseToken = getObjectFromGUID(tokenGUID)
+
+  local coinFlip = math.random(2)
+  if coinFlip == 1 then
+    blurseToken.memo = "Bless"
+  else
+    blurseToken.memo = "Curse"
+  end
+  local pos = blurseToken.getPosition() + Vector(1.35, 0.1, 0)
+  local id = blurseToken.memo:lower()
+  local url = ID_URL_MAP[id].url or ""
+
+  if url ~= "" then
+    spawnObject({
+      type = 'Custom_Tile',
+      position = pos,
+      scale = { 0.5, 1.0, 0.5 },
+      rotation = { 0, 270, 0 },
+      callback_function = function(obj)
+        blurseToken.UI.setXml("")
+        blurseToken.addAttachment(obj)
+      end
+    }).setCustomObject({
+      type = 2,
+      image = url,
+      thickness = 0.1
+    })
   end
 end
 
