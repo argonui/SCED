@@ -17,6 +17,7 @@ local tokenSpawnTrackerApi        = require("tokens/TokenSpawnTrackerApi")
 
 -- wait ids for various functions
 local waitIds                     = {}
+local dynamicTokensPerCard        = {}
 
 local chaosTokens                 = {}
 local chaosTokensLastMatGUID      = nil
@@ -284,6 +285,8 @@ function tryObjectEnterContainer(container, object)
     return false
   elseif object.type == "Card" and object.getName() ~= "Atlach-Nacha" then
     handleTokenDetaching({ card = object })
+  elseif dynamicTokensPerCard[object] ~= nil then
+    waitIds["addToken" .. object.getGUID()] = nil
   end
 
   playAreaApi.tryObjectEnterContainer(container, object)
@@ -416,30 +419,6 @@ function onPlayerAction(player, action, targets)
         handleTokenAttaching({ player = player, card = target })
       end
     end
-  elseif action == Player.Action.Drop then
-    -- handle dynamic tokens being dropped
-    local dynamicTokensPerCard = {}
-    for _, target in ipairs(targets) do
-      if target.getName() == "DynamicToken" then
-        local searchResult = searchLib.belowPosition(target.getPosition(), "isCard")
-        if #searchResult > 0 then
-          local card = searchResult[1]
-          dynamicTokensPerCard[card] = dynamicTokensPerCard[card] or {}
-          table.insert(dynamicTokensPerCard[card], target)
-        end
-      end
-    end
-
-    for card, dynamicTokens in pairs(dynamicTokensPerCard) do
-      local result = TokenManager.addUseToCard({ card = card, useType = "resource", additionalCount = #dynamicTokens })
-      if result == true then
-        for _, token in ipairs(dynamicTokens) do
-          if token ~= nil then
-            token.destruct()
-          end
-        end
-      end
-    end
   end
 end
 
@@ -484,6 +463,39 @@ function onObjectDrop(playerColor, obj)
         printToColor("Updated minicard ID to match investigator", playerColor, "Green")
       end
     end
+  elseif obj.getMemo() == "dynamic" then
+    -- handle dynamic tokens being dropped
+    local searchResult = searchLib.belowPosition(obj.getPosition(), "isCard")
+    if #searchResult == 0 then return end
+
+    -- track dynamic tokens per card
+    local card = searchResult[1]
+    local cardGuid = card.getGUID()
+    dynamicTokensPerCard[card] = dynamicTokensPerCard[card] or {}
+    table.insert(dynamicTokensPerCard[card], obj)
+
+    -- make sure it can't be dropped again
+    obj.interactable = false
+
+    if waitIds["addToken" .. cardGuid] then
+      Wait.stop(waitIds["addToken" .. cardGuid])
+    end
+
+    -- spawn matching tokens after a delay
+    waitIds["addToken" .. cardGuid] = Wait.time(function()
+      local result = TokenManager.addUseToCard({ card = card, useType = "resource", additionalCount = #dynamicTokensPerCard[card] })
+      for _, token in ipairs(dynamicTokensPerCard[card]) do
+        if token ~= nil then
+          if result == true then
+            token.destruct()
+          else
+            obj.interactable = true
+          end
+        end
+      end
+      dynamicTokensPerCard[card] = nil
+      waitIds["addToken" .. cardGuid] = nil
+    end, 0.3)
   else
     maybeUpdateActionTrackerTokens(obj, 20)
   end
