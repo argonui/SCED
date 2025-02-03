@@ -263,15 +263,6 @@ function searchDeckAndDiscardArea(filter)
   return searchArea(pos, DECK_DISCARD_AREA.size * self.getScale(), filter)
 end
 
--- rounds a number to the specified amount of decimal places
----@param num number Initial value
----@param numDecimalPlaces number Amount of decimal places
----@return number: rounded number
-function round(num, numDecimalPlaces)
-  local mult = 10 ^ (numDecimalPlaces or 0)
-  return math.floor(num * mult + 0.5) / mult
-end
-
 -- updates the internal "messageColor" which is used for print/broadcast statements if no player is seated
 ---@param clickedByColor? string Colorstring of player who clicked a button
 function updateMessageColor(clickedByColor)
@@ -398,28 +389,10 @@ function doUpkeep(_, clickedByColor, isRightClick)
       obj.call("doInUpkeep")
     end
 
-    if obj.type == "Card" and not obj.hasTag("Investigator") then
-      -- do not continue for investigator cards
+    if obj.type == "Card" and not obj.hasTag("Investigator") then -- do not continue for investigator cards
+      GlobalApi.maybeReadyCard(obj, rot, false)
+
       local cardMetadata = JSON.decode(obj.getGMNotes()) or {}
-
-      if not (obj.getVar("do_not_ready") or obj.hasTag("DoNotReady")) then
-        local cardRotation = obj.getRotation()
-        local yRotDiff = round(cardRotation.y, 0) - rot.y
-
-        if yRotDiff < 0 then
-          yRotDiff = yRotDiff + 360
-        end
-
-        -- rotate cards to the next multiple of 90° towards 0°
-        local cardRotY = rot.y
-        if yRotDiff > 90 and yRotDiff <= 180 then
-          cardRotY = rot.y + 90
-        elseif yRotDiff > 180 and yRotDiff < 270 then
-          cardRotY = rot.y + 270
-        end
-
-        obj.setRotation(cardRotation:setAt("y", cardRotY))
-      end
 
       -- detect Forced Learning to handle card drawing accordingly
       if cardMetadata.id == "08031" then
@@ -430,8 +403,7 @@ function doUpkeep(_, clickedByColor, isRightClick)
       if cardMetadata.uses ~= nil and self.positionToLocal(obj.getPosition()).x > -1 and not obj.is_face_down then
         tokenManagerApi.maybeReplenishCard(obj, cardMetadata.uses, self)
       end
-    elseif obj.type == "Deck" and not obj.is_face_down and not forcedLearning then
-      -- check face up decks for forced learning
+    elseif obj.type == "Deck" and not obj.is_face_down and not forcedLearning then -- check face up decks for forced learning
       for _, deepObj in ipairs(obj.getObjects()) do
         local cardMetadata = JSON.decode(deepObj.gm_notes) or {}
         if cardMetadata.id == "08031" then

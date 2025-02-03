@@ -113,6 +113,7 @@ local tabIdTable                  = {
 
 -- optionPanel data (intentionally not local!)
 optionPanel                       = {}
+local sentOptionPanelMessage      = {}
 local LANGUAGES                   = {
   { code = "zh_CN", name = "简体中文" },
   { code = "zh_TW", name = "繁體中文" },
@@ -234,6 +235,11 @@ function onLoad(savedData)
   Wait.time(function()
     WebRequest.get(SOURCE_REPO .. 'library.json', libraryDownloadCallback)
   end, 1)
+
+  -- load specific option panel state for debugging / developing
+  if LOAD_DEBUG_OPTION_PANEL then
+    Wait.frames(function() loadOptionPanelState(DEBUG_OPTION_PANEL_STATE) end, 90)
+  end
 end
 
 -- makes objects with the "NotInteractable" tag not interactable
@@ -1531,6 +1537,55 @@ function onClick_spawnPlaceholder(player)
   changeWindowVisibilityForColor(player.color, "downloadWindow", false)
 end
 
+function onClick_toggleOptionPanel(player, clickType)
+  if clickType == "-1" then
+    -- regular behaviour for left-click
+    local newState = changeWindowVisibilityForColor(player.color, "optionPanel")
+
+    -- show/hide secondary windows
+    if newState == true then
+      changeWindowVisibilityForColor(player.color, "blessCurseManager", false)
+      changeWindowVisibilityForColor(player.color, "actionTracker", false)
+      changeWindowVisibilityForColor(player.color, "navPanelFull", false)
+      changeWindowVisibilityForColor(player.color, "navPanelPlay", false)
+
+      if not sentOptionPanelMessage[player.color] then
+        printToColor("Right-click the Option Panel button to show presets.", player.color)
+        sentOptionPanelMessage[player.color] = true
+      end
+    else
+      if blurseVisibility[player.color] then
+        changeWindowVisibilityForColor(player.color, "blessCurseManager", blurseVisibility[player.color])
+      end
+      if actionTrackerVisibility[player.color] then
+        changeWindowVisibilityForColor(player.color, "actionTracker", actionTrackerVisibility[player.color])
+      end
+      navigationOverlayApi.updateVisibility()
+    end
+  elseif clickType == "-2" then
+    -- right-click: show option presets
+    local presetNames = {}
+    for name, _ in pairs(OPTION_PRESETS) do
+      table.insert(presetNames, name)
+    end
+
+    player.showOptionsDialog("Choose an option preset", presetNames, 1,
+      function (presetName)
+        loadOptionPanelState(OPTION_PRESETS[presetName])
+        printToAll("Loaded option preset: " .. presetName, "Green")
+      end)
+  elseif clickType == "-3" then
+    -- middle-click: directly load mods for your name
+    local options = OPTION_PRESETS[player.steam_name]
+    if options then
+      loadOptionPanelState(options)
+      printToAll("Loaded " .. player.steam_name .. "'s preferred options.", "Green")
+    else
+      printToAll("Didn't find " .. player.steam_name .. "'s preferred options.", "Yellow")
+    end
+  end
+end
+
 -- toggles the visibility of the respective UI
 ---@param player tts__Player Player that triggered this
 ---@param windowId string Name of the UI to toggle
@@ -1547,25 +1602,6 @@ function onClick_toggleUi(player, windowId)
     changeWindowVisibilityForColor(player.color, "playAreaGallery", false)
   elseif windowId == "playAreaGallery" then
     changeWindowVisibilityForColor(player.color, "downloadWindow", false)
-  elseif windowId == "optionPanel" then
-    local newState = changeWindowVisibilityForColor(player.color, windowId)
-
-    -- show/hide secondary windows
-    if newState == true then
-      changeWindowVisibilityForColor(player.color, "blessCurseManager", false)
-      changeWindowVisibilityForColor(player.color, "actionTracker", false)
-      changeWindowVisibilityForColor(player.color, "navPanelFull", false)
-      changeWindowVisibilityForColor(player.color, "navPanelPlay", false)
-    else
-      if blurseVisibility[player.color] then
-        changeWindowVisibilityForColor(player.color, "blessCurseManager", blurseVisibility[player.color])
-      end
-      if actionTrackerVisibility[player.color] then
-        changeWindowVisibilityForColor(player.color, "actionTracker", actionTrackerVisibility[player.color])
-      end
-      navigationOverlayApi.updateVisibility()
-    end
-    return
   elseif windowId == "blessCurseManager" then
     -- store the state of the Bless/Curse Manager UI to restore it onLoad()
     blurseVisibility[player.color] = changeWindowVisibilityForColor(player.color, "blessCurseManager")
@@ -2432,7 +2468,7 @@ end
 
 -- loads saved options
 ---@param newOptions table Contains the new state for the option panel
-function loadSettings(newOptions)
+function loadOptionPanelState(newOptions)
   for id, state in pairs(newOptions) do
     if optionPanel[id] ~= state then
       optionPanel[id] = state
@@ -3211,7 +3247,15 @@ end
 function TokenManager.addUseToCard(params)
   local card = params.card
   local useType = params.useType
+  local additionalCount = params.additionalCount or 1
+
+  -- only allow 1 trigger per 5 frame for the same card
+  if lastCard == card then return false end
+  lastCard = card
+  Wait.frames(function() lastCard = nil end, 5)
+
   local metadata = JSON.decode(card.getGMNotes()) or {}
+
   -- get correct data for location
   if metadata.type == "Location" then
     if not card.is_face_down and metadata.locationFront ~= nil then
@@ -3231,7 +3275,7 @@ function TokenManager.addUseToCard(params)
     if useInfo.token == useType then
       -- artificially create replenish data to re-use that existing functionality
       useInfo.count = 999
-      useInfo.replenish = 1
+      useInfo.replenish = additionalCount
       match = true
     else
       -- artificially disable other uses from replenishing
@@ -3568,6 +3612,59 @@ function stopTokenTransformUpdating(card)
   end
 end
 
+-- readies a card respective to its owner
+---@param params table Parameters for the function:
+--- card tts__Object Card to ready
+--- ownerRotation? tts__Vector Rotation of the owner
+--- smooth? boolean Should the card be rotated smoothly?
+function maybeReadyCard(params)
+  local card          = params.card
+  local ownerRotation = params.ownerRotation
+  local smooth        = params.smooth
+
+  if card.getVar("do_not_ready") or card.hasTag("DoNotReady") then return end
+
+  -- if not provided, get the rotation of the owner
+  if not ownerRotation then
+    local owner = guidReferenceApi.getOwnerOfObject(card)
+    if owner == "Mythos" then
+      ownerRotation = playAreaApi.returnRotation()
+    else
+      ownerRotation = playermatApi.returnRotation(owner)
+    end
+  end
+
+  local cardRotation = card.getRotation()
+  local roundedRotY  = round(cardRotation.y, 0)
+  local yRotDiff     = roundedRotY - ownerRotation.y
+
+  if yRotDiff < 0 then
+    yRotDiff = yRotDiff + 360
+  end
+
+  -- rotate cards to the next multiple of 90° towards 0°
+  local cardRotY = ownerRotation.y
+  if yRotDiff > 90 and yRotDiff <= 180 then
+    cardRotY = ownerRotation.y + 90
+  elseif yRotDiff > 180 and yRotDiff < 270 then
+    cardRotY = ownerRotation.y + 270
+  end
+
+  -- optionally use a smooth rotation
+  if smooth then
+    card.setRotationSmooth(cardRotation:setAt("y", cardRotY))
+  else
+    card.setRotation(cardRotation:setAt("y", cardRotY))
+  end
+
+  -- returns whether the card is now fully readied (and wasn't ready before)
+  if cardRotY == ownerRotation.y and roundedRotY ~= ownerRotation.y then
+    return true
+  else
+    return false
+  end
+end
+
 -- removes tokens from the provided card/deck
 function removeTokensFromObject(params)
   local object = params.object
@@ -3607,4 +3704,10 @@ function removeTokensFromObject(params)
       end
     end
   end
+end
+
+-- rounds a number (num) to the Nth decimal (dec)
+function round(num, dec)
+  local mult = 10 ^ (dec or 0)
+  return math.floor(num * mult + 0.5) / mult
 end
