@@ -3226,8 +3226,10 @@ function TokenManager.replenishTokens(card, useInfo)
     end
   elseif useInfo.token == "doom" then
     for _, obj in ipairs(searchLib.onObject(card, "isDoom", 0.8)) do
-      foundTokens = foundTokens + math.abs(obj.getQuantity())
-      table.insert(maybeDeleteThese, obj)
+      if not obj.hasTag("DoomCounter_ignore") then
+        foundTokens = foundTokens + math.abs(obj.getQuantity())
+        table.insert(maybeDeleteThese, obj)
+      end
     end
   else
     -- search for the token instead if there's no special resource state for it
@@ -3304,6 +3306,11 @@ function TokenManager.addUseToCard(params)
     if metadata.uses == nil then
       metadata.uses = { { token = "clue" } }
     end
+  end
+
+  -- if there are no uses at all, add "empty" uses for fake replenishing on other cards for doom only
+  if params.useType == "doom" and metadata.uses == nil then
+    metadata.uses = { { token = "doom" } }
   end
 
   local match = false
@@ -3384,6 +3391,9 @@ end
 
 function addTagToToken(obj, tag)
   obj.addTag(tag)
+  if tag == "DoomCounter_ignore" then
+    obj.highlightOn({ 0.67, 0.11, 0 })
+  end
 end
 
 function updateUniversalActionAbilityToken(obj, params)
