@@ -114,6 +114,9 @@ function updateSave()
 end
 
 function onLoad(savedData)
+  -- if MAX_SEALED is not set, default to 99
+  MAX_SEALED = MAX_SEALED or 99
+
   -- verify sealed tokens
   for _, guid in ipairs(JSON.decode(savedData) or {}) do
     local token = getObjectFromGUID(guid)
@@ -267,8 +270,41 @@ function releaseOneToken(playerColor)
     printToColor("No sealed token(s) found", playerColor)
   else
     printToColor("Releasing token", playerColor)
-    putTokenAway(table.remove(sealedTokens))
-    updateSave()
+
+    -- make list of token names
+    local tokenNames = {}
+    local differentNames = 0
+    for _, guid in ipairs(sealedTokens) do
+      local token = getObjectFromGUID(guid)
+      if token ~= nil then
+        local name = token.getName()
+        if tokenNames[name] == nil then
+          differentNames = differentNames + 1
+        end
+        tokenNames[name] = guid
+      end
+    end
+
+    -- if there are multiple tokens, ask the player to choose
+    if differentNames < 2 then
+      putTokenAway(table.remove(sealedTokens))
+      updateSave()
+    else
+      local choices = {}
+      for name, _ in pairs(tokenNames) do
+        table.insert(choices, name)
+      end
+      Player[playerColor].showOptionsDialog("Choose token to release:", choices, 1, function(optionText, optionIndex)
+        for i = #sealedTokens, 1, -1 do
+          local token = getObjectFromGUID(sealedTokens[i])
+          if token ~= nil and token.getName() == optionText then
+            putTokenAway(table.remove(sealedTokens, i))
+            updateSave()
+            break
+          end
+        end
+      end)
+    end
   end
   Player[playerColor].clearSelectedObjects()
 end
