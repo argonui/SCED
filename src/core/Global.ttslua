@@ -205,7 +205,10 @@ function onLoad(savedData)
     updateOptionPanelState()
   end
 
-  makeNotInteractable()
+  for _, obj in ipairs(getObjects()) do
+    onObjectSpawn(obj)
+  end
+
   getModVersion()
   updateHandVisibility()
   updateBlurseVisibility()
@@ -240,13 +243,6 @@ function onLoad(savedData)
   -- load specific option panel state for debugging / developing
   if LOAD_DEBUG_OPTION_PANEL then
     Wait.frames(function() loadOptionPanelState(DEBUG_OPTION_PANEL_STATE) end, 90)
-  end
-end
-
--- makes objects with the "NotInteractable" tag not interactable
-function makeNotInteractable()
-  for _, obj in ipairs(getObjectsWithTag("NotInteractable")) do
-    obj.interactable = false
   end
 end
 
@@ -444,9 +440,17 @@ end
 function onObjectSpawn(obj)
   if obj.hasTag("NotInteractable") then
     obj.interactable = false
-  else
-    maybeUpdateActionTrackerTokens(obj, 5)
   end
+
+  if obj.hasTag("DoomCounter_ignore") then
+    obj.highlightOn({ 0.67, 0.11, 0 })
+  end
+
+  if obj.hasTag("Temporary") then
+    obj.highlightOn({ 0, 0.7843, 0.7843 })
+  end
+
+  maybeUpdateActionTrackerTokens(obj, 5)
 end
 
 function onObjectDrop(playerColor, obj)
@@ -2925,8 +2929,7 @@ function TokenManager.spawnMultipleTokens(card, tokenType, tokenCount, shiftDown
     callbackName = "updateUniversalActionAbilityToken"
     callbackParams = {
       class  = activeInvestigatorData.class,
-      symbol = subType,
-      addTag = temporary and "Temporary" or nil
+      symbol = subType
     }
   end
 
@@ -2936,7 +2939,8 @@ function TokenManager.spawnMultipleTokens(card, tokenType, tokenCount, shiftDown
       tokenType      = tokenType,
       rotation       = card.getRotation(),
       callbackName   = callbackName,
-      callbackParams = callbackParams
+      callbackParams = callbackParams,
+      addTag         = temporary and "Temporary" or nil
     })
   end
 end
@@ -2948,6 +2952,7 @@ function TokenManager.spawnToken(params)
   local callbackName   = params.callbackName
   local callbackParams = params.callbackParams
   local scriptstate    = params.scriptstate
+  local addTag         = params.addTag
   local spawnData      = { position = params.position }
 
   -- maybe set callback function
@@ -2978,6 +2983,13 @@ function TokenManager.spawnToken(params)
   -- maybe directly update the script state of the token
   if scriptstate then
     spawnData.data["LuaScriptState"] = tostring(scriptstate)
+  end
+
+  -- maybe update tags
+  if addTag then
+    spawnData.data["Tags"] = spawnData.data["Tags"] or {}
+    table.insert(spawnData.data["Tags"], addTag)
+    removeDuplicatesAndSort(spawnData.data["Tags"])
   end
 
   -- get rotation for the token
@@ -3226,8 +3238,10 @@ function TokenManager.replenishTokens(card, useInfo)
     end
   elseif useInfo.token == "doom" then
     for _, obj in ipairs(searchLib.onObject(card, "isDoom", 0.8)) do
-      foundTokens = foundTokens + math.abs(obj.getQuantity())
-      table.insert(maybeDeleteThese, obj)
+      if not obj.hasTag("DoomCounter_ignore") then
+        foundTokens = foundTokens + math.abs(obj.getQuantity())
+        table.insert(maybeDeleteThese, obj)
+      end
     end
   else
     -- search for the token instead if there's no special resource state for it
@@ -3306,6 +3320,11 @@ function TokenManager.addUseToCard(params)
     end
   end
 
+  -- if there are no uses at all, add "empty" uses for fake replenishing on other cards for doom only
+  if params.useType == "doom" and metadata.uses == nil then
+    metadata.uses = { { token = "doom" } }
+  end
+
   local match = false
   for _, useInfo in ipairs(metadata.uses or {}) do
     if useInfo.token == useType then
@@ -3382,15 +3401,8 @@ end
 -- Callback functions for token spawning
 ---------------------------------------------------------
 
-function addTagToToken(obj, tag)
-  obj.addTag(tag)
-end
-
 function updateUniversalActionAbilityToken(obj, params)
   obj.call("updateClassAndSymbol", params)
-  if params.addTag then
-    obj.call("addTemporaryStatus")
-  end
 end
 
 function updateStateToken(obj, stateID)

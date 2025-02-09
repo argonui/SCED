@@ -1,0 +1,69 @@
+local playermatApi         = require("playermat/PlayermatApi")
+local survivorSkills = {}
+
+function onHover()
+  readDiscardPile()
+end
+
+function readDiscardPile()
+  local matColor = playermatApi.getMatColorByPosition(self.getPosition())
+  local deckAreaObjects = playermatApi.getDeckAreaObjects(matColor)
+  survivorSkills = {}
+
+  if deckAreaObjects.discard then
+    if deckAreaObjects.discard.type == 'Card' then
+      local discardCard = deckAreaObjects.discard
+      local metadata = JSON.decode(discardCard.getGMNotes()) or {}
+
+      if metadata.type == 'Skill' and metadata.class == 'Survivor' then
+        table.insert(survivorSkills, discardCard.getName())
+      end
+    elseif deckAreaObjects.discard.type == 'Deck' then
+      local discardDeck = deckAreaObjects.discard
+
+      for i, card in ipairs(discardDeck.getObjects()) do
+        local decodedGMNotes = JSON.decode(card.gm_notes) or {}
+
+        if decodedGMNotes.type == 'Skill' and decodedGMNotes.class == 'Survivor' then
+          table.insert(survivorSkills, card.name)
+        end
+      end
+    end
+  end
+
+  generateContextMenu()
+end
+
+function pullCard(cardName)
+  local matColor = playermatApi.getMatColorByPosition(self.getPosition())
+  local deckAreaObjects = playermatApi.getDeckAreaObjects(matColor)
+
+  if deckAreaObjects.discard then
+    if deckAreaObjects.discard.type == 'Card' then
+      local discardCard = deckAreaObjects.discard
+
+      if discardCard.getName() == cardName then
+        discardCard.setPositionSmooth(self.getPosition() + Vector(0.5, 0.5, 0.5), false, true)
+      end
+    elseif deckAreaObjects.discard.type == 'Deck' then
+      local discardDeck = deckAreaObjects.discard
+
+      for i, card in ipairs(discardDeck.getObjects()) do
+        if card.name == cardName then
+          discardDeck.takeObject({ guid = card.guid, position = self.getPosition() + Vector(0.5, 0.5, 0.5), smooth = false })
+          break
+        end
+      end
+    end
+  end
+end
+
+function generateContextMenu()
+  self.clearContextMenu()
+
+  for i, cardName in pairs(survivorSkills) do
+    self.addContextMenuItem(cardName, function()
+      pullCard(cardName)
+    end)
+  end     
+end
