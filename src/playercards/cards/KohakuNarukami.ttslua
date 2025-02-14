@@ -49,6 +49,7 @@ end
 function addTokenToBag(player, _, tokenType)
   if not updated then return end
   blessCurseManagerApi.addToken(tokenType, player.color)
+  faceDownReactionToken()
   updated = false
   Wait.frames(maybeUpdateButtonState, 2)
 end
@@ -59,6 +60,7 @@ function removeAndExtraAction(player)
   blessCurseManagerApi.removeToken("Bless", player.color)
   blessCurseManagerApi.removeToken("Curse", player.color)
   blessCurseManagerApi.removeToken("Curse", player.color)
+  faceDownReactionToken()
   updated = false
   Wait.frames(maybeUpdateButtonState, 2)
 
@@ -116,6 +118,15 @@ function maybeUpdateButtonState()
     state.Action = true
   end
 
+  local reactionToken = getReactionToken()
+  if reactionToken ~= nil then
+    if reactionToken.is_face_down then
+      state.Bless = false
+      state.Curse = false
+      state.Action = false
+    end
+  end
+
   setUiState(state)
   updated = true
 end
@@ -135,8 +146,14 @@ function setUiState(params)
 end
 
 function errorMessage(_, _, triggeringButton)
+  local reactionToken = getReactionToken()
+  local actionSpent = false
+  if reactionToken ~= nil then actionSpent = reactionToken.is_face_down end
+
   local numInBag = blessCurseManagerApi.getBlessCurseInBag()
-  if triggeringButton == "Action" then
+  if actionSpent and triggeringButton ~= "ElderSign" then
+    broadcastToAll("Ability already used.", "Red")
+  elseif triggeringButton == "Action" then
     broadcastToAll("There are not enough Blesses and/or Curses in the chaos bag.", "Red")
   elseif numInBag.Bless == 10 and numInBag.Curse == 10 then
     broadcastToAll("No more tokens can be added to the chaos bag.", "Red")
