@@ -4,6 +4,7 @@ local guidReferenceApi     = require("core/GUIDReferenceApi")
 local playermatApi         = require("playermat/PlayermatApi")
 local searchLib            = require("util/SearchLib")
 local tokenManagerApi      = require("tokens/TokenManagerApi")
+local zones                = require("playermat/Zones")
 
 -- intentionally global
 hasXML                     = true
@@ -144,4 +145,29 @@ function errorMessage(_, _, triggeringButton)
   else
     broadcastToAll("There are more Curse tokens than Bless tokens in the chaos bag.", "Red")
   end
+end
+
+-- get reaction token on investigator card
+function getReactionToken()
+  local reactionToken
+  local matColor = playermatApi.getMatColorByPosition(self.getPosition())
+  local pos = zones.getZonePosition(matColor, "Investigator")
+  local searchResult = searchLib.atPosition(pos, "isCardOrDeck")
+  if #searchResult == 1 then
+    local reaction = searchLib.onObject(searchResult[1], "isTileOrToken")
+    if #reaction == 1 then
+      if string.sub(reaction[1].getData().Nickname, -8, -1) == "Reaction" then
+        reactionToken = reaction[1]
+      end
+    end
+  end
+
+  return reactionToken
+end
+
+-- make reaction token face down
+function faceDownReactionToken()
+  local obj = getReactionToken()
+  if obj == nil then return end
+  if not obj.is_face_down then obj.flip() end
 end
