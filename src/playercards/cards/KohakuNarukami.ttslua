@@ -48,29 +48,29 @@ end
 
 function addTokenToBag(player, _, tokenType)
   if not updated then return end
+  updated = false
   blessCurseManagerApi.addToken(tokenType, player.color)
   faceDownReactionToken()
-  updated = false
-  Wait.frames(maybeUpdateButtonState, 2)
+  Wait.frames(function() maybeUpdateButtonState(false) end, 5)
 end
 
 function removeAndExtraAction(player)
   if not updated then return end
+  updated = false
   blessCurseManagerApi.removeToken("Bless", player.color)
   blessCurseManagerApi.removeToken("Bless", player.color)
   blessCurseManagerApi.removeToken("Curse", player.color)
   blessCurseManagerApi.removeToken("Curse", player.color)
   faceDownReactionToken()
-  updated = false
-  Wait.frames(maybeUpdateButtonState, 2)
+  Wait.frames(function() maybeUpdateButtonState(false) end, 5)
 
   local position = self.getPosition()
   local matColor = playermatApi.getMatColorByPosition(position)
-  local mat = guidReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
+  local mat      = guidReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
   local rotation = mat.getRotation()
 
   -- find empty action token slots by checking snap points
-  local snaps = mat.getSnapPoints()
+  local snaps    = mat.getSnapPoints()
 
   -- get first empty slot in the top row (so the second empty slot because of the ability token)
   local emptyPos = position -- default to card position
@@ -93,14 +93,14 @@ function removeAndExtraAction(player)
 end
 
 function elderSignAbility(player)
+  updated = false
   blessCurseManagerApi.addToken("Bless", player.color)
   blessCurseManagerApi.addToken("Curse", player.color)
-  updated = false
-  Wait.frames(maybeUpdateButtonState, 2)
+  Wait.frames(maybeUpdateButtonState, 5)
 end
 
 -- count tokens in the bag and show appropriate buttons
-function maybeUpdateButtonState()
+function maybeUpdateButtonState(isAvailable)
   local numInBag = blessCurseManagerApi.getBlessCurseInBag()
   local state = { Bless = false, Curse = false, Action = false, ElderSign = false }
 
@@ -120,13 +120,11 @@ function maybeUpdateButtonState()
     state.Action = true
   end
 
-  local reactionToken = getReactionToken()
-  if reactionToken ~= nil then
-    if reactionToken.is_face_down then
-      state.Bless = false
-      state.Curse = false
-      state.Action = false
-    end
+  -- override if ability is being used right now or was used before
+  if isAvailable == false or isReactionTokenFaceDown() then
+    state.Bless  = false
+    state.Curse  = false
+    state.Action = false
   end
 
   setUiState(state)
@@ -148,12 +146,8 @@ function setUiState(params)
 end
 
 function errorMessage(_, _, triggeringButton)
-  local reactionToken = getReactionToken()
-  local isTokenFaceDown = false
-  if reactionToken ~= nil then isTokenFaceDown = reactionToken.is_face_down end
-
   local numInBag = blessCurseManagerApi.getBlessCurseInBag()
-  if isTokenFaceDown and triggeringButton ~= "ElderSign" then
+  if isReactionTokenFaceDown() and triggeringButton ~= "ElderSign" then
     broadcastToAll("Ability already used.", "Red")
   elseif triggeringButton == "Action" then
     broadcastToAll("There are not enough Blesses and/or Curses in the chaos bag.", "Red")
@@ -168,25 +162,25 @@ end
 
 -- get reaction token on investigator card
 function getReactionToken()
-  local reactionToken
   local matColor = playermatApi.getMatColorByPosition(self.getPosition())
-  local pos = zones.getZonePosition(matColor, "Investigator")
-  local rot = playermatApi.returnRotation(matColor)
-  local size = Vector(2.5, 2, 3.5)
-  local searchResult = searchLib.inArea(pos, rot, size, "isUniversalToken")
-  for _, obj in ipairs(searchResult) do
-      if string.sub(obj.getName(), -8, -1) == "Reaction" then
-        reactionToken = obj
-        break
-      end
+  local pos      = zones.getZonePosition(matColor, "Investigator")
+  local rot      = playermatApi.returnRotation(matColor)
+  local size     = Vector(2.5, 2, 3.5)
+  for _, obj in ipairs(searchLib.inArea(pos, rot, size, "isUniversalToken")) do
+    if string.sub(obj.getName(), -8, -1) == "Reaction" then
+      return obj
+    end
   end
-
-  return reactionToken
+  return nil
 end
 
 -- make reaction token face down
 function faceDownReactionToken()
   local obj = getReactionToken()
-  if obj == nil then return end
-  if not obj.is_face_down then obj.flip() end
+  if obj ~= nil and not obj.is_face_down then obj.flip() end
+end
+
+function isReactionTokenFaceDown()
+  local obj = getReactionToken()
+  return obj ~= nil and (obj.resting == false or obj.is_face_down)
 end
