@@ -55,8 +55,8 @@ function onLoad()
 end
 
 function resetTables()
-  numInPlay = { Bless = 0, Curse = 0 }
-  tokensTaken = { Bless = {}, Curse = {} }
+  numInPlay    = { Bless = 0,  Curse = 0 }
+  tokensTaken  = { Bless = {}, Curse = {} }
   sealedTokens = {}
 end
 
@@ -66,26 +66,18 @@ function initializeState()
   -- count tokens in the bag
   local chaosBag = chaosBagApi.findChaosBag()
   for _, v in ipairs(chaosBag.getObjects()) do
-    if v.name == "Bless" then
-      numInPlay.Bless = numInPlay.Bless + 1
-    elseif v.name == "Curse" then
-      numInPlay.Curse = numInPlay.Curse + 1
+    if v.name == "Bless" or v.name == "Curse" then
+      numInPlay[v.name] = numInPlay[v.name] + 1
     end
   end
 
   -- find tokens in the play area
   for _, obj in ipairs(getObjects()) do
     local pos = obj.getPosition()
-    if obj.hasTag("tempToken") then
-      -- skip the tokens from the Token Arranger
-    elseif pos.x > -65 and pos.x < 10 and pos.z > -35 and pos.z < 35 and obj.type == "Tile" then
-      if obj.getName() == "Bless" then
-        table.insert(tokensTaken.Bless, obj.getGUID())
-        numInPlay.Bless = numInPlay.Bless + 1
-      elseif obj.getName() == "Curse" then
-        table.insert(tokensTaken.Curse, obj.getGUID())
-        numInPlay.Curse = numInPlay.Curse + 1
-      end
+    if not obj.hasTag("tempToken") and isBlurseToken(obj) and pos.x > -65 and pos.x < 10 and pos.z > -35 and pos.z < 35 then
+      local name = obj.getName()
+      table.insert(tokensTaken[name], obj.getGUID())
+      numInPlay[name] = numInPlay[name] + 1
     end
   end
 
@@ -115,8 +107,13 @@ function broadcastCount(token)
 end
 
 function broadcastStatus(color)
-  broadcastToColor("Curse Tokens " .. formatTokenCount("Curse"), color, "White")
-  broadcastToColor("Bless Tokens " .. formatTokenCount("Bless"), color, "White")
+  if color then
+    broadcastToColor("Curse Tokens " .. formatTokenCount("Curse"), color, "White")
+    broadcastToColor("Bless Tokens " .. formatTokenCount("Bless"), color, "White")
+  else
+    broadcastToAll("Curse Tokens " .. formatTokenCount("Curse"), "White")
+    broadcastToAll("Bless Tokens " .. formatTokenCount("Bless"), "White")
+  end
 end
 
 ---------------------------------------------------------
@@ -152,7 +149,7 @@ end
 
 function isBlurseToken(obj)
   local name = obj.getName()
-  return name == "Bless" or name == "Curse"
+  return (name == "Bless" or name == "Curse") and obj.type == "Tile"
 end
 
 ---------------------------------------------------------
@@ -245,46 +242,50 @@ function formatTokenCount(type, omitBrackets)
 end
 
 -- seals a token on a card (called by cards that seal bless/curse tokens)
----@param param table This contains the type and guid of the sealed token
-function sealedToken(param)
-  table.insert(tokensTaken[param.type], param.guid)
-  broadcastCount(param.type)
+---@param params table This contains the type and guid of the sealed token
+function sealedToken(params)
+  table.insert(tokensTaken[params.type], params.guid)
+  if not params.silent then
+    broadcastCount(params.type)
+  end
   updateButtonLabels()
 end
 
 -- returns a token to the bag (called by cards that seal bless/curse tokens)
----@param param table This contains the type and guid of the released token
-function releasedToken(param)
-  for i, v in ipairs(tokensTaken[param.type]) do
-    if v == param.guid then
-      table.remove(tokensTaken[param.type], i)
+---@param params table This contains the type and guid of the released token
+function releasedToken(params)
+  for i, v in ipairs(tokensTaken[params.type]) do
+    if v == params.guid then
+      table.remove(tokensTaken[params.type], i)
       break
     end
   end
 
-  if not param.fromBag then
-    updateDisplayAndBroadcast(param.type)
+  if not params.fromBag then
+    updateDisplayAndBroadcast(params.type, params.silent)
   end
 end
 
 -- removes a token (called by cards that seal bless/curse tokens)
----@param param table This contains the type and guid of the released token
-function returnedToken(param)
-  for i, v in ipairs(tokensTaken[param.type]) do
-    if v == param.guid then
-      table.remove(tokensTaken[param.type], i)
-      numInPlay[param.type] = numInPlay[param.type] - 1
+---@param params table This contains the type and guid of the released token
+function returnedToken(params)
+  for i, v in ipairs(tokensTaken[params.type]) do
+    if v == params.guid then
+      table.remove(tokensTaken[params.type], i)
+      numInPlay[params.type] = numInPlay[params.type] - 1
       break
     end
   end
-  updateDisplayAndBroadcast(param.type)
+  updateDisplayAndBroadcast(params.type)
 end
 
-function updateDisplayAndBroadcast(type)
+function updateDisplayAndBroadcast(type, silent)
   if not updating then
     updating = true
     Wait.frames(function()
-      broadcastCount(type)
+      if not silent then
+        broadcastCount(type)
+      end
       updateButtonLabels()
       updating = false
     end, 5)
