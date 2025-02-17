@@ -1,4 +1,4 @@
-local playermatApi         = require("playermat/PlayermatApi")
+local playermatApi   = require("playermat/PlayermatApi")
 local survivorSkills = {}
 
 function onHover()
@@ -12,19 +12,12 @@ function readDiscardPile()
 
   if deckAreaObjects.discard then
     if deckAreaObjects.discard.type == 'Card' then
-      local discardCard = deckAreaObjects.discard
-      local metadata = JSON.decode(discardCard.getGMNotes()) or {}
-
-      if metadata.type == 'Skill' and metadata.class == 'Survivor' then
-        table.insert(survivorSkills, discardCard.getName())
+      if isSurvivorSkill(deckAreaObjects.discard.getGMNotes()) then
+        table.insert(survivorSkills, deckAreaObjects.discard.getName())
       end
     elseif deckAreaObjects.discard.type == 'Deck' then
-      local discardDeck = deckAreaObjects.discard
-
-      for i, card in ipairs(discardDeck.getObjects()) do
-        local decodedGMNotes = JSON.decode(card.gm_notes) or {}
-
-        if decodedGMNotes.type == 'Skill' and decodedGMNotes.class == 'Survivor' then
+      for _, card in ipairs(deckAreaObjects.discard.getObjects()) do
+        if isSurvivorSkill(card.gm_notes) then
           table.insert(survivorSkills, card.name)
         end
       end
@@ -34,25 +27,26 @@ function readDiscardPile()
   generateContextMenu()
 end
 
+function isSurvivorSkill(gmnotes)
+  local metadata = JSON.decode(gmnotes) or {}
+  return metadata.type == 'Skill' and metadata.class == 'Survivor'
+end
+
 function pullCard(cardName)
   local matColor = playermatApi.getMatColorByPosition(self.getPosition())
   local deckAreaObjects = playermatApi.getDeckAreaObjects(matColor)
 
-  if deckAreaObjects.discard then
-    if deckAreaObjects.discard.type == 'Card' then
-      local discardCard = deckAreaObjects.discard
+  if not deckAreaObjects.discard then return end
 
-      if discardCard.getName() == cardName then
-        discardCard.setPositionSmooth(self.getPosition() + Vector(0.5, 0.5, 0.5), false, true)
-      end
-    elseif deckAreaObjects.discard.type == 'Deck' then
-      local discardDeck = deckAreaObjects.discard
-
-      for i, card in ipairs(discardDeck.getObjects()) do
-        if card.name == cardName then
-          discardDeck.takeObject({ guid = card.guid, position = self.getPosition() + Vector(0.5, 0.5, 0.5), smooth = false })
-          break
-        end
+  if deckAreaObjects.discard.type == 'Card' then
+    if deckAreaObjects.discard.getName() == cardName then
+      deckAreaObjects.discard.setPositionSmooth(self.getPosition() + Vector(0.5, 0.5, 0.5), false, true)
+    end
+  elseif deckAreaObjects.discard.type == 'Deck' then
+    for i, card in ipairs(deckAreaObjects.discard.getObjects()) do
+      if card.name == cardName then
+        deckAreaObjects.discard.takeObject({ guid = card.guid, position = self.getPosition() + Vector(0.5, 0.5, 0.5), smooth = false })
+        break
       end
     end
   end
@@ -62,8 +56,6 @@ function generateContextMenu()
   self.clearContextMenu()
 
   for i, cardName in pairs(survivorSkills) do
-    self.addContextMenuItem(cardName, function()
-      pullCard(cardName)
-    end)
-  end     
+    self.addContextMenuItem(cardName, function() pullCard(cardName) end)
+  end
 end
