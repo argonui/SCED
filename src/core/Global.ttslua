@@ -451,6 +451,12 @@ function onObjectSpawn(obj)
     obj.highlightOn({ 0, 0.7843, 0.7843 })
   end
 
+  if obj.hasTag("Reloadable") then
+    obj.addContextMenuItem("Redownload this", function(playerColor)
+      placeholder_download({ filename = obj.getGMNotes(), player = Player[playerColor], replace = obj.getGUID() })
+    end)
+  end
+
   maybeUpdateActionTrackerTokens(obj, 5)
 end
 
@@ -2140,13 +2146,12 @@ function contentDownloadCallback(request, params)
 
     spawnTable.position = pos
     spawnTable.rotation = { 0, 270, 0 }
-  else
   end
 
-  -- if spawned from menu, move the camera and/or ping the table
-  if params.name then
-    spawnTable["callback_function"] = function(obj)
-      Wait.time(function()
+  spawnTable["callback_function"] = function(obj)
+    Wait.time(function()
+      -- if spawned from menu, move the camera and/or ping the table
+      if params.name then
         -- move camera
         if params.player then
           params.player.lookAt({
@@ -2162,8 +2167,13 @@ function contentDownloadCallback(request, params)
         if pingPlayer.color ~= "Grey" then
           pingPlayer.pingTable(obj.getPosition())
         end
-      end, 0.1)
-    end
+      end
+
+      -- add gmnotes for "reloading"
+      obj.setGMNotes(params.filename)
+      obj.addTag("Reloadable")
+      onObjectSpawn(obj)
+    end, 0.1)
   end
 
   if pcall(function() spawnObjectJSON(spawnTable) end) then
