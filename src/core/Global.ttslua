@@ -10,6 +10,7 @@ local soundCubeApi                = require("core/SoundCubeApi")
 local tokenArrangerApi            = require("tokens/TokenArrangerApi")
 local tokenChecker                = require("tokens/TokenChecker")
 local tokenSpawnTrackerApi        = require("tokens/TokenSpawnTrackerApi")
+local zones                       = require("playermat/Zones")
 
 ---------------------------------------------------------
 -- general setup
@@ -448,6 +449,12 @@ function onObjectSpawn(obj)
 
   if obj.hasTag("Temporary") then
     obj.highlightOn({ 0, 0.7843, 0.7843 })
+  end
+
+  if obj.hasTag("Reloadable") then
+    obj.addContextMenuItem("Redownload this", function(playerColor)
+      placeholder_download({ filename = obj.getGMNotes(), player = Player[playerColor], replace = obj.getGUID() })
+    end)
   end
 
   maybeUpdateActionTrackerTokens(obj, 5)
@@ -1620,7 +1627,8 @@ function onClick_toggleOptionPanel(player, clickType)
       end)
   elseif clickType == "-3" then
     -- middle-click: directly load mods for your name
-    local options = OPTION_PRESETS[player.steam_name]
+    local steamName = string.gsub(player.steam_name, "%s+", "") -- strip spaces from steam_name
+    local options = OPTION_PRESETS[steamName]
     if options then
       loadOptionPanelState(options)
       printToAll("Loaded " .. player.steam_name .. "'s preferred options.", "Green")
@@ -2142,13 +2150,12 @@ function contentDownloadCallback(request, params)
 
     spawnTable.position = pos
     spawnTable.rotation = { 0, 270, 0 }
-  else
   end
 
-  -- if spawned from menu, move the camera and/or ping the table
-  if params.name then
-    spawnTable["callback_function"] = function(obj)
-      Wait.time(function()
+  spawnTable["callback_function"] = function(obj)
+    Wait.time(function()
+      -- if spawned from menu, move the camera and/or ping the table
+      if params.name then
         -- move camera
         if params.player then
           params.player.lookAt({
@@ -2164,8 +2171,13 @@ function contentDownloadCallback(request, params)
         if pingPlayer.color ~= "Grey" then
           pingPlayer.pingTable(obj.getPosition())
         end
-      end, 0.1)
-    end
+      end
+
+      -- add gmnotes for "reloading"
+      obj.setGMNotes(params.filename)
+      obj.addTag("Reloadable")
+      onObjectSpawn(obj)
+    end, 0.1)
   end
 
   if pcall(function() spawnObjectJSON(spawnTable) end) then
@@ -2290,14 +2302,11 @@ function playermatRemovalSelected(player, selectedIndex, id)
     if player.color ~= "Grey" then
       player.pingTable(mat.getPosition())
     end
-    player.showConfirmDialog(
-      "Do you really want to remove " .. matColor .. "'s playermat and related objects? This can't be reversed.",
-      function()
-        removePlayermat(matColor)
-      end)
+    player.showConfirmDialog("Do you really want to remove " .. matColor .. "'s playermat and related objects?",
+      function() removePlayermat(matColor) end)
   else
-    -- info dialog that it is already deleted
-    player.showInfoDialog(matColor .. "'s playermat has already been removed.")
+    player.showConfirmDialog("Do you want to respawn " .. matColor .. "'s playermat and related objects?",
+    function() spawnPlayermat(matColor) end)
   end
 
   -- set selected value back to first option
@@ -2332,6 +2341,115 @@ function removePlayermat(matColor)
 
   -- update the action tracker
   updateActionTrackerRows()
+end
+
+function spawnPlayermat(matColor)
+  local sourceBag = guidReferenceApi.getObjectByOwnerAndType("Mythos", "ObjectSourceBag")
+
+  -- error handling for missing sourceBag
+  if not sourceBag then
+    broadcastToAll("Option panel source bag could not be found!", "Red")
+    return
+  end
+
+  local defaultPosition = {
+    White  = Vector( -55, 1.45, 16.1 ),
+    Orange = Vector( -55, 1.45, -16.1 ),
+    Green  = Vector( -30.35, 1.45, 26.6 ),
+    Red    = Vector( -30.35, 1.45, -26.6 )
+  }
+  local defaultRotation = {
+    White  = Vector( 0, 270, 0 ),
+    Orange = Vector( 0, 270, 0 ),
+    Green  = Vector( 0, 0, 0 ),
+    Red    = Vector( 0, 180, 0 )
+  }
+  local indexNames = {
+    ["Clues"]     = "ClickableClueCounter",
+    ["Damage"]    = "DamageCounter",
+    ["Horror"]    = "HorrorCounter",
+    ["Resources"] = "ResourceCounter"
+  }
+  function spawnCoro()
+    -- collect spawndata
+    local spawnData = {}
+    for _, objData in ipairs(sourceBag.getData().ContainedObjects) do
+      if objData.Nickname == "Playermat Objects" then
+        for _, deepObjData in ipairs(objData.ContainedObjects) do
+          local name = deepObjData.Nickname
+          if name == nil or name == "" then name = "HandZone" end
+          spawnData[name] = deepObjData
+        end
+      end
+    end
+
+    -- handle mat spawning first
+    updateTransformData(spawnData.Playermat, defaultPosition[matColor], defaultRotation[matColor])
+
+    -- update color data of mat
+    spawnData.Playermat.Memo = matColor
+    local scriptState = JSON.decode(spawnData.Playermat.LuaScriptState)
+    scriptState.playerColor = matColor
+    spawnData.Playermat.LuaScriptState = JSON.encode(scriptState)
+
+    -- spawn the mat
+    local playermat = spawnObjectData({ data = spawnData.Playermat })
+    coWaitFrames(10)
+    guidReferenceApi.editIndex(matColor, "Playermat", playermat.getGUID())
+
+    -- spawn objects
+    for name, objData in pairs(spawnData) do
+      if name ~= "Playermat" then
+        local localPos = zones.getLocalZoneData(matColor, name)
+        if localPos then
+          local pos = playermat.positionToWorld(localPos)
+          local rot = defaultRotation[matColor]:copy()
+
+          if name == "Hand" then
+            rot = rot + Vector(0, 180, 0)
+          elseif name == "Damage" or name == "Horror" then
+            rot = rot + Vector(0, 10, 180)
+          elseif name == "Clues" or name == "Clue Counter" or name == "Resources" then
+            rot = rot + Vector(0, 10, 0)
+          end
+
+          updateTransformData(objData, pos, rot)
+          local obj = spawnObjectData({ data = objData })
+          coWaitFrames(3)
+
+          -- update index
+          local indexName = string.gsub(name, " ", "")
+          guidReferenceApi.editIndex(matColor, indexName or indexNames[indexName], obj.getGUID())
+        end
+      end
+    end
+
+    -- also spawn any helpers that are already enabled (hardcoded list atm)
+    for _, helperName in ipairs({ "Hand Helper", "Search Assistant "}) do
+      if optionPanel["show" .. string.gsub(helperName, " ", "")] then
+        local data = playermatApi.getHelperSpawnData(matColor, helperName)
+        spawnOrRemoveHelper(state, helperName, data.position, data.rotation, matColor)
+        coWaitFrames(3)
+      end
+    end
+
+    -- ensure playermat has correct references
+    playermat.call("getOwnedObjects")
+
+    -- update the action tracker
+    updateActionTrackerRows()
+    return 1
+  end
+  startLuaCoroutine(Global, "spawnCoro")
+end
+
+function updateTransformData(data, position, rotation)
+  data.Transform.posX = position.x
+  data.Transform.posY = position.y
+  data.Transform.posZ = position.z
+  data.Transform.rotX = rotation.x
+  data.Transform.rotY = rotation.y
+  data.Transform.rotZ = rotation.z
 end
 
 -- sets the option panel to the correct state (corresponding to 'optionPanel')
@@ -3755,6 +3873,12 @@ function removeTokensFromObject(params)
         trash.putObject(obj)
       end
     end
+  end
+end
+
+function coWaitFrames(frameCount)
+  for k = 1, frameCount do
+    coroutine.yield(0)
   end
 end
 
