@@ -1,10 +1,203 @@
-VALID_TOKENS = {
-  ["Bless"] = true,
-  ["Elder Sign"] = true
+local blessCurseManagerApi = require("chaosbag/BlessCurseManagerApi")
+local chaosBagApi          = require("chaosbag/ChaosBagApi")
+local tokenArrangerApi     = require("tokens/TokenArrangerApi")
+
+sealedTokens               = {}
+
+-- XML background color for each token for label when stacked
+local tokenColor           = {
+  ["Skull"]       = "#4A0400E6",
+  ["Cultist"]     = "#173B0BE6",
+  ["Tablet"]      = "#1D2238E6",
+  ["Elder Thing"] = "#4D2331E6",
+  ["Auto-fail"]   = "#9B0004E6",
+  ["Bless"]       = "#9D702CE6",
+  ["Curse"]       = "#633A84E6",
+  ["Frost"]       = "#404450E6",
+  ["Elder Sign"]  = "#50A8CEE6",
+  [""]            = "#77674DE6"
 }
 
-KEEP_OPEN = true
-UPDATE_ON_HOVER = true
-MAX_SEALED = 11
+function updateSave()
+  updateStackSize()
+  self.script_state = JSON.encode({ sealedTokens = sealedTokens })
+end
 
-require("playercards/CardsThatSealTokens")
+function onLoad(savedData)
+  if savedData and savedData ~= "" then
+    local loadedData = JSON.decode(savedData)
+    sealedTokens     = loadedData.sealedTokens or {}
+
+    -- verify sealed tokens
+    for _, guid in ipairs(sealedTokens) do
+      local token = getObjectFromGUID(guid)
+      if token ~= nil then
+        table.insert(sealedTokens, guid)
+      end
+    end
+  end
+
+  self.addContextMenuItem("Release all tokens", releaseAllTokens)
+  self.addContextMenuItem("Seal tokens", sealAllTokens)
+
+  updateStackSize()
+
+  self.addTag("CardThatSeals")
+end
+
+function resetSealedTokens()
+  sealedTokens = {}
+  updateSave()
+end
+
+function sealAllTokens(playerColor)
+  if #sealedTokens > 0 then
+    printToColor("Tokens already sealed.", playerColor)
+    return
+  end
+
+  function coinside()
+    chaosBagApi.releaseAllSealedTokens(playerColor, "Bless", true)
+    coWaitFrames(5)
+    chaosBagApi.releaseAllSealedTokens(playerColor, "Elder Sign", true)
+    coWaitFrames(5)
+
+    for i = 1, 10 do
+      sealToken("Bless")
+      coWaitFrames(1)
+    end
+
+    sealToken("Elder Sign")
+    coWaitFrames(1)
+    blessCurseManagerApi.broadcastStatus()
+    return 1
+  end
+
+  startLuaCoroutine(self, "coinside")
+end
+
+-- seals the named token on this card
+function sealToken(name)
+  if not chaosBagApi.canTouchChaosTokens() then return end
+  local chaosbag = chaosBagApi.findChaosBag()
+  for i, obj in ipairs(chaosbag.getObjects()) do
+    if obj.name == name then
+      chaosbag.takeObject({
+        position = self.getPosition() + Vector(0, 0.5 + 0.1 * #sealedTokens, 0),
+        rotation = self.getRotation(),
+        index = i - 1,
+        smooth = false,
+        callback_function = function(token)
+          local guid = token.getGUID()
+          table.insert(sealedTokens, guid)
+          tokenArrangerApi.layout()
+          if name == "Bless" or name == "Curse" then
+            blessCurseManagerApi.sealedToken(name, guid, true)
+          end
+          -- destroy XML on just covered token
+          if #sealedTokens > 1 then
+            local coveredToken = getObjectFromGUID(sealedTokens[#sealedTokens - 1])
+            if coveredToken ~= nil then
+              coveredToken.UI.setXml("")
+            else
+              table.remove(sealedTokens, #sealedTokens - 1)
+            end
+          end
+          updateSave()
+        end
+      })
+      return
+    end
+  end
+end
+
+-- releases all sealed tokens
+function releaseAllTokens(playerColor, _, _, filterName, silent)
+  if not chaosBagApi.canTouchChaosTokens() then return end
+  if #sealedTokens == 0 then
+    if not silent then
+      printToColor("No sealed token(s) found", playerColor)
+    end
+  else
+    if not silent then
+      printToColor("Releasing token(s)", playerColor)
+    end
+
+    for i = #sealedTokens, 1, -1 do
+      local success = putTokenAway(sealedTokens[i], filterName)
+      if success then
+        table.remove(sealedTokens, i)
+      end
+    end
+
+    updateSave()
+  end
+  Player[playerColor].clearSelectedObjects()
+end
+
+-- returns the token (referenced by GUID) to the chaos bag
+---@return boolean: True if a token was returned
+function putTokenAway(guid, filterName)
+  local token = getObjectFromGUID(guid)
+  if not token then return false end
+
+  local name = token.getName()
+  if filterName and filterName ~= name then return false end
+
+  local chaosbag = chaosBagApi.findChaosBag()
+  chaosbag.putObject(token)
+
+  tokenArrangerApi.layout()
+
+  if name == "Bless" or name == "Curse" then
+    blessCurseManagerApi.releasedToken(name, guid)
+  end
+
+  return true
+end
+
+function updateStackSize()
+  if #sealedTokens == 0 then return end
+
+  -- get topmost sealed token
+  local topToken = getObjectFromGUID(sealedTokens[#sealedTokens])
+  if topToken == nil then return end
+
+  -- handling for two-digit numbers
+  local fontsize = 380
+  if #sealedTokens > 9 then
+    fontsize = 360
+  end
+
+  topToken.UI.setXmlTable({
+    {
+      tag = "Panel",
+      attributes = {
+        height = 380,
+        width = 380,
+        rotation = "0 0 180",
+        scale = "0.2 0.2 1",
+        position = "0 0 -12",
+        color = tokenColor[topToken.getName()] or "#77674DE6"
+      },
+      children = {
+        tag = "Text",
+        attributes = {
+          fontSize = fontsize,
+          font = "font_teutonic-arkham",
+          color = "#ffffff",
+          outline = "#000000",
+          outlineSize = "8 -8",
+          text = "x" .. #sealedTokens
+        }
+      }
+    }
+  })
+end
+
+-- pauses the current coroutine for 'frameCount' frames
+function coWaitFrames(frameCount)
+  for k = 1, frameCount do
+    coroutine.yield(0)
+  end
+end

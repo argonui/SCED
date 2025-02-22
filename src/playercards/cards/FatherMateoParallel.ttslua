@@ -34,6 +34,7 @@ function onLoad(savedData)
     loopId           = loadedData.loopId
   end
   if isHelperEnabled then updateDisplay() end
+  self.addTag("CardThatSeals")
 end
 
 function initialize()
@@ -60,8 +61,13 @@ function resetSealedTokens()
   updateSave()
 end
 
-function releaseAllTokens(playerColor)
+function releaseAllTokensWrapper(params)
+  releaseAllTokens(params.playerColor, _, _, params.filterName, params.silent)
+end
+
+function releaseAllTokens(playerColor, _, _, filterName, silent)
   if not chaosBagApi.canTouchChaosTokens() then return end
+  if filterName and filterName ~= "Bless" then return end
 
   local chaosbag = chaosBagApi.findChaosBag()
 
@@ -72,7 +78,7 @@ function releaseAllTokens(playerColor)
       if token then
         count = count + 1
         chaosbag.putObject(token)
-        blessCurseManagerApi.releasedToken(token.getName(), state)
+        blessCurseManagerApi.releasedToken(token.getName(), state, nil, silent)
       end
     end
   end
@@ -87,12 +93,16 @@ function releaseAllTokens(playerColor)
   updateSave()
 
   if count == 0 then
-    printToColor("No tokens to release found!", playerColor)
+    if not silent then
+      printToColor("No tokens to release found!", playerColor)
+    end
     return
   end
 
-  local str = (count == 1) and "token" or "tokens"
-  printToColor("Returning " .. count .. " " .. str .. " to the token pool", playerColor)
+  if not silent then
+    local str = (count == 1) and "token" or "tokens"
+    printToColor("Returning " .. count .. " " .. str .. " to the token pool", playerColor)
+  end
 
   tokenArrangerApi.layout()
   Player[playerColor].clearSelectedObjects()
