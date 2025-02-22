@@ -1,4 +1,5 @@
 local guidReferenceApi = require("core/GUIDReferenceApi")
+local mythosAreaApi    = require("mythos/MythosAreaApi")
 local playAreaApi      = require("playarea/PlayAreaApi")
 local searchLib        = require("util/SearchLib")
 
@@ -85,8 +86,7 @@ function broadcastDoom(val)
   end
 
   -- sum the doom thresholds and modifiers
-  local doomThreshold = (md.doomThreshold or 0) + mod + (md.doomThresholdPerInvestigator or 0) * invCount +
-      soloDoomThreshold
+  local doomThreshold = (md.doomThreshold or 0) + mod + (md.doomThresholdPerInvestigator or 0) * invCount + soloDoomThreshold
 
   local doomInPlayCounter = guidReferenceApi.getObjectByOwnerAndType("Mythos", "DoomInPlayCounter")
   if doomInPlayCounter and md.subtractDoomInPlay then
@@ -151,7 +151,7 @@ end
 
 -- get doom threshold from top card of Agenda deck
 function getDoomMetadata()
-  local agendaPos = Vector(-2.94, 1.6, 0.37)
+  local agendaPos = mythosAreaApi.getAgendaPosition()
   local searchResult = searchLib.atPosition(agendaPos, "isCardOrDeck")
 
   if #searchResult == 1 then
@@ -183,11 +183,8 @@ function getDoomThresholdModifier()
   end
 
   -- check mythos area (make sure we don't apply cards twice that are in both areas)
-  local searchPos = Vector(-1.31, 2, -4)
-  local searchRot = Vector(0, 270, 0)
-  local searchSize = Vector(25, 1, 13.5)
-  local searchFilter = "isCard"
-  for _, obj in ipairs(searchLib.inArea(searchPos, searchRot, searchSize, searchFilter)) do
+  local mythosArea = guidReferenceApi.getObjectByOwnerAndType("Mythos", "MythosArea")
+  for _, obj in ipairs(searchLib.onObject(mythosArea, "isCard", Vector(0.9, 1, 0.9))) do
     if not obj.is_face_down and appliedModifierGUIDs[obj.getGUID()] == nil then
       local md = JSON.decode(obj.getGMNotes()) or {}
       mod = mod + (md.modifyDoomThreshold or 0)

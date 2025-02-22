@@ -8,23 +8,29 @@ local searchLib                   = require("util/SearchLib")
 local tokenArrangerApi            = require("tokens/TokenArrangerApi")
 local tokenSpawnTrackerApi        = require("tokens/TokenSpawnTrackerApi")
 
+-- local coordinates for mythos objects
+local AGENDA_POS                  = Vector(0.056, 0.1, 0.251)
+local ACT_POS                     = Vector(-0.777, 0.1, 0.251)
+local ENCOUNTER_DECK_POS          = Vector(0.88, 0.1, 0.391)
+local ENCOUNTER_DISCARD_POS       = Vector(1.597, 0.1, 0.391)
 local ENCOUNTER_DECK_DISCARD_AREA = {
   upperLeft  = { x = 1.770, z = 0.15 },
   lowerRight = { x = 0.700, z = 0.59 },
   center     = { x = 1.235, y = 0.5, z = 0.37 },
   size       = Vector(0.5, 3, 0.2)
 }
+local SCENARIO_REFERENCE_CARD_POS = Vector(-1.6, 0.1, 0.37)
 local SCENARIO_REFERENCE_AREA     = {
   upperLeft  = { x = -1.45, z = 0.15 },
   lowerRight = { x = -1.75, z = 0.59 }
 }
 
-local isReshuffling               = false
-local collisionEnabled            = false
+local isReshuffling    = false
+local collisionEnabled = false
 local currentScenario, useFrontData, tokenData, scenarioCard
 
 -- for stopping multiple collisions of the same object
-local collisionTable              = {}
+local collisionTable   = {}
 
 function updateSave()
   local data = {
@@ -111,7 +117,7 @@ function onCollisionEnter(collisionInfo)
 
     if cardName == "Scenario" or md.type == "ScenarioReference" then
       scenarioCard = object
-      scenarioCard.setPosition({ -3.85, 1.60, -10.39 })
+      scenarioCard.setPosition(getScenarioReferenceCardPosition())
       getDataFromReferenceCard(scenarioCard, cardName, md)
     end
   end
@@ -206,8 +212,8 @@ end
 -- gets the encounter deck objects (for internal functions and Api calls)
 function getEncounterDeckObjects()
   local encounterDeckObjects = {}
-  local center = self.positionToWorld(ENCOUNTER_DECK_DISCARD_AREA.center)
-  local size   = ENCOUNTER_DECK_DISCARD_AREA.size * self.getScale()
+  local center               = self.positionToWorld(ENCOUNTER_DECK_DISCARD_AREA.center)
+  local size                 = ENCOUNTER_DECK_DISCARD_AREA.size * self.getScale()
 
   for _, object in ipairs(searchLib.inArea(center, self.getRotation(), size, "isCardOrDeck")) do
     if self.positionToLocal(object.getPosition()).x > 1.25 then
@@ -284,11 +290,11 @@ function reshuffleEncounterDeck()
   if encounterDeckObjects.discard then
     -- flips discard pile
     if not encounterDeckObjects.discard.is_face_down then
-      encounterDeckObjects.discard.setRotation({ 0, -90, 180 })
+      encounterDeckObjects.discard.setRotation(self.getRotation():setAt("z", 180))
     end
 
     -- make a new encounter deck
-    encounterDeckObjects.discard.setPosition(Vector(ENCOUNTER_DECK_POS) + Vector({ 0, 1, 0 }))
+    encounterDeckObjects.discard.setPosition(getEncounterDeckPosition())
 
     if encounterDeckObjects.draw == nil then
       encounterDeckObjects.draw = encounterDeckObjects.discard
@@ -349,4 +355,24 @@ function inArea(point, bounds)
     and point.x > bounds.lowerRight.x
     and point.z > bounds.upperLeft.z
     and point.z < bounds.lowerRight.z)
+end
+
+function getAgendaPosition()
+  return self.positionToWorld(AGENDA_POS)
+end
+
+function getActPosition()
+  return self.positionToWorld(ACT_POS)
+end
+
+function getEncounterDeckPosition()
+  return self.positionToWorld(ENCOUNTER_DECK_POS)
+end
+
+function getEncounterDiscardPosition()
+  return self.positionToWorld(ENCOUNTER_DISCARD_POS)
+end
+
+function getScenarioReferenceCardPosition()
+  return self.positionToWorld(SCENARIO_REFERENCE_CARD_POS)
 end
