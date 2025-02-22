@@ -146,7 +146,7 @@ function handleSpawnedCard(obj)
   Wait.time(function()
     if obj ~= nil then
       local objData = obj.getData()
-      updateOriginalCardData(objData, cardData)
+      updateOriginalCardData(objData, cardData.data)
 
       local pos = obj.getPosition()
       local rot = obj.getRotation()
@@ -174,7 +174,7 @@ function handleSpawnedDeck(deck)
           local cardData = getCardById({ id = md.id })
           if cardData then
             local originalId = objData["CardID"]
-            local state = updateOriginalCardData(objData, cardData)
+            local state = updateOriginalCardData(objData, cardData.data)
             if state then
               changedSomething                   = true
 
@@ -207,32 +207,43 @@ function handleSpawnedDeck(deck)
 end
 
 function updateOriginalCardData(originalData, replaceData)
-  originalData["CardID"]     = replaceData.data["CardID"]
-  originalData["CustomDeck"] = replaceData.data["CustomDeck"]
-  originalData["Name"]       = replaceData.data["Name"]
-  originalData["Nickname"]   = replaceData.data["Nickname"] or originalData["Nickname"]
+  for _, tag in ipairs(originalData["Tags"] or {}) do
+    if tag == "Replaced" then return false end
+  end
 
-  local tagMap               = turnTableIntoMap(replaceData.data["Tags"] or {})
-  if tagMap["Replaced"] then return false end
+  originalData["CardID"]     = replaceData["CardID"]
+  originalData["CustomDeck"] = replaceData["CustomDeck"]
+  originalData["Name"]       = replaceData["Name"]
+  originalData["Nickname"]   = replaceData["Nickname"] or originalData["Nickname"]
+  originalData["Tags"]       = originalData["Tags"] or replaceData["Tags"] or {}
+  table.insert(originalData["Tags"], "Replaced")
 
-  tagMap["Replaced"]   = true
-  originalData["Tags"] = turnMapIntoTable(tagMap)
-
-  processCard(originalData, tagMap)
+  processCard(originalData)
   return true
 end
 
-function processCard(cardData, tagMap)
+function processCard(cardData)
+  local hasPlayerCardTag   = false
+  local hasScenarioCardTag = false
+
+  for _, tag in ipairs(cardData["Tags"]) do
+    if tag == "PlayerCard" then
+      hasPlayerCardTag = true
+    elseif tag == "ScenarioCard" then
+      hasScenarioCardTag = true
+    end
+  end
+
   -- has both or neither tag, can't work out back
-  if tagMap.PlayerCard == tagMap.ScenarioCard then
+  if hasPlayerCardTag == hasScenarioCardTag then
     printToAll("Missing or double tag for '" .. cardData["Nickname"] .. "'.")
     return false
   end
 
   local newBack
-  if tagMap.PlayerCard then
+  if hasPlayerCardTag then
     newBack = CARD_BACK_URL.PlayerCard
-  elseif tagMap.ScenarioCard then
+  elseif hasScenarioCardTag then
     newBack = CARD_BACK_URL.ScenarioCard
   end
 
@@ -244,20 +255,4 @@ function processCard(cardData, tagMap)
     customDeckData["BackURL"] = newBack
   end
   return true
-end
-
-function turnTableIntoMap(t)
-  local m = {}
-  for _, v in ipairs(t) do
-    m[v] = true
-  end
-  return m
-end
-
-function turnMapIntoTable(map)
-  local t = {}
-  for k, _ in pairs(map) do
-    table.insert(t, k)
-  end
-  return t
 end
