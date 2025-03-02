@@ -370,51 +370,56 @@ do
 
   -- moves + rotates a playermat (and related objects)
   ---@param matColor string Color of the playermat - White, Orange, Green, Red or All
-  ---@param position table New position for the playermat
-  ---@param rotationY number New y-rotation for the playermat (X and Z will be 0)
-  PlayermatApi.moveAndRotate = function(matColor, position, rotationY)
+  ---@param position? table New position for the playermat
+  ---@param rotationY? number New y-rotation for the playermat (X and Z will be 0)
+  ---@param positionOffset? table Positional offset for the playermat
+  PlayermatApi.moveAndRotate = function(matColor, position, rotationY, positionOffset)
     -- get mat and related objects
     local mat = guidReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
-    local matObjects = guidReferenceApi.getObjectsByOwner(matColor)
-
     if not mat then return end
 
     -- use current value if undefined
+    local currentMatPos = mat.getPosition()
+    local currentMatRotY = mat.getRotation().y
     position = position or mat.getPosition()
     rotationY = rotationY or mat.getRotation().y
 
-    -- store relative positions
-    local storedPositions = {}
-    for _, obj in pairs(matObjects) do
-      if obj ~= mat then
-        storedPositions[obj.getGUID()] = mat.positionToLocal(obj.getPosition())
-      end
+    if positionOffset then
+      position = Vector(position) + Vector(positionOffset)
     end
 
-    -- also get objects on the mat
-    local objectsOnMat = searchLib.onObject(mat)
-    for _, obj in ipairs(objectsOnMat) do
-      if obj ~= mat and storedPositions[obj.getGUID()] == nil and obj.interactable ~= false then
-        storedPositions[obj.getGUID()] = mat.positionToLocal(obj.getPosition())
-      end
-    end
+    local movedObjects = {}
+    local function moveAndRotateObject(obj)
+      local relativePos = obj.getPosition() - currentMatPos
+      obj.setPosition(position + relativePos:rotateOver("y", rotationY - currentMatRotY))
 
-    -- move main mat
-    mat.setPosition(position)
-    mat.setRotation({ 0, rotationY, 0 })
-
-    -- set new position + rotation (preserve object X / Z rotation)
-    for guid, pos in pairs(storedPositions) do
-      local obj = getObjectFromGUID(guid)
-      obj.setPosition(mat.positionToWorld(pos))
-
-      -- offset the rotation by 180 degrees if the guid matches the player hand zones
-      local finalRotationY = rotationY
       if obj.type == "Hand" then
-        finalRotationY = rotationY + 180
+        obj.setRotation({ 0, rotationY + 180, 0 })
+      else
+        local objRot = obj.getRotation()
+        local relativeRotY = objRot.y - currentMatRotY
+        obj.setRotation({ objRot.x, rotationY + relativeRotY, objRot.z })
       end
 
-      obj.setRotation(obj.getRotation():setAt("y", finalRotationY))
+      movedObjects[obj.getGUID()] = true
+    end
+
+    -- get objects on the mat
+    for _, obj in ipairs(searchLib.onObject(mat, "isInteractable")) do
+      if not movedObjects[obj.getGUID()] then
+        -- make sure object isn't owned by another mat
+        local owner = guidReferenceApi.getOwnerOfObject(obj)
+        if owner == "Mythos" or owner == matColor then
+          moveAndRotateObject(obj)
+        end
+      end
+    end
+
+    -- move owned objects (including the mat)
+    for _, obj in pairs(guidReferenceApi.getObjectsByOwner(matColor)) do
+      if not movedObjects[obj.getGUID()] then
+        moveAndRotateObject(obj)
+      end
     end
   end
 

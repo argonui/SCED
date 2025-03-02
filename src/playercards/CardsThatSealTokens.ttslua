@@ -110,6 +110,7 @@ local tokenColor           = {
 }
 
 function updateSave()
+  updateStackSize()
   self.script_state = JSON.encode(sealedTokens)
 end
 
@@ -232,7 +233,7 @@ function sealToken(name, playerColor)
   local chaosbag = chaosBagApi.findChaosBag()
   for i, obj in ipairs(chaosbag.getObjects()) do
     if obj.name == name then
-      chaosbag.takeObject({
+      return chaosbag.takeObject({
         position = self.getPosition() + Vector(0, 0.5 + 0.1 * #sealedTokens, 0),
         rotation = self.getRotation(),
         index = i - 1,
@@ -253,11 +254,9 @@ function sealToken(name, playerColor)
               table.remove(sealedTokens, #sealedTokens - 1)
             end
           end
-          updateStackSize()
           updateSave()
         end
       })
-      return
     end
   end
   printToColor(name .. " token not found in chaos bag", playerColor)
@@ -329,17 +328,29 @@ function releaseMultipleTokens(playerColor)
   Player[playerColor].clearSelectedObjects()
 end
 
+function releaseAllTokensWrapper(params)
+  releaseAllTokens(params.playerColor, _, _, params.filterName, params.silent)
+end
+
 -- releases all sealed tokens
-function releaseAllTokens(playerColor)
+function releaseAllTokens(playerColor, _, _, filterName, silent)
   if not chaosBagApi.canTouchChaosTokens() then return end
   if #sealedTokens == 0 then
-    printToColor("No sealed token(s) found", playerColor)
-  else
-    printToColor("Releasing token(s)", playerColor)
-    for _, guid in ipairs(sealedTokens) do
-      putTokenAway(guid)
+    if not silent then
+      printToColor("No sealed token(s) found", playerColor)
     end
-    sealedTokens = {}
+  else
+    if not silent then
+      printToColor("Releasing token(s)", playerColor)
+    end
+
+    for i = #sealedTokens, 1, -1 do
+      local success = putTokenAway(sealedTokens[i], filterName, silent)
+      if success then
+        table.remove(sealedTokens, i)
+      end
+    end
+
     updateSave()
   end
   Player[playerColor].clearSelectedObjects()
@@ -370,18 +381,24 @@ function returnAllTokens(playerColor)
 end
 
 -- returns the token (referenced by GUID) to the chaos bag
-function putTokenAway(guid)
+---@return boolean: True if a token was returned
+function putTokenAway(guid, filterName, silent)
   local token = getObjectFromGUID(guid)
-  if not token then return end
+  if not token then return false end
 
   local name = token.getName()
+  if filterName and filterName ~= name then return false end
+
   local chaosbag = chaosBagApi.findChaosBag()
   chaosbag.putObject(token)
+
   tokenArrangerApi.layout()
+
   if name == "Bless" or name == "Curse" then
-    blessCurseManagerApi.releasedToken(name, guid)
+    blessCurseManagerApi.releasedToken(name, guid, nil, silent)
   end
-  updateStackSize()
+
+  return true
 end
 
 -- returns the token to the pool (== removes it)
@@ -394,7 +411,6 @@ function returnToken(guid)
   if name == "Bless" or name == "Curse" then
     blessCurseManagerApi.returnedToken(name, guid)
   end
-  updateStackSize()
 end
 
 -- resolves sealed token as if it came from the chaos bag
@@ -404,17 +420,50 @@ function resolveSealed(playerColor)
     return
   end
 
-  local closestMatColor = playermatApi.getMatColorByPosition(self.getPosition())
-  local mat = guidReferenceApi.getObjectByOwnerAndType(closestMatColor, "Playermat")
-  local guidToBeResolved = table.remove(sealedTokens)
+  -- make list of token names
+  local tokenNames = {}
+  local differentNames = 0
+  for _, guid in ipairs(sealedTokens) do
+    local token = getObjectFromGUID(guid)
+    if token ~= nil then
+      local name = token.getName()
+      if tokenNames[name] == nil then
+        differentNames = differentNames + 1
+      end
+      tokenNames[name] = guid
+    end
+  end
+
+  -- if there are multiple tokens, ask the player to choose
+  if differentNames < 2 then
+    resolveTokenByGuid(playerColor, table.remove(sealedTokens))
+    updateSave()
+  else
+    local choices = {}
+    for name, _ in pairs(tokenNames) do
+      table.insert(choices, name)
+    end
+    Player[playerColor].showOptionsDialog("Choose token to resolve:", choices, 1, function(optionText, optionIndex)
+      for i = #sealedTokens, 1, -1 do
+        local token = getObjectFromGUID(sealedTokens[i])
+        if token ~= nil and token.getName() == optionText then
+          resolveTokenByGuid(playerColor, table.remove(sealedTokens, i))
+          updateSave()
+          return
+        end
+      end
+    end)
+  end
+end
+
+function resolveTokenByGuid(playerColor, guidToBeResolved)
   local resolvedToken = getObjectFromGUID(guidToBeResolved)
   if resolvedToken ~= nil then
     resolvedToken.UI.setXml("")
   end
 
-  updateStackSize()
-  updateSave()
-  chaosBagApi.drawChaosToken(mat, true, _, guidToBeResolved)
+  local closestMatColor = playermatApi.getMatColorByPosition(self.getPosition())
+  chaosBagApi.drawChaosToken(closestMatColor, true, _, guidToBeResolved)
   Player[playerColor].clearSelectedObjects()
 end
 
