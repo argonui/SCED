@@ -11,6 +11,8 @@ local victoryDisplayApi    = require("mythos/VictoryDisplayApi")
 
 local sentMessage = false
 
+local virtualColor = {}
+
 function onLoad()
   addHotkey("Add doom to agenda", addDoomToAgenda)
   addHotkey("Add Bless/Curse context menu", addBlurseSealingMenu)
@@ -21,6 +23,7 @@ function onLoad()
   addHotkey("Place card into threat area", takeCardIntoThreatArea)
   addHotkey("Remove a use", removeOneUse)
   addHotkey("Reshuffle encounter deck", mythosAreaApi.reshuffleEncounterDeck)
+  addHotkey("Set virtual color for next Hotkey", setVirtualColor)
   addHotkey("Switch seat clockwise", switchSeatClockwise)
   addHotkey("Switch seat counter-clockwise", switchSeatCounterClockwise)
   addHotkey("Take clue from location", takeClueFromLocation)
@@ -35,10 +38,13 @@ end
 
 -- triggers the "Upkeep" function of the calling player's playermat
 function triggerUpkeep(playerColor)
+  playerColor = getVirtualColor(playerColor)
+
   if playerColor == "Black" and not sentMessage then
     broadcastToColor("It is recommended to sit on a player mat", playerColor, "Yellow")
     sentMessage = true
   end
+
   if #Player.getPlayers() == 1 then
     local usedMats = playermatApi.getUsedMatColors()
     for _, matColor in ipairs(usedMats) do
@@ -47,6 +53,7 @@ function triggerUpkeep(playerColor)
     playAreaApi.readyCards()
     return
   end
+
   local matColor = playermatApi.getMatColor(playerColor)
   playermatApi.doUpkeepFromHotkey(matColor, playerColor)
 end
@@ -59,6 +66,8 @@ end
 
 -- move the hovered object to the nearest empty slot on the playermat
 function takeCardIntoThreatArea(playerColor, hoveredObject)
+  playerColor = getVirtualColor(playerColor)
+
   -- only continue if an unlocked, non-location card is hovered
   if hoveredObject == nil
       or (hoveredObject.type ~= "Card" and hoveredObject.type ~= "Deck")
@@ -104,6 +113,8 @@ end
 
 -- discard the hovered or selected objects to the respective trashcan and discard tokens on it if it was a card
 function discardObject(playerColor, hoveredObject)
+  playerColor = getVirtualColor(playerColor)
+
   -- if more than one object is selected, discard them all, one at a time
   local selectedObjects = Player[playerColor].getSelectedObjects()
   if #selectedObjects > 0 then
@@ -174,6 +185,8 @@ end
 
 -- discard the top card of hovered deck, calling discardObject function
 function discardTopDeck(playerColor, hoveredObject)
+  playerColor = getVirtualColor(playerColor)
+
   -- only continue if an unlocked card or deck was hovered
   if hoveredObject == nil
       or (hoveredObject.type ~= "Card" and hoveredObject.type ~= "Deck")
@@ -252,6 +265,8 @@ end
 
 -- removes a use from a card (or a token if hovered)
 function removeOneUse(playerColor, hoveredObject)
+  playerColor = getVirtualColor(playerColor)
+
   -- only continue if an unlocked card or tile was hovered
   if hoveredObject == nil
       or (hoveredObject.type ~= "Card" and hoveredObject.type ~= "Tile")
@@ -408,13 +423,30 @@ function removeOneUse(playerColor, hoveredObject)
   end
 end
 
+-- sets the virtual player color for the next playerColor-based hotkey-press
+function setVirtualColor(playerColor)
+  local searchPos = Player[playerColor].getPointerPosition()
+  local matColor = playermatApi.getMatColorByPosition(searchPos)
+  local handColor = playermatApi.getPlayerColor(matColor)
+  virtualColor[playerColor] = handColor
+  broadcastToColor("Set the virtual player color for your next hotkey to: " .. handColor, playerColor)
+end
+
+function getVirtualColor(playerColor)
+  local vColor = virtualColor[playerColor] or playerColor
+  virtualColor[playerColor] = nil
+  return vColor
+end
+
 -- switches the triggering player to the next seat (clockwise)
 function switchSeatClockwise(playerColor)
+  playerColor = getVirtualColor(playerColor)
   switchSeat(playerColor, "clockwise")
 end
 
 -- switches the triggering player to the next seat (counter-clockwise)
 function switchSeatCounterClockwise(playerColor)
+  playerColor = getVirtualColor(playerColor)
   switchSeat(playerColor, "counter-clockwise")
 end
 
@@ -479,6 +511,8 @@ end
 
 -- takes a clue from a location, player needs to hover the clue directly or the location
 function takeClueFromLocation(playerColor, hoveredObject)
+  playerColor = getVirtualColor(playerColor)
+
   -- use different color for messages if player is not seated (because this hotkey is called for a different mat)
   local messageColor = playerColor
   if not Player[playerColor] or not Player[playerColor].seated then
@@ -555,19 +589,23 @@ end
 
 -- broadcasts the bless/curse status to the calling player
 function showBlessCurseStatus(playerColor)
+  playerColor = getVirtualColor(playerColor)
   blessCurseManagerApi.broadcastStatus(playerColor)
 end
 
 -- adds Wendy's menu to the hovered card
 function addBlurseSealingMenu(playerColor, hoveredObject)
+  playerColor = getVirtualColor(playerColor)
   blessCurseManagerApi.addBlurseSealingMenu(playerColor, hoveredObject)
 end
 
 function viewMythosArea(playerColor)
+  playerColor = getVirtualColor(playerColor)
   navigationOverlayApi.loadCamera(Player[playerColor], 1)
 end
 
 function viewPlayermat(playerColor)
+  playerColor = getVirtualColor(playerColor)
   local matColor = playermatApi.getMatColor(playerColor)
   if not matColor then
     broadcastToColor("Couldn't find playermat.", playerColor, "Red")
