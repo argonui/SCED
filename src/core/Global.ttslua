@@ -335,6 +335,69 @@ function tryObjectEnterContainer(container, object)
   return true
 end
 
+function onObjectEnterContainer(container, object)
+  if object.memo == "clueDoom" and container.memo == "clueDoom" then
+    updateClueDoomStackCount(container)
+  end
+end
+
+function onObjectLeaveContainer(container, object)
+  if object.memo == "clueDoom" and container.memo == "clueDoom" then
+    updateClueDoomStackCount(container)
+  end
+end
+
+function updateClueDoomStackCount(container)
+  local count = container.getQuantity()
+
+  if count == 1 then
+    container.UI.setXmlTable({{}})
+    return
+  end
+
+  -- display clue/doom count via XML
+  local size = 750
+  local xmlTable = {
+    {
+      -- clue text
+      tag = "Text",
+      attributes = {
+        font         = "font_teutonic-arkham",
+        fontSize     = size * ((count < 10) and 0.8 or 0.6),
+        fontStyle    = "Bold",
+        width        = size,
+        height       = size,
+        color        = "#003300",
+        text         = count,
+        position     = "0 0 -" .. (count * 10 + 1),
+        rotation     = "0 0 180",
+        scale        = "0.35 0.35 1"
+      }
+    },
+    {
+      -- doom text
+      tag = "Text",
+      attributes = {
+        font         = "font_teutonic-arkham",
+        fontSize     = size * ((count < 10) and 0.8 or 0.6),
+        fontStyle    = "Bold",
+        width        = size,
+        height       = size,
+        color        = "#EEEEBBBB",
+        text         = count,
+        position     = "0 0 1",
+        rotation     = "0 180 180",
+        scale        = "0.35 0.35 1"
+      }
+    }
+  }
+
+  container.UI.setXmlTable(xmlTable)
+
+  -- fix a TTS bug with token stack alt previews
+  container.alt_view_angle = Vector(180, 0, 0)
+end
+
 -- TTS event for objects that enter zones
 function onObjectEnterZone(zone, object)
   if lastZoneEnterObject == object then return end
@@ -502,6 +565,10 @@ function onObjectSpawn(obj)
     obj.addContextMenuItem("Redownload this", function(playerColor)
       placeholder_download({ filename = obj.getGMNotes(), player = Player[playerColor], replace = obj.getGUID() })
     end)
+  end
+
+  if obj.memo == "clueDoom" and obj.getQuantity() > 1 then
+    updateClueDoomStackCount(obj)
   end
 
   maybeUpdateActionTrackerTokens(obj, 5)
