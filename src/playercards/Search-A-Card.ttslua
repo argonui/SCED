@@ -2,20 +2,23 @@ require("playercards/PlayerCardSpawner")
 
 local allCardsBagApi           = require("playercards/AllCardsBagApi")
 
-local BUTTON_LABELS            = {}
-BUTTON_LABELS["spawn"]         = {}
-BUTTON_LABELS["spawn"][true]   = "All matching cards"
-BUTTON_LABELS["spawn"][false]  = "First matching card"
-BUTTON_LABELS["search"]        = {}
-BUTTON_LABELS["search"][true]  = "Name equals search term"
-BUTTON_LABELS["search"][false] = "Name contains search term"
+local BUTTON_LABELS            = {
+  spawn = {
+    [true]  = "All matching cards",
+    [false] = "First matching card"
+  },
+  search = {
+    [true]  = "Name equals search term",
+    [false] = "Name contains search term"
+  }
+}
 
 local inputParameters          = {}
 inputParameters.label          = "Enter name / ID"
 inputParameters.input_function = "input_func"
 inputParameters.function_owner = self
 inputParameters.alignment      = 2
-inputParameters.position       = { x = 0, y = 0.1, z = -0.6 }
+inputParameters.position       = Vector(0, 0.1, -0.6)
 inputParameters.width          = 3500
 inputParameters.height         = 450
 inputParameters.font_size      = 400
@@ -24,14 +27,20 @@ inputParameters.color          = { 0.9, 0.7, 0.5 }
 inputParameters.font_color     = { 0, 0, 0 }
 
 function updateSave()
-  self.script_state = JSON.encode({ spawnAll, searchExact, inputParameters.value })
+  self.script_state = JSON.encode({
+    noLimit     = noLimit,
+    spawnAll    = spawnAll,
+    searchExact = searchExact,
+    value       = inputParameters.value
+  })
 end
 
 function onLoad(savedData)
-  local loadedData      = JSON.decode(savedData)
-  spawnAll              = loadedData[1] or false
-  searchExact           = loadedData[2] or false
-  inputParameters.value = loadedData[3] or ""
+  local loadedData      = JSON.decode(savedData) or {}
+  noLimit               = loadedData.noLimit or false
+  spawnAll              = loadedData.spawnAll or false
+  searchExact           = loadedData.searchExact or false
+  inputParameters.value = loadedData.value or ""
   self.createInput(inputParameters)
 
   -- shared parameters
@@ -45,7 +54,7 @@ function onLoad(savedData)
   -- index 0: button for spawn mode
   buttonParameters.click_function = "toggleSpawnMode"
   buttonParameters.label          = BUTTON_LABELS["spawn"][spawnAll]
-  buttonParameters.position       = { x = 0.16, y = 0.1, z = 0.565 }
+  buttonParameters.position       = Vector(0.16, 0.11, 0.565)
   buttonParameters.height         = 375
   buttonParameters.width          = 2300
   self.createButton(buttonParameters)
@@ -53,16 +62,30 @@ function onLoad(savedData)
   -- index 1: button for search mode
   buttonParameters.click_function = "toggleSearchMode"
   buttonParameters.label          = BUTTON_LABELS["search"][searchExact]
-  buttonParameters.position       = { x = 0.16, y = 0.1, z = 0.652 }
+  buttonParameters.position.z     = 0.652
   self.createButton(buttonParameters)
 
   -- index 2: start search
   buttonParameters.click_function = "startSearch"
   buttonParameters.label          = ""
-  buttonParameters.position       = { x = 0, y = 0, z = 0.806 }
+  buttonParameters.position       = Vector(0, 0, 0.806)
   buttonParameters.height         = 600
   buttonParameters.width          = 2800
   self.createButton(buttonParameters)
+
+  createContextMenu()
+end
+
+function createContextMenu()
+  self.clearContextMenu()
+  self.addContextMenuItem((noLimit and "Dis" or "En") .. "able NoLimit", toggleNoLimit)
+end
+
+function toggleNoLimit(playerColor)
+  printToColor("The limitation of only spawning the first 100 cards has been " .. (noLimit and "en" or "dis") .. "abled.", playerColor)
+  noLimit = not noLimit
+  createContextMenu()
+  updateSave()
 end
 
 function toggleSpawnMode()
@@ -102,11 +125,6 @@ function startSearch()
     return
   end
 
-  if string.len(inputParameters.value) < 3 then
-    printToAll("Please enter a longer search string.", "Yellow")
-    return
-  end
-
   if not allCardsBagApi.isBagPresent() then
     printToAll("Player card bag couldn't be found.", "Red")
     return
@@ -134,13 +152,15 @@ function startSearch()
     return
   end
 
-  if (#cardList > 100) then
-    printToAll("Matched more than 100 cards, please try a more specific search.", "Yellow")
+  if (#cardList > 100) and noLimit == false then
+    printToAll("Matched more than 100 cards, please try a more specific search or enter unlimited mode from the context menu.", "Yellow")
     return
   end
 
-  -- sort table by name (reverse for multiple results, because bottom card spawns first)
-  table.sort(cardList, function(k1, k2) return spawnAll == (k1.data.Nickname > k2.data.Nickname) end)
+  -- sort table by name (in reverse, because bottom card spawns first)
+  if spawnAll then
+    table.sort(cardList, function(k1, k2) return k1.data.Nickname > k2.data.Nickname end)
+  end
 
   spawnCardList(cardList)
 end
