@@ -336,21 +336,30 @@ function tryObjectEnterContainer(container, object)
 end
 
 function onObjectEnterContainer(container, object)
-  if object.memo == "clueDoom" and container.memo == "clueDoom" then
-    updateClueDoomStackCount(container)
-  end
+  maybeUpdateClueDoomStackCount(container)
 end
 
 function onObjectLeaveContainer(container, object)
-  if object.memo == "clueDoom" and container.memo == "clueDoom" then
-    updateClueDoomStackCount(container)
-  end
+  maybeUpdateClueDoomStackCount(container, object)
 end
 
-function updateClueDoomStackCount(container)
+function maybeUpdateClueDoomStackCount(container, object)
+  -- only continue for clues / doom tokens
+  if object ~= nil and object.memo ~= "clueDoom" then return end
+  if container.memo ~= "clueDoom" then return end
+
   local count = container.getQuantity()
 
-  if count == 1 then
+  -- only continue for actual stacks in the playarea
+  local isInPlayArea = false
+  for _, zone in ipairs(container.getZones()) do
+    if zone.getName() == "PlayAreaZone" then
+      isInPlayArea = true
+      break
+    end
+  end
+
+  if isInPlayArea == false or count == 1 then
     container.UI.setXmlTable({{}})
     return
   end
@@ -405,7 +414,8 @@ function onObjectEnterZone(zone, object)
   Wait.frames(function() lastZoneEnterObject = nil end, 3)
 
   -- detect the "token discard zones" beneath the hand zones
-  if zone.getName() == "TokenDiscardZone" then
+  local zoneName = zone.getName()
+  if zoneName == "TokenDiscardZone" then
     if object.type == "Card" then
       local attachments = object.getAttachments()
       if not attachments then return end
@@ -425,6 +435,8 @@ function onObjectEnterZone(zone, object)
       local trash    = guidReferenceApi.getObjectByOwnerAndType(matcolor, "Trash")
       trash.putObject(object)
     end
+  elseif zoneName == "PlayAreaZone" then
+    maybeUpdateClueDoomStackCount(object)
   elseif zone.type == "Hand" and object.type == "Card" then
     -- make sure the card is face-up
     if object.is_face_down then
@@ -567,9 +579,7 @@ function onObjectSpawn(obj)
     end)
   end
 
-  if obj.memo == "clueDoom" and obj.getQuantity() > 1 then
-    updateClueDoomStackCount(obj)
-  end
+  maybeUpdateClueDoomStackCount(obj)
 
   maybeUpdateActionTrackerTokens(obj, 5)
 end
