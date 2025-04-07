@@ -335,6 +335,78 @@ function tryObjectEnterContainer(container, object)
   return true
 end
 
+function onObjectEnterContainer(container, object)
+  maybeUpdateClueDoomStackCount(container)
+end
+
+function onObjectLeaveContainer(container, object)
+  maybeUpdateClueDoomStackCount(container, object)
+end
+
+function maybeUpdateClueDoomStackCount(container, object)
+  -- only continue for clues / doom tokens
+  if object ~= nil and object.memo ~= "clueDoom" then return end
+  if container.memo ~= "clueDoom" then return end
+
+  local count = container.getQuantity()
+
+  -- only continue for actual stacks in the playarea
+  local isInPlayArea = false
+  for _, zone in ipairs(container.getZones()) do
+    if zone.getName() == "PlayAreaZone" then
+      isInPlayArea = true
+      break
+    end
+  end
+
+  if isInPlayArea == false or count == 1 then
+    container.UI.setXmlTable({{}})
+    return
+  end
+
+  -- display clue/doom count via XML
+  local size = 750
+  local xmlTable = {
+    {
+      -- clue text
+      tag = "Text",
+      attributes = {
+        font         = "font_teutonic-arkham",
+        fontSize     = size * ((count < 10) and 0.8 or 0.6),
+        fontStyle    = "Bold",
+        width        = size,
+        height       = size,
+        color        = "#003300",
+        text         = count,
+        position     = "0 0 -" .. (count * 10 + 1),
+        rotation     = "0 0 180",
+        scale        = "0.35 0.35 1"
+      }
+    },
+    {
+      -- doom text
+      tag = "Text",
+      attributes = {
+        font         = "font_teutonic-arkham",
+        fontSize     = size * ((count < 10) and 0.8 or 0.6),
+        fontStyle    = "Bold",
+        width        = size,
+        height       = size,
+        color        = "#EEEEBBBB",
+        text         = count,
+        position     = "0 0 1",
+        rotation     = "0 180 180",
+        scale        = "0.35 0.35 1"
+      }
+    }
+  }
+
+  container.UI.setXmlTable(xmlTable)
+
+  -- fix a TTS bug with token stack alt previews
+  container.alt_view_angle = Vector(180, 0, 0)
+end
+
 -- TTS event for objects that enter zones
 function onObjectEnterZone(zone, object)
   if lastZoneEnterObject == object then return end
@@ -342,7 +414,8 @@ function onObjectEnterZone(zone, object)
   Wait.frames(function() lastZoneEnterObject = nil end, 3)
 
   -- detect the "token discard zones" beneath the hand zones
-  if zone.getName() == "TokenDiscardZone" then
+  local zoneName = zone.getName()
+  if zoneName == "TokenDiscardZone" then
     if object.type == "Card" then
       local attachments = object.getAttachments()
       if not attachments then return end
@@ -362,6 +435,8 @@ function onObjectEnterZone(zone, object)
       local trash    = guidReferenceApi.getObjectByOwnerAndType(matcolor, "Trash")
       trash.putObject(object)
     end
+  elseif zoneName == "PlayAreaZone" then
+    maybeUpdateClueDoomStackCount(object)
   elseif zone.type == "Hand" and object.type == "Card" then
     -- make sure the card is face-up
     if object.is_face_down then
@@ -503,6 +578,8 @@ function onObjectSpawn(obj)
       placeholder_download({ filename = obj.getGMNotes(), player = Player[playerColor], replace = obj.getGUID() })
     end)
   end
+
+  maybeUpdateClueDoomStackCount(obj)
 
   maybeUpdateActionTrackerTokens(obj, 5)
 end
