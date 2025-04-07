@@ -2397,7 +2397,7 @@ function removePlayermat(matColor)
   updateActionTrackerRows()
 end
 
-function spawnPlayermat(matColor, transformData)
+function collectPlayermatSpawnData()
   local sourceBag = guidReferenceApi.getObjectByOwnerAndType("Mythos", "ObjectSourceBag")
 
   -- error handling for missing sourceBag
@@ -2406,19 +2406,20 @@ function spawnPlayermat(matColor, transformData)
     return
   end
 
-  local defaultPosition = {
-    White  = Vector(-55, 1.45, 16.1),
-    Orange = Vector(-55, 1.45, -16.1),
-    Green  = Vector(-30.35, 1.45, 26.6),
-    Red    = Vector(-30.35, 1.45, -26.6)
-  }
-  local defaultRotation = {
-    White  = Vector(0, 270, 0),
-    Orange = Vector(0, 270, 0),
-    Green  = Vector(0, 0, 0),
-    Red    = Vector(0, 180, 0)
-  }
+  local spawnData = {}
+  for _, objData in ipairs(sourceBag.getData().ContainedObjects) do
+    if objData.Nickname == "Playermat Objects" then
+      for _, deepObjData in ipairs(objData.ContainedObjects) do
+        local name = deepObjData.Nickname
+        if name == nil or name == "" then name = "HandZone" end
+        spawnData[name] = deepObjData
+      end
+    end
+  end
+  return spawnData
+end
 
+function spawnPlayermatObjects(matColor, playermat, transformData, spawnData)
   -- this mapping of object names to index names is really important!
   local indexNames = {
     ["Clues"]        = "ClickableClueCounter",
@@ -2428,25 +2429,67 @@ function spawnPlayermat(matColor, transformData)
     ["Resources"]    = "ResourceCounter"
   }
 
-  function spawnCoro()
-    -- collect spawndata
-    local spawnData = {}
-    for _, objData in ipairs(sourceBag.getData().ContainedObjects) do
-      if objData.Nickname == "Playermat Objects" then
-        for _, deepObjData in ipairs(objData.ContainedObjects) do
-          local name = deepObjData.Nickname
-          if name == nil or name == "" then name = "HandZone" end
-          spawnData[name] = deepObjData
+  for name, objData in pairs(spawnData) do
+    if name ~= "Playermat" then
+      local indexName = indexNames[name] or string.gsub(name, " ", "")
+
+      -- if the object already exists, skip it
+      local ref = guidReferenceApi.getObjectByOwnerAndType(matColor, indexName)
+      if ref == nil then
+        -- get the local position / rotation for it
+        local localPos = zones.getLocalZoneData(matColor, name)
+        if localPos then
+          local pos = playermat.positionToWorld(localPos)
+          local rot = transformData.rotation:copy()
+
+          -- special handling for certain objects
+          if name == "HandZone" then
+            rot = rot + Vector(0, 180, 0)
+            objData.FogColor = matColor
+          elseif name == "Damage" or name == "Horror" then
+            rot = rot + Vector(0, 10, 180)
+          elseif name == "Clues" or name == "Clue Counter" or name == "Resources" then
+            rot = rot + Vector(0, 10, 0)
+          end
+
+          updateTransformData(objData, pos, rot)
+
+          -- spawn object and update index
+          local obj = spawnObjectData({ data = objData })
+          Wait.frames(function() guidReferenceApi.editIndex(matColor, indexName, obj.getGUID()) end, 3)
         end
       end
     end
+  end
+
+  -- also spawn any helpers that are already enabled (hardcoded list atm)
+  for _, helperName in ipairs({ "Hand Helper", "Search Assistant" }) do
+    if optionPanel["show" .. string.gsub(helperName, " ", "")] then
+      local data = playermatApi.getHelperSpawnData(matColor, helperName)
+      spawnOrRemoveHelper(state, helperName, data.position, data.rotation, matColor)
+    end
+  end
+end
+
+
+function spawnPlayermat(matColor, transformData)
+  -- get transforms if not supplied
+  if not transformData then
+    local setupName = optionPanel["tableSetup"]
+    local tableSetupData = TABLE_SETUP_DATA[setupName]
+    transformData = tableSetupData.transforms["Playermat" .. matColor]
+    if not transformData then
+      broadcastToAll("This playermat is not part of the current table layout.", "Orange")
+      return
+    end
+  end
+
+  function spawnCoro()
+    local spawnData = collectPlayermatSpawnData()
+    if not spawnData then return 1 end
 
     -- handle mat spawning first
-    if transformData then
-      updateTransformData(spawnData.Playermat, transformData.position, transformData.rotation)
-    else
-      updateTransformData(spawnData.Playermat, defaultPosition[matColor], defaultRotation[matColor])
-    end
+    updateTransformData(spawnData.Playermat, transformData.position, transformData.rotation)
 
     -- update color data of mat
     spawnData.Playermat.Memo = matColor
@@ -2460,46 +2503,7 @@ function spawnPlayermat(matColor, transformData)
     guidReferenceApi.editIndex(matColor, "Playermat", playermat.getGUID())
 
     -- spawn objects
-    for name, objData in pairs(spawnData) do
-      if name ~= "Playermat" then
-        local localPos = zones.getLocalZoneData(matColor, name)
-        if localPos then
-          local pos = playermat.positionToWorld(localPos)
-          local rot
-          if transformData then
-            rot = transformData.rotation:copy()
-          else
-            rot = defaultRotation[matColor]:copy()
-          end
-
-          if name == "HandZone" then
-            rot = rot + Vector(0, 180, 0)
-            objData.FogColor = matColor
-          elseif name == "Damage" or name == "Horror" then
-            rot = rot + Vector(0, 10, 180)
-          elseif name == "Clues" or name == "Clue Counter" or name == "Resources" then
-            rot = rot + Vector(0, 10, 0)
-          end
-
-          updateTransformData(objData, pos, rot)
-          local obj = spawnObjectData({ data = objData })
-
-          Wait.frames(function()
-            -- update index
-            local indexName = string.gsub(name, " ", "")
-            guidReferenceApi.editIndex(matColor, indexNames[indexName] or indexName, obj.getGUID())
-          end, 3)
-        end
-      end
-    end
-
-    -- also spawn any helpers that are already enabled (hardcoded list atm)
-    for _, helperName in ipairs({ "Hand Helper", "Search Assistant " }) do
-      if optionPanel["show" .. string.gsub(helperName, " ", "")] then
-        local data = playermatApi.getHelperSpawnData(matColor, helperName)
-        spawnOrRemoveHelper(state, helperName, data.position, data.rotation, matColor)
-      end
-    end
+    spawnPlayermatObjects(matColor, playermat, transformData, spawnData)
 
     coWaitFrames(5)
 
@@ -2554,7 +2558,7 @@ function updateTableSetup(newSetupName, oldSetupName)
         -- remove unnecessary playermats (do this first to avoid unwanted collisions / interactions)
         removePlayermat(matColor)
       end
-      coWaitFrames(1)
+      coWaitFrames(2)
     end
 
     -- actual movement of objects
@@ -2564,6 +2568,14 @@ function updateTableSetup(newSetupName, oldSetupName)
         local playermat = guidReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
         if playermat then
           playermatApi.moveAndRotate(matColor, transformData.position, transformData.rotation.y)
+
+          coWaitFrames(5)
+
+          -- spawn missing objects
+          local spawnData = collectPlayermatSpawnData()
+          if not spawnData then return 1 end
+
+          spawnPlayermatObjects(matColor, playermat, transformData, spawnData)
         else
           spawnPlayermat(matColor, transformData)
         end
