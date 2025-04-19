@@ -2546,25 +2546,30 @@ function spawnPlayermatObjects(matColor, playermat, transformData, spawnData)
       if not (sharesBags and SHARED_BAGS_DATA.objects[name]) then
         local indexName = GUID_INDEX_MAP[name] or string.gsub(name, " ", "")
 
-        -- if the object already exists, skip it
-        local ref = guidReferenceApi.getObjectByOwnerAndType(matColor, indexName)
-        if not ref then
-          -- get the local position / rotation for it
-          local localPos = zones.getLocalZoneData(matColor, name)
-          if localPos then
-            local pos = playermat.positionToWorld(localPos)
-            local rot = transformData.rotation:copy()
+        -- get the local position / rotation for it
+        local localPos = zones.getLocalZoneData(matColor, name)
+        if localPos then
+          local pos = playermat.positionToWorld(localPos)
+          local rot = transformData.rotation:copy()
 
-            -- special handling for certain objects
-            if name == "HandZone" then
-              rot = rot + Vector(0, 180, 0)
-              objData.FogColor = matColor
-            elseif name == "Damage" or name == "Horror" then
-              rot = rot + Vector(0, 10, 180)
-            elseif name == "Clues" or name == "Clue Counter" or name == "Resources" then
-              rot = rot + Vector(0, 10, 0)
-            end
+          -- special handling for certain objects
+          if name == "HandZone" then
+            rot = rot + Vector(0, 180, 0)
+            objData.FogColor = matColor
+          elseif name == "Token Draw Dummy" then
+            objData.Memo = matColor
+          elseif name == "Damage" or name == "Horror" then
+            rot = rot + Vector(0, 10, 180)
+          elseif name == "Clues" or name == "Clue Counter" or name == "Resources" then
+            rot = rot + Vector(0, 10, 0)
+          end
 
+          -- if the object already exists, move it instead
+          local ref = guidReferenceApi.getObjectByOwnerAndType(matColor, indexName)
+          if ref then
+            ref.setPosition(pos)
+            ref.setRotation(rot)
+          else
             updateTransformData(objData, pos, rot)
 
             -- spawn object and update index
@@ -2718,8 +2723,8 @@ function updateTableSetup(newSetupName, oldSetupName)
 
     for _, matColor in ipairs(MAT_COLORS) do
       if tableSetupData.transforms["Playermat" .. matColor] then
-        -- move existing mats upwards temporarily to avoid collisions
-        playermatApi.moveAndRotate(matColor, nil, nil, Vector(0, 2, 0))
+        -- move existing mats upwards temporarily to avoid collisions (searchlib searches up to 2 units)
+        playermatApi.moveAndRotate(matColor, nil, nil, Vector(0, 3, 0))
       else
         -- remove unnecessary playermats (do this first to avoid unwanted collisions / interactions)
         removePlayermat(matColor)
