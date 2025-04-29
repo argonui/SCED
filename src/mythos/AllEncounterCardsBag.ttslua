@@ -135,6 +135,8 @@ function onObjectSpawn(obj)
     handleSpawnedCard(obj)
   elseif obj.type == "Deck" then
     handleSpawnedDeck(obj)
+  elseif obj.type == "Bag" and obj.hasTag("CampaignBox") then
+    handleSpawnedBox(obj)
   end
 end
 
@@ -165,46 +167,108 @@ function handleSpawnedDeck(deck)
   Wait.time(function()
     if deck ~= nil then
       deck.addTag("Replaced")
-      local deckData         = deck.getData()
-      local changedSomething = false
-      local cardIdConversion = {}
-      local newDeckData      = {}
-      for _, objData in ipairs(deckData.ContainedObjects) do
-        local md = JSON.decode(objData["GMNotes"]) or {}
-        if md.id then
-          local cardData = getCardById({ id = md.id })
-          if cardData then
-            local originalId = objData["CardID"]
-            local state = updateOriginalCardData(objData, cardData.data)
-            if state then
-              changedSomething                   = true
-
-              -- store changed card IDs / new deck data
-              cardIdConversion[originalId]       = cardData.data["CardID"]
-              local customDeckId, customDeckData = next(cardData.data["CustomDeck"])
-              newDeckData[customDeckId]          = customDeckData
-            end
-          end
-        end
-      end
-
-      if changedSomething then
-        -- update deck data with changes
-        local newDeckIds = {}
-        for _, id in pairs(deckData["DeckIDs"]) do
-          table.insert(newDeckIds, cardIdConversion[id] or id)
-        end
-        deckData["DeckIDs"] = newDeckIds
-
-        for k, v in pairs(newDeckData) do
-          deckData["CustomDeck"][k] = v
-        end
-
+      deckData = deck.getData()
+      if updateDeckData(deckData) then
         deck.destruct()
         spawnObjectData({ data = deckData })
       end
     end
   end, 1)
+end
+
+function handleSpawnedBox(box)
+  Wait.time(function()
+    box.addTag("Replaced")
+    newBox = box.getData()
+    for _, obj in ipairs(newBox.ContainedObjects) do
+      if obj.Name == "Bag" or obj.Name == "Custom_Model_Bag" then
+        handleSpawnedBag(obj)
+      elseif obj.Name == "Card" then
+        handleCardInBag(obj)
+      elseif obj.Name == "Deck" then
+        handleDeckInBag(obj)
+      end
+    end
+
+    box.destruct()
+    spawnObjectData({ data = newBox })
+  end, 1)
+end
+
+function handleSpawnedBag(bagData)
+  for _, obj in ipairs(bagData.ContainedObjects) do
+    if obj.Name == "Bag" or obj.Name == "Custom_Model_Bag" then
+      handleSpawnedBag(obj)
+    elseif obj.Name == "Card" then
+      handleCardInBag(obj)
+    elseif obj.Name == "Deck" then
+      handleDeckInBag(obj)
+    end
+  end
+end
+
+function handleCardInBag(card)
+  local md = JSON.decode(card.GMNotes) or {}
+  if not md.id then return end
+
+  -- check if it's in the index
+  local cardData = getCardById({ id = md.id })
+  if cardData == nil then return end
+
+  updateOriginalCardData(card, cardData.data)
+end
+
+function handleDeckInBag(deck)
+  if deck ~= nil then
+    if deck.Tags == nil then
+      deck.Tags = { "Replaced" }
+    else
+      table.insert(deck.Tags, "Replaced")
+    end
+
+    updateDeckData(deck)
+  end
+end
+
+function updateDeckData(deckData)
+  local changedSomething = false
+  local cardIdConversion = {}
+  local newDeckData      = {}
+  for _, objData in ipairs(deckData.ContainedObjects) do
+    local md = JSON.decode(objData["GMNotes"]) or {}
+    if md.id then
+      local cardData = getCardById({ id = md.id })
+      if cardData then
+        local originalId = objData["CardID"]
+        local state = updateOriginalCardData(objData, cardData.data)
+        if state then
+          changedSomething                   = true
+
+          -- store changed card IDs / new deck data
+          cardIdConversion[originalId]       = cardData.data["CardID"]
+          local customDeckId, customDeckData = next(cardData.data["CustomDeck"])
+          newDeckData[customDeckId]          = customDeckData
+        end
+      end
+    end
+  end
+
+  if changedSomething then
+    -- update deck data with changes
+    local newDeckIds = {}
+    for _, id in pairs(deckData["DeckIDs"]) do
+      table.insert(newDeckIds, cardIdConversion[id] or id)
+    end
+    deckData["DeckIDs"] = newDeckIds
+
+    for k, v in pairs(newDeckData) do
+      deckData["CustomDeck"][k] = v
+    end
+
+    return true
+  end
+
+  return false
 end
 
 function updateOriginalCardData(originalData, replaceData)
@@ -237,7 +301,7 @@ function processCard(cardData)
 
   -- has both or neither tag, can't work out back
   if hasPlayerCardTag == hasScenarioCardTag then
-    printToAll("Missing or double tag for '" .. cardData["Nickname"] .. "'.")
+    log("Missing or double tag for '" .. cardData["Nickname"] .. "'.")
     return false
   end
 
