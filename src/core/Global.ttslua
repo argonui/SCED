@@ -27,7 +27,7 @@ local chaosTokens                 = {}
 local chaosTokensLastMatGUID      = nil
 
 -- chaos token stat tracking
-local tokenDrawingStats           = { ["Overall"] = {} }
+local tokenDrawingStats           = {}
 local lastDrawnTokens             = {}
 
 local bagSearchers                = {}
@@ -970,14 +970,18 @@ end
 ---------------------------------------------------------
 
 function trackChaosToken(tokenName, matColor, subtract)
-  -- initialize tables
-  if not tokenDrawingStats[matColor] then tokenDrawingStats[matColor] = {} end
-
   -- increase stats by 1 (or decrease if token is returned)
-  local modifier                          = (subtract and -1 or 1)
-  tokenName                               = getReadableTokenName(tokenName)
-  tokenDrawingStats["Overall"][tokenName] = (tokenDrawingStats["Overall"][tokenName] or 0) + modifier
-  tokenDrawingStats[matColor][tokenName]  = (tokenDrawingStats[matColor][tokenName] or 0) + modifier
+  local modifier     = (subtract and -1 or 1)
+  local readableName = getReadableTokenName(tokenName)
+
+  -- track stats for "Overall" and per matColor
+  for _, key in ipairs({ "Overall", matColor }) do
+    -- initialize table
+    tokenDrawingStats[key]               = tokenDrawingStats[key] or {}
+
+    -- update stats
+    tokenDrawingStats[key][readableName] = (tokenDrawingStats[key][readableName] or 0) + modifier
+  end
 
   -- add to list of last drawn tokens (if not subtracting)
   if not subtract then
@@ -1009,8 +1013,8 @@ function handleStatTrackerClick(player, clickType, _)
         playerColor = "White"
         playerName  = "Overall"
       else
-        playerColor = playermatApi.getPlayerColor(matColor)
-        playerName  = Player[playerColor].steam_name or playerColor
+        playerColor = playermatApi.getPlayerColor(matColor) or matColor
+        playerName  = Player[playerColor] and Player[playerColor].steam_name or playerColor
 
         -- track auto-fails / elder signs
         if (personalStats["Auto-fail"] or 0) > maxAutoFails then
@@ -1068,7 +1072,7 @@ function handleStatTrackerClick(player, clickType, _)
     if #lastDrawnTokens > 0 then
       local tokenStr = ""
       for _, data in ipairs(lastDrawnTokens) do
-        local handColor = playermatApi.getPlayerColor(data.matColor)
+        local handColor = playermatApi.getPlayerColor(data.matColor) or data.matColor
         local tokenName = data.tokenName
         if handColor ~= nil then
           tokenName = "[" .. Color.fromString(handColor):toHex() .. "]" .. tokenName .. "[-]"
@@ -2388,9 +2392,17 @@ function removePlayermat(matColor)
   -- remove objects on mat
   local objectsToRemove = playermatApi.searchAroundPlayermat(matColor, "isInteractable")
   Wait.frames(function()
+    local chaosBag = findChaosBag()
     for _, obj in ipairs(objectsToRemove) do
       if obj ~= nil and not obj.hasTag("CleanUpHelper_ignore") then
-        obj.destruct()
+        -- don't remove chaos tokens
+        if tokenChecker.isChaosToken(obj) then
+          if chaosBag then
+            chaosBag.putObject(obj)
+          end
+        else
+          obj.destruct()
+        end
       end
     end
   end, 10)
