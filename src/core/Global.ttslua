@@ -106,8 +106,7 @@ local tokenOffsets                = {}
 
 -- Table of data extracted from the token source bag, keyed by the Memo on each token which
 -- should match the token type keys ("resource", "clue", etc)
-local tokenTemplates
-local playerCardData, locationData
+local tokenTemplates, playerCardData, locationData
 
 -- state IDs for the multi-stated resource tokens
 local RESOURCE_STATES             = {
@@ -272,12 +271,9 @@ function maybeMoveObjectToMythosArea(object)
   -- check if object is in "regular" mythos area
   if not inArea(objectPosition, MYTHOS_AREA_DATA) then return end
 
-  -- calculate new position
+  -- calculate new position and move object
   local positionDiff = transformData.position - MYTHOS_AREA_DATA.center
-  local newPosition = objectPosition + positionDiff
-
-  -- move object
-  object.setPosition(newPosition)
+  object.setPosition(objectPosition + positionDiff)
 end
 
 function maybeUpdateClueDoomStackCount(container, object)
@@ -382,18 +378,12 @@ function onObjectEnterZone(zone, object)
 
     -- maybe reset data about sealed tokens (if that function exists)
     if object.hasTag("CardThatSeals") then
-      local func = object.getVar("resetSealedTokens")
-      if func ~= nil then
-        object.call("resetSealedTokens")
-      end
+      callFunctionIfItExists(object, "resetSealedTokens")
     end
 
     -- maybe disable card helpers
     if object.hasTag("CardWithHelper") then
-      local func = object.getVar("setHelperState")
-      if func ~= nil then
-        object.call("setHelperState", false)
-      end
+      callFunctionIfItExists(object, "setHelperState", false)
     end
 
     applyHidingToCard(object, zone.getValue())
@@ -2808,8 +2798,7 @@ function applyOptionPanelChange(id, state)
     for _, obj in ipairs(getObjects()) do
       local memo = obj.getMemo()
       if memo == "damage" or memo == "horror" then
-        local func = obj.getVar("updateLabel")
-        if func then obj.call("updateLabel") end
+        callFunctionIfItExists(obj, "updateLabel")
       end
     end
 
@@ -3875,10 +3864,13 @@ end
 
 -- checks if a table is empty
 function isTableEmpty(tbl)
-  if next(tbl) == nil then
-    return true
-  else
-    return false
+  return next(tbl) == nil
+end
+
+-- calls a function on an object if it exists
+function callFunctionIfItExists(object, functionName, params)
+  if object ~= nil and object.getVar(functionName) then
+    return object.call(functionName, params)
   end
 end
 
@@ -4007,10 +3999,7 @@ function handleTokenDetaching(params)
 
   -- redraw token xml for cards with sealing
   if card.hasTag("CardThatSeals") then
-    local func = card.getVar("updateStackSize") -- make sure function exists
-    if func ~= nil then
-      card.call("updateStackSize")
-    end
+    callFunctionIfItExists(card, "updateStackSize")
   end
 
   return removedTokens
@@ -4136,11 +4125,7 @@ function maybeReadyCard(params)
   end
 
   -- returns whether the card is now fully readied (and wasn't ready before)
-  if cardRotY == ownerRotation.y and roundedRotY ~= ownerRotation.y then
-    return true
-  else
-    return false
-  end
+  return (cardRotY == ownerRotation.y) and (roundedRotY ~= ownerRotation.y)
 end
 
 -- removes tokens from the provided card/deck
@@ -4151,10 +4136,7 @@ function removeTokensFromObject(params)
   local trash = guidReferenceApi.getObjectByOwnerAndType(params.owner, "Trash")
 
   if object.hasTag("CardThatSeals") then
-    local func = object.getVar("resetSealedTokens") -- check if function exists (it won't for older custom content)
-    if func ~= nil then
-      object.call("resetSealedTokens")
-    end
+    callFunctionIfItExists(object, "resetSealedTokens")
   end
 
   if cardTokens[object] then
