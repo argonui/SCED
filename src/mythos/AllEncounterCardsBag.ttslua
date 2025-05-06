@@ -26,12 +26,14 @@ end
 function buildIndex()
   cardCount = 0
   indexCount = 0
-  indexingDone = false
 
-  if self.getData().ContainedObjects then
-    processContainedObjects(self.getData().ContainedObjects)
+  -- index contents
+  local selfData = self.getData()
+  if selfData.ContainedObjects then
+    processContainedObjects(selfData.ContainedObjects)
   end
 
+  -- index hotfix bags
   for _, hotfixBag in ipairs(getObjectsWithTag("AllEncounterCardsHotfix")) do
     local hotfixData = hotfixBag.getData()
     if hotfixData.ContainedObjects then
@@ -43,9 +45,10 @@ function buildIndex()
   return 1
 end
 
+-- TODO: unify this with the AllCardsBag
 -- Processes the contained objects for cards to add to the index
 function processContainedObjects(containedObjects, customDeck)
-  for _, objData in ipairs(containedObjects or {}) do
+  for _, objData in ipairs(containedObjects) do
     if objData.ContainedObjects then
       -- recursively process nested containers
       processContainedObjects(objData.ContainedObjects, objData.CustomDeck)
@@ -146,30 +149,20 @@ function onObjectSpawn(obj)
     handleSpawnedCard(obj)
   elseif obj.type == "Deck" then
     handleSpawnedDeck(obj)
-  elseif obj.type == "Bag" and obj.hasTag("CampaignBox") then
-    handleSpawnedBox(obj)
+  elseif obj.type == "Bag" then
+    handleSpawnedBag(obj)
   end
 end
 
-function handleSpawnedCard(obj)
-  local md = JSON.decode(obj.getGMNotes()) or {}
-  if not md.id then return end
-
-  -- check if it's in the index
-  local cardData = getCardById({ id = md.id })
-  if cardData == nil then return end
-
+function handleSpawnedBag(bag)
   Wait.time(function()
-    if obj ~= nil then
-      local objData = obj.getData()
-      updateOriginalCardData(objData, cardData.data)
-
-      local pos = obj.getPosition()
-      local rot = obj.getRotation()
-      local cardList = { { data = objData, metadata = md } }
-      obj.destruct()
-
-      Spawner.spawnCards(cardList, pos, rot, false)
+    if bag ~= nil then
+      bag.addTag("Replaced")
+      local objData = bag.getData()
+      if updateBagData(objData) then
+        bag.destruct()
+        spawnObjectData({ data = objData })
+      end
     end
   end, 1)
 end
@@ -178,67 +171,64 @@ function handleSpawnedDeck(deck)
   Wait.time(function()
     if deck ~= nil then
       deck.addTag("Replaced")
-      deckData = deck.getData()
-      if updateDeckData(deckData) then
+      local objData = deck.getData()
+      if updateDeckData(objData) then
         deck.destruct()
-        spawnObjectData({ data = deckData })
+        spawnObjectData({ data = objData })
       end
     end
   end, 1)
 end
 
-function handleSpawnedBox(box)
-  Wait.time(function()
-    box.addTag("Replaced")
-    newBox = box.getData()
-    for _, obj in ipairs(newBox.ContainedObjects) do
-      if obj.Name == "Bag" or obj.Name == "Custom_Model_Bag" then
-        handleSpawnedBag(obj)
-      elseif obj.Name == "Card" then
-        handleCardInBag(obj)
-      elseif obj.Name == "Deck" then
-        handleDeckInBag(obj)
-      end
-    end
-
-    box.destruct()
-    spawnObjectData({ data = newBox })
-  end, 1)
-end
-
-function handleSpawnedBag(bagData)
-  for _, obj in ipairs(bagData.ContainedObjects) do
-    if obj.Name == "Bag" or obj.Name == "Custom_Model_Bag" then
-      handleSpawnedBag(obj)
-    elseif obj.Name == "Card" then
-      handleCardInBag(obj)
-    elseif obj.Name == "Deck" then
-      handleDeckInBag(obj)
-    end
-  end
-end
-
-function handleCardInBag(card)
-  local md = JSON.decode(card.GMNotes) or {}
+function handleSpawnedCard(card)
+  -- check if the card has metadata
+  local md = JSON.decode(card.getGMNotes()) or {}
   if not md.id then return end
 
   -- check if it's in the index
   local cardData = getCardById({ id = md.id })
   if cardData == nil then return end
 
-  updateOriginalCardData(card, cardData.data)
+  Wait.time(function()
+    if card ~= nil then
+      local objData = card.getData()
+      if updateOriginalCardData(objData, cardData.data) then
+        local pos = card.getPosition()
+        local rot = card.getRotation()
+        local cardList = { { data = objData, metadata = md } }
+        card.destruct()
+        Spawner.spawnCards(cardList, pos, rot, false)
+      end
+    end
+  end, 1)
 end
 
-function handleDeckInBag(deck)
-  if deck ~= nil then
-    if deck.Tags == nil then
-      deck.Tags = { "Replaced" }
-    else
-      table.insert(deck.Tags, "Replaced")
+function updateBagData(bagData)
+  local changedSomething = false
+  for _, objData in ipairs(bagData.ContainedObjects or {}) do
+    if objData.Name == "Bag" or objData.Name == "Custom_Model_Bag" then
+      if updateBagData(objData) then
+        changedSomething = true
+      end
+    elseif objData.Name == "Card" then
+      local md = JSON.decode(objData.GMNotes) or {}
+      if md.id then
+        local cardData = getCardById({ id = md.id })
+        if cardData then
+          if updateOriginalCardData(objData, cardData.data) then
+            changedSomething = true
+          end
+        end
+      end
+    elseif objData.Name == "Deck" then
+      objData.Tags = objData.Tags or {}
+      table.insert(objData.Tags, "Replaced")
+      if updateDeckData(objData) then
+        changedSomething = true
+      end
     end
-
-    updateDeckData(deck)
   end
+  return changedSomething
 end
 
 function updateDeckData(deckData)
