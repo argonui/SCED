@@ -144,6 +144,10 @@ function onSave()
   })
 end
 
+function onPlayerPing()
+  log(actionTrackerVisibility)
+end
+
 function onLoad(savedData)
   if savedData and savedData ~= "" then
     local loadedData            = JSON.decode(savedData)
@@ -1643,6 +1647,11 @@ function onClick_spawnPlaceholder(player)
   changeWindowVisibilityForColor(player.color, "downloadWindow", false)
 end
 
+-- special behaviour for middle-click: force-enable (since a bug hides it sometimes)
+function onClick_toggleActionTracker(player, clickType)
+    onClick_toggleUi(player, "actionTracker", nil, clickType == "-3")
+end
+
 function onClick_toggleOptionPanel(player, clickType)
   if clickType == "-1" then
     -- regular behaviour for left-click
@@ -1696,7 +1705,8 @@ end
 -- toggles the visibility of the respective UI
 ---@param player tts__Player Player that triggered this
 ---@param windowId string Name of the UI to toggle
-function onClick_toggleUi(player, windowId)
+---@param override boolean Enforce a state (atm only for action tracker)
+function onClick_toggleUi(player, windowId, _, override)
   -- let the Navigation Overlay handle the toggling of its visibility modes
   if windowId == "Navigation Overlay" then
     navigationOverlayApi.cycleVisibility(player.color)
@@ -1717,7 +1727,7 @@ function onClick_toggleUi(player, windowId)
     return
   elseif windowId == "actionTracker" then
     -- store the state of the Action Tracker UI to restore it onLoad()
-    local visibility = changeWindowVisibilityForColor(player.color, "actionTracker")
+    local visibility = changeWindowVisibilityForColor(player.color, "actionTracker", override)
     actionTrackerVisibility[player.color] = visibility
     printToColor("Action Tracker " .. (visibility and "enabled." or "disabled."), player.color)
 
@@ -1994,22 +2004,14 @@ function createActionTrackerUI()
     }
 
     local actionCount = determineActionCount(matColor)
+    local cellColors = getActionTrackerCellColors(actionCount)
 
-    for j = 1, 5 do
-      local color = "black"
-      if j <= actionCount.total then
-        if actionCount.order[j] == true then
-          color = "#C89B3C" -- gold for accessibility
-        else
-          color = "grey"
-        end
-      end
-
+    for i, cellColor in ipairs(cellColors) do
       local actionXml = {
         tag = "Cell",
         children = {
           tag = "Panel",
-          attributes = { id = "playerAction" .. j .. matColor, color = color }
+          attributes = { id = "playerAction" .. i .. matColor, color = cellColor }
         }
       }
       table.insert(playerRow.children, actionXml)
@@ -2044,19 +2046,34 @@ function updateActionTrackerTokens(matColor, delayFrames)
   end
   waitIds["actionTrackerTokens" .. matColor] = Wait.frames(function()
     local actionCount = determineActionCount(matColor)
-    for i = 1, 5 do
-      local color = "black"
-      if i <= actionCount.total then
-        if actionCount.order[i] == true then
-          color = "#C89B3C" -- gold for accessibility
-        else
-          color = "grey"
-        end
-      end
-      UI.setAttribute("playerAction" .. i .. matColor, "color", color)
+    local cellColors = getActionTrackerCellColors(actionCount)
+
+    for i, cellColor in ipairs(cellColors) do
+      UI.setAttribute("playerAction" .. i .. matColor, "color", cellColor)
     end
+
+    Wait.frames(updateActionTrackerWidth, 3)
+
     waitIds["actionTrackerTokens" .. matColor] = nil
   end, delayFrames or 50)
+end
+
+function getActionTrackerCellColors(actionCount)
+  local cellColors = {}
+
+  for i = 1, 5 do
+    if i <= actionCount.total then
+      if actionCount.order[i] == true then
+        table.insert(cellColors, "#C89B3C") -- gold for accessibility
+      else
+        table.insert(cellColors, "grey")
+      end
+    else
+      table.insert(cellColors, "black")
+    end
+  end
+
+  return cellColors
 end
 
 -- updates the displayed names in the action tracker
@@ -2077,6 +2094,39 @@ function updateActionTrackerName(matColor)
   updateActionTrackerRows()
 end
 
+function updateActionTrackerWidth()
+  local columnCount = countActionTrackerColumns()
+
+  local columnWidths = "0"
+  for i = 1, 5 do
+    if i <= columnCount then
+      columnWidths = columnWidths .. " 25"
+    else
+      columnWidths = columnWidths .. " 1"
+    end
+  end
+
+  -- default value for column widths: "0 25 25 25 25 25"
+  UI.setAttribute("actionTracker", "columnWidths", columnWidths)
+
+  -- default value for width: "300"
+  UI.setAttribute("actionTracker", "width", 300 - (5 - columnCount) * 24)
+end
+
+function countActionTrackerColumns()
+  -- check for the first column from the right that needs to be visible
+  for i = 5, 1, -1 do
+    for matColor, _ in pairs(guidReferenceApi.getObjectsByType("Playermat")) do
+      local isRowActive = UI.getAttribute("playerRow" .. matColor, "active") == "True"
+      if isRowActive then
+        local cellColor = UI.getAttribute("playerAction" .. i .. matColor, "color")
+        if cellColor ~= "black" then return i end
+      end
+    end
+  end
+  return 1
+end
+
 function isMiniReady(matColor)
   local investigatorData = playermatApi.getActiveInvestigatorData(matColor)
   if not investigatorData then return false end
@@ -2092,9 +2142,7 @@ function isMiniReady(matColor)
 end
 
 function determineActionCount(matColor)
-  local playermat = guidReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
-  if not playermat then return end
-
+  local playermat      = guidReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
   local localPos       = Vector(-1.2, 0.1, -0.28)
   local pos            = playermatApi.transformLocalPosition(localPos, matColor):setAt("y", 3)
   local rot            = playermatApi.returnRotation(matColor)
@@ -2407,6 +2455,7 @@ function removePlayermat(matColor)
 
   -- update the action tracker
   updateActionTrackerRows()
+  updateActionTrackerWidth()
 end
 
 function collectPlayermatSpawnData()
@@ -2534,6 +2583,7 @@ function spawnPlayermat(matColor, transformData)
 
     -- update the action tracker
     updateActionTrackerRows()
+    updateActionTrackerWidth()
     return 1
   end
 
