@@ -484,10 +484,10 @@ function onObjectRotate(obj, _, flip, _, _, oldFlip)
 
   if obj.hasTag("Minicard") then
     for matColor, _ in pairs(guidReferenceApi.getObjectsByType("Playermat")) do
-      Wait.frames(function() updateActionTrackerName(matColor) end, 50)
+      Wait.frames(function() updateActionTrackerName(matColor) end, 75)
     end
   else
-    maybeUpdateActionTrackerTokens(obj, 50)
+    maybeUpdateActionTrackerTokens(obj, 75)
   end
 end
 
@@ -1647,11 +1647,6 @@ function onClick_spawnPlaceholder(player)
   changeWindowVisibilityForColor(player.color, "downloadWindow", false)
 end
 
--- special behaviour for middle-click: force-enable (since a bug hides it sometimes)
-function onClick_toggleActionTracker(player, clickType)
-    onClick_toggleUi(player, "actionTracker", nil, clickType == "-3")
-end
-
 function onClick_toggleOptionPanel(player, clickType)
   if clickType == "-1" then
     -- regular behaviour for left-click
@@ -1705,8 +1700,7 @@ end
 -- toggles the visibility of the respective UI
 ---@param player tts__Player Player that triggered this
 ---@param windowId string Name of the UI to toggle
----@param override boolean Enforce a state (atm only for action tracker)
-function onClick_toggleUi(player, windowId, _, override)
+function onClick_toggleUi(player, windowId)
   -- let the Navigation Overlay handle the toggling of its visibility modes
   if windowId == "Navigation Overlay" then
     navigationOverlayApi.cycleVisibility(player.color)
@@ -1727,7 +1721,7 @@ function onClick_toggleUi(player, windowId, _, override)
     return
   elseif windowId == "actionTracker" then
     -- store the state of the Action Tracker UI to restore it onLoad()
-    local visibility = changeWindowVisibilityForColor(player.color, "actionTracker", override)
+    local visibility = changeWindowVisibilityForColor(player.color, "actionTracker")
     actionTrackerVisibility[player.color] = visibility
     printToColor("Action Tracker " .. (visibility and "enabled." or "disabled."), player.color)
 
@@ -1937,6 +1931,21 @@ function updateDownloadItemList(skipAuthorUpdate)
   Wait.time(onClick_select, 0.2)
 end
 
+function getVisibilityStringFromTable(vTable)
+  local vString = ""
+  for playerColor, state in pairs(vTable) do
+    if state then
+      vString = vString .. playerColor .. "|"
+    end
+  end
+
+  if vString ~= "" then
+    vString = vString:sub(1, -2)
+  end
+
+  return vString
+end
+
 function createActionTrackerUI()
   -- make list of currently used mat colors
   local usedMatColors = playermatApi.getUsedMatColors()
@@ -1945,17 +1954,7 @@ function createActionTrackerUI()
     isUsed[matColor] = true
   end
 
-  local visibilityString = ""
-  for playerColor, state in pairs(actionTrackerVisibility) do
-    if state then
-      visibilityString = visibilityString .. playerColor .. "|"
-    end
-  end
-
-  -- remove last delimiter
-  if visibilityString ~= "" then
-    visibilityString = visibilityString:sub(1, -2)
-  end
+  local visibilityString = getVisibilityStringFromTable(actionTrackerVisibility)
 
   local actionTrackerXml = {
     tag = "TableLayout",
@@ -1981,8 +1980,8 @@ function createActionTrackerUI()
   }
 
   -- Loop through playermats and create rows in the Action Tracker
-  for matColor, _ in pairs(guidReferenceApi.getObjectsByType("Playermat")) do
-    local playerColor = playermatApi.getPlayerColor(matColor)
+  for _, matColor in ipairs(MAT_COLORS) do
+    local playerColor = playermatApi.getPlayerColor(matColor) or matColor
     local playerRow = {
       tag = "Row",
       attributes = { id = "playerRow" .. matColor, active = isUsed[matColor] or false },
@@ -2097,20 +2096,12 @@ end
 function updateActionTrackerWidth()
   local columnCount = countActionTrackerColumns()
 
-  local columnWidths = "0"
-  for i = 1, 5 do
-    if i <= columnCount then
-      columnWidths = columnWidths .. " 25"
-    else
-      columnWidths = columnWidths .. " 1"
-    end
-  end
-
   -- default value for column widths: "0 25 25 25 25 25"
+  local columnWidths = "0" .. string.rep(" 25", columnCount)
   UI.setAttribute("actionTracker", "columnWidths", columnWidths)
 
   -- default value for width: "300"
-  UI.setAttribute("actionTracker", "width", 300 - (5 - columnCount) * 24)
+  UI.setAttribute("actionTracker", "width", 300 - (5 - columnCount) * 25)
 end
 
 function countActionTrackerColumns()
@@ -2202,10 +2193,10 @@ end
 function updateGlobalXml(newXml)
   -- preserve visibility settings for these elements
   local windowIdList = {
-    "playAreaGallery",
+    "blessCurseManager",
     "downloadWindow",
     "optionPanel",
-    "blessCurseManager"
+    "playAreaGallery"
   }
 
   -- get current state and update newXml
