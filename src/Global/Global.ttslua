@@ -144,10 +144,6 @@ function onSave()
   })
 end
 
-function onPlayerPing()
-  log(actionTrackerVisibility)
-end
-
 function onLoad(savedData)
   if savedData and savedData ~= "" then
     local loadedData            = JSON.decode(savedData)
@@ -1966,7 +1962,7 @@ function createActionTrackerUI()
       height                               = 30 * #usedMatColors,
       width                                = "300",
       offsetXY                             = "-2 396",
-      columnWidths                         = "0 25 25 25 25 25",
+      columnWidths                         = "0 150",
       padding                              = "4 4 4 4",
       cellSpacing                          = "5",
       allowDragging                        = true,
@@ -1998,23 +1994,26 @@ function createActionTrackerUI()
               }
             }
           }
+        },
+        {
+          tag = "Cell",
+          children = {
+            {
+              tag = "HorizontalLayout",
+              attributes = { spacing = 4 },
+              children = {
+                { tag = "Panel", attributes = { id = "playerAction1" .. matColor } },
+                { tag = "Panel", attributes = { id = "playerAction2" .. matColor } },
+                { tag = "Panel", attributes = { id = "playerAction3" .. matColor } },
+                { tag = "Panel", attributes = { id = "playerAction4" .. matColor } },
+                { tag = "Panel", attributes = { id = "playerAction5" .. matColor } }
+              }
+            }
+          }
         }
       }
     }
 
-    local actionCount = determineActionCount(matColor)
-    local cellColors = getActionTrackerCellColors(actionCount)
-
-    for i, cellColor in ipairs(cellColors) do
-      local actionXml = {
-        tag = "Cell",
-        children = {
-          tag = "Panel",
-          attributes = { id = "playerAction" .. i .. matColor, color = cellColor }
-        }
-      }
-      table.insert(playerRow.children, actionXml)
-    end
     table.insert(actionTrackerXml.children, playerRow)
   end
 
@@ -2044,8 +2043,7 @@ function updateActionTrackerTokens(matColor, delayFrames)
     waitIds["actionTrackerTokens" .. matColor] = nil
   end
   waitIds["actionTrackerTokens" .. matColor] = Wait.frames(function()
-    local actionCount = determineActionCount(matColor)
-    local cellColors = getActionTrackerCellColors(actionCount)
+    local cellColors = getActionTrackerCellColors(matColor)
 
     for i, cellColor in ipairs(cellColors) do
       UI.setAttribute("playerAction" .. i .. matColor, "color", cellColor)
@@ -2057,7 +2055,8 @@ function updateActionTrackerTokens(matColor, delayFrames)
   end, delayFrames or 50)
 end
 
-function getActionTrackerCellColors(actionCount)
+function getActionTrackerCellColors(matColor)
+  local actionCount = determineActionCount(matColor)
   local cellColors = {}
 
   for i = 1, 5 do
@@ -2096,11 +2095,14 @@ end
 function updateActionTrackerWidth()
   local columnCount = countActionTrackerColumns()
 
-  -- default value for column widths: "0 25 25 25 25 25"
-  local columnWidths = "0" .. string.rep(" 25", columnCount)
-  UI.setAttribute("actionTracker", "columnWidths", columnWidths)
+  -- show / hide actions
+  for i = 1, 5 do
+    for _, matColor in ipairs(MAT_COLORS) do
+      UI.setAttribute("playerAction" .. i .. matColor, "active", i <= columnCount)
+    end
+  end
 
-  -- default value for width: "300"
+  UI.setAttribute("actionTracker", "columnWidths", "0 " .. columnCount * 25)
   UI.setAttribute("actionTracker", "width", 300 - (5 - columnCount) * 25)
 end
 
