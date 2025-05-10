@@ -3,6 +3,7 @@ local deckLib          = require("util/DeckLib")
 local guidReferenceApi = require("core/GUIDReferenceApi")
 local playAreaApi      = require("playarea/PlayAreaApi")
 local searchLib        = require("util/SearchLib")
+local tokenArrangerApi = require("tokens/TokenArrangerApi")
 local tokenChecker     = require("tokens/TokenChecker")
 
 local pendingCall      = false
@@ -231,7 +232,8 @@ end
 function highlightMissingData()
   self.editButton({
     index = 3,
-    tooltip = (highlightMissing and "En" or "Dis") .. "able highlighting of cards without metadata (VP on these is not counted)."
+    tooltip = (highlightMissing and "En" or "Dis") ..
+    "able highlighting of cards without metadata (VP on these is not counted)."
   })
   for _, obj in pairs(missingData) do
     if obj ~= nil then
@@ -296,14 +298,10 @@ function placeCard(card)
     end
   end
 
-  -- remove tokens from the card
+  -- remove tokens from the card (does not remove chaos tokens)
   local trash = guidReferenceApi.getObjectByOwnerAndType("Mythos", "Trash")
   for _, obj in ipairs(searchLib.onObject(card, "isTileOrToken")) do
-    if tokenChecker.isChaosToken(obj) then
-      -- put chaos tokens back into bag
-      local chaosBag = chaosBagApi.findChaosBag()
-      chaosBag.putObject(obj)
-    elseif obj.memo ~= nil and obj.getLock() == false and obj.interactable == true then
+    if obj.memo and not obj.getLock() and obj.interactable then
       trash.putObject(obj)
     end
   end
