@@ -1,0 +1,139 @@
+local playermatApi    = require("playermat/PlayermatApi")
+local chaosBagApi          = require("chaosbag/ChaosBagApi")
+
+local ID_URL_MAP = {}
+
+MIN_VALUE, MAX_VALUE = 0, 99
+val = 0
+global = false
+enabled = false
+
+function onDestroy()
+  updateSave()
+end
+
+function updateSave()
+  self.script_state = JSON.encode({ val = val, global = global, enabled = enabled })
+end
+
+function onLoad(savedData)
+  if savedData and savedData ~= "" then
+    local loadedData = JSON.decode(savedData)
+    val = tonumber(loadedData.val)
+    enabled = loadedData.enabled
+    global = loadedData.global
+  end
+
+  self.max_typed_number = MAX_VALUE
+
+  self.createButton({
+    label = tostring(val),
+    click_function = "addOrSubtract",
+    function_owner = self,
+    position = { 0, 0.1, 0 },
+    rotation = { 0, 0, 0 },
+    height = 600,
+    width = 1000,
+    scale = { 1.5, 1.5, 1.5 },
+    font_size = 600,
+    font_color = { 1, 1, 1, 100 },
+    color = { 0, 0, 0, 0 }
+  })
+
+  -- add context menu entries
+  ID_URL_MAP = chaosBagApi.getIdUrlMap()
+
+  self.addContextMenuItem("Change Token", changeTrackedToken)
+  self.addContextMenuItem("Enable Globally", enableGlobal)
+  self.addContextMenuItem("Enable For Mat", enableMat)
+  self.addContextMenuItem("Disable Counting", disableCounting)
+
+  if enabled and global == true then
+    enableGlobal()
+  elseif enabled and global == false then
+    enableMat()
+  end
+end
+
+function enableGlobal()
+  global = true
+  enabled = true
+  self.setDescription("Counts " .. self.memo .. " tokens globally")
+end
+
+function enableMat()
+  global = false
+  enabled = true
+  counterMat = playermatApi.getMatColorByPosition(self.getPosition())
+  self.setDescription("Counts " .. self.memo .. " tokens for " .. counterMat)
+end
+
+function disableCounting()
+  enabled = false
+  self.setDescription("")
+end
+
+function changeTrackedToken(color)
+
+    -- generate list of options
+  local options = {}
+  local i = 1
+  for _, v in pairs(ID_URL_MAP) do
+    options[i] = v.name
+    i = i + 1
+  end
+  -- prompt user to select option
+  Player[color].showOptionsDialog("Select token:", options, 1, function(optionText)
+    local customInfo = self.getCustomObject()
+    local url = getURLforToken(optionText)
+    customInfo.image = url
+    self.setCustomObject(customInfo)
+    self.memo = optionText
+    self.setName(optionText .. " Counter")
+    self.reload()
+  end)
+end
+
+function getURLforToken(tokenName)
+  local namesToIds = Global.call("createChaosTokenNameLookupTable")
+  local id = namesToIds[tokenName]
+  local url = ID_URL_MAP[id].url
+  return url
+end
+
+function maybeUpdateCounter(params)
+  -- pause for dramatic effect
+  Wait.time(function()
+    if enabled == true then
+      if params.tokenName == self.memo then
+        if counterMat and counterMat == params.matColor then
+          addOrSubtract(false)
+        elseif global then
+          addOrSubtract(false)
+        end
+      end
+    end
+  end, 1.5)
+end
+
+function updateVal(newVal)
+  if tonumber(newVal) then
+    val = math.min(math.max(newVal, MIN_VALUE), MAX_VALUE)
+    self.editButton({ index = 0, label = tostring(val) })
+    updateSave()
+  end
+end
+
+function addOrSubtract(_, _, isRightClick)
+  modifyValue(isRightClick and -1 or 1)
+end
+
+function modifyValue(mod)
+  val = math.min(math.max(val + tonumber(mod), MIN_VALUE), MAX_VALUE)
+  self.editButton({ index = 0, label = tostring(val) })
+  updateSave()
+end
+
+function onNumberTyped(_, number)
+  updateVal(number)
+end
