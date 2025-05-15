@@ -7,13 +7,14 @@ MIN_VALUE, MAX_VALUE = 0, 99
 val = 0
 global = false
 enabled = false
+counterToken = "Elder Sign"
 
 function onDestroy()
   updateSave()
 end
 
 function updateSave()
-  self.script_state = JSON.encode({ val = val, global = global, enabled = enabled })
+  self.script_state = JSON.encode({ val = val, global = global, enabled = enabled, counterToken = counterToken })
 end
 
 function onLoad(savedData)
@@ -22,6 +23,7 @@ function onLoad(savedData)
     val = tonumber(loadedData.val)
     enabled = loadedData.enabled
     global = loadedData.global
+    counterToken = loadedData.counterToken
   end
 
   self.max_typed_number = MAX_VALUE
@@ -58,19 +60,22 @@ end
 function enableGlobal()
   global = true
   enabled = true
-  self.setDescription("Counts " .. self.memo .. " tokens globally")
+  self.setDescription("Counts " .. counterToken .. " tokens globally")
+  updateSave()
 end
 
 function enableMat()
   global = false
   enabled = true
   counterMat = playermatApi.getMatColorByPosition(self.getPosition())
-  self.setDescription("Counts " .. self.memo .. " tokens for " .. counterMat)
+  self.setDescription("Counts " .. counterToken .. " tokens for " .. counterMat)
+  updateSave()
 end
 
 function disableCounting()
   enabled = false
   self.setDescription("")
+  updateSave()
 end
 
 function changeTrackedToken(color)
@@ -88,8 +93,9 @@ function changeTrackedToken(color)
     local url = getURLforToken(optionText)
     customInfo.image = url
     self.setCustomObject(customInfo)
-    self.memo = optionText
+    counterToken = optionText
     self.setName(optionText .. " Counter")
+    updateSave()
     self.reload()
   end)
 end
@@ -105,7 +111,7 @@ function maybeUpdateCounter(params)
   -- pause for dramatic effect
   Wait.time(function()
     if enabled == true then
-      if params.tokenName == self.memo then
+      if params.tokenName == counterToken then
         if counterMat and counterMat == params.matColor then
           addOrSubtract(false)
         elseif global then
