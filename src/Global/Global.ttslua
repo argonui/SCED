@@ -1,6 +1,6 @@
-require("core/ChaosTokenMessages")
+require("Global/ChaosTokenMessages")
+require("Global/TableSetupData")
 require("core/Constants")
-require("core/TableSetupData")
 local blessCurseManagerApi        = require("chaosbag/BlessCurseManagerApi")
 local guidReferenceApi            = require("core/GUIDReferenceApi")
 local mythosAreaApi               = require("mythos/MythosAreaApi")
@@ -480,10 +480,10 @@ function onObjectRotate(obj, _, flip, _, _, oldFlip)
 
   if obj.hasTag("Minicard") then
     for matColor, _ in pairs(guidReferenceApi.getObjectsByType("Playermat")) do
-      Wait.frames(function() updateActionTrackerName(matColor) end, 50)
+      Wait.frames(function() updateActionTrackerName(matColor) end, 75)
     end
   else
-    maybeUpdateActionTrackerTokens(obj, 50)
+    maybeUpdateActionTrackerTokens(obj, 75)
   end
 end
 
@@ -512,7 +512,10 @@ function onObjectSpawn(obj)
 end
 
 function onObjectDrop(playerColor, obj)
-  if obj.hasTag("Minicard") then
+  if obj.hasTag("Investigator") then
+    updateActionTrackerRows()
+    updateActionTrackerWidth()
+  elseif obj.hasTag("Minicard") then
     for _, card in ipairs(searchLib.belowPosition(obj.getPosition(), "isCard")) do
       local md = JSON.decode(card.getGMNotes()) or {}
       if md.type == "Investigator" and (md.id or md.TtsZoopGuid) then
@@ -567,8 +570,17 @@ function onObjectDrop(playerColor, obj)
   end
 end
 
-function onObjectPickUp(_, object)
-  stopTokenTransformUpdating(object)
+function onObjectPickUp(_, obj)
+  stopTokenTransformUpdating(obj)
+
+  if obj.hasTag("UniversalToken") then
+    local owner = guidReferenceApi.getOwnerOfObject(obj)
+    if owner == "Mythos" then return end
+    Wait.condition(
+      function() updateActionTrackerTokens(owner, 1) end,
+      function() return obj.resting end
+    )
+  end
 end
 
 function maybeUpdateActionTrackerTokens(obj, delayFrames)
@@ -938,21 +950,6 @@ function luckyPenny(_, tokenGUID)
       thickness = 0.1
     })
   end
-end
-
----------------------------------------------------------
--- token spawning
----------------------------------------------------------
-
--- DEPRECATED. Use TokenManager instead --> TODO: Remove this with the new downloads repo (v.4.0.0)
--- Spawns a single token.
----@param params table Array with arguments to the method. 1 = position, 2 = type, 3 = rotation
-function spawnToken(params)
-  return TokenManager.spawnToken({
-    position = params[1],
-    tokenType = params[2],
-    rotation = params[3]
-  })
 end
 
 ---------------------------------------------------------
@@ -1932,6 +1929,21 @@ function updateDownloadItemList(skipAuthorUpdate)
   Wait.time(onClick_select, 0.2)
 end
 
+function getVisibilityStringFromTable(vTable)
+  local vString = ""
+  for playerColor, state in pairs(vTable) do
+    if state then
+      vString = vString .. playerColor .. "|"
+    end
+  end
+
+  if vString ~= "" then
+    vString = vString:sub(1, -2)
+  end
+
+  return vString
+end
+
 function createActionTrackerUI()
   -- make list of currently used mat colors
   local usedMatColors = playermatApi.getUsedMatColors()
@@ -1940,17 +1952,7 @@ function createActionTrackerUI()
     isUsed[matColor] = true
   end
 
-  local visibilityString = ""
-  for playerColor, state in pairs(actionTrackerVisibility) do
-    if state then
-      visibilityString = visibilityString .. playerColor .. "|"
-    end
-  end
-
-  -- remove last delimiter
-  if visibilityString ~= "" then
-    visibilityString = visibilityString:sub(1, -2)
-  end
+  local visibilityString = getVisibilityStringFromTable(actionTrackerVisibility)
 
   local actionTrackerXml = {
     tag = "TableLayout",
@@ -1962,7 +1964,7 @@ function createActionTrackerUI()
       height                               = 30 * #usedMatColors,
       width                                = "300",
       offsetXY                             = "-2 396",
-      columnWidths                         = "0 25 25 25 25 25",
+      columnWidths                         = "0 150",
       padding                              = "4 4 4 4",
       cellSpacing                          = "5",
       allowDragging                        = true,
@@ -1976,8 +1978,9 @@ function createActionTrackerUI()
   }
 
   -- Loop through playermats and create rows in the Action Tracker
-  for matColor, _ in pairs(guidReferenceApi.getObjectsByType("Playermat")) do
-    local playerColor = playermatApi.getPlayerColor(matColor)
+  for _, matColor in ipairs(MAT_COLORS) do
+    local cellColors = getActionTrackerCellColors(matColor)
+    local playerColor = playermatApi.getPlayerColor(matColor) or matColor
     local playerRow = {
       tag = "Row",
       attributes = { id = "playerRow" .. matColor, active = isUsed[matColor] or false },
@@ -1994,37 +1997,33 @@ function createActionTrackerUI()
               }
             }
           }
+        },
+        {
+          tag = "Cell",
+          children = {
+            {
+              tag = "HorizontalLayout",
+              attributes = { spacing = 4 },
+              children = {
+                { tag = "Panel", attributes = { id = "playerAction1" .. matColor, color = cellColors[1] } },
+                { tag = "Panel", attributes = { id = "playerAction2" .. matColor, color = cellColors[2] } },
+                { tag = "Panel", attributes = { id = "playerAction3" .. matColor, color = cellColors[3] } },
+                { tag = "Panel", attributes = { id = "playerAction4" .. matColor, color = cellColors[4] } },
+                { tag = "Panel", attributes = { id = "playerAction5" .. matColor, color = cellColors[5] } }
+              }
+            }
+          }
         }
       }
     }
 
-    local actionCount = determineActionCount(matColor)
-
-    for j = 1, 5 do
-      local color = "black"
-      if j <= actionCount.total then
-        if actionCount.order[j] == true then
-          color = "#C89B3C" -- gold for accessibility
-        else
-          color = "grey"
-        end
-      end
-
-      local actionXml = {
-        tag = "Cell",
-        children = {
-          tag = "Panel",
-          attributes = { id = "playerAction" .. j .. matColor, color = color }
-        }
-      }
-      table.insert(playerRow.children, actionXml)
-    end
     table.insert(actionTrackerXml.children, playerRow)
   end
 
   local xml = UI.getXmlTable()
   table.insert(xml, actionTrackerXml)
   updateGlobalXml(xml)
+  Wait.frames(updateActionTrackerWidth, 3)
 end
 
 -- updates the layout of the action tracker
@@ -2036,7 +2035,7 @@ function updateActionTrackerRows()
   end
 
   UI.setAttribute("actionTracker", "height", 30 * #usedMatColors)
-  for matColor, _ in pairs(guidReferenceApi.getObjectsByType("Playermat")) do
+  for _, matColor in ipairs(MAT_COLORS) do
     UI.setAttribute("playerRow" .. matColor, "active", isUsed[matColor] or false)
   end
 end
@@ -2048,20 +2047,35 @@ function updateActionTrackerTokens(matColor, delayFrames)
     waitIds["actionTrackerTokens" .. matColor] = nil
   end
   waitIds["actionTrackerTokens" .. matColor] = Wait.frames(function()
-    local actionCount = determineActionCount(matColor)
-    for i = 1, 5 do
-      local color = "black"
-      if i <= actionCount.total then
-        if actionCount.order[i] == true then
-          color = "#C89B3C" -- gold for accessibility
-        else
-          color = "grey"
-        end
-      end
-      UI.setAttribute("playerAction" .. i .. matColor, "color", color)
+    local cellColors = getActionTrackerCellColors(matColor)
+
+    for i, cellColor in ipairs(cellColors) do
+      UI.setAttribute("playerAction" .. i .. matColor, "color", cellColor)
     end
+
+    Wait.frames(updateActionTrackerWidth, 3)
+
     waitIds["actionTrackerTokens" .. matColor] = nil
   end, delayFrames or 50)
+end
+
+function getActionTrackerCellColors(matColor)
+  local actionCount = determineActionCount(matColor)
+  local cellColors = {}
+
+  for i = 1, 5 do
+    if i <= actionCount.total then
+      if actionCount.order[i] == true then
+        table.insert(cellColors, "#C89B3C") -- gold for accessibility
+      else
+        table.insert(cellColors, "grey")
+      end
+    else
+      table.insert(cellColors, "black")
+    end
+  end
+
+  return cellColors
 end
 
 -- updates the displayed names in the action tracker
@@ -2082,6 +2096,34 @@ function updateActionTrackerName(matColor)
   updateActionTrackerRows()
 end
 
+function updateActionTrackerWidth()
+  local columnCount = countActionTrackerColumns()
+
+  -- show / hide actions
+  for i = 1, 5 do
+    for _, matColor in ipairs(MAT_COLORS) do
+      UI.setAttribute("playerAction" .. i .. matColor, "active", i <= columnCount)
+    end
+  end
+
+  UI.setAttribute("actionTracker", "columnWidths", "0 " .. columnCount * 25)
+  UI.setAttribute("actionTracker", "width", 300 - (5 - columnCount) * 25)
+end
+
+function countActionTrackerColumns()
+  -- check for the first column from the right that needs to be visible
+  for i = 5, 1, -1 do
+    for _, matColor in ipairs(MAT_COLORS) do
+      local isRowActive = convertStringToBoolean(UI.getAttribute("playerRow" .. matColor, "active"))
+      if isRowActive then
+        local cellColor = UI.getAttribute("playerAction" .. i .. matColor, "color")
+        if cellColor ~= "black" then return i end
+      end
+    end
+  end
+  return 1
+end
+
 function isMiniReady(matColor)
   local investigatorData = playermatApi.getActiveInvestigatorData(matColor)
   if not investigatorData then return false end
@@ -2097,8 +2139,15 @@ function isMiniReady(matColor)
 end
 
 function determineActionCount(matColor)
-  local playermat = guidReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
-  if not playermat then return end
+  local actionCount    = {
+    available = 0,
+    used      = 0,
+    total     = 0,
+    order     = {}
+  }
+
+  local playermat      = guidReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
+  if not playermat then return actionCount end
 
   local localPos       = Vector(-1.2, 0.1, -0.28)
   local pos            = playermatApi.transformLocalPosition(localPos, matColor):setAt("y", 3)
@@ -2106,12 +2155,7 @@ function determineActionCount(matColor)
   local size           = Vector(5, 6, 0.1)
   local searchResult   = searchLib.inArea(pos, rot, size, "isUniversalToken")
 
-  local actionCount    = {
-    available = 0,
-    used      = 0,
-    total     = #searchResult,
-    order     = {}
-  }
+  actionCount.total = #searchResult
 
   -- sort tokens from left to right
   local tokenPositions = {}
@@ -2159,10 +2203,10 @@ end
 function updateGlobalXml(newXml)
   -- preserve visibility settings for these elements
   local windowIdList = {
-    "playAreaGallery",
+    "blessCurseManager",
     "downloadWindow",
     "optionPanel",
-    "blessCurseManager"
+    "playAreaGallery"
   }
 
   -- get current state and update newXml
@@ -2412,6 +2456,7 @@ function removePlayermat(matColor)
 
   -- update the action tracker
   updateActionTrackerRows()
+  updateActionTrackerWidth()
 end
 
 function collectPlayermatSpawnData()
@@ -2539,6 +2584,7 @@ function spawnPlayermat(matColor, transformData)
 
     -- update the action tracker
     updateActionTrackerRows()
+    updateActionTrackerWidth()
     return 1
   end
 
@@ -3840,6 +3886,11 @@ end
 -- Utility functions
 ---------------------------------------------------------
 
+-- converts a string to boolean (because TTS is very inconsistent with these in XML)
+function convertStringToBoolean(str)
+  return str == "True" or str == "true" or str == true
+end
+
 -- allows calling a function inside of a table (like the TokenManager)
 function callTable(params)
   local keys = params[1] or {}
@@ -3929,7 +3980,6 @@ function removeDuplicatesAndSort(t)
 end
 
 -- wrapper for 'easier' access to this function
--- Note: There's intentionally no proper UI or button etc. for this, since we don't fully support rotated mats
 function moveAndRotatePlayermat(params)
   playermatApi.moveAndRotate(params.matColor, params.position, params.rotationY)
 end
