@@ -383,18 +383,13 @@ do
   -- Process the slot list and looks for any cards which are bonded to those in the deck. Adds those cards to the slot list.
   ---@param slots table The slot list for cards in this deck. Table key is the cardId, value is the number of those cards which will be spawned
   internal.extractBondedCards = function(slots)
-    -- Create a list of bonded cards first so we don't modify slots while iterating
-    local bondedCards = {}
     local bondedList = {}
     for cardId, cardCount in pairs(slots) do
       local card = allCardsBagApi.getCardById(cardId)
       if card ~= nil and card.metadata.bonded ~= nil then
         for _, bond in ipairs(card.metadata.bonded) do
-          -- 'unlimited' upper limit for cards without this data
-          local maxCount = bond.maxCount or 99
-
-          -- add a bonded card for each copy of the parent card (until the max value is reached)
-          bondedCards[bond.id] = math.min(bond.count * cardCount, maxCount)
+          -- add bonded cards (exactly the amount that exists physically)
+          slots[bond.id] = bond.count
 
           -- We need to know which cards are bonded to determine their position, remember them
           bondedList[bond.id] = true
@@ -403,11 +398,6 @@ do
           bondedList[bond.id .. "-t"] = true
         end
       end
-    end
-
-    -- Add any bonded cards to the main slots list
-    for bondedId, bondedCount in pairs(bondedCards) do
-      slots[bondedId] = bondedCount
     end
 
     return bondedList
