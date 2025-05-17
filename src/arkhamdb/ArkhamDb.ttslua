@@ -16,7 +16,7 @@ do
   -- Sets up the ArkhamDb interface. Should be called from the parent object on load.
   ArkhamDb.initialize = function()
     configuration = internal.getConfiguration()
-    Request.start({ configuration.api_uri, configuration.taboo }, function(status)
+    Request.start({ configuration.ArkhamDB_api_uri, configuration.taboo }, function(status)
       local json = JSON.decode(internal.fixUtf16String(status.text))
       for _, taboo in pairs(json) do
         local cards = {}
@@ -62,10 +62,15 @@ do
     end
 
     local deckUri = {
-      configuration.api_uri,
+      configuration.ArkhamDB_api_uri,
       isPrivate and configuration.private_deck or configuration.public_deck,
       deckId
     }
+
+    -- detect arkham.build decks
+    if string.len(deckId) == 15 then
+      deckUri = { configuration.arkhambuild_api_uri, deckId }
+    end
 
     local deck = Request.start(deckUri, function(status)
       if string.find(status.text, "<!DOCTYPE html>") or string.find(status.text, "No share was found for this deck") then
@@ -83,7 +88,7 @@ do
       return true, json
     end)
 
-    deck:with(internal.onDeckResult, playerColor, loadNewest, standalone, callback)
+    internal.onDeckResult(deck, playerColor, loadNewest, standalone, callback)
   end
 
   -- Logs that a card could not be loaded in the mod by printing it to the console in the given
@@ -93,7 +98,7 @@ do
   ---@param playerColor string Color of the player's deck that had the problem
   ArkhamDb.logCardNotFound = function(cardId, playerColor)
     Request.start({
-        configuration.api_uri,
+        configuration.ArkhamDB_api_uri,
         configuration.cards,
         cardId
       },
