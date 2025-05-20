@@ -615,8 +615,8 @@ function shuffleDiscardIntoDeck(player, _, elementId)
   end
 
   -- get object references
-  local deckAreaObjects = getDeckAreaObjects()
-  if not deckAreaObjects.discard then
+  local objects = getDeckAreaObjects()
+  if not objects.discard then
     -- display a feedback message if called via button
     if elementId == "shuffleDiscardButton" then
       broadcastToColor("Discard pile is empty.", messageColor, "Orange")
@@ -626,10 +626,10 @@ function shuffleDiscardIntoDeck(player, _, elementId)
 
   -- Norman Withers handling
   local harbinger
-  if deckAreaObjects.topCard then
-    harbinger = isHarbinger(deckAreaObjects.topCard.getGMNotes())
-  elseif deckAreaObjects.draw and not deckAreaObjects.draw.is_face_down then
-    local cards = deckAreaObjects.draw.getObjects()
+  if objects.topCard then
+    harbinger = isHarbinger(objects.topCard.getGMNotes())
+  elseif objects.draw and not objects.draw.is_face_down then
+    local cards = objects.draw.getObjects()
     harbinger = isHarbinger(cards[#cards].gm_notes)
   end
 
@@ -638,22 +638,28 @@ function shuffleDiscardIntoDeck(player, _, elementId)
     return
   end
 
-  -- create a list of objects to shuffle
-  local objectsToShuffle = {}
-  if deckAreaObjects.topCard then
-    table.insert(objectsToShuffle, deckAreaObjects.topCard)
+  -- prepare deck for shuffling
+  local faceDownRotation = self.getRotation():setAt("z", 180)
+  local delay = 0.01
 
-    -- this will be executed after the deck merging + shuffling
-    Wait.time(flipTopCardFromDeck, 0.3)
+  if objects.topCard then
+    delay = delay + 0.5
+    if objects.draw then
+      objects.draw = objects.draw.putObject(objects.topCard)
+    else
+      objects.topCard.setRotation(faceDownRotation)
+    end
+
+    flipTopCardFromDeck(1.5) -- this will be executed after the deck merging + shuffling
   end
 
-  table.insert(objectsToShuffle, deckAreaObjects.discard)
-  local rot = self.getRotation():setAt("z", 180)
-  deckLib.placeOrMergeIntoDeck(objectsToShuffle, self.positionToWorld(DRAW_DECK_POSITION), rot, _, true)
+  Wait.time(function()
+    deckLib.placeOrMergeIntoDeck(objects.discard, returnGlobalDrawPosition(), faceDownRotation, nil, true)
+  end, delay)
 end
 
 -- utility function for Norman Withers to flip the top card to the revealed side
-function flipTopCardFromDeck()
+function flipTopCardFromDeck(additionalDelay)
   Wait.time(function()
     local deckAreaObjects = getDeckAreaObjects()
     if deckAreaObjects.topCard ~= nil then return end
@@ -668,7 +674,7 @@ function flipTopCardFromDeck()
         deckAreaObjects.draw.takeObject({ position = pos, flip = true })
       end
     end
-  end, 0.1)
+  end, 0.1 + (additionalDelay or 0))
 end
 
 -- discard a random non-hidden card from hand
