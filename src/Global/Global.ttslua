@@ -363,7 +363,7 @@ function onObjectEnterZone(zone, object)
         end
       end
     elseif object.type == "Tile" and not tokenChecker.isChaosToken(object) and object.getMemo() and
-        not object.getLock() and object.interactable == true then
+        not object.getLock() and object.interactable == true and not object.isSmoothMoving() then
       local matcolor = playermatApi.getMatColorByPosition(object.getPosition())
       local trash    = guidReferenceApi.getObjectByOwnerAndType(matcolor, "Trash")
       trash.putObject(object)
@@ -3265,7 +3265,7 @@ function TokenManager.spawnForCard(params)
   if tokenSpawnTrackerApi.hasSpawnedTokens(params.card.getGUID()) then return end
   local metadata = JSON.decode(params.card.getGMNotes())
   if metadata ~= nil then
-    TokenManager.spawnTokensFromUses(params.card, params.extraUses)
+    TokenManager.spawnTokensFromUses(params.card, params.extraUses, params.spawnReactionToken)
   else
     TokenManager.spawnTokensFromDataHelper(params.card)
   end
@@ -3541,13 +3541,23 @@ end
 -- Spawn tokens for a card based on the uses metadata. This will consider the face up/down state
 -- of the card for both locations and standard cards.
 ---@param card tts__Object Card to maybe spawn tokens for
----@param extraUses table A table of <use type>=<count> which will modify the number of tokens
+---@param extraUses? table A table of <use type>=<count> which will modify the number of tokens
 ---    spawned for that type. e.g. Akachi's playermat should pass "Charge"=1
-function TokenManager.spawnTokensFromUses(card, extraUses)
+---@param spawnReactionToken? boolean Whether there should spawn an additional reaction token (atm only for Michael)
+function TokenManager.spawnTokensFromUses(card, extraUses, spawnReactionToken)
   local uses = TokenManager.getUses(card)
   if uses == nil then return end
 
   card.resting = true
+
+  -- maybe add additional reaction token
+  if spawnReactionToken then
+    table.insert(uses, {
+      count = 1,
+      type  = "Reaction",
+      token = "universalActionAbility"
+    })
+  end
 
   -- go through tokens to spawn
   local tokenCount
