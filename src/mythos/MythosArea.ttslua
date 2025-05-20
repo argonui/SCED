@@ -322,31 +322,40 @@ function reshuffleEncounterDeck()
   local encounterDeckObjects = getEncounterDeckObjects()
 
   if encounterDeckObjects.discard then
-    -- flips discard pile
-    if not encounterDeckObjects.discard.is_face_down then
-      encounterDeckObjects.discard.setRotation(self.getRotation():setAt("z", 180))
-    end
+    -- calculate position/rotation
+    local newDeckPos = getEncounterDeckPosition() + Vector(0, 1, 0)
+    local newDeckRot = self.getRotation():setAt("z", 180)
 
-    -- make a new encounter deck
-    encounterDeckObjects.discard.setPosition(getEncounterDeckPosition())
-
-    if encounterDeckObjects.draw == nil then
-      encounterDeckObjects.draw = encounterDeckObjects.discard
-    else
-      encounterDeckObjects.draw = encounterDeckObjects.draw.putObject(encounterDeckObjects.discard)
-    end
+    -- collect objects to be grouped
+    local groupList = { encounterDeckObjects.discard }
 
     if encounterDeckObjects.topCard then
-      encounterDeckObjects.draw.putObject(encounterDeckObjects.topCard)
+      table.insert(groupList, encounterDeckObjects.topCard)
       flipTopCardFromDeck(1)
     end
 
-    encounterDeckObjects.draw.shuffle()
+    if encounterDeckObjects.draw then
+      newDeckPos = encounterDeckObjects.draw.getPosition()
+      table.insert(groupList, encounterDeckObjects.draw)
+    end
+
+    -- move old discard pile
+    encounterDeckObjects.discard.setPosition(newDeckPos)
+    encounterDeckObjects.discard.setRotation(newDeckRot)
+
+    -- make a new encounter deck
+    local newDeck = group(groupList)[1]
+    newDeck.setPosition(newDeckPos)
+    newDeck.setRotation(newDeckRot)
+    newDeck.shuffle()
+    newDeck.setName("Encounter Deck")
+
     broadcastToAll("Shuffled encounter discard into deck.", "White")
+
     return true
   else
     if encounterDeckObjects.draw and encounterDeckObjects.topCard then
-      encounterDeckObjects.draw.putObject(encounterDeckObjects.topCard)
+      encounterDeckObjects.draw = encounterDeckObjects.draw.putObject(encounterDeckObjects.topCard)
       encounterDeckObjects.draw.shuffle()
       flipTopCardFromDeck(1)
       return true
