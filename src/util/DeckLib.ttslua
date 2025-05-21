@@ -1,8 +1,83 @@
 do
-  local DeckLib = {}
+  local DeckLib      = {}
 
   local coroutineLib = require("util/CoroutineLib")
   local searchLib    = require("util/SearchLib")
+
+  -- parse the 'objOrTable' parameter into a table
+  ---@param objOrTable tts__Object|table Object or table of objects
+  ---@return table: List of object references
+  local function parseObjectTable(objOrTable)
+    local objects = {}
+    if type(objOrTable) == "table" then
+      objects = objOrTable
+    else
+      table.insert(objects, objOrTable)
+    end
+    return objects
+  end
+
+  -- parses the mixed "object or reference" parameter
+  ---@param objOrGuid tts__Object|string Object or GUID
+  ---@return tts__Object: Object reference
+  local function parseObjectOrGuid(objOrGuid)
+    if type(objOrGuid) == "string" then
+      objOrGuid = getObjectFromGUID(objOrGuid)
+    end
+    return objOrGuid
+  end
+
+  -- Shuffles the elements from startIndex to endIndex (inclusive) in-place (Fisher-Yates-Shuffle)
+  local function shuffleRange(tbl, startIndex, endIndex)
+    if not tbl or type(tbl) ~= "table" then return end
+    startIndex = math.max(1, startIndex or 1)
+    endIndex = math.min(#tbl, endIndex or #tbl)
+    if startIndex >= endIndex then return end
+
+    for i = endIndex, startIndex + 1, -1 do
+      local j = math.random(startIndex, i)
+      tbl[i], tbl[j] = tbl[j], tbl[i]
+    end
+  end
+
+  -- helper function to generate deck data from a list of card data
+  ---@param cardList table List of cards for the deck (in order)
+  ---@param position? table Position for the deck (defaults to the middle of the play area)
+  ---@param rotation? table Rotation for the deck (defaults to facedown)
+  ---@param scale? table Scale for the deck (defaults to 1)
+  local function generateDeckDataFromCardList(cardList, position, rotation, scale)
+    position = position or Vector(-30.24, 1.6, 0)
+    rotation = rotation or Vector(0, 270, 180)
+    scale    = scale or Vector(1, 1, 1)
+    local newDeckData = {
+      Name = "Deck",
+      ContainedObjects = cardList,
+      Transform = {
+        posX = position.x,
+        posY = position.y,
+        posZ = position.z,
+        rotX = rotation.x,
+        rotY = rotation.y,
+        rotZ = rotation.z,
+        scaleX = scale.x,
+        scaleY = scale.y,
+        scaleZ = scale.z
+      },
+      CustomDeck = {},
+      DeckIDs = {}
+    }
+
+    for _, cardData in ipairs(cardList) do
+      -- add each card's custom deck data
+      local customDeckId, customDeckData = next(cardData["CustomDeck"])
+      newDeckData.CustomDeck[customDeckId] = customDeckData
+
+      -- add each card's CardID
+      table.insert(newDeckData.DeckIDs, cardData["CardID"])
+    end
+
+    return newDeckData
+  end
 
   -- places a card/deck at a position or merges into an existing deck
   ---@param objOrTable tts__Object|table Object or table of objects to move
@@ -10,17 +85,10 @@ do
   ---@param rot? table New rotation for the object
   ---@param below? boolean Should the object be placed below an existing deck?
   ---@param shuffle? boolean Should the resulting deck be shuffled?
-  ---@return tts__Object|nil: The resulting object (if possible)
   function DeckLib.placeOrMergeIntoDeck(objOrTable, pos, rot, below, shuffle)
     if objOrTable == nil or pos == nil then return end
 
-    -- handle 'objOrTable' parameter
-    local objects = {}
-    if type(objOrTable) == "table" then
-      objects = objOrTable
-    else
-      table.insert(objects, objOrTable)
-    end
+    local objects = parseObjectTable(objOrTable)
 
     -- search the new position for existing card/deck
     local searchResult = searchLib.atPosition(pos, "isCardOrDeck")
@@ -82,9 +150,6 @@ do
             if i == 1 and targetObj.type == "Deck" and shuffle then
               Wait.frames(function() targetObj.shuffle() end, 3)
             end
-
-            -- return the resulting object
-            if i == 1 then return targetObj end
           end,
           -- check state of the object (make sure it's not moving)
           function() return obj.isDestroyed() or not obj.isSmoothMoving() end,
@@ -93,29 +158,26 @@ do
     end
   end
 
-  -- shuffles a card into a deck (or a part of it)
+  -- shuffles cards into a deck
   ---@param objOrTable tts__Object|table Object or table of objects to shuffle into the deck
-  ---@param deck tts__Object The target deck (or card)
-  function DeckLib.shuffleIntoDeck(objOrTable, deck)
-    if objOrTable == nil or deck == nil then return end
+  ---@param deckOrGuid tts__Object|string The target deck (or card)
+  function DeckLib.shuffleIntoDeck(objOrTable, deckOrGuid)
+    if objOrTable == nil or deckOrGuid == nil then return end
 
-    -- handle 'objOrTable' parameter
-    local objects = {}
-    if type(objOrTable) == "table" then
-      objects = objOrTable
-    else
-      table.insert(objects, objOrTable)
-    end
+    local objects = parseObjectTable(objOrTable)
+    local deck = parseObjectOrGuid(deckOrGuid)
 
     function DeckLibShuffleIntoDeckCoroutine()
       for _, obj in ipairs(objects) do
-        deck = deck.putObject(obj)
+        if obj.type == "Card" or obj.type == "Deck" then
+          deck = deck.putObject(obj)
 
-        -- delay to make sure the deck can form and it looks neater
-        coroutineLib.waitSeconds(0.35)
+          -- delay to make sure the deck can form and it looks neater
+          coroutineLib.waitSeconds(0.35)
+        end
       end
 
-      -- delay to make sure the user doesn't think the deck was shuffled too early
+      -- delay to make sure cards have stopped moving
       coroutineLib.waitSeconds(0.7)
 
       deck.shuffle()
@@ -123,6 +185,95 @@ do
     end
 
     startLuaCoroutine(self, "DeckLibShuffleIntoDeckCoroutine")
+  end
+
+  -- places cards into a specific part of a deck and shuffles that part (e.g. top 5 cards)
+  ---@param objOrTable tts__Object|table Object or table of objects to shuffle into the deck
+  ---@param deckOrGuid tts__Object|string The target deck (or card)
+  ---@param bottom? boolean If the cards are shuffled into the bottom (top is default)
+  ---@param count number Number of cards to shuffle into
+  function DeckLib.shuffleIntoTopOrBottomX(objOrTable, deckOrGuid, bottom, count)
+    if objOrTable == nil or deckOrGuid == nil or count == nil then return end
+
+    local deck = parseObjectOrGuid(deckOrGuid)
+
+    -- use the general function instead if count >= decksize
+    local deckData = deck.getData()
+    local currentDeckSize = #deckData.ContainedObjects
+    if count >= currentDeckSize then
+      DeckLib.shuffleIntoDeck(objOrTable, deck)
+      return
+    end
+
+    local objects = parseObjectTable(objOrTable)
+
+    function DeckLibShuffleIntoTopOrBottomX()
+      -- collect the object data of each card
+      local cardsToInsertData = {}
+
+      for _, obj in ipairs(objects) do
+        if obj.type == "Card" or obj.type == "Deck" then
+          if obj.type == "Card" then
+            table.insert(cardsToInsertData, obj.getData())
+          else
+            for _, objData in ipairs(obj.getData().ContainedObjects) do
+              table.insert(cardsToInsertData, objData)
+            end
+          end
+
+          -- we're putting the objects into the deck for animation purposes only!
+          deck = deck.putObject(obj)
+
+          -- delay to make sure the deck can form and it looks neater
+          coroutineLib.waitSeconds(0.35)
+        end
+      end
+
+      -- delay to make sure cards have stopped moving
+      coroutineLib.waitSeconds(0.7)
+
+      -- construct a new deck, destroy the old one and spawn it with new data
+      local cardsInDeck = {}
+      for _, objData in ipairs(deckData.ContainedObjects) do
+        table.insert(cardsInDeck, objData)
+      end
+
+      -- destroy the deck
+      deck.destroy()
+
+      -- wait for destruction
+      coroutineLib.waitFrames(3)
+
+      -- calculate shuffling indices and create new card list
+      local resultingCardList, startIndex, endIndex
+
+      if bottom then
+        startIndex = currentDeckSize - count + 1
+        endIndex = currentDeckSize + #cardsToInsertData
+
+        -- insert the existing cards first and then the new cards
+        resultingCardList = { table.unpack(cardsInDeck), table.unpack(cardsToInsertData) }
+      else
+        startIndex = 1
+        endIndex = count + #cardsToInsertData
+
+        -- insert new cards first and then the existing cards
+        resultingCardList = { table.unpack(cardsToInsertData), table.unpack(cardsInDeck) }
+      end
+
+      -- shuffle this part of the card list
+      shuffleRange(resultingCardList, startIndex, endIndex)
+
+      log("End")
+      -- spawn the new deck
+      local newDeckData     = generateDeckDataFromCardList(resultingCardList)
+      newDeckData.Transform = deckData.Transform
+      newDeckData.Nickname  = deckData.Nickname
+      spawnObjectData({ data = newDeckData })
+      return 1
+    end
+
+    startLuaCoroutine(self, "DeckLibShuffleIntoTopOrBottomX")
   end
 
   return DeckLib
