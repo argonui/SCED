@@ -1,0 +1,45 @@
+local deckLib = require("util/DeckLib")
+local mythosAreaApi = require("mythos/MythosAreaApi")
+
+function onLoad()
+  self.addContextMenuItem("Shuffle into top 10", shuffleIntoEncounterDeck)
+end
+
+function shuffleIntoEncounterDeck(playerColor)
+  local encounterDeckObjects = mythosAreaApi.getEncounterDeckObjects()
+  local deckSize = 0
+
+  if encounterDeckObjects.draw then
+    deckSize = deckSize + #encounterDeckObjects.draw.getObjects()
+  end
+
+  if encounterDeckObjects.topCard then
+    deckSize = deckSize + 1
+  end
+
+  if deckSize < 10 then
+    broadcastToColor("Encounter deck needs to contain at least 10 cards.", playerColor, "Orange")
+    return
+  end
+
+  -- unselect this card
+  self.removeFromPlayerSelection(playerColor)
+
+  -- merge the top card if it exists
+  if encounterDeckObjects.topCard then
+    encounterDeckObjects.draw = encounterDeckObjects.draw.putObject(encounterDeckObjects.topCard)
+
+    -- really conservative delay to make sure the deck was respawned
+    Wait.time(function() mythosAreaApi.flipTopCardFromDeck() end, 1)
+  end
+
+  -- delay to wait for potential top card to be merged into deck
+  Wait.time(function()
+    deckLib.shuffleIntoTopOrBottomX(self, encounterDeckObjects.draw, false, 10)
+  end, 0.1)
+
+  -- delay to not send the feedback before the operation happened
+  Wait.time(function()
+    broadcastToAll("Shuffled 'The Stars Are Right' into the top 10 cards of the encounter deck.")
+  end, 0.5)
+end

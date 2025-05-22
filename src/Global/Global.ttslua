@@ -252,6 +252,22 @@ function onObjectLeaveContainer(container, object)
   maybeUpdateClueDoomStackCount(container, object)
 end
 
+function maybeAddDecalToChaosToken(object)
+  if not tokenChecker.isChaosToken(object) then return end
+
+  local decalData = {
+    {
+      name     = "RedCross",
+      url      = "https://steamusercontent-a.akamaihd.net/ugc/16527220566318339270/4533B90A1CDA9AC23D480DC0F520E1FC24DC087E/",
+      position = { 0, -0.02, 0 },
+      rotation = { 270, 0, 0 },
+      scale    = { 2.25, 2.25, 1 }
+    }
+  }
+
+  object.setDecals(decalData)
+end
+
 -- moves an object to the new position of the mythos area
 function maybeMoveObjectToMythosArea(object)
   -- only continue for interactable objects
@@ -482,6 +498,20 @@ function onObjectRotate(obj, _, flip, _, _, oldFlip)
     for matColor, _ in pairs(guidReferenceApi.getObjectsByType("Playermat")) do
       Wait.frames(function() updateActionTrackerName(matColor) end, 75)
     end
+  elseif tokenChecker.isChaosToken(obj) then
+    if #chaosTokens == 0 then return end
+
+    for _, token in pairs(chaosTokens) do
+      if token == obj then
+        local matColor = playermatApi.getMatColorByPosition(obj.getPosition())
+        local tokenName = obj.getName()
+        if flip == 180 then
+          trackChaosToken(tokenName, matColor, true)
+        else
+          trackChaosToken(tokenName, matColor, false)
+        end
+      end
+    end
   else
     maybeUpdateActionTrackerTokens(obj, 75)
   end
@@ -506,6 +536,7 @@ function onObjectSpawn(obj)
     end)
   end
 
+  maybeAddDecalToChaosToken(obj)
   maybeMoveObjectToMythosArea(obj)
   maybeUpdateClueDoomStackCount(obj)
   maybeUpdateActionTrackerTokens(obj, 5)
@@ -521,7 +552,7 @@ function onObjectDrop(playerColor, obj)
       if md.type == "Investigator" and (md.id or md.TtsZoopGuid) then
         local miniMd = JSON.decode(obj.getGMNotes()) or {}
         miniMd.type = "Minicard"
-        miniMd.id = (md.id or md.TtsZoopGuid) .. "-m"
+        miniMd.id = getMiniId(md.id or md.TtsZoopGuid)
         obj.setGMNotes(JSON.encode_pretty(miniMd))
         printToColor("Updated minicard ID to match investigator", playerColor, "Green")
       end
@@ -972,7 +1003,7 @@ function trackChaosToken(tokenName, matColor, subtract)
 
   -- update any chaos token counters
   for _, obj in ipairs(getObjectsWithTag("ChaosTokenCounter")) do
-    obj.call("maybeUpdateCounter", { tokenName = tokenName, matColor = matColor })
+    obj.call("maybeUpdateCounter", { tokenName = tokenName, matColor = matColor, modifier = modifier })
   end
 
   -- add to list of last drawn tokens (if not subtracting)
@@ -2139,14 +2170,14 @@ function isMiniReady(matColor)
 end
 
 function determineActionCount(matColor)
-  local actionCount    = {
+  local actionCount = {
     available = 0,
     used      = 0,
     total     = 0,
     order     = {}
   }
 
-  local playermat      = guidReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
+  local playermat   = guidReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
   if not playermat then return actionCount end
 
   local localPos       = Vector(-1.2, 0.1, -0.28)
@@ -2155,7 +2186,7 @@ function determineActionCount(matColor)
   local size           = Vector(5, 6, 0.1)
   local searchResult   = searchLib.inArea(pos, rot, size, "isUniversalToken")
 
-  actionCount.total = #searchResult
+  actionCount.total    = #searchResult
 
   -- sort tokens from left to right
   local tokenPositions = {}
@@ -3987,6 +4018,17 @@ function removeDuplicatesAndSort(t)
   table.sort(result)
 
   return result
+end
+
+-- constructs the mini id for a given investigator id
+function getMiniId(baseId)
+  if #baseId < 16 then
+    -- use the first 5 characters to exclude suffixes
+    return string.match(baseId, ".....") .. "-m"
+  else
+    -- use the full ID (long -> assume it's from Zoop)
+    return baseId .. "-m"
+  end
 end
 
 -- wrapper for 'easier' access to this function
