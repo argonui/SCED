@@ -1,18 +1,63 @@
 do
   local CoroutineLib = {}
 
-  -- pauses the current coroutine for a specific amount of frames
+  local function resumeWithErrorHandling(co)
+    local result, message = coroutine.resume(co)
+    if not result then
+      error(message)
+    end
+  end
+
+  --- yields from the current coroutine. Resumes once a condition is met or an optional timeout is reached.
+  ---@param condition fun(): boolean Return true when the current coroutine should be resumed.
+  ---@param timeout? number Timeout in seconds (optional).
+  ---@return boolean: True if the condition was met, or false if the (optional) timeout was reached.
+  function CoroutineLib.yieldCondition(condition, timeout)
+    local co = coroutine.running()
+    local resume = function() resumeWithErrorHandling(co) end
+    Wait.condition(resume, condition, timeout, resume)
+    coroutine.yield()
+  end
+
+  --- yields from the current coroutine for the specified number of frames
   ---@param frames? number Amount of frames to wait
-  function CoroutineLib.waitFrames(frames)
+  function CoroutineLib.yieldFrames(frames)
+    frames = frames or 1
+    local co = coroutine.running()
+    Wait.frames(function() resumeWithErrorHandling(co) end, frames)
+    coroutine.yield()
+  end
+
+  --- yields from the current coroutine for the specified number of seconds
+  ---@param seconds? number Amount of seconds to wait
+  function CoroutineLib.yieldSeconds(seconds)
+    seconds = seconds or 0.01
+    local co = coroutine.running()
+    Wait.time(function() resumeWithErrorHandling(co) end, seconds)
+    coroutine.yield()
+  end
+
+  --- creates a coroutine from the specified function, and immediately starts it.
+  function CoroutineLib.start(func)
+    return coroutine.resume(coroutine.create(func))
+  end
+
+  -- interrupts a coroutine with another coroutine and then resumes the original coroutine
+  function CoroutineLib.interruptWithCoroutine()
+  end
+
+  -- pauses a simple coroutine (from 'startLuaCoroutine') for a specific amount of frames
+  ---@param frames? number Amount of frames to wait
+  function CoroutineLib.simpleWaitFrames(frames)
     frames = frames or 1
     for k = 1, frames do
       coroutine.yield(0)
     end
   end
 
-  -- pauses the current coroutine for a specific amount of seconds
+  -- pauses a simple coroutine (from 'startLuaCoroutine') for a specific amount of seconds
   ---@param seconds? number Amount of seconds to wait
-  function CoroutineLib.waitSeconds(seconds)
+  function CoroutineLib.simpleWaitSeconds(seconds)
     seconds = seconds or 0.01
     local startTime = os.clock()
     while os.clock() - startTime < seconds do
