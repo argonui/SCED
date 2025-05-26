@@ -106,7 +106,7 @@ local tokenOffsets                = {}
 
 -- Table of data extracted from the token source bag, keyed by the Memo on each token which
 -- should match the token type keys ("resource", "clue", etc)
-local tokenTemplates, playerCardData, locationData
+local tokenTemplates
 
 -- state IDs for the multi-stated resource tokens
 local RESOURCE_STATES             = {
@@ -3179,8 +3179,6 @@ function TokenManager.spawnForCard(params)
   local metadata = JSON.decode(params.card.getGMNotes())
   if metadata ~= nil then
     TokenManager.spawnTokensFromUses(params.card, params.extraUses, params.spawnReactionToken)
-  else
-    TokenManager.spawnTokensFromDataHelper(params.card)
   end
 end
 
@@ -3400,14 +3398,6 @@ function TokenManager.maybeReplenishCard(params)
   end
 end
 
--- Checks to see if the given card has location data in the DataHelper
----@param card tts__Object Card to check for data
----@return boolean: True if this card has data in the helper, false otherwise
-function TokenManager.hasLocationData(card)
-  TokenManager.initDataHelperData()
-  return TokenManager.getLocationData(card) ~= nil
-end
-
 function TokenManager.initTokenTemplates()
   tokenTemplates = {}
   local tokenSource = guidReferenceApi.getObjectByOwnerAndType("Mythos", "TokenSource")
@@ -3423,14 +3413,6 @@ function TokenManager.initTokenTemplates()
       end
     end
   end
-end
-
--- Copies the data from the DataHelper. Will only happen once.
-function TokenManager.initDataHelperData()
-  if playerCardData ~= nil then return end
-  local dataHelper = guidReferenceApi.getObjectByOwnerAndType("Mythos", "DataHelper")
-  playerCardData   = dataHelper.getTable('PLAYER_CARD_DATA')
-  locationData     = dataHelper.getTable('LOCATIONS_DATA')
 end
 
 -- Spawn tokens for a card based on the uses metadata. This will consider the face up/down state
@@ -3473,25 +3455,6 @@ function TokenManager.spawnTokensFromUses(card, extraUses, spawnReactionToken)
   end
 
   tokenSpawnTrackerApi.markTokensSpawned(card.getGUID())
-end
-
-function TokenManager.getClueCountFromData(card, locationData)
-  -- Return the number of clues to spawn on this location
-  if locationData == nil then
-    error('attempted to get clue for unexpected object: ' .. card.getName())
-    return 0
-  end
-
-  if ((card.is_face_down and locationData.clueSide == 'back')
-        or (not card.is_face_down and locationData.clueSide == 'front')) then
-    if locationData.type == 'fixed' then
-      return locationData.value
-    elseif locationData.type == 'perPlayer' then
-      return locationData.value * playAreaApi.getInvestigatorCount()
-    end
-    error('unexpected location type: ' .. locationData.type)
-  end
-  return 0
 end
 
 -- Gets the right uses structure for this card, based on metadata and face up/down state
