@@ -1,11 +1,12 @@
 do
   local CoroutineLib = {}
 
-  local function resumeWithErrorHandling(co)
-    local result, message = coroutine.resume(co)
-    if not result then
-      error(message)
-    end
+  -- resumes a coroutine, outputs an error if needed and returns yielded values
+  local function resumeWithErrorHandling(co, ...)
+    local results = {coroutine.resume(co, ...)}
+    local ok = table.remove(results, 1)
+    if not ok then error(results[1]) end
+    return table.unpack(results)
   end
 
   --- yields from the current coroutine. Resumes once a condition is met or an optional timeout is reached.
@@ -38,12 +39,26 @@ do
   end
 
   --- creates a coroutine from the specified function, and immediately starts it.
-  function CoroutineLib.start(func)
-    return coroutine.resume(coroutine.create(func))
+  function CoroutineLib.start(func, ...)
+    local co = coroutine.create(func)
+    resumeWithErrorHandling(co, ...)
+    return co
   end
 
   -- interrupts a coroutine with another coroutine and then resumes the original coroutine
-  function CoroutineLib.interruptWithCoroutine()
+  ---@param interruptFunc fun() The coroutine function to run as the interrupt.
+  function CoroutineLib.interruptWithCoroutine(interruptFunc)
+    local originalCo = coroutine.running()
+
+    -- Create the interrupt coroutine
+    local interruptCo = coroutine.create(function()
+      interruptFunc()
+      Wait.frames(function() resumeWithErrorHandling(originalCo) end, 1)
+    end)
+
+    resumeWithErrorHandling(interruptCo)
+
+    coroutine.yield() -- Yield the current coroutine until resumed again
   end
 
   -- pauses a simple coroutine (from 'startLuaCoroutine') for a specific amount of frames
