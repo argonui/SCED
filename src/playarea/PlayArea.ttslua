@@ -1,47 +1,57 @@
-local GlobalApi                     = require("Global/GlobalApi")
-local guidReferenceApi              = require("core/GUIDReferenceApi")
-local searchLib                     = require("util/SearchLib")
-local tokenManagerApi               = require("tokens/TokenManagerApi")
+local GlobalApi            = require("Global/GlobalApi")
+local GUIDReferenceApi     = require("core/GUIDReferenceApi")
+local SearchLib            = require("util/SearchLib")
+local TokenManagerApi      = require("tokens/TokenManagerApi")
 
 -- Location connection directional options
-local BIDIRECTIONAL                 = 0
-local ONE_WAY                       = 1
-local INCOMING_ONE_WAY              = 2
+local BIDIRECTIONAL        = 0
+local ONE_WAY              = 1
+local INCOMING_ONE_WAY     = 2
 
 -- Connector draw parameters
-local CONNECTION_THICKNESS          = 0.015
-local DRAGGING_CONNECTION_THICKNESS = 0.15
-local DRAGGING_CONNECTION_COLOR     = { 0.8, 0.8, 0.8, 1 }
-local DIRECTIONAL_ARROW_DISTANCE    = 3.5
-local ARROW_ARM_LENGTH              = 0.9
-local ARROW_ANGLE                   = 25
+local CONNECTION_THICKNESS = 0.015
+local DRAGGING_THICKNESS   = 0.15
+local DRAGGING_COLOR       = { 0.8, 0.8, 0.8, 1 }
+local ARROW_DISTANCE       = 3.5
+local ARROW_ARM_LENGTH     = 0.9
+local ARROW_ANGLE          = 25
 
 -- Height to draw the connector lines, places them just above the table and always below cards
-local CONNECTION_LINE_Y             = 1.529
+local CONNECTION_LINE_Y    = 1.529
 
-local DEFAULT_URL                   = "https://steamusercontent-a.akamaihd.net/ugc/998015670465071049/FFAE162920D67CF38045EFBD3B85AD0F916147B2/"
+-- Data for grid coordinates / snap points
+local UPPER_LEFT_SNAP      = { x = 1.53, z = -1.09 }
+local LOWER_RIGHT_SNAP     = { x = -1.53, z = 1.55 }
 
-local SHIFT_OFFSETS                 = {
+local STEP_X               = (LOWER_RIGHT_SNAP.x - UPPER_LEFT_SNAP.x) / 8 -- = -0.765
+local STEP_Z               = (LOWER_RIGHT_SNAP.z - UPPER_LEFT_SNAP.z) / 8 -- = 0.82
+
+local CENTER_X             = (UPPER_LEFT_SNAP.x + LOWER_RIGHT_SNAP.x) / 2 -- = 0
+local CENTER_Z             = (UPPER_LEFT_SNAP.z + LOWER_RIGHT_SNAP.z) / 2 -- = 0.23
+
+local DEFAULT_URL          = "https://steamusercontent-a.akamaihd.net/ugc/998015670465071049/FFAE162920D67CF38045EFBD3B85AD0F916147B2/"
+
+local SHIFT_OFFSETS        = {
   left  = { x = 0.00, y = 0, z = 7.67 },
   right = { x = 0.00, y = 0, z = -7.67 },
   up    = { x = 6.54, y = 0, z = 0.00 },
   down  = { x = -6.54, y = 0, z = 0.00 }
 }
-local SHIFT_EXCLUSION               = {
+local SHIFT_EXCLUSION      = {
   ["b7b45b"] = true,
   ["f182ee"] = true,
   ["721ba2"] = true
 }
-local LOC_LINK_EXCLUDE_SCENARIOS    = {
+local EXCLUDED_SCENARIOS   = {
   ["The Witching Hour"] = true,
   ["The Heart of Madness"] = true
 }
 
-local locations                     = {}
-local locationConnections           = {}
-local draggingGuids                 = {}
-local missingData                   = {}
-local collisionEnabled              = false
+local locations            = {}
+local locationConnections  = {}
+local draggingGuids        = {}
+local missingData          = {}
+local collisionEnabled     = false
 local currentScenario, connectionsEnabled
 
 ---------------------------------------------------------
@@ -87,7 +97,7 @@ function onCollisionEnter(collisionInfo)
 
   -- check if we should spawn clues here and do so according to playercount
   if shouldSpawnTokens(object) then
-    tokenManagerApi.spawnForCard(object)
+    TokenManagerApi.spawnForCard(object)
   end
 
   -- If this card was being dragged, clear the dragging connections. A multi-drag/drop may send
@@ -397,8 +407,8 @@ function addBidirectionalVector(card1, card2, vectorOwner, lines)
 
   table.insert(lines, {
     points = { pos1, pos2 },
-    color = vectorOwner == self and connectionColor or DRAGGING_CONNECTION_COLOR,
-    thickness = vectorOwner == self and CONNECTION_THICKNESS or DRAGGING_CONNECTION_THICKNESS,
+    color = vectorOwner == self and connectionColor or DRAGGING_COLOR,
+    thickness = vectorOwner == self and CONNECTION_THICKNESS or DRAGGING_THICKNESS,
   })
 end
 
@@ -419,7 +429,7 @@ function addOneWayVector(origin, target, vectorOwner, lines)
 
   -- Calculate distance to be closer for horizontal positions than vertical, since cards are taller than wide
   local heading = Vector(originPos):sub(targetPos):heading("y")
-  local distanceFromCard = DIRECTIONAL_ARROW_DISTANCE * 0.7 + DIRECTIONAL_ARROW_DISTANCE * 0.3 * math.abs(math.sin(math.rad(heading)))
+  local distanceFromCard = ARROW_DISTANCE * 0.7 + ARROW_DISTANCE * 0.3 * math.abs(math.sin(math.rad(heading)))
 
   -- Calculate the three possible arrow positions. These are offset by half the arrow length to
   -- make them visually balanced by keeping the arrows centered, not tracking the point
@@ -450,8 +460,8 @@ function addArrowLines(arrowheadPos, originPos, vectorOwner, lines)
   local arm2 = vectorOwner.positionToLocal(arrowArm2)
   table.insert(lines, {
     points = { arm1, head, arm2 },
-    color = vectorOwner == self and connectionColor or DRAGGING_CONNECTION_COLOR,
-    thickness = vectorOwner == self and CONNECTION_THICKNESS or DRAGGING_CONNECTION_THICKNESS,
+    color = vectorOwner == self and connectionColor or DRAGGING_COLOR,
+    thickness = vectorOwner == self and CONNECTION_THICKNESS or DRAGGING_THICKNESS,
   })
 end
 
@@ -485,7 +495,7 @@ end
 ---@param card tts__Object Card to check for clues
 ---@return boolean hasClues True if card has clues on it
 function cardHasClues(card)
-  local searchResult = searchLib.onObject(card, "isClue")
+  local searchResult = SearchLib.onObject(card, "isClue")
   return #searchResult > 0
 end
 
@@ -518,12 +528,12 @@ function readyCards(player, clickType)
   -- when right-clicked
   if clickType == "-2" then
     printToColor("This will ready (rotate 90° closer to 0°) all cards in the main play area." ..
-    " Make sure to handle enemy engagement manually. To exclude a card from this (e.g. Handcuffs)," ..
-    " right-click it, select 'Tags' and add the tag 'DoNotReady' to it.", playerColor)
+      " Make sure to handle enemy engagement manually. To exclude a card from this (e.g. Handcuffs)," ..
+      " right-click it, select 'Tags' and add the tag 'DoNotReady' to it.", playerColor)
     return
   end
 
-  local zone = guidReferenceApi.getObjectByOwnerAndType("Mythos", "PlayAreaZone")
+  local zone = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "PlayAreaZone")
   if not zone then
     broadcastToColor("Scripting zone couldn't be found.", playerColor, "Red")
     return
@@ -575,7 +585,7 @@ function shiftContentsRight(playerColor)
 end
 
 function shiftContents(playerColor, direction)
-  local zone = guidReferenceApi.getObjectByOwnerAndType("Mythos", "PlayAreaZone")
+  local zone = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "PlayAreaZone")
   if not zone then
     broadcastToColor("Scripting zone couldn't be found.", playerColor, "Red")
     return
@@ -587,12 +597,12 @@ function shiftContents(playerColor, direction)
   local tekeliliHelper = getObjectByName("Tekeli-li Helper")
 
   if tekeliliHelper then
-    for _, obj in ipairs(searchLib.onObject(tekeliliHelper, "isCardOrDeck")) do
+    for _, obj in ipairs(SearchLib.onObject(tekeliliHelper, "isCardOrDeck")) do
       tempIgnore[obj.getGUID()] = true
     end
   end
   if exploreHelper then
-    for _, obj in ipairs(searchLib.onObject(exploreHelper, "isCardOrDeck")) do
+    for _, obj in ipairs(SearchLib.onObject(exploreHelper, "isCardOrDeck")) do
       tempIgnore[obj.getGUID()] = true
     end
   end
@@ -694,7 +704,7 @@ function isInPlayArea(object)
 end
 
 function showLocationLinks()
-  return not LOC_LINK_EXCLUDE_SCENARIOS[currentScenario] and connectionsEnabled
+  return not EXCLUDED_SCENARIOS[currentScenario] and connectionsEnabled
 end
 
 function round(num, numDecimalPlaces)
@@ -702,10 +712,13 @@ function round(num, numDecimalPlaces)
   return math.floor(num * mult + 0.5) / mult
 end
 
+-- Rounds a number to the nearest multiple of 'base'
+function roundToMultiple(n, base)
+  return math.floor(n / base + 0.5) * base
+end
+
 -- Rebuilds local snap points (could be useful in the future again)
 function buildSnaps()
-  local upperleft = { x = 1.53, z = -1.09 }
-  local lowerright = { x = -1.53, z = 1.55 }
   local snaps = {}
 
   -- creates 81 snap points, for uneven rows + columns it makes a rotation snap point
@@ -713,9 +726,9 @@ function buildSnaps()
     for j = 1, 9 do
       local snap = {}
       snap.position = {}
-      snap.position.x = round(upperleft.x - (upperleft.x - lowerright.x) * (i - 1) / 8, 3)
+      snap.position.x = round(UPPER_LEFT_SNAP.x - (UPPER_LEFT_SNAP.x - LOWER_RIGHT_SNAP.x) * (i - 1) / 8, 3)
       snap.position.y = 0.1
-      snap.position.z = round(upperleft.z - (upperleft.z - lowerright.z) * (j - 1) / 8, 3)
+      snap.position.z = round(UPPER_LEFT_SNAP.z - (UPPER_LEFT_SNAP.z - LOWER_RIGHT_SNAP.z) * (j - 1) / 8, 3)
 
       -- enable rotation snaps for uneven rows / columns
       if (i % 2 ~= 0) and (j % 2 ~= 0) then
@@ -727,6 +740,20 @@ function buildSnaps()
     end
   end
   self.setSnapPoints(snaps)
+end
+
+-- Converts world position to grid coordinates (e.g., {x=-30.5, z=8})
+function worldToGrid(pos)
+  local dx = (pos.x - CENTER_X) / STEP_X
+  local dz = (pos.z - CENTER_Z) / STEP_Z
+  return { x = roundToMultiple(dx, 0.25), y = roundToMultiple(dz, 0.25) }
+end
+
+-- Converts grid coordinates (e.g., {x=1.5, y=-2}) back to world position
+function gridToWorld(grid)
+  local worldX = CENTER_X + (grid.x or grid[1])* STEP_X
+  local worldZ = CENTER_Z + (grid.y or grid[2])* STEP_Z
+  return self.positionToWorld({ x = round(worldX, 3), y = 0.1, z = round(worldZ, 3) })
 end
 
 function getObjectByName(name)
