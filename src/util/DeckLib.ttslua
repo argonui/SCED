@@ -40,15 +40,6 @@ do
     end
   end
 
-  -- Helper function to decide whether a coroutine can start directly or needs to interrupt
-  local function startOrInterrupt(coroutineFunc)
-    if coroutine.running() then
-      CoroutineLib.interruptWithCoroutine(coroutineFunc)
-    else
-      CoroutineLib.start(coroutineFunc)
-    end
-  end
-
   -- generates deck data from a list of card data
   ---@param cardList table List of cards for the deck (in order)
   ---@param position? table Position for the deck (defaults to the middle of the play area)
@@ -95,7 +86,8 @@ do
   ---@param rot? table New rotation for the object
   ---@param below? boolean Should the object be placed below an existing deck?
   ---@param shuffle? boolean Should the resulting deck be shuffled?
-  function DeckLib.placeOrMergeIntoDeck(objOrTable, pos, rot, below, shuffle)
+  ---@param interrupt? boolean If the currently running coroutine should get interrupted
+  function DeckLib.placeOrMergeIntoDeck(objOrTable, pos, rot, below, shuffle, interrupt)
     if objOrTable == nil or pos == nil then return end
 
     function DeckLibPlaceOrMergeIntoDeckCoroutine()
@@ -167,14 +159,18 @@ do
       end
     end
 
-    -- if already inside a coroutine, interrupt and resume after shuffle
-    startOrInterrupt(DeckLibPlaceOrMergeIntoDeckCoroutine)
+    if interrupt then
+      CoroutineLib.interruptWithCoroutine(DeckLibPlaceOrMergeIntoDeckCoroutine)
+    else
+      CoroutineLib.start(DeckLibPlaceOrMergeIntoDeckCoroutine)
+    end
   end
 
   -- shuffles cards into a deck
   ---@param objOrTable tts__Object|table Object or table of objects to shuffle into the deck
   ---@param deckOrGuid tts__Object|string The target deck (or card)
-  function DeckLib.shuffleIntoDeck(objOrTable, deckOrGuid)
+  ---@param interrupt? boolean If the currently running coroutine should get interrupted
+  function DeckLib.shuffleIntoDeck(objOrTable, deckOrGuid, interrupt)
     if objOrTable == nil or deckOrGuid == nil then return end
 
     local objects = parseObjectTable(objOrTable)
@@ -196,8 +192,11 @@ do
       deck.shuffle()
     end
 
-    -- if already inside a coroutine, interrupt and resume after shuffle
-    startOrInterrupt(DeckLibShuffleIntoDeckCoroutine)
+    if interrupt then
+      CoroutineLib.interruptWithCoroutine(DeckLibShuffleIntoDeckCoroutine)
+    else
+      CoroutineLib.start(DeckLibShuffleIntoDeckCoroutine)
+    end
   end
 
   -- places cards into a specific part of a deck and shuffles that part (e.g. top 5 cards)
@@ -205,7 +204,8 @@ do
   ---@param deckOrGuid tts__Object|string The target deck (or card)
   ---@param bottom? boolean If the cards are shuffled into the bottom (top is default)
   ---@param count number Number of cards to shuffle into
-  function DeckLib.shuffleIntoTopOrBottomX(objOrTable, deckOrGuid, bottom, count)
+  ---@param interrupt? boolean If the currently running coroutine should get interrupted
+  function DeckLib.shuffleIntoTopOrBottomX(objOrTable, deckOrGuid, bottom, count, interrupt)
     if objOrTable == nil or deckOrGuid == nil or count == nil then return end
 
     local deck = parseObjectOrGuid(deckOrGuid)
@@ -214,7 +214,7 @@ do
     local deckData = deck.getData()
     local currentDeckSize = #deckData.ContainedObjects
     if count >= currentDeckSize then
-      DeckLib.shuffleIntoDeck(objOrTable, deck)
+      DeckLib.shuffleIntoDeck(objOrTable, deck, interrupt)
       return
     end
 
@@ -282,8 +282,11 @@ do
       spawnObjectData({ data = newDeckData })
     end
 
-    -- if already inside a coroutine, interrupt and resume after shuffle
-    startOrInterrupt(DeckLibShuffleIntoTopOrBottomXCoroutine)
+    if interrupt then
+      CoroutineLib.interruptWithCoroutine(DeckLibShuffleIntoTopOrBottomXCoroutine)
+    else
+      CoroutineLib.start(DeckLibShuffleIntoTopOrBottomXCoroutine)
+    end
   end
 
   return DeckLib
