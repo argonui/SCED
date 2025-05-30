@@ -196,22 +196,21 @@ do
   function DeckLib.shuffleIntoTopOrBottomX(objOrTable, deckOrGuid, bottom, count)
     if objOrTable == nil or deckOrGuid == nil or count == nil then return end
 
-    local deck = parseObjectOrGuid(deckOrGuid)
+    local function shuffleCoroutine()
+      local deck = parseObjectOrGuid(deckOrGuid)
 
-    -- use the general function instead if count >= decksize
-    local deckData = deck.getData()
-    local currentDeckSize = #deckData.ContainedObjects
-    if count >= currentDeckSize then
-      DeckLib.shuffleIntoDeck(objOrTable, deck)
-      return
-    end
+      -- use the general function instead if count >= decksize
+      local deckData = deck.getData()
+      local currentDeckSize = #deckData.ContainedObjects
+      if count >= currentDeckSize then
+        DeckLib.shuffleIntoDeck(objOrTable, deck)
+        return
+      end
 
-    local objects = parseObjectTable(objOrTable)
-
-    function DeckLibShuffleIntoTopOrBottomX()
-      -- collect the object data of each card
+      local objects = parseObjectTable(objOrTable)
       local cardsToInsertData = {}
 
+      -- Step 1: Put each object into the deck for animation and collect its data
       for _, obj in ipairs(objects) do
         if obj.type == "Card" or obj.type == "Deck" then
           if obj.type == "Card" then
@@ -226,26 +225,24 @@ do
           deck = deck.putObject(obj)
 
           -- delay to make sure the deck can form and it looks neater
-          CoroutineLib.simpleWaitSeconds(0.35)
+          CoroutineLib.yieldSeconds(0.35)
         end
       end
 
       -- delay to make sure cards have stopped moving
-      CoroutineLib.simpleWaitSeconds(0.7)
+      CoroutineLib.yieldSeconds(0.7)
 
-      -- construct a new deck, destroy the old one and spawn it with new data
+      -- Step 2: Copy current deck contents
       local cardsInDeck = {}
       for _, objData in ipairs(deckData.ContainedObjects) do
         table.insert(cardsInDeck, objData)
       end
 
-      -- destroy the deck
+      -- Step 3: Destroy the original deck and wait for destruction
       deck.destroy()
+      CoroutineLib.yieldFrames(3)
 
-      -- wait for destruction
-      CoroutineLib.simpleWaitFrames(3)
-
-      -- calculate shuffling indices and create new card list
+      -- Step 4: Calculate shuffling indices and create new card list
       local resultingCardList, startIndex, endIndex
 
       if bottom then
@@ -265,16 +262,19 @@ do
       -- shuffle this part of the card list
       shuffleRange(resultingCardList, startIndex, endIndex)
 
-      -- spawn the new deck
+      -- Step 5: Spawn the new deck
       local newDeckData     = DeckLib.generateDeckDataFromCardList(resultingCardList)
       newDeckData.Transform = deckData.Transform
       newDeckData.Nickname  = deckData.Nickname
       spawnObjectData({ data = newDeckData })
-
-      return 1
     end
 
-    startLuaCoroutine(self, "DeckLibShuffleIntoTopOrBottomX")
+    -- if already inside a coroutine, interrupt and resume after shuffle
+    if coroutine.running() then
+      CoroutineLib.interruptWithCoroutine(shuffleCoroutine)
+    else
+      CoroutineLib.start(shuffleCoroutine)
+    end
   end
 
   return DeckLib
