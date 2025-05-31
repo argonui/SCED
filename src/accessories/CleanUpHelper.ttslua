@@ -3,21 +3,22 @@
 -- puts everything on playermats and hands into respective trashcans
 -- use the IGNORE_TAG to exclude objects from tidying (default: "CleanUpHelper_Ignore")
 
-local blessCurseManagerApi      = require("chaosbag/BlessCurseManagerApi")
-local chaosBagApi               = require("chaosbag/ChaosBagApi")
-local guidReferenceApi          = require("core/GUIDReferenceApi")
-local mythosAreaApi             = require("mythos/MythosAreaApi")
-local playAreaApi               = require("playarea/PlayAreaApi")
-local playermatApi              = require("playermat/PlayermatApi")
-local searchLib                 = require("util/SearchLib")
-local soundCubeApi              = require("core/SoundCubeApi")
-local tokenSpawnTrackerApi      = require("tokens/TokenSpawnTrackerApi")
+local BlessCurseManagerApi      = require("chaosbag/BlessCurseManagerApi")
+local ChaosBagApi               = require("chaosbag/ChaosBagApi")
+local CoroutineLib              = require("util/CoroutineLib")
+local GUIDReferenceApi          = require("core/GUIDReferenceApi")
+local MythosAreaApi             = require("mythos/MythosAreaApi")
+local PlayAreaApi               = require("playarea/PlayAreaApi")
+local PlayermatApi              = require("playermat/PlayermatApi")
+local SearchLib                 = require("util/SearchLib")
+local SoundCubeApi              = require("core/SoundCubeApi")
+local TokenSpawnTrackerApi      = require("tokens/TokenSpawnTrackerApi")
 
 -- objects with this tag will be ignored
 local IGNORE_TAG                = "CleanUpHelper_ignore"
 
 local COLORS
-local RESET_VALUES              = {}
+local valuesForDamageHorror     = {}
 local loadingFailedBefore       = false
 local optionsVisible            = false
 local options                   = {
@@ -132,29 +133,30 @@ function cleanUp(_, color)
 
   -- dynamically get mat colors
   COLORS = {}
-  for matColor, _ in pairs(guidReferenceApi.getObjectsByType("Playermat")) do
+  for matColor, _ in pairs(GUIDReferenceApi.getObjectsByType("Playermat")) do
     table.insert(COLORS, matColor)
   end
 
   getScenarioName()
-  mythosAreaApi.resetScenarioData()
-  soundCubeApi.playSoundByName("Vacuum")
+  MythosAreaApi.resetScenarioData()
+  SoundCubeApi.playSoundByName("Vacuum")
   getTrauma()
 
   -- delay to account for potential state change of campaign log
   Wait.time(updateCounters, 0.2)
 
   resetDoomCounter()
-  blessCurseManagerApi.removeAll(color)
+  BlessCurseManagerApi.removeAll(color)
   removeLines()
   returnMiniCards()
   discardHands()
-  chaosBagApi.returnChaosTokens()
-  chaosBagApi.releaseAllSealedTokens(color)
+  resetHandHelpers()
+  ChaosBagApi.returnChaosTokens()
+  ChaosBagApi.releaseAllSealedTokens(color)
   maybeIgnoreTekeliliCards()
 
   printToAll("Tidying main play area...", "White")
-  startLuaCoroutine(self, "tidyPlayAreaCoroutine")
+  CoroutineLib.start(tidyPlayAreaCoroutine)
 end
 
 ---------------------------------------------------------
@@ -162,26 +164,26 @@ end
 ---------------------------------------------------------
 
 function getScenarioName()
-  local tokenData = mythosAreaApi.returnTokenData()
+  local tokenData = MythosAreaApi.returnTokenData()
   scenarioName = tokenData.currentScenario
 end
 
 function updateCounters()
   if not getOptionValue() then return end
 
-  playermatApi.updateCounter("All", "ResourceCounter", 5)
-  playermatApi.updateCounter("All", "ClickableClueCounter", 0)
-  playermatApi.resetSkillTracker("All")
+  PlayermatApi.updateCounter("All", "ResourceCounter", 5)
+  PlayermatApi.updateCounter("All", "ClickableClueCounter", 0)
+  PlayermatApi.resetSkillTracker("All")
 
   for i, color in ipairs(COLORS) do
-    playermatApi.updateCounter(color, "DamageCounter", RESET_VALUES.Damage[i])
-    playermatApi.updateCounter(color, "HorrorCounter", RESET_VALUES.Horror[i])
+    PlayermatApi.updateCounter(color, "DamageCounter", valuesForDamageHorror.Damage[i])
+    PlayermatApi.updateCounter(color, "HorrorCounter", valuesForDamageHorror.Horror[i])
   end
 end
 
 -- reset doom on agenda
 function resetDoomCounter()
-  local doomCounter = guidReferenceApi.getObjectByOwnerAndType("Mythos", "DoomCounter")
+  local doomCounter = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "DoomCounter")
   if doomCounter ~= nil then
     doomCounter.call("updateVal")
   else
@@ -189,7 +191,7 @@ function resetDoomCounter()
   end
 
   -- reset subtractDoom setting
-  local doomInPlayCounter = guidReferenceApi.getObjectByOwnerAndType("Mythos", "DoomInPlayCounter")
+  local doomInPlayCounter = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "DoomInPlayCounter")
   if doomInPlayCounter ~= nil then
     doomInPlayCounter.call("toggleSubtractDoom", false)
   end
@@ -197,7 +199,7 @@ end
 
 -- read values for trauma from campaign log if enabled
 function getTrauma()
-  RESET_VALUES = {
+  valuesForDamageHorror = {
     Damage = { 0, 0, 0, 0 },
     Horror = { 0, 0, 0, 0 }
   }
@@ -228,9 +230,9 @@ function loadTrauma(campaignLog)
     trauma = campaignLog.call("returnTrauma")
     for i = 1, 8 do
       if i < 5 then
-        RESET_VALUES.Damage[i] = trauma[i]
+        valuesForDamageHorror.Damage[i] = trauma[i]
       else
-        RESET_VALUES.Horror[i - 4] = trauma[i]
+        valuesForDamageHorror.Horror[i - 4] = trauma[i]
       end
     end
     loadingFailedBefore = false
@@ -274,9 +276,9 @@ function returnMiniCards()
 
   -- move mini cards
   for _, matColor in ipairs(COLORS) do
-    local data = playermatApi.getActiveInvestigatorData(matColor)
+    local data = PlayermatApi.getActiveInvestigatorData(matColor)
     if miniCardIndex[data.miniId] then
-      local pos = playermatApi.transformLocalPosition(Vector(-1.36, 0, -0.625), matColor)
+      local pos = PlayermatApi.transformLocalPosition(Vector(-1.36, 0, -0.625), matColor)
       miniCardIndex[data.miniId].setPosition(pos:setAt("y", 1.67))
     end
   end
@@ -286,9 +288,9 @@ end
 function discardHands()
   if not getOptionValue() then return end
   for _, color in ipairs(COLORS) do
-    local trash = guidReferenceApi.getObjectByOwnerAndType(color, "Trash")
+    local trash = GUIDReferenceApi.getObjectByOwnerAndType(color, "Trash")
     if trash then
-      local hand = Player[playermatApi.getPlayerColor(color)].getHandObjects()
+      local hand = Player[PlayermatApi.getPlayerColor(color)].getHandObjects()
       for j = #hand, 1, -1 do
         trash.putObject(hand[j])
       end
@@ -296,11 +298,18 @@ function discardHands()
   end
 end
 
+-- resets hand size modifiers for Hand Helpers
+function resetHandHelpers()
+  for _, obj in pairs(GUIDReferenceApi.getObjectsByType("HandHelper")) do
+    obj.call("resetHandSize")
+  end
+end
+
 -- maybe ignore cards / decks on the tekelili helper
 function maybeIgnoreTekeliliCards()
   local tekeliliHelper = getTekeliliHelper()
   if tekeliliHelper then
-    removeIgnoreLater = searchLib.onObject(tekeliliHelper, "isCardOrDeck")
+    removeIgnoreLater = SearchLib.onObject(tekeliliHelper, "isCardOrDeck")
     for _, obj in ipairs(removeIgnoreLater) do
       obj.addTag(IGNORE_TAG)
     end
@@ -309,16 +318,16 @@ end
 
 -- clean up for play area
 function tidyPlayAreaCoroutine()
-  coWaitFrames(10)
+  CoroutineLib.yieldFrames(10)
 
-  local trash = guidReferenceApi.getObjectByOwnerAndType("Mythos", "Trash")
-  local playAreaZone = guidReferenceApi.getObjectByOwnerAndType("Mythos", "PlayAreaZone")
+  local trash = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "Trash")
+  local playAreaZone = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "PlayAreaZone")
 
   -- triggers an update to remove lines from helpers
-  playAreaApi.rebuildConnectionList()
+  PlayAreaApi.rebuildConnectionList()
 
   -- reset the playarea image by not providing an image
-  playAreaApi.updateSurface()
+  PlayAreaApi.updateSurface()
 
   if playAreaZone == nil then
     printToAll("Scripting zone for main play area could not be found!", "Red")
@@ -330,15 +339,14 @@ function tidyPlayAreaCoroutine()
       if obj.hasTag(IGNORE_TAG) == false
           and obj.locked == false
           and obj.interactable == true then
-        coroutine.yield(0)
+        CoroutineLib.yieldFrames(1)
         trash.putObject(obj)
       end
     end
   end
 
   printToAll("Tidying playermats and mythos area...", "White")
-  startLuaCoroutine(self, "tidyPlayerMatCoroutine")
-  return 1
+  CoroutineLib.start(tidyPlayerMatCoroutine)
 end
 
 -- clean up for the four playermats and the mythos area
@@ -347,11 +355,11 @@ function tidyPlayerMatCoroutine()
 
   if getOptionValue() then
     for _, color in ipairs(COLORS) do
-      local trash = guidReferenceApi.getObjectByOwnerAndType(color, "Trash")
+      local trash = GUIDReferenceApi.getObjectByOwnerAndType(color, "Trash")
       if trash == nil then
         printToAll("Trashcan for " .. color .. " playermat could not be found! Skipping this playermat.", "Yellow")
       else
-        coWaitFrames(20)
+        CoroutineLib.yieldFrames(20)
 
         -- maybe store tekelili cards
         if tekeliliHelper then
@@ -359,11 +367,11 @@ function tidyPlayerMatCoroutine()
         end
 
         -- parse playermat objects
-        for _, obj in ipairs(playermatApi.searchAroundPlayermat(color)) do
+        for _, obj in ipairs(PlayermatApi.searchAroundPlayermat(color)) do
           maybeTrashObject(obj, trash)
         end
 
-        coWaitFrames(5)
+        CoroutineLib.yieldFrames(5)
 
         -- maybe respawn tekelili cards
         if tekeliliHelper then
@@ -374,17 +382,17 @@ function tidyPlayerMatCoroutine()
     end
 
     -- reset "activeInvestigatorId" and "...class"
-    playermatApi.setActiveInvestigatorData("All", { class = "Neutral", id = "00000", miniId = "00000-m" })
-    playermatApi.updateTexture("All")
+    PlayermatApi.setActiveInvestigatorData("All", { class = "Neutral", id = "00000", miniId = "00000-m" })
+    PlayermatApi.updateTexture("All")
 
-    coWaitFrames(5)
+    CoroutineLib.yieldFrames(5)
 
     -- respawn action tokens
-    playermatApi.spawnActionTokens("All")
+    PlayermatApi.spawnActionTokens("All")
   else
     -- perform a "pseudo" upkeep for cards on playermats
     for _, color in ipairs(COLORS) do
-      for _, obj in ipairs(playermatApi.searchAroundPlayermat(color)) do
+      for _, obj in ipairs(PlayermatApi.searchAroundPlayermat(color)) do
         if obj.hasTag("DoInUpkeep") and not obj.is_face_down then
           obj.call("doInUpkeep")
         end
@@ -393,12 +401,12 @@ function tidyPlayerMatCoroutine()
   end
 
   -- mythos area cleanup
-  local trash = guidReferenceApi.getObjectByOwnerAndType("Mythos", "Trash")
+  local trash = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "Trash")
   if trash then
-    for _, objectName in ipairs({"MythosArea", "VictoryDisplay"}) do
-      local object = guidReferenceApi.getObjectByOwnerAndType("Mythos", objectName)
+    for _, objectName in ipairs({ "MythosArea", "VictoryDisplay" }) do
+      local object = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", objectName)
       if object then
-        for _, searchObj in ipairs(searchLib.onObject(object)) do
+        for _, searchObj in ipairs(SearchLib.onObject(object)) do
           maybeTrashObject(searchObj, trash)
         end
       end
@@ -416,10 +424,9 @@ function tidyPlayerMatCoroutine()
   end
 
   -- reset spawned data
-  tokenSpawnTrackerApi.resetAll()
+  TokenSpawnTrackerApi.resetAll()
 
   printToAll("Clean up completed!", "Green")
-  return 1
 end
 
 -- used to detect the "Tekeli-li Helper" for Edge of the Earth
@@ -452,12 +459,5 @@ function getOptionValue()
     return false
   else
     return options["tidyPlayermats"]
-  end
-end
-
--- pauses the current coroutine for 'frameCount' frames
-function coWaitFrames(frameCount)
-  for k = 1, frameCount do
-    coroutine.yield(0)
   end
 end
