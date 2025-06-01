@@ -60,8 +60,8 @@ function resolveToken(player, _, tokenType)
   Wait.frames(maybeUpdateButtonState, 2)
   
   -- exhaust card
-  local rot = self.getRotation()
-  rot.y = rot.y + 45 -- it would be nice to get the player's preferred Rotation Degrees here
+  local rot = playermatApi.returnRotation(matColor)
+  rot.y = rot.y + 90
   self.setRotationSmooth(rot, false, true)
 end
 
@@ -83,27 +83,53 @@ function maybeUpdateButtonState()
 end
 
 function setUiState(params)
-  for _, tokenName in ipairs({ "Bless", "Curse" }) do
-    if params[tokenName] then
-      self.UI.show(tokenName)
-      self.UI.hide("inactive" .. tokenName)
-    else
-      self.UI.show("inactive" .. tokenName)
-      self.UI.hide(tokenName)
+  if isExhausted() then
+    self.UI.hide("Bless")
+    self.UI.show("inactiveBless")
+    self.UI.hide("Curse")
+    self.UI.show("inactiveCurse")
+  else
+    for _, tokenName in ipairs({ "Bless", "Curse" }) do
+      if params[tokenName] then
+        self.UI.show(tokenName)
+        self.UI.hide("inactive" .. tokenName)
+      else
+        self.UI.show("inactive" .. tokenName)
+        self.UI.hide(tokenName)
+      end
     end
   end
 end
 
-function errorMessage()
-  local numInBag = blessCurseManagerApi.getBlessCurseInBag()
+function isExhausted()
+  local cardRotation = self.getRotation()
+  local roundedRotY  = round(cardRotation.y, 0)
+  local matColor = playermatApi.getMatColorByPosition(self.getPosition())
+  local matRotation = playermatApi.returnRotation(matColor)
 
-  if numInBag.Bless == 0 and numInBag.Curse == 0 then
-    broadcastToAll("There are no Bless or Curse tokens in the chaos bag.", "Red")
-  elseif numInBag.Bless > numInBag.Curse then
-    broadcastToAll("There are more Bless tokens than Curse tokens in the chaos bag.", "Red")
-  elseif numInBag.Curse > numInBag.Bless then
-    broadcastToAll("There are more Curse tokens than Bless tokens in the chaos bag.", "Red")
+  return roundedRotY ~= matRotation.y
+end
+
+-- rounds a number (num) to the Nth decimal (dec)
+function round(num, dec)
+  local mult = 10 ^ (dec or 0)
+  return math.floor(num * mult + 0.5) / mult
+end
+
+function errorMessage()
+  if isExhausted() then
+    broadcastToAll("Ability already used.", "Red")
   else
-    broadcastToAll("There are equal Bless and Curse tokens in the chaos bag.", "Red")
+    local numInBag = blessCurseManagerApi.getBlessCurseInBag()
+
+    if numInBag.Bless == 0 and numInBag.Curse == 0 then
+      broadcastToAll("There are no Bless or Curse tokens in the chaos bag.", "Red")
+    elseif numInBag.Bless > numInBag.Curse then
+      broadcastToAll("There are more Bless tokens than Curse tokens in the chaos bag.", "Red")
+    elseif numInBag.Curse > numInBag.Bless then
+      broadcastToAll("There are more Curse tokens than Bless tokens in the chaos bag.", "Red")
+    else
+      broadcastToAll("There are equal Bless and Curse tokens in the chaos bag.", "Red")
+    end
   end
 end
