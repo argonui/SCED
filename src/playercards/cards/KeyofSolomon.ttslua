@@ -1,0 +1,109 @@
+require("playercards/CardsWithHelper")
+local blessCurseManagerApi     = require("chaosbag/BlessCurseManagerApi")
+local playermatApi             = require("playermat/PlayermatApi")
+
+-- intentionally global
+hasXML                         = true
+isHelperEnabled                = false
+local updated, loopId
+
+function updateSave()
+  self.script_state = JSON.encode({
+    isHelperEnabled = isHelperEnabled,
+    loopId = loopId
+  })
+end
+
+function onLoad(savedData)
+  if savedData and savedData ~= "" then
+    local loadedData = JSON.decode(savedData)
+    isHelperEnabled = loadedData.isHelperEnabled
+    loopId = loadedData.loopId
+  end
+  if isHelperEnabled then updateDisplay() end
+end
+
+function shutOff()
+  if loopId then
+    Wait.stop(loopId)
+    loopId = nil
+  end
+end
+
+function initialize()
+  maybeUpdateButtonState()
+  loopId = Wait.time(maybeUpdateButtonState, 1, -1)
+end
+
+function resolveToken(player, _, tokenType)
+  if not updated then return end
+
+  local matColor
+  if player.color == "Black" then
+    matColor = playermatApi.getMatColorByPosition(self.getPosition())
+  else
+    matColor = playermatApi.getMatColor(player.color)
+  end
+
+  blessCurseManagerApi.removeToken(tokenType, player.color)
+
+  if tokenType == "Curse" then
+    local actionResources = 2
+    playermatApi.updateCounter(matColor, "ResourceCounter", nil, actionResources)
+    printToColor("Added " .. actionResources .. " resources to " .. matColor .. "'s resource pool.", player.color)
+  else
+    local investigatorName = playermatApi.getInvestigatorName(matColor)
+    broadcastToAll("Heal up to 2 damage/horror from an Investigator or Ally at " .. investigatorName .. "'s location.", "Yellow")
+  end
+  
+  updated = false
+  Wait.frames(maybeUpdateButtonState, 2)
+  
+  -- exhaust card
+  local rot = self.getRotation()
+  rot.y = rot.y + 45 -- it would be nice to get the player's preferred Rotation Degrees here
+  self.setRotationSmooth(rot, false, true)
+end
+
+-- count tokens in the bag and show appropriate buttons
+function maybeUpdateButtonState()
+  local numInBag = blessCurseManagerApi.getBlessCurseInBag()
+  local state = { Bless = false, Curse = false }
+
+  if numInBag.Bless > numInBag.Curse and numInBag.Bless > 0 then
+    state.Bless = true
+  end
+
+  if numInBag.Curse > numInBag.Bless and numInBag.Curse > 0 then
+    state.Curse = true
+  end
+
+  setUiState(state)
+  updated = true
+end
+
+function setUiState(params)
+  for _, tokenName in ipairs({ "Bless", "Curse" }) do
+    if params[tokenName] then
+      self.UI.show(tokenName)
+      self.UI.hide("inactive" .. tokenName)
+    else
+      self.UI.show("inactive" .. tokenName)
+      self.UI.hide(tokenName)
+    end
+  end
+end
+
+function errorMessage()
+  local numInBag = blessCurseManagerApi.getBlessCurseInBag()
+
+  if numInBag.Bless == 0 and numInBag.Curse == 0 then
+    broadcastToAll("There are no Bless or Curse tokens in the chaos bag.", "Red")
+  elseif numInBag.Bless > numInBag.Curse then
+    broadcastToAll("There are more Bless tokens than Curse tokens in the chaos bag.", "Red")
+  elseif numInBag.Curse > numInBag.Bless then
+    broadcastToAll("There are more Curse tokens than Bless tokens in the chaos bag.", "Red")
+  else
+    broadcastToAll("There are equal Bless and Curse tokens in the chaos bag.", "Red")
+  end
+end
