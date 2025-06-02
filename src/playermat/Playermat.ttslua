@@ -391,7 +391,8 @@ function doUpkeep(_, clickedByColor, isRightClick)
   updateMessageColor(clickedByColor)
 
   -- print a message to keep track (only visible to the triggering player)
-  printToColor("Upkeep for " .. GlobalApi.getColoredName(playerColor) .. " (card draw and then resource gain).", messageColor)
+  local coloredName = GlobalApi.getColoredName(playerColor)
+  printToColor("Upkeep for " .. coloredName .. " (card draw and then resource gain).", messageColor)
 
   -- unexhaust cards in play zone, flip action tokens and find Forced Learning / Dream-Enhancing Serum
   local forcedLearning = false
@@ -994,6 +995,13 @@ function createXML()
           }
         }
       elseif optionData.type == "button" then
+        local baseColor = Color.new(0.228, 0.249, 0.773)
+
+        -- use the hand color for the selection button
+        if optionData.id == "handColorSelect" then
+          baseColor = Color[playerColor]
+        end
+
         typeXML = {
           tag = "Cell",
           attributes = { padding = "10 10 5 5", color = "#333333" },
@@ -1006,7 +1014,7 @@ function createXML()
                 onClick = "onClick_" .. optionData.id,
                 rectAlignment = "MiddleRight",
                 offsetXY = "-30 0",
-                colors = "#FFFFFF|#dfdfdf",
+                colors = getColorBlockForXmlButton(baseColor),
                 height = "108",
                 width = "195",
                 ignoreLayout = "True"
@@ -1058,7 +1066,7 @@ function onClick_handColorSelect(player)
   end
 
   -- show the option dialog for color selection to the player that triggered this
-  player.showOptionsDialog("Select a new color:", colorList, _, function(newColor)
+  player.showOptionsDialog("Select a new color:", colorList, nil, function(newColor)
     -- update the color of the hand zone
     local handZone = ownedObjects.HandZone
     handZone.setValue(newColor)
@@ -1078,8 +1086,23 @@ function onClick_handColorSelect(player)
 
     -- update the internal variable
     playerColor = newColor
+
+    -- update the color of the option button
+    self.UI.setAttribute("handColorSelect", "colors", getColorBlockForXmlButton(Color[playerColor]))
     updateSave()
   end)
+end
+
+-- generates a color block for the xml option buttons
+function getColorBlockForXmlButton(baseColor)
+  local darkColor = multiplyColor(baseColor, 0.75)
+  local lightColor = multiplyColor(baseColor, 1.33)
+  return "#" .. baseColor:toHex() .. "|#" .. darkColor:toHex() .. "|#" .. lightColor:toHex()
+end
+
+-- multiplies a color by a value
+function multiplyColor(col, mult)
+  return Color.new(col.r * mult, col.g * mult, col.b * mult)
 end
 
 -- instruct Global to update this mat's hand visibility
@@ -1117,11 +1140,11 @@ function applyOptionPanelChange(id, state, clickType)
   end
 
   if id == "slotEditing" then
-    if currentlyEditingSlots and clickType == "-2" then -- right-clicked
+    if currentlyEditingSlots and clickType == "-2" then     -- right-clicked
       resetSlotSymbols()
     elseif currentlyEditingSlots and clickType == "-3" then -- middle-clicked
       resetSlotSymbols(true)
-    elseif clickType == "-1" then -- left-clicked
+    elseif clickType == "-1" then                           -- left-clicked
       toggleSlotEditing()
     end
   elseif id == "visibilityAll" then
@@ -1264,7 +1287,7 @@ function syncCustomizableMetadata(card, cardMetadata)
 end
 
 function spawnTokensFor(object)
-  local extraUses = {} -- higher count for an existing type of uses
+  local extraUses = {}             -- higher count for an existing type of uses
   local spawnReactionToken = false -- additional action token (atm only for Michael's Firearms)
 
   -- add one additional charge for Akachi Onyele
