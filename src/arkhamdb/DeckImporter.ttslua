@@ -304,6 +304,14 @@ function loadCards(slots, investigatorId, bondedList, customizations, playerColo
     -- reset the startsInPlayCount
     startsInPlayCount = 0
 
+    -- look for cards with attachments not in the above list (fan-made for example)
+    for cardId, _ in pairs(slots) do
+      if cardsWithAttachments[cardId] == nil and customizations["attachments_" .. cardId] then
+        -- assume that these cards should be placed on the playermat
+        cardsWithAttachments[cardId] = "reserve"
+      end
+    end
+
     -- reserve slots for certain cards with attachments
     for cardId, state in pairs(cardsWithAttachments) do
       if state == "reserve" then
@@ -313,8 +321,7 @@ function loadCards(slots, investigatorId, bondedList, customizations, playerColo
           cardsWithAttachments[cardId] = startsInPlayCount
 
           -- reserve an additional slot for the attachments
-          startsInPlayCount = startsInPlayCount + 1
-          zoneWithAttachments["Blank" .. startsInPlayCount] = true
+          zoneWithAttachments[startsInPlayTracker()] = true
         end
       end
     end
@@ -323,21 +330,25 @@ function loadCards(slots, investigatorId, bondedList, customizations, playerColo
       local card = allCardsBagApi.getCardById(cardId)
       if card ~= nil then
         local reservedSlot = cardsWithAttachments[cardId]
-        if type(reservedSlot) == "number" and reservedSlot < 6 then
-          cardZone = "Blank" .. cardsWithAttachments[cardId]
+        if type(reservedSlot) == "number" and reservedSlot < 6
+            and card.metadata and card.metadata.type ~= "Investigator" then
+          -- keep investigators in the regular spot always
+          cardZone = "Blank" .. reservedSlot
         else
           cardZone = getDefaultCardZone(card.metadata, bondedList)
         end
+
         for i = 1, cardCount do
           table.insert(cardsToSpawn, { data = card.data, metadata = card.metadata, zone = cardZone })
         end
+
         slots[cardId] = 0
       end
 
       -- check for resource modifiers
-      if cardId == "02037" then -- Indebted
+      if cardId == "02037" then      -- Indebted
         resourceModifier = resourceModifier - 2 * cardCount
-      elseif cardId == "05278" then -- Another Day, Another Dollar
+      elseif cardId == "05278" then  -- Another Day, Another Dollar
         resourceModifier = resourceModifier + 2 * cardCount
       elseif cardId == "11756b" then -- completed Good Money
         resourceModifier = resourceModifier + 5 * cardCount
@@ -429,6 +440,7 @@ function loadCards(slots, investigatorId, bondedList, customizations, playerColo
     resumeLoadDecks()
     return 1
   end
+
   startLuaCoroutine(self, "coinside")
 end
 
@@ -591,7 +603,15 @@ function handleAttachment(parentId, cardsToSpawn, customizations, playerColor)
       end
     end
   end
-  printToAll("Loaded attachment selection from arkham.build selection for ID " .. parentId, playerColor)
+
+  -- get the proper name for the parent card
+  local cardName = "ID " .. parentId
+  local card = allCardsBagApi.getCardById(parentId)
+  if card ~= nil then
+    cardName = card.cardData.Nickname
+  end
+
+  printToAll("Loaded attachment selection from arkham.build selection for " .. cardName, playerColor)
 end
 
 function handleAncestralKnowledge(cardsToSpawn)
