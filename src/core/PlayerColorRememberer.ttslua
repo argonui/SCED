@@ -1,0 +1,52 @@
+local playerData = {}
+
+function updateSave()
+  self.script_state = JSON.encode({ playerData = playerData })
+end
+
+function onLoad(savedData)
+  if savedData and savedData ~= "" then
+    local loadedData = JSON.decode(savedData)
+    playerData = loadedData.playerData
+
+    for _, player in ipairs(Player.getPlayers()) do
+      if player.seated then
+        onPlayerConnect(player)
+      end
+    end
+
+    for _, player in ipairs(Player.getSpectators()) do
+      onPlayerConnect(player)
+    end
+  end
+end
+
+function onPlayerChangeColor(playerColor)
+  if playerColor ~= "Grey" and playerColor ~= "Black" then
+    playerData[Player[playerColor].steam_name] = playerColor
+    updateSave()
+  end
+end
+
+function onPlayerConnect(player)
+  local correctColor = playerData[player.steam_name]
+  if not correctColor then return end
+
+  local occupyingPlayer = Player[correctColor]
+  if occupyingPlayer.getHandCount() == 0 then
+    printToColor("Your last seat doesn't exist right now.", player.color, "Orange")
+    return
+  end
+
+  if occupyingPlayer.seated then
+    if playerData[occupyingPlayer.steam_name] == correctColor then
+      printToColor("Your last seat is already occupied.", player.color, "Orange")
+      return
+    else
+      printToColor("You were seated to Grey because your color was reserved.", correctColor, "Orange")
+      Player[correctColor].changeColor("Grey")
+    end
+  end
+
+  player.changeColor(correctColor)
+end

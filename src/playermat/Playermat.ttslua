@@ -22,13 +22,13 @@ local availableOptions            = {
       type  = "toggle"
     },
     {
-      id    = "textureSelect",
-      title = "Select Playermat Texture",
+      id    = "handColorSelect",
+      title = "Select Hand Color",
       type  = "button"
     },
     {
-      id    = "handColorSelect",
-      title = "Select Hand Color",
+      id    = "textureSelect",
+      title = "Select Playermat Texture",
       type  = "button"
     },
     {
@@ -37,9 +37,14 @@ local availableOptions            = {
       type  = "button"
     },
     {
-      id    = "visibilityAllSelect",
+      id    = "visibilityAll",
       title = "Show/Hide this Hand to all",
-      type  = "button"
+      type  = "toggle"
+    },
+    {
+      id    = "exhaustRotation",
+      title = "Specify Exhaust Rotation",
+      type  = "input"
     }
   }
 }
@@ -161,6 +166,7 @@ function updateSave()
     activeInvestigatorData = activeInvestigatorData,
     isClassTextureEnabled  = isClassTextureEnabled,
     isDrawButtonVisible    = isDrawButtonVisible,
+    isHandShownToAll       = isHandShownToAll,
     optionPanelData        = optionPanelData,
     optionPanelVisibility  = optionPanelVisibility,
     playerColor            = playerColor,
@@ -174,6 +180,7 @@ function onLoad(savedData)
     activeInvestigatorData      = loadedData.activeInvestigatorData
     isClassTextureEnabled       = loadedData.isClassTextureEnabled
     isDrawButtonVisible         = loadedData.isDrawButtonVisible
+    isHandShownToAll            = loadedData.isHandShownToAll
     optionPanelData             = loadedData.optionPanelData
     optionPanelVisibility       = loadedData.optionPanelVisibility
     playerColor                 = loadedData.playerColor
@@ -389,7 +396,8 @@ function doUpkeep(_, clickedByColor, isRightClick)
   updateMessageColor(clickedByColor)
 
   -- print a message to keep track (only visible to the triggering player)
-  printToColor("Upkeep for " .. GlobalApi.getColoredName(playerColor) .. " (card draw and then resource gain).", messageColor)
+  local coloredName = GlobalApi.getColoredName(playerColor)
+  printToColor("Upkeep for " .. coloredName .. " (card draw and then resource gain).", messageColor)
 
   -- unexhaust cards in play zone, flip action tokens and find Forced Learning / Dream-Enhancing Serum
   local forcedLearning = false
@@ -992,6 +1000,13 @@ function createXML()
           }
         }
       elseif optionData.type == "button" then
+        local baseColor = Color.new(0.228, 0.249, 0.773)
+
+        -- use the hand color for the selection button
+        if optionData.id == "handColorSelect" then
+          baseColor = Color[playerColor]
+        end
+
         typeXML = {
           tag = "Cell",
           attributes = { padding = "10 10 5 5", color = "#333333" },
@@ -1004,7 +1019,30 @@ function createXML()
                 onClick = "onClick_" .. optionData.id,
                 rectAlignment = "MiddleRight",
                 offsetXY = "-30 0",
-                colors = "#FFFFFF|#dfdfdf",
+                colors = getColorBlockForXmlButton(baseColor),
+                height = "108",
+                width = "195",
+                ignoreLayout = "True"
+              }
+            }
+          }
+        }
+      elseif optionData.type == "input" then
+        typeXML = {
+          tag = "Cell",
+          attributes = { padding = "10 10 5 5", color = "#333333" },
+          children = {
+            {
+              tag = "InputField",
+              attributes = {
+                id = optionData.id,
+                onEndEdit = "onEndEdit",
+                rectAlignment = "MiddleRight",
+                text = optionPanelData[optionData.id] or "",
+                characterValidation = "Integer",
+                fontSize = "80",
+                textAlignment = "MiddleCenter",
+                offsetXY = "-30 0",
                 height = "108",
                 width = "195",
                 ignoreLayout = "True"
@@ -1056,7 +1094,7 @@ function onClick_handColorSelect(player)
   end
 
   -- show the option dialog for color selection to the player that triggered this
-  player.showOptionsDialog("Select a new color:", colorList, _, function(newColor)
+  player.showOptionsDialog("Select a new color:", colorList, nil, function(newColor)
     -- update the color of the hand zone
     local handZone = ownedObjects.HandZone
     handZone.setValue(newColor)
@@ -1076,8 +1114,23 @@ function onClick_handColorSelect(player)
 
     -- update the internal variable
     playerColor = newColor
+
+    -- update the color of the option button
+    self.UI.setAttribute("handColorSelect", "colors", getColorBlockForXmlButton(Color[playerColor]))
     updateSave()
   end)
+end
+
+-- generates a color block for the xml option buttons
+function getColorBlockForXmlButton(baseColor)
+  local darkColor = multiplyColor(baseColor, 0.75)
+  local lightColor = multiplyColor(baseColor, 1.33)
+  return "#" .. baseColor:toHex() .. "|#" .. darkColor:toHex() .. "|#" .. lightColor:toHex()
+end
+
+-- multiplies a color by a value
+function multiplyColor(col, mult)
+  return Color.new(col.r * mult, col.g * mult, col.b * mult)
 end
 
 -- instruct Global to update this mat's hand visibility
@@ -1091,7 +1144,10 @@ function onClick_visibilitySelect(player)
   GlobalApi.handVisibilityToggle(player.color, playerColor)
 end
 
-function onClick_visibilityAllSelect()
+function toggleVisibilityAll()
+  isHandShownToAll = not isHandShownToAll
+  updateSave()
+
   for _, possibleColor in ipairs(Player.getColors()) do
     if possibleColor ~= playerColor and possibleColor ~= "Black" then
       GlobalApi.handVisibilityToggle(possibleColor, playerColor)
@@ -1112,13 +1168,15 @@ function applyOptionPanelChange(id, state, clickType)
   end
 
   if id == "slotEditing" then
-    if currentlyEditingSlots and clickType == "-2" then -- right-clicked
+    if currentlyEditingSlots and clickType == "-2" then     -- right-clicked
       resetSlotSymbols()
     elseif currentlyEditingSlots and clickType == "-3" then -- middle-clicked
       resetSlotSymbols(true)
-    elseif clickType == "-1" then -- left-clicked
+    elseif clickType == "-1" then                           -- left-clicked
       toggleSlotEditing()
     end
+  elseif id == "visibilityAll" then
+    toggleVisibilityAll()
   end
 end
 
@@ -1144,7 +1202,7 @@ function toggleSlotEditing()
   if currentlyEditingSlots then
     broadcastToColor("Check chat for instructions", messageColor, "Orange")
     printToColor("Click on a slot symbol (or an empty slot) to edit it. " ..
-      "Right-click the 'Slot-Edit' button to return to the default slots. " .. 
+      "Right-click the 'Slot-Edit' button to return to the default slots. " ..
       "Middle-click the 'Slot-Edit' button to remove all slot symbols.", messageColor, "White")
   else
     updateSave()
@@ -1216,6 +1274,32 @@ function modifySlot(newSlot, cardPosition)
   updateSlotSymbols()
 end
 
+function onEndEdit(player, text, elementId)
+  if elementId == "exhaustRotation" then
+    local angle = roundToMultiple(tonumber(text), 15) % 360
+    self.UI.setAttribute("exhaustRotation", "text", angle)
+    optionPanelData["exhaustRotation"] = angle
+    updateSave()
+
+    if math.abs(angle) > 90 then
+      printToColor("It's recommended to choose a value between 0° and 90°.", player.color, "Yellow")
+    end
+  end
+end
+
+function roundToMultiple(num, mult)
+  return math.floor((num + mult / 2) / mult) * mult
+end
+
+function getExhaustRotation(convertToGlobal)
+  local exhaustRotation = optionPanelData["exhaustRotation"]
+  if convertToGlobal then
+    return Vector(0, self.getRotation().y + exhaustRotation, 0)
+  else
+    return exhaustRotation
+  end
+end
+
 ---------------------------------------------------------
 -- playermat token spawning
 ---------------------------------------------------------
@@ -1257,7 +1341,7 @@ function syncCustomizableMetadata(card, cardMetadata)
 end
 
 function spawnTokensFor(object)
-  local extraUses = {} -- higher count for an existing type of uses
+  local extraUses = {}             -- higher count for an existing type of uses
   local spawnReactionToken = false -- additional action token (atm only for Michael's Firearms)
 
   -- add one additional charge for Akachi Onyele
