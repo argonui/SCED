@@ -1,5 +1,6 @@
-local guidReferenceApi = require("core/GUIDReferenceApi")
-local playermatApi     = require("playermat/PlayermatApi")
+local GlobalApi        = require("Global/GlobalApi")
+local GUIDReferenceApi = require("core/GUIDReferenceApi")
+local PlayermatApi     = require("playermat/PlayermatApi")
 
 fullButtonData         = {
   { id = "1",  width = "84",  height = "33",  offset = "1 2" },       --  1. Act/Agenda
@@ -114,9 +115,6 @@ function onLoad(savedData)
       visibility[color] = { full = false, play = false }
     end
   end
-
-  createXmlButtons()
-  updateVisibility()
 end
 
 ---------------------------------------------------------
@@ -188,18 +186,18 @@ end
 ---------------------------------------------------------
 
 function createXmlButtons()
-  local ui = UI.getXmlTable()
-  ui = createXmlButtonHelper(ui, {
+  local xml = UI.getXmlTable()
+  xml = createXmlButtonHelper(xml, {
     data = fullButtonData,
     id = "navPanelFull",
     overlay = "OverlayLarge"
   })
-  ui = createXmlButtonHelper(ui, {
+  xml = createXmlButtonHelper(xml, {
     data = playButtonData,
     id = "navPanelPlay",
     overlay = "OverlaySmall"
   })
-  UI.setXmlTable(ui)
+  GlobalApi.updateGlobalXml(xml)
 end
 
 -- XML button creation
@@ -322,7 +320,7 @@ function loadCamera(player, index, matColor)
   -- dynamic view of the play area
   if index and index == 2 then
     -- search the scripting zone on the play area for objects
-    local zone = guidReferenceApi.getObjectByOwnerAndType("Mythos", "PlayAreaZone")
+    local zone = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "PlayAreaZone")
     local bounds = getDynamicViewBounds(zone.getObjects())
 
     lookHere = {
@@ -336,7 +334,7 @@ function loadCamera(player, index, matColor)
     matColor = matColor or matColorList[index - 2]
 
     -- if mat is removed, end here
-    local mat = guidReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
+    local mat = GUIDReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
     if mat == nil then
       printToColor("Couldn't find this playermat.", player.color)
       return
@@ -354,18 +352,18 @@ function loadCamera(player, index, matColor)
 
     -- swap to that color if it isn't claimed by someone else and it's currently unoccopied
     if #getSeatedPlayers() == 1 or (not isClaimed and isPlayermatAvailable(matColor)) then
-      local newPlayerColor = playermatApi.getPlayerColor(matColor)
+      local newPlayerColor = PlayermatApi.getPlayerColor(matColor)
       copyVisibility({ startColor = player.color, targetColor = newPlayerColor })
       player.changeColor(newPlayerColor)
       player = Player[newPlayerColor]
     end
 
     -- search on the playermat for objects
-    local bounds = getDynamicViewBounds(playermatApi.searchAroundPlayermat(matColor))
+    local bounds = getDynamicViewBounds(PlayermatApi.searchAroundPlayermat(matColor))
 
     lookHere = {
       position = { bounds.middleX, 0, bounds.middleZ },
-      yaw = playermatApi.returnRotation(matColor).y + 180,
+      yaw = PlayermatApi.returnRotation(matColor).y + 180,
       distance = 0.42 * math.max(bounds.diffX, bounds.diffZ) + 7
     }
   end
@@ -388,7 +386,7 @@ end
 
 -- helper function to check if a playermat is available for a color swap
 function isPlayermatAvailable(matColor)
-  local newPlayerColor = playermatApi.getPlayerColor(matColor)
+  local newPlayerColor = PlayermatApi.getPlayerColor(matColor)
   for _, color in ipairs(getSeatedPlayers()) do
     if color == newPlayerColor then
       return false

@@ -1,19 +1,19 @@
 require("Global/ChaosTokenMessages")
 require("Global/TableSetupData")
 require("core/Constants")
-local blessCurseManagerApi        = require("chaosbag/BlessCurseManagerApi")
-local guidReferenceApi            = require("core/GUIDReferenceApi")
-local mythosAreaApi               = require("mythos/MythosAreaApi")
-local navigationOverlayApi        = require("core/NavigationOverlayApi")
-local playAreaApi                 = require("playarea/PlayAreaApi")
-local playermatApi                = require("playermat/PlayermatApi")
-local searchLib                   = require("util/SearchLib")
-local soundCubeApi                = require("core/SoundCubeApi")
-local tokenArrangerApi            = require("tokens/TokenArrangerApi")
-local tokenChecker                = require("tokens/TokenChecker")
-local tokenSpawnTrackerApi        = require("tokens/TokenSpawnTrackerApi")
-local victoryDisplayApi           = require("mythos/VictoryDisplayApi")
-local zones                       = require("playermat/Zones")
+local BlessCurseManagerApi        = require("chaosbag/BlessCurseManagerApi")
+local GUIDReferenceApi            = require("core/GUIDReferenceApi")
+local MythosAreaApi               = require("mythos/MythosAreaApi")
+local NavigationOverlayApi        = require("core/NavigationOverlayApi")
+local PlayAreaApi                 = require("playarea/PlayAreaApi")
+local PlayermatApi                = require("playermat/PlayermatApi")
+local SearchLib                   = require("util/SearchLib")
+local SoundCubeApi                = require("core/SoundCubeApi")
+local TokenArrangerApi            = require("tokens/TokenArrangerApi")
+local TokenChecker                = require("tokens/TokenChecker")
+local TokenSpawnTrackerApi        = require("tokens/TokenSpawnTrackerApi")
+local VictoryDisplayApi           = require("mythos/VictoryDisplayApi")
+local Zones                       = require("playermat/Zones")
 
 ---------------------------------------------------------
 -- general setup
@@ -162,18 +162,26 @@ function onLoad(savedData)
     updateOptionPanelState()
   end
 
+  -- call this for each existing object since TTS doesn't do it
   for _, obj in ipairs(getObjects()) do
     onObjectSpawn(obj)
   end
 
   getModVersion()
   updateHandVisibility()
-  updateBlurseVisibility()
   math.randomseed(os.time())
   TokenManager.initialize()
 
+  -- these things update the Global XML and thus need to happen with delays
+  Wait.time(updateBlurseVisibility, 0.2)
+  Wait.time(createActionTrackerUI, 0.4)
+  Wait.time(NavigationOverlayApi.createXmlButtons, 0.6)
+  Wait.time(NavigationOverlayApi.updateVisibility, 0.8)
+  Wait.time(PlayAreaApi.updatePlayAreaGallery, 1.0) -- also selects the first item after 0.1s
+  Wait.time(initializeLibrary, 1.2) -- also simulates a click on the first item after 0.1s
+
   -- add a button and context menu to the chaos token stat tracker
-  local statTracker = guidReferenceApi.getObjectByOwnerAndType("Mythos", "StatTracker")
+  local statTracker = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "StatTracker")
   if statTracker then
     statTracker.UI.setXmlTable({
       {
@@ -190,16 +198,10 @@ function onLoad(savedData)
     statTracker.addContextMenuItem("Print my stats",
       function(playerColor) handleStatTrackerClick(Player[playerColor], "-3") end)
   end
-  Wait.frames(createActionTrackerUI, 10)
-
-  -- initialization of library (delay to let Navigation Overlay build)
-  Wait.time(function()
-    WebRequest.get(SOURCE_REPO .. 'library.json', libraryDownloadCallback)
-  end, 1)
 
   -- load specific option panel state for debugging / developing
   if LOAD_DEBUG_OPTION_PANEL then
-    Wait.frames(function() loadOptionPanelState(DEBUG_OPTION_PANEL_STATE) end, 90)
+    Wait.time(function() loadOptionPanelState(DEBUG_OPTION_PANEL_STATE) end, 2)
   end
 end
 
@@ -240,7 +242,7 @@ function tryObjectEnterContainer(container, object)
     handleTokenDetaching({ card = object })
   end
 
-  playAreaApi.tryObjectEnterContainer(container, object)
+  PlayAreaApi.tryObjectEnterContainer(container, object)
   return true
 end
 
@@ -253,7 +255,7 @@ function onObjectLeaveContainer(container, object)
 end
 
 function maybeAddDecalToChaosToken(object)
-  if not tokenChecker.isChaosToken(object) then return end
+  if not TokenChecker.isChaosToken(object) then return end
 
   local decalData = {
     {
@@ -369,19 +371,19 @@ function onObjectEnterZone(zone, object)
       local attachments = object.getAttachments()
       if not attachments then return end
 
-      local matcolor = playermatApi.getMatColorByPosition(object.getPosition())
-      local trash    = guidReferenceApi.getObjectByOwnerAndType(matcolor, "Trash")
+      local matcolor = PlayermatApi.getMatColorByPosition(object.getPosition())
+      local trash    = GUIDReferenceApi.getObjectByOwnerAndType(matcolor, "Trash")
 
       for i = #attachments, 1, -1 do
         local deepObj = attachments[i]
-        if not tokenChecker.isChaosTokenName(deepObj["nickname"]) and deepObj["memo"] ~= nil then
+        if not TokenChecker.isChaosTokenName(deepObj["nickname"]) and deepObj["memo"] ~= nil then
           trash.putObject(object.removeAttachment(deepObj["index"]))
         end
       end
-    elseif object.type == "Tile" and not tokenChecker.isChaosToken(object) and object.getMemo() and
+    elseif object.type == "Tile" and not TokenChecker.isChaosToken(object) and object.getMemo() and
         not object.getLock() and object.interactable == true and not object.isSmoothMoving() then
-      local matcolor = playermatApi.getMatColorByPosition(object.getPosition())
-      local trash    = guidReferenceApi.getObjectByOwnerAndType(matcolor, "Trash")
+      local matcolor = PlayermatApi.getMatColorByPosition(object.getPosition())
+      local trash    = GUIDReferenceApi.getObjectByOwnerAndType(matcolor, "Trash")
       trash.putObject(object)
     end
   elseif zoneName == "PlayAreaZone" then
@@ -425,8 +427,8 @@ end
 function onObjectNumberTyped(hoveredObject, playerColor, number)
   -- adds cards to appropriate hand for Attachment Helper
   if hoveredObject.getName() == "Attachment Helper" then
-    local matColor = playermatApi.getMatColorByPosition(hoveredObject.getPosition())
-    local handColor = playermatApi.getPlayerColor(matColor)
+    local matColor = PlayermatApi.getMatColorByPosition(hoveredObject.getPosition())
+    local handColor = PlayermatApi.getPlayerColor(matColor)
     hoveredObject.deal(number, handColor)
     return true
   end
@@ -445,10 +447,10 @@ function onObjectNumberTyped(hoveredObject, playerColor, number)
   end
 
   -- check whether the hovered object is part of a players draw objects
-  for color, _ in pairs(guidReferenceApi.getObjectsByType("Playermat")) do
-    local deckAreaObjects = playermatApi.getDeckAreaObjects(color)
+  for color, _ in pairs(GUIDReferenceApi.getObjectsByType("Playermat")) do
+    local deckAreaObjects = PlayermatApi.getDeckAreaObjects(color)
     if deckAreaObjects.topCard == hoveredObject or deckAreaObjects.draw == hoveredObject then
-      playermatApi.drawCardsWithReshuffle(color, number)
+      PlayermatApi.drawCardsWithReshuffle(color, number)
       return true
     end
   end
@@ -463,8 +465,8 @@ function onPlayerAction(player, action, targets)
     else
       -- disable delete action (only applies to promoted players) and discard objects instead
       for _, target in ipairs(targets) do
-        local matColor = playermatApi.getMatColorByPosition(target.getPosition())
-        local trash = guidReferenceApi.getObjectByOwnerAndType(matColor, "Trash")
+        local matColor = PlayermatApi.getMatColorByPosition(target.getPosition())
+        local trash = GUIDReferenceApi.getObjectByOwnerAndType(matColor, "Trash")
 
         maybeUpdateActionTrackerTokens(target, 20)
 
@@ -485,7 +487,7 @@ end
 function onPlayerChangeColor()
   Wait.frames(function()
     -- updates the displayed names in the action tracker
-    for matColor, _ in pairs(guidReferenceApi.getObjectsByType("Playermat")) do
+    for matColor, _ in pairs(GUIDReferenceApi.getObjectsByType("Playermat")) do
       updateActionTrackerName(matColor)
     end
   end, 1)
@@ -495,15 +497,15 @@ function onObjectRotate(obj, _, flip, _, _, oldFlip)
   if flip == oldFlip then return end
 
   if obj.hasTag("Minicard") then
-    for matColor, _ in pairs(guidReferenceApi.getObjectsByType("Playermat")) do
+    for matColor, _ in pairs(GUIDReferenceApi.getObjectsByType("Playermat")) do
       Wait.frames(function() updateActionTrackerName(matColor) end, 75)
     end
-  elseif tokenChecker.isChaosToken(obj) then
+  elseif TokenChecker.isChaosToken(obj) then
     if #chaosTokens == 0 then return end
 
     for _, token in pairs(chaosTokens) do
       if token == obj then
-        local matColor = playermatApi.getMatColorByPosition(obj.getPosition())
+        local matColor = PlayermatApi.getMatColorByPosition(obj.getPosition())
         local tokenName = obj.getName()
         if flip == 180 then
           trackChaosToken(tokenName, matColor, true)
@@ -547,7 +549,7 @@ function onObjectDrop(playerColor, obj)
     updateActionTrackerRows()
     updateActionTrackerWidth()
   elseif obj.hasTag("Minicard") then
-    for _, card in ipairs(searchLib.belowPosition(obj.getPosition(), "isCard")) do
+    for _, card in ipairs(SearchLib.belowPosition(obj.getPosition(), "isCard")) do
       local md = JSON.decode(card.getGMNotes()) or {}
       if md.type == "Investigator" and (md.id or md.TtsZoopGuid) then
         local miniMd = JSON.decode(obj.getGMNotes()) or {}
@@ -559,7 +561,7 @@ function onObjectDrop(playerColor, obj)
     end
   elseif obj.getMemo() == "dynamic" then
     -- handle dynamic tokens being dropped
-    local searchResult = searchLib.belowPosition(obj.getPosition(), "isCard")
+    local searchResult = SearchLib.belowPosition(obj.getPosition(), "isCard")
     if #searchResult == 0 then return end
 
     -- track dynamic tokens per card
@@ -605,7 +607,7 @@ function onObjectPickUp(_, obj)
   stopTokenTransformUpdating(obj)
 
   if obj.hasTag("UniversalToken") then
-    local owner = guidReferenceApi.getOwnerOfObject(obj)
+    local owner = GUIDReferenceApi.getOwnerOfObject(obj)
     if owner == "Mythos" then return end
     Wait.condition(
       function() updateActionTrackerTokens(owner, 1) end,
@@ -616,7 +618,7 @@ end
 
 function maybeUpdateActionTrackerTokens(obj, delayFrames)
   if obj == nil or obj.isDestroyed() or not obj.hasTag("UniversalToken") then return end
-  local owner = guidReferenceApi.getOwnerOfObject(obj)
+  local owner = GUIDReferenceApi.getOwnerOfObject(obj)
   if owner == "Mythos" then return end
   updateActionTrackerTokens(owner, delayFrames)
 end
@@ -627,9 +629,9 @@ end
 
 -- checks mythos area for chaos bag (also called by a lot of objects!)
 function findChaosBag()
-  local mythosArea = guidReferenceApi.getObjectByOwnerAndType("Mythos", "MythosArea")
+  local mythosArea = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "MythosArea")
   if mythosArea then
-    for _, obj in ipairs(searchLib.onObject(mythosArea)) do
+    for _, obj in ipairs(SearchLib.onObject(mythosArea)) do
       if obj.getDescription() == "Chaos Bag" or obj.getDescription() == "Chaos Bag" then
         obj.addTag("CleanUpHelper_ignore")
         return obj
@@ -662,9 +664,9 @@ function returnChaosTokenToBag(params)
   params.token.memo = nil
   params.token.destroyAttachments()
   chaosBag.putObject(params.token)
-  tokenArrangerApi.layout()
+  TokenArrangerApi.layout()
   if name == "Bless" or name == "Curse" then
-    blessCurseManagerApi.releasedToken(name, params.token.getGUID(), params.fromBag)
+    BlessCurseManagerApi.releasedToken(name, params.token.getGUID(), params.fromBag)
   end
 end
 
@@ -765,8 +767,8 @@ function returnAndRedraw(_, tokenGUID)
   local returnedToken = getObjectFromGUID(tokenGUID)
   local tokenName = returnedToken.getName()
   local indexOfReturnedToken = getTokenIndex(returnedToken)
-  local matColor = playermatApi.getMatColorByPosition(returnedToken.getPosition())
-  local mat = guidReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
+  local matColor = PlayermatApi.getMatColorByPosition(returnedToken.getPosition())
+  local mat = GUIDReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
 
   local takeParameters = {
     position = returnedToken.getPosition(),
@@ -799,7 +801,7 @@ function returnAndRedraw(_, tokenGUID)
   if redrawData.returnToPool then
     -- let the bless/curse manager handle these
     if tokenName == "Bless" or tokenName == "Curse" then
-      blessCurseManagerApi.removeToken(tokenName)
+      BlessCurseManagerApi.removeToken(tokenName)
     else
       local invertedTable = createChaosTokenNameLookupTable()
       removeChaosToken(invertedTable[tokenName])
@@ -848,7 +850,7 @@ function drawChaosToken(params)
   if not canTouchChaosTokens() then return end
 
   if type(params.mat) == "string" then
-    params.mat = guidReferenceApi.getObjectByOwnerAndType(params.mat, "Playermat")
+    params.mat = GUIDReferenceApi.getObjectByOwnerAndType(params.mat, "Playermat")
   end
 
   local matGUID = params.mat.getGUID()
@@ -886,11 +888,11 @@ function drawChaosToken(params)
       -- resolve a sealed token from a card
       token = getObjectFromGUID(params.guidToBeResolved)
       token.setPositionSmooth(takeParameters.position)
-      tokenArrangerApi.layout()
+      TokenArrangerApi.layout()
 
       local tokenName = token.getName()
       if tokenName == "Bless" or tokenName == "Curse" then
-        blessCurseManagerApi.releasedToken(tokenName, token.getGUID())
+        BlessCurseManagerApi.releasedToken(tokenName, token.getGUID())
       end
     else
       -- take a token from the bag, either specified or random
@@ -938,7 +940,7 @@ function drawChaosToken(params)
       end
     end
 
-    local tokenData = mythosAreaApi.returnTokenData().tokenData or {}
+    local tokenData = MythosAreaApi.returnTokenData().tokenData or {}
     local specificData = tokenData[name] or {}
     token.setDescription(specificData.description or "")
     trackChaosToken(name, params.mat.getMemo())
@@ -1063,14 +1065,14 @@ function handleStatTrackerClick(player, clickType, _)
 
   for matColor, personalStats in pairs(tokenDrawingStats) do
     -- skip if middle-clicked and not the color of the clicking player
-    if clickType ~= "-3" or matColor == playermatApi.getMatColor(player.color) then
+    if clickType ~= "-3" or matColor == PlayermatApi.getMatColor(player.color) then
       local playerColor, playerName
 
       if matColor == "Overall" then
         playerColor = "White"
         playerName  = "Overall"
       else
-        playerColor = playermatApi.getPlayerColor(matColor) or matColor
+        playerColor = PlayermatApi.getPlayerColor(matColor) or matColor
         playerName  = Player[playerColor] and Player[playerColor].steam_name or playerColor
 
         -- track auto-fails / elder signs
@@ -1129,7 +1131,7 @@ function handleStatTrackerClick(player, clickType, _)
     if #lastDrawnTokens > 0 then
       local tokenStr = ""
       for _, data in ipairs(lastDrawnTokens) do
-        local handColor = playermatApi.getPlayerColor(data.matColor) or data.matColor
+        local handColor = PlayermatApi.getPlayerColor(data.matColor) or data.matColor
         local tokenName = data.tokenName
         if handColor ~= nil then
           tokenName = "[" .. Color.fromString(handColor):toHex() .. "]" .. tokenName .. "[-]"
@@ -1244,7 +1246,7 @@ function setChaosBagState(tokenList)
   chaosTokensLastMatGUID = nil
 
   -- reset bless / curse manager
-  blessCurseManagerApi.removeTakenTokensAndReset()
+  BlessCurseManagerApi.removeTakenTokensAndReset()
 
   printToAll("Chaos Bag set to chosen difficulty.", "Green")
 end
@@ -1267,7 +1269,7 @@ function spawnChaosToken(id)
       callback_function = function(obj)
         obj.setName(ID_URL_MAP[id].name)
         chaosBag.putObject(obj)
-        tokenArrangerApi.layout()
+        TokenArrangerApi.layout()
       end
     }).setCustomObject({
       type = 2,
@@ -1301,7 +1303,7 @@ function removeChaosToken(id)
     smooth = false,
     callback_function = function(obj)
       obj.destruct()
-      tokenArrangerApi.layout()
+      TokenArrangerApi.layout()
     end
   })
   printToAll("Removing " .. name .. " token (in bag: " .. #tokens - 1 .. ")", "White")
@@ -1419,7 +1421,7 @@ function onClick_customUrl(player)
   changeWindowVisibilityForColor(player.color, "playareaGallery")
   Wait.time(function()
     player.showInputDialog("Enter a custom URL for the playarea image", "", function(newURL)
-      playAreaApi.updateSurface(newURL)
+      PlayAreaApi.updateSurface(newURL)
     end)
   end, 0.15)
 end
@@ -1538,7 +1540,7 @@ end
 function onClick_spawnPlaceholder(player)
   -- get object references
   local item = library[contentToShow][currentListItem]
-  local dummy = guidReferenceApi.getObjectByOwnerAndType("Mythos", "PlaceholderBoxDummy")
+  local dummy = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "PlaceholderBoxDummy")
 
   -- error handling
   if not item.boxsize or item.boxsize == "" or not item.boxart or item.boxart == "" then
@@ -1615,7 +1617,7 @@ function onClick_toggleOptionPanel(player, clickType)
       if actionTrackerVisibility[player.color] then
         changeWindowVisibilityForColor(player.color, "actionTracker", actionTrackerVisibility[player.color])
       end
-      navigationOverlayApi.updateVisibility()
+      NavigationOverlayApi.updateVisibility()
     end
   elseif clickType == "-2" then
     -- right-click: show option presets
@@ -1648,7 +1650,7 @@ end
 function onClick_toggleUi(player, windowId)
   -- let the Navigation Overlay handle the toggling of its visibility modes
   if windowId == "Navigation Overlay" then
-    navigationOverlayApi.cycleVisibility(player.color)
+    NavigationOverlayApi.cycleVisibility(player.color)
     changeWindowVisibilityForColor(player.color, "optionPanel", false)
     return
   end
@@ -1671,7 +1673,7 @@ function onClick_toggleUi(player, windowId)
     printToColor("Action Tracker " .. (visibility and "enabled." or "disabled."), player.color)
 
     if visibility then
-      if #playermatApi.getUsedMatColors() == 0 then
+      if #PlayermatApi.getUsedMatColors() == 0 then
         printToColor("No player mats in use - place an investigator.", player.color)
       end
     end
@@ -1759,31 +1761,31 @@ function updatePreviewWindow()
     "https://steamusercontent-a.akamaihd.net/ugc/762723517667628371/18438B0A0045038A7099648AA3346DFCAA267C66/"
   end
 
-  UI.setValue("previewTitle", item.name)
-  UI.setValue("previewAuthor", "by " .. (item.author or "- Author not found -"))
-  UI.setValue("previewDescription", item.description or "- Description not found -")
+  UI.setValue("previewTitle", fallback(item.name, "- Name not found -"))
+  UI.setValue("previewAuthor", "by " .. fallback(item.author, "- Author not found -"))
+  UI.setValue("previewDescription", fallback(item.description, "- Description not found -"))
 
   -- update mask according to size (hardcoded values to align image in mask)
   local maskData = {}
   if item.boxsize == "big" then
     maskData = {
-      image = "box-cover-mask-big",
-      width = "870",
-      height = "435",
+      image    = "box-cover-mask-big",
+      width    = "870",
+      height   = "435",
       offsetXY = "154 60"
     }
   elseif item.boxsize == "small" then
     maskData = {
-      image = "box-cover-mask-small",
-      width = "792",
-      height = "594",
+      image    = "box-cover-mask-small",
+      width    = "792",
+      height   = "594",
       offsetXY = "135 13"
     }
   elseif item.boxsize == "wide" then
     maskData = {
-      image = "box-cover-mask-wide",
-      width = "756",
-      height = "630",
+      image    = "box-cover-mask-wide",
+      width    = "756",
+      height   = "630",
       offsetXY = "-190 -70"
     }
   end
@@ -1794,6 +1796,10 @@ function updatePreviewWindow()
   -- insert the image itself
   UI.setAttribute("previewArtImage", "image", item.boxart)
   UI.setAttributes("previewArtMask", maskData)
+end
+
+function fallback(text, default)
+  return (text and text ~= "") and text or default
 end
 
 -- formats the json response from the webrequest into a key-value lua table
@@ -1893,7 +1899,7 @@ end
 
 function createActionTrackerUI()
   -- make list of currently used mat colors
-  local usedMatColors = playermatApi.getUsedMatColors()
+  local usedMatColors = PlayermatApi.getUsedMatColors()
   local isUsed = {}
   for _, matColor in ipairs(usedMatColors) do
     isUsed[matColor] = true
@@ -1927,7 +1933,7 @@ function createActionTrackerUI()
   -- Loop through playermats and create rows in the Action Tracker
   for _, matColor in ipairs(MAT_COLORS) do
     local cellColors = getActionTrackerCellColors(matColor)
-    local playerColor = playermatApi.getPlayerColor(matColor) or matColor
+    local playerColor = PlayermatApi.getPlayerColor(matColor) or matColor
     local playerRow = {
       tag = "Row",
       attributes = { id = "playerRow" .. matColor, active = isUsed[matColor] or false },
@@ -1975,7 +1981,7 @@ end
 
 -- updates the layout of the action tracker
 function updateActionTrackerRows()
-  local usedMatColors = playermatApi.getUsedMatColors()
+  local usedMatColors = PlayermatApi.getUsedMatColors()
   local isUsed = {}
   for _, matColor in ipairs(usedMatColors) do
     isUsed[matColor] = true
@@ -2031,7 +2037,7 @@ function updateActionTrackerName(matColor)
   local fontStyle = "Italic"
 
   if isMiniReady(matColor) then
-    textColor = playermatApi.getPlayerColor(matColor)
+    textColor = PlayermatApi.getPlayerColor(matColor)
     fontStyle = "Normal"
   end
 
@@ -2072,10 +2078,10 @@ function countActionTrackerColumns()
 end
 
 function isMiniReady(matColor)
-  local investigatorData = playermatApi.getActiveInvestigatorData(matColor)
+  local investigatorData = PlayermatApi.getActiveInvestigatorData(matColor)
   if not investigatorData then return false end
 
-  local playAreaZone = guidReferenceApi.getObjectByOwnerAndType("Mythos", "PlayAreaZone")
+  local playAreaZone = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "PlayAreaZone")
   for _, obj in ipairs(playAreaZone.getObjects()) do
     if obj.hasTag("Minicard") and not obj.is_face_down then
       local md = JSON.decode(obj.getGMNotes()) or {}
@@ -2093,14 +2099,14 @@ function determineActionCount(matColor)
     order     = {}
   }
 
-  local playermat   = guidReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
+  local playermat   = GUIDReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
   if not playermat then return actionCount end
 
   local localPos       = Vector(-1.2, 0.1, -0.28)
-  local pos            = playermatApi.transformLocalPosition(localPos, matColor):setAt("y", 3)
-  local rot            = playermatApi.returnRotation(matColor)
+  local pos            = PlayermatApi.transformLocalPosition(localPos, matColor):setAt("y", 3)
+  local rot            = PlayermatApi.returnRotation(matColor)
   local size           = Vector(5, 6, 0.1)
-  local searchResult   = searchLib.inArea(pos, rot, size, "isUniversalToken")
+  local searchResult   = SearchLib.inArea(pos, rot, size, "isUniversalToken")
 
   actionCount.total    = #searchResult
 
@@ -2126,7 +2132,7 @@ end
 
 -- returns the display name (steam name or investigator)
 function getDisplayName(matColor)
-  local playerColor = playermatApi.getPlayerColor(matColor)
+  local playerColor = PlayermatApi.getPlayerColor(matColor)
 
   -- if the mat was removed or something wierd happened, just return the matColor
   if not playerColor then return matColor end
@@ -2137,7 +2143,7 @@ function getDisplayName(matColor)
   end
 
   -- return investigator name if possible
-  local investigatorName = playermatApi.getInvestigatorName(matColor)
+  local investigatorName = PlayermatApi.getInvestigatorName(matColor)
   if investigatorName ~= "" then
     return investigatorName
   end
@@ -2259,8 +2265,13 @@ end
 -- first hit is the table surface, additional hits means something is there
 ---@return boolean: True if empty
 function checkPositionForContentSpawn(checkPos)
-  local searchResult = searchLib.atPosition(checkPos, "isInteractable")
+  local searchResult = SearchLib.atPosition(checkPos, "isInteractable")
   return #searchResult == 0
+end
+
+-- initalizes the library
+function initializeLibrary()
+  WebRequest.get(SOURCE_REPO .. 'library.json', libraryDownloadCallback)
 end
 
 -- downloading of the library file
@@ -2345,7 +2356,7 @@ function playermatRemovalSelected(player, selectedIndex, id)
   if selectedIndex == "0" then return end
 
   local matColor = MAT_COLORS[tonumber(selectedIndex)]
-  local mat = guidReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
+  local mat = GUIDReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
 
   if mat then
     -- confirmation dialog about deletion
@@ -2367,22 +2378,22 @@ end
 ---@param matColor string Color of the playermat to remove
 function removePlayermat(matColor)
   -- if there's a seated player, move them to grey
-  local handColor = playermatApi.getPlayerColor(matColor)
+  local handColor = PlayermatApi.getPlayerColor(matColor)
   if Player[handColor].seated then
     Player[handColor].changeColor("Grey")
   end
 
-  local matObjects = guidReferenceApi.getObjectsByOwner(matColor)
+  local matObjects = GUIDReferenceApi.getObjectsByOwner(matColor)
   if not matObjects.Playermat then return end
 
   -- remove objects on mat
-  local objectsToRemove = playermatApi.searchAroundPlayermat(matColor, "isInteractable")
+  local objectsToRemove = PlayermatApi.searchAroundPlayermat(matColor, "isInteractable")
   Wait.frames(function()
     local chaosBag = findChaosBag()
     for _, obj in ipairs(objectsToRemove) do
       if obj ~= nil and not obj.hasTag("CleanUpHelper_ignore") then
         -- don't remove chaos tokens
-        if tokenChecker.isChaosToken(obj) then
+        if TokenChecker.isChaosToken(obj) then
           if chaosBag then
             chaosBag.putObject(obj)
           end
@@ -2399,7 +2410,7 @@ function removePlayermat(matColor)
   end
 
   -- update index
-  guidReferenceApi.editIndex(matColor)
+  GUIDReferenceApi.editIndex(matColor)
 
   -- update the action tracker
   updateActionTrackerRows()
@@ -2407,7 +2418,7 @@ function removePlayermat(matColor)
 end
 
 function collectPlayermatSpawnData()
-  local sourceBag = guidReferenceApi.getObjectByOwnerAndType("Mythos", "ObjectSourceBag")
+  local sourceBag = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "ObjectSourceBag")
 
   -- error handling for missing sourceBag
   if not sourceBag then
@@ -2437,7 +2448,7 @@ function spawnPlayermatObjects(matColor, playermat, transformData, spawnData)
         local indexName = GUID_INDEX_MAP[name] or string.gsub(name, " ", "")
 
         -- get the local position / rotation for it
-        local localPos = zones.getLocalZoneData(matColor, name)
+        local localPos = Zones.getLocalZoneData(matColor, name)
         if localPos then
           local pos = playermat.positionToWorld(localPos)
           local rot = transformData.rotation:copy()
@@ -2460,7 +2471,7 @@ function spawnPlayermatObjects(matColor, playermat, transformData, spawnData)
           end
 
           -- if the object already exists, move it instead
-          local ref = guidReferenceApi.getObjectByOwnerAndType(matColor, indexName)
+          local ref = GUIDReferenceApi.getObjectByOwnerAndType(matColor, indexName)
           if ref then
             ref.setPosition(pos)
             ref.setRotation(rot)
@@ -2469,7 +2480,7 @@ function spawnPlayermatObjects(matColor, playermat, transformData, spawnData)
 
             -- spawn object and update index
             local obj = spawnObjectData({ data = objData })
-            Wait.frames(function() guidReferenceApi.editIndex(matColor, indexName, obj.getGUID()) end, 3)
+            Wait.frames(function() GUIDReferenceApi.editIndex(matColor, indexName, obj.getGUID()) end, 3)
           end
         end
       end
@@ -2481,10 +2492,10 @@ function spawnPlayermatObjects(matColor, playermat, transformData, spawnData)
     local cleanName = helperName:gsub("%s+", "")
 
     -- check if the object already exists
-    local helper = guidReferenceApi.getObjectByOwnerAndType(matColor, cleanName)
+    local helper = GUIDReferenceApi.getObjectByOwnerAndType(matColor, cleanName)
     if helper == nil then
       if optionPanel["show" .. cleanName] then
-        local data = playermatApi.getHelperSpawnData(matColor, helperName)
+        local data = PlayermatApi.getHelperSpawnData(matColor, helperName)
         spawnOrRemoveHelper(state, helperName, data.position, data.rotation, matColor)
       end
     end
@@ -2519,7 +2530,7 @@ function spawnPlayermat(matColor, transformData)
     -- spawn the mat
     local playermat = spawnObjectData({ data = spawnData.Playermat })
     coWaitFrames(5)
-    guidReferenceApi.editIndex(matColor, "Playermat", playermat.getGUID())
+    GUIDReferenceApi.editIndex(matColor, "Playermat", playermat.getGUID())
 
     -- spawn objects
     spawnPlayermatObjects(matColor, playermat, transformData, spawnData)
@@ -2572,7 +2583,7 @@ function spawnSharedBagArea()
       local indexName = GUID_INDEX_MAP[name] or string.gsub(name, " ", "")
 
       -- if the object already exists, skip it
-      local ref = guidReferenceApi.getObjectByOwnerAndType("Mythos", indexName)
+      local ref = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", indexName)
       if not ref then
         -- get the local position / rotation for it
         local transformData = SHARED_BAGS_DATA.transforms[indexName]
@@ -2581,7 +2592,7 @@ function spawnSharedBagArea()
 
           -- spawn object and update index
           local obj = spawnObjectData({ data = objData })
-          Wait.frames(function() guidReferenceApi.editIndex("Mythos", indexName, obj.getGUID()) end, 3)
+          Wait.frames(function() GUIDReferenceApi.editIndex("Mythos", indexName, obj.getGUID()) end, 3)
         end
       end
     end
@@ -2591,7 +2602,7 @@ end
 function removeSharedBagArea()
   for name, _ in pairs(SHARED_BAGS_DATA.objects) do
     local indexName = GUID_INDEX_MAP[name] or string.gsub(name, " ", "")
-    guidReferenceApi.removeObjectByOwnerAndType("Mythos", indexName)
+    GUIDReferenceApi.removeObjectByOwnerAndType("Mythos", indexName)
   end
 end
 
@@ -2605,7 +2616,7 @@ function updateTableSetup(newSetupName, oldSetupName)
   if not tableSetupData then return end
 
   -- update playercount
-  playAreaApi.setInvestigatorCount(tableSetupData.playerCount)
+  PlayAreaApi.setInvestigatorCount(tableSetupData.playerCount)
 
   function tableSetupCoro()
     -- if the current layout does not have a shared bag area, remove it
@@ -2618,8 +2629,8 @@ function updateTableSetup(newSetupName, oldSetupName)
     -- playermat preparation
     for _, matColor in ipairs(MAT_COLORS) do
       if tableSetupData.transforms["Playermat" .. matColor] then
-        -- move existing mats upwards temporarily to avoid collisions (searchlib searches up to 2 units)
-        playermatApi.moveAndRotate(matColor, nil, nil, Vector(0, 3, 0))
+        -- move existing mats upwards temporarily to avoid collisions (SearchLib searches up to 2 units)
+        PlayermatApi.moveAndRotate(matColor, nil, nil, Vector(0, 3, 0))
       else
         -- remove unnecessary playermats (do this first to avoid unwanted collisions / interactions)
         removePlayermat(matColor)
@@ -2631,7 +2642,7 @@ function updateTableSetup(newSetupName, oldSetupName)
     for objectName, defaultData in pairs(MYTHOS_DEFAULT_TRANSFORMS) do
       local transformData = tableSetupData.transforms[objectName] or defaultData
       if transformData then
-        local mainObject = guidReferenceApi.getObjectByOwnerAndType("Mythos", objectName)
+        local mainObject = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", objectName)
         if mainObject then
           moveObjectWithObjectsOnTop(mainObject, nil, nil, Vector(0, 3, 0))
           coWaitFrames(2)
@@ -2643,20 +2654,20 @@ function updateTableSetup(newSetupName, oldSetupName)
     for _, matColor in ipairs(MAT_COLORS) do
       local transformData = tableSetupData.transforms["Playermat" .. matColor]
       if transformData then
-        local playermat = guidReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
+        local playermat = GUIDReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
         if playermat then
           -- remove unneccessary objects
           local sharesBags = tableSetupData.sharedBagArea and (matColor == "White" or matColor == "Orange")
           for name, objData in pairs(spawnData) do
             if sharesBags and SHARED_BAGS_DATA.objects[name] then
               local indexName = GUID_INDEX_MAP[name] or string.gsub(name, " ", "")
-              guidReferenceApi.removeObjectByOwnerAndType(matColor, indexName)
+              GUIDReferenceApi.removeObjectByOwnerAndType(matColor, indexName)
             end
           end
 
           coWaitFrames(5)
 
-          playermatApi.moveAndRotate(matColor, transformData.position, transformData.rotation.y)
+          PlayermatApi.moveAndRotate(matColor, transformData.position, transformData.rotation.y)
 
           coWaitFrames(5)
 
@@ -2673,12 +2684,12 @@ function updateTableSetup(newSetupName, oldSetupName)
     for objectName, defaultData in pairs(MYTHOS_DEFAULT_TRANSFORMS) do
       local transformData = tableSetupData.transforms[objectName] or defaultData
       if transformData then
-        local mainObject = guidReferenceApi.getObjectByOwnerAndType("Mythos", objectName)
+        local mainObject = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", objectName)
         if mainObject then
           moveObjectWithObjectsOnTop(mainObject, transformData.position, transformData.rotation.y)
           coWaitFrames(2)
           if objectName == "TokenArranger" then
-            tokenArrangerApi.deleteCopiedTokens()
+            TokenArrangerApi.deleteCopiedTokens()
           end
         end
       end
@@ -2721,10 +2732,10 @@ function moveObjectWithObjectsOnTop(mainObject, position, rotationY, positionOff
   end
 
   -- get objects on the object
-  for _, obj in ipairs(searchLib.onObject(mainObject, "isInteractable")) do
+  for _, obj in ipairs(SearchLib.onObject(mainObject, "isInteractable")) do
     if not movedObjects[obj] then
       -- make sure object isn't owned by a mat
-      local owner = guidReferenceApi.getOwnerOfObject(obj)
+      local owner = GUIDReferenceApi.getOwnerOfObject(obj)
       if owner == "Mythos" then
         moveAndRotateObject(obj)
       end
@@ -2769,22 +2780,22 @@ function applyOptionPanelChange(id, state)
 
   -- option: Snap tags
   if id == "useSnapTags" then
-    playermatApi.setLimitSnapsByType(state, "All")
+    PlayermatApi.setLimitSnapsByType(state, "All")
 
     -- option: Draw 1 button
   elseif id == "showDrawButton" then
-    playermatApi.showDrawButton(state, "All")
+    PlayermatApi.showDrawButton(state, "All")
 
     -- option: Use class texture
   elseif id == "useClassTexture" then
-    playermatApi.useClassTexture(state, "All")
+    PlayermatApi.useClassTexture(state, "All")
 
     -- option: Clickable clue counters
   elseif id == "useClueClickers" then
-    playermatApi.clickableClues(state, "All")
+    PlayermatApi.clickableClues(state, "All")
 
     -- update master clue counter
-    local counter = guidReferenceApi.getObjectByOwnerAndType("Mythos", "MasterClueCounter")
+    local counter = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "MasterClueCounter")
     counter.call("setClickableCounters", state)
 
     -- option: Enable card helpers
@@ -2802,16 +2813,16 @@ function applyOptionPanelChange(id, state)
 
     -- option: Play area connection drawing
   elseif id == "playAreaConnections" then
-    playAreaApi.setConnectionDrawState(state)
+    PlayAreaApi.setConnectionDrawState(state)
 
     -- option: Play area connection color
   elseif id == "playAreaConnectionColor" then
-    playAreaApi.setConnectionColor(state)
+    PlayAreaApi.setConnectionColor(state)
     UI.setAttribute(id, "color", "#" .. Color.new(state):toHex())
 
     -- option: Play area snap tags
   elseif id == "playAreaSnapTags" then
-    playAreaApi.setLimitSnapsByType(state)
+    PlayAreaApi.setLimitSnapsByType(state)
 
     -- option: Show hand helper for each player
   elseif id == "showHandHelper" then
@@ -2843,13 +2854,13 @@ end
 ---@param helperName string Name of the helper object
 ---@param state boolean Contains the state of the option: true = spawn it, false = remove it
 function spawnOrRemoveHelperForPlayermats(helperName, state)
-  for color, data in pairs(playermatApi.getHelperSpawnData("All", helperName)) do
+  for color, data in pairs(PlayermatApi.getHelperSpawnData("All", helperName)) do
     spawnOrRemoveHelper(state, helperName, data.position, data.rotation, color)
   end
 
   -- also spawn/remove the search assistant for the encounter deck
   if helperName == "Search Assistant" then
-    local mythosArea = guidReferenceApi.getObjectByOwnerAndType("Mythos", "MythosArea")
+    local mythosArea = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "MythosArea")
     local pos = mythosArea.positionToWorld(Vector(0.880, 0.1, 0.868))
     local rot = mythosArea.getRotation()
     spawnOrRemoveHelper(state, "Encounter Search Assistant", pos, rot, "Mythos")
@@ -2871,7 +2882,7 @@ function spawnOrRemoveHelper(state, name, position, rotation, owner)
     end
     local spawnedGUID = spawnHelperObject(name, position, rotation).getGUID()
     local cleanName = name:gsub("%s+", "")
-    guidReferenceApi.editIndex(owner or "Mythos", cleanName, spawnedGUID)
+    GUIDReferenceApi.editIndex(owner or "Mythos", cleanName, spawnedGUID)
   else
     removeHelperObject(name)
   end
@@ -2882,7 +2893,7 @@ end
 ---@param position tts__Vector Desired position of the object
 ---@param rotation? tts__Vector Desired rotation of the object (defaults to object's rotation)
 function spawnHelperObject(name, position, rotation)
-  local sourceBag = guidReferenceApi.getObjectByOwnerAndType("Mythos", "ObjectSourceBag")
+  local sourceBag = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "ObjectSourceBag")
 
   -- error handling for missing sourceBag
   if not sourceBag then
@@ -2910,7 +2921,7 @@ end
 ---@param name string Object that should be removed
 function removeHelperObject(name)
   local cleanName = name:gsub("%s+", "")
-  for _, obj in pairs(guidReferenceApi.getObjectsByType(cleanName)) do
+  for _, obj in pairs(GUIDReferenceApi.getObjectsByType(cleanName)) do
     obj.destruct()
   end
 end
@@ -2991,17 +3002,17 @@ function titleSplash(scenarioName)
       waitIds["hideTitleSplash"] = nil
     end, 4)
 
-    soundCubeApi.playSoundByName("Deep Bell")
+    SoundCubeApi.playSoundByName("Deep Bell")
   end
 end
 
 -- turns off all card helpers, if they are on
 function toggleCardHelpers(state)
   for _, obj in ipairs(getObjectsWithTag("CardWithHelper")) do
-    local owner = guidReferenceApi.getOwnerOfObject(obj)
+    local owner = GUIDReferenceApi.getOwnerOfObject(obj)
     if owner == "Mythos" then return end
 
-    local mat      = guidReferenceApi.getObjectByOwnerAndType(owner, "Playermat")
+    local mat      = GUIDReferenceApi.getObjectByOwnerAndType(owner, "Playermat")
     local relPos   = mat.positionToLocal(obj.getPosition())
     local metadata = JSON.decode(obj.getGMNotes()) or {}
     local cardType = metadata.type
@@ -3218,7 +3229,7 @@ end
 -- the card has already spawned, find appropriate data from either the uses metadata or the Data
 -- Helper, and spawn the tokens.
 function TokenManager.spawnForCard(params)
-  if tokenSpawnTrackerApi.hasSpawnedTokens(params.card.getGUID()) then return end
+  if TokenSpawnTrackerApi.hasSpawnedTokens(params.card.getGUID()) then return end
   local metadata = JSON.decode(params.card.getGMNotes())
   if metadata ~= nil then
     TokenManager.spawnTokensFromUses(params.card, params.extraUses, params.spawnReactionToken)
@@ -3345,8 +3356,8 @@ function TokenManager.spawnMultipleTokens(card, tokenType, tokenCount, shiftDown
   local callbackName = nil
   local callbackParams = nil
   if tokenType == "universalActionAbility" then
-    local matColor = playermatApi.getMatColorByPosition(card.getPosition())
-    local activeInvestigatorData = playermatApi.getActiveInvestigatorData(matColor)
+    local matColor = PlayermatApi.getMatColorByPosition(card.getPosition())
+    local activeInvestigatorData = PlayermatApi.getActiveInvestigatorData(matColor)
     callbackName = "updateUniversalActionAbilityToken"
     callbackParams = {
       class  = activeInvestigatorData.class,
@@ -3426,7 +3437,7 @@ function TokenManager.spawnToken(params)
   spawnData.rotation = rot
 
   if loadTokenType == "clueDoom" then
-    victoryDisplayApi.update()
+    VictoryDisplayApi.update()
   end
 
   return spawnObjectData(spawnData)
@@ -3443,7 +3454,7 @@ end
 
 function TokenManager.initTokenTemplates()
   tokenTemplates = {}
-  local tokenSource = guidReferenceApi.getObjectByOwnerAndType("Mythos", "TokenSource")
+  local tokenSource = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "TokenSource")
   for _, tokenTemplate in ipairs(tokenSource.getData().ContainedObjects) do
     tokenTemplates[tokenTemplate.Memo] = tokenTemplate
   end
@@ -3482,7 +3493,7 @@ function TokenManager.spawnTokensFromUses(card, extraUses, spawnReactionToken)
   -- go through tokens to spawn
   local tokenCount
   for i, useInfo in ipairs(uses) do
-    tokenCount = (useInfo.count or 0) + (useInfo.countPerInvestigator or 0) * playAreaApi.getInvestigatorCount()
+    tokenCount = (useInfo.count or 0) + (useInfo.countPerInvestigator or 0) * PlayAreaApi.getInvestigatorCount()
     if extraUses ~= nil and extraUses[useInfo.type] ~= nil then
       tokenCount = tokenCount + extraUses[useInfo.type]
     end
@@ -3497,7 +3508,7 @@ function TokenManager.spawnTokensFromUses(card, extraUses, spawnReactionToken)
     })
   end
 
-  tokenSpawnTrackerApi.markTokensSpawned(card.getGUID())
+  TokenSpawnTrackerApi.markTokensSpawned(card.getGUID())
 end
 
 -- Gets the right uses structure for this card, based on metadata and face up/down state
@@ -3559,12 +3570,12 @@ function TokenManager.replenishTokens(card, useInfo)
   -- (except for clues, since these are on locations and they should never be this close)
   local maybeDeleteThese = {}
   if useInfo.token == "clue" then
-    for _, obj in ipairs(searchLib.onObject(card, "isClue")) do
+    for _, obj in ipairs(SearchLib.onObject(card, "isClue")) do
       foundTokens = foundTokens + math.abs(obj.getQuantity())
       table.insert(maybeDeleteThese, obj)
     end
   elseif useInfo.token == "doom" then
-    for _, obj in ipairs(searchLib.onObject(card, "isDoom", 0.8)) do
+    for _, obj in ipairs(SearchLib.onObject(card, "isDoom", 0.8)) do
       if not obj.hasTag("DoomCounter_ignore") then
         foundTokens = foundTokens + math.abs(obj.getQuantity())
         table.insert(maybeDeleteThese, obj)
@@ -3577,7 +3588,7 @@ function TokenManager.replenishTokens(card, useInfo)
       searchType = useInfo.token
     end
 
-    for _, obj in ipairs(searchLib.onObject(card, "isTileOrToken", 0.8)) do
+    for _, obj in ipairs(SearchLib.onObject(card, "isTileOrToken", 0.8)) do
       local memo = obj.getMemo()
       if searchType == memo then
         foundTokens = foundTokens + math.abs(obj.getQuantity())
@@ -3794,8 +3805,8 @@ function getColoredName(playerColor)
   if playerColor ~= "Grey" and Player[playerColor].steam_name then
     displayName = Player[playerColor].steam_name
   else
-    local matColor = playermatApi.getMatColor(playerColor)
-    local investigatorName = playermatApi.getInvestigatorName(matColor)
+    local matColor = PlayermatApi.getMatColor(playerColor)
+    local investigatorName = PlayermatApi.getInvestigatorName(matColor)
     if investigatorName ~= "" then
       displayName = investigatorName
     end
@@ -3848,7 +3859,7 @@ end
 
 -- wrapper for 'easier' access to this function
 function moveAndRotatePlayermat(params)
-  playermatApi.moveAndRotate(params.matColor, params.position, params.rotationY)
+  PlayermatApi.moveAndRotate(params.matColor, params.position, params.rotationY)
 end
 
 function handleTokenAttaching(params)
@@ -3856,7 +3867,7 @@ function handleTokenAttaching(params)
   if card == nil then return end
 
   local player         = params.player
-  local searchResult   = searchLib.onObject(card, "isTileOrToken", 0.9)
+  local searchResult   = SearchLib.onObject(card, "isTileOrToken", 0.9)
   local cardPos        = card.getPosition()
   local eligibleTokens = {}
   for _, token in ipairs(searchResult) do
@@ -3963,7 +3974,7 @@ end
 function storeTokenTransform(card)
   cardTokens[card] = {}
   local cardRot = card.getRotation()
-  for _, token in ipairs(searchLib.onObject(card, "isTileOrToken", 0.95)) do
+  for _, token in ipairs(SearchLib.onObject(card, "isTileOrToken", 0.95)) do
     if not token.locked then
       -- offset to stop the token from colliding with the card
       local tokenPos = token.getPosition() + Vector(0, 0.05, 0)
@@ -4016,11 +4027,11 @@ function maybeReadyCard(params)
 
   -- if not provided, get the rotation of the owner
   if not ownerRotation then
-    local owner = guidReferenceApi.getOwnerOfObject(card)
+    local owner = GUIDReferenceApi.getOwnerOfObject(card)
     if owner == "Mythos" then
-      ownerRotation = playAreaApi.returnRotation()
+      ownerRotation = PlayAreaApi.returnRotation()
     else
-      ownerRotation = playermatApi.returnRotation(owner)
+      ownerRotation = PlayermatApi.returnRotation(owner)
     end
   end
 
@@ -4056,7 +4067,7 @@ function removeTokensFromObject(params)
   local object = params.object
   if object == nil then return end
 
-  local trash = guidReferenceApi.getObjectByOwnerAndType(params.owner, "Trash")
+  local trash = GUIDReferenceApi.getObjectByOwnerAndType(params.owner, "Trash")
 
   if object.hasTag("CardThatSeals") then
     callFunctionIfItExists(object, "resetSealedTokens")
@@ -4067,7 +4078,7 @@ function removeTokensFromObject(params)
     for _, tokenData in ipairs(cardTokens[object]) do
       if tokenData.token ~= nil then
         tokenData.token.locked = false
-        if tokenChecker.isChaosToken(tokenData.token) then
+        if TokenChecker.isChaosToken(tokenData.token) then
           returnChaosTokenToBag({ token = tokenData.token, fromBag = false })
         else
           trash.putObject(tokenData.token)
@@ -4077,8 +4088,8 @@ function removeTokensFromObject(params)
     cardTokens[object] = nil
   else
     -- search area for tokens
-    for _, obj in ipairs(searchLib.onObject(object, "isTileOrToken")) do
-      if tokenChecker.isChaosToken(obj) then
+    for _, obj in ipairs(SearchLib.onObject(object, "isTileOrToken")) do
+      if TokenChecker.isChaosToken(obj) then
         returnChaosTokenToBag({ token = obj, fromBag = false })
       elseif obj.memo ~= nil and
           obj.getLock() == false and
