@@ -1,7 +1,7 @@
 do
   local PlayermatApi = {}
-  local guidReferenceApi = require("core/GUIDReferenceApi")
-  local searchLib = require("util/SearchLib")
+  local GUIDReferenceApi = require("core/GUIDReferenceApi")
+  local SearchLib = require("util/SearchLib")
   local localInvestigatorPosition = { x = -1.17, y = 1, z = -0.01 }
 
   -- Convenience function to look up a mat's object by color, or get all mats.
@@ -9,15 +9,15 @@ do
   ---@return table: Single-element if only single playermat is requested
   local function getMatForColor(matColor)
     if matColor == "All" then
-      return guidReferenceApi.getObjectsByType("Playermat")
+      return GUIDReferenceApi.getObjectsByType("Playermat") or {}
     else
-      return { matColor = guidReferenceApi.getObjectByOwnerAndType(matColor, "Playermat") }
+      return { matColor = GUIDReferenceApi.getObjectByOwnerAndType(matColor, "Playermat") }
     end
   end
 
   -- Returns the color of the closest playermat
   ---@param startPos table Starting position to get the closest mat from
-  PlayermatApi.getMatColorByPosition = function(startPos)
+  function PlayermatApi.getMatColorByPosition(startPos)
     local result, smallestDistance
     for matColor, mat in pairs(getMatForColor("All")) do
       local distance = Vector.between(startPos, mat.getPosition()):magnitude()
@@ -31,7 +31,7 @@ do
 
   -- Returns the color of the player's hand that is seated next to the playermat
   ---@param matColor string Color of the playermat - White, Orange, Green or Red (does not support "All")
-  PlayermatApi.getPlayerColor = function(matColor)
+  function PlayermatApi.getPlayerColor(matColor)
     for _, mat in pairs(getMatForColor(matColor)) do
       return mat.getVar("playerColor")
     end
@@ -39,7 +39,7 @@ do
 
   -- Returns the color of the playermat that owns the playercolor's hand
   ---@param handColor string Color of the playermat
-  PlayermatApi.getMatColor = function(handColor)
+  function PlayermatApi.getMatColor(handColor)
     for matColor, mat in pairs(getMatForColor("All")) do
       local playerColor = mat.getVar("playerColor")
       if playerColor == handColor then
@@ -51,7 +51,7 @@ do
 
   -- gets the slot data for the playermat
   ---@param matColor string Color of the playermat - White, Orange, Green or Red (does not support "All")
-  PlayermatApi.getSlotData = function(matColor)
+  function PlayermatApi.getSlotData(matColor)
     for _, mat in pairs(getMatForColor(matColor)) do
       return mat.getTable("slotData")
     end
@@ -60,7 +60,7 @@ do
   -- sets the slot data for the playermat
   ---@param matColor string Color of the playermat - White, Orange, Green or Red (does not support "All")
   ---@param newSlotData table New slot data for the playermat
-  PlayermatApi.loadSlotData = function(matColor, newSlotData)
+  function PlayermatApi.loadSlotData(matColor, newSlotData)
     for _, mat in pairs(getMatForColor(matColor)) do
       mat.setTable("slotData", newSlotData)
       mat.call("updateSave")
@@ -71,7 +71,7 @@ do
 
   -- Performs a search of the deck area of the requested playermat and returns the result as table
   ---@param matColor string Color of the playermat - White, Orange, Green or Red (does not support "All")
-  PlayermatApi.getDeckAreaObjects = function(matColor)
+  function PlayermatApi.getDeckAreaObjects(matColor)
     for _, mat in pairs(getMatForColor(matColor)) do
       return mat.call("getDeckAreaObjects")
     end
@@ -79,7 +79,7 @@ do
 
   -- Flips the top card of the deck (useful after deck manipulation for Norman Withers)
   ---@param matColor string Color of the playermat - White, Orange, Green or Red (does not support "All")
-  PlayermatApi.flipTopCardFromDeck = function(matColor)
+  function PlayermatApi.flipTopCardFromDeck(matColor)
     for _, mat in pairs(getMatForColor(matColor)) do
       return mat.call("flipTopCardFromDeck")
     end
@@ -87,7 +87,7 @@ do
 
   -- Returns the position of the discard pile of the requested playermat
   ---@param matColor string Color of the playermat - White, Orange, Green or Red (does not support "All")
-  PlayermatApi.getDiscardPosition = function(matColor)
+  function PlayermatApi.getDiscardPosition(matColor)
     for _, mat in pairs(getMatForColor(matColor)) do
       return mat.call("returnGlobalDiscardPosition")
     end
@@ -95,7 +95,7 @@ do
 
   -- Returns the position of the draw pile of the requested playermat
   ---@param matColor string Color of the playermat - White, Orange, Green or Red (does not support "All")
-  PlayermatApi.getDrawPosition = function(matColor)
+  function PlayermatApi.getDrawPosition(matColor)
     for _, mat in pairs(getMatForColor(matColor)) do
       return mat.call("returnGlobalDrawPosition")
     end
@@ -104,7 +104,7 @@ do
   -- Transforms a local position into a global position
   ---@param localPos table Local position to be transformed
   ---@param matColor string Color of the playermat - White, Orange, Green or Red (does not support "All")
-  PlayermatApi.transformLocalPosition = function(localPos, matColor)
+  function PlayermatApi.transformLocalPosition(localPos, matColor)
     for _, mat in pairs(getMatForColor(matColor)) do
       return mat.positionToWorld(localPos)
     end
@@ -112,7 +112,7 @@ do
 
   -- Returns the rotation of the requested playermat
   ---@param matColor string Color of the playermat - White, Orange, Green or Red (does not support "All")
-  PlayermatApi.returnRotation = function(matColor)
+  function PlayermatApi.returnRotation(matColor)
     for _, mat in pairs(getMatForColor(matColor)) do
       return mat.getRotation()
     end
@@ -121,7 +121,7 @@ do
   -- Returns a table with spawn data (position and rotation) for a helper object
   ---@param matColor string Color of the playermat - White, Orange, Green, Red or All
   ---@param helperName string Name of the helper object
-  PlayermatApi.getHelperSpawnData = function(matColor, helperName)
+  function PlayermatApi.getHelperSpawnData(matColor, helperName)
     local resultTable = {}
     local localPositionTable = {
       ["Hand Helper"] = Vector(-0.055, 0, -1.132),
@@ -137,11 +137,10 @@ do
     return resultTable
   end
 
-
   -- Triggers the Upkeep for the requested playermat
   ---@param matColor string Color of the playermat - White, Orange, Green, Red or All
   ---@param playerColor string Color of the calling player (for messages)
-  PlayermatApi.doUpkeepFromHotkey = function(matColor, playerColor)
+  function PlayermatApi.doUpkeepFromHotkey(matColor, playerColor)
     for _, mat in pairs(getMatForColor(matColor)) do
       mat.call("doUpkeepFromHotkey", playerColor)
     end
@@ -150,7 +149,7 @@ do
   -- Handles discarding for the requested playermat for the provided list of objects
   ---@param matColor string Color of the playermat - White, Orange, Green or Red (does not support "All")
   ---@param objList table List of objects to discard
-  PlayermatApi.discardListOfObjects = function(matColor, objList)
+  function PlayermatApi.discardListOfObjects(matColor, objList)
     for _, mat in pairs(getMatForColor(matColor)) do
       mat.call("discardListOfObjects", objList)
     end
@@ -158,7 +157,7 @@ do
 
   -- Gets data about the active investigator
   ---@param matColor string Color of the playermat - White, Orange, Green or Red (does not support "All")
-  PlayermatApi.getActiveInvestigatorData = function(matColor)
+  function PlayermatApi.getActiveInvestigatorData(matColor)
     for _, mat in pairs(getMatForColor(matColor)) do
       return mat.call("getActiveInvestigatorData")
     end
@@ -167,7 +166,7 @@ do
   -- Gets data about the active investigator
   ---@param matColor string Color of the playermat - White, Orange, Green, Red or All
   ---@param newData table New active investigator data (class and id)
-  PlayermatApi.setActiveInvestigatorData = function(matColor, newData)
+  function PlayermatApi.setActiveInvestigatorData(matColor, newData)
     for _, mat in pairs(getMatForColor(matColor)) do
       mat.call("setActiveInvestigatorData", newData)
     end
@@ -176,7 +175,7 @@ do
   -- Returns the position for encounter card drawing
   ---@param matColor string Color of the playermat - White, Orange, Green or Red (does not support "All")
   ---@param stack boolean If true, returns the leftmost position instead of the first empty from the right
-  PlayermatApi.getEncounterCardDrawPosition = function(matColor, stack)
+  function PlayermatApi.getEncounterCardDrawPosition(matColor, stack)
     for _, mat in pairs(getMatForColor(matColor)) do
       return Vector(mat.call("getEncounterCardDrawPosition", stack))
     end
@@ -188,7 +187,7 @@ do
   -- be reset to snap all cards.
   ---@param matchCardTypes boolean Whether snap points should only snap for the matching card types
   ---@param matColor string Color of the playermat - White, Orange, Green, Red or All
-  PlayermatApi.setLimitSnapsByType = function(matchCardTypes, matColor)
+  function PlayermatApi.setLimitSnapsByType(matchCardTypes, matColor)
     for _, mat in pairs(getMatForColor(matColor)) do
       mat.call("setLimitSnapsByType", matchCardTypes)
     end
@@ -197,7 +196,7 @@ do
   -- Sets the requested playermat's draw 1 button to visible
   ---@param isDrawButtonVisible boolean Whether the draw 1 button should be visible or not
   ---@param matColor string Color of the playermat - White, Orange, Green, Red or All
-  PlayermatApi.showDrawButton = function(isDrawButtonVisible, matColor)
+  function PlayermatApi.showDrawButton(isDrawButtonVisible, matColor)
     for _, mat in pairs(getMatForColor(matColor)) do
       mat.call("showDrawButton", isDrawButtonVisible)
     end
@@ -206,7 +205,7 @@ do
   -- Shows or hides the clickable clue counter for the requested playermat
   ---@param showCounter boolean Whether the clickable counter should be present or not
   ---@param matColor string Color of the playermat - White, Orange, Green, Red or All
-  PlayermatApi.clickableClues = function(showCounter, matColor)
+  function PlayermatApi.clickableClues(showCounter, matColor)
     for _, mat in pairs(getMatForColor(matColor)) do
       mat.call("clickableClues", showCounter)
     end
@@ -215,7 +214,7 @@ do
   -- Toggles the use of class textures for the requested playermat
   ---@param state boolean Whether the class texture should be used or not
   ---@param matColor string Color of the playermat - White, Orange, Green, Red or All
-  PlayermatApi.useClassTexture = function(state, matColor)
+  function PlayermatApi.useClassTexture(state, matColor)
     for _, mat in pairs(getMatForColor(matColor)) do
       mat.call("useClassTexture", state)
     end
@@ -224,7 +223,7 @@ do
   -- updates the texture of the playermat
   ---@param matColor string Color of the playermat - White, Orange, Green, Red or All
   ---@param overrideName? string Force a specific texture
-  PlayermatApi.updateTexture = function(matColor, overrideName)
+  function PlayermatApi.updateTexture(matColor, overrideName)
     for _, mat in pairs(getMatForColor(matColor)) do
       mat.call("updateTexture", overrideName)
     end
@@ -232,7 +231,7 @@ do
 
   -- Removes all clues (to the trash for tokens and counters set to 0) for the requested playermat
   ---@param matColor string Color of the playermat - White, Orange, Green, Red or All
-  PlayermatApi.removeClues = function(matColor)
+  function PlayermatApi.removeClues(matColor)
     for _, mat in pairs(getMatForColor(matColor)) do
       mat.call("removeClues")
     end
@@ -240,7 +239,7 @@ do
 
   -- Reports the clue count for the requested playermat
   ---@param useClickableCounters boolean Controls which type of counter is getting checked
-  PlayermatApi.getClueCount = function(useClickableCounters, matColor)
+  function PlayermatApi.getClueCount(useClickableCounters, matColor)
     local count = 0
     for _, mat in pairs(getMatForColor(matColor)) do
       count = count + mat.call("getClueCount", useClickableCounters)
@@ -253,7 +252,7 @@ do
   ---@param type string Counter to target
   ---@param newValue number Value to set the counter to
   ---@param modifier number If newValue is not provided, the existing value will be adjusted by this modifier
-  PlayermatApi.updateCounter = function(matColor, type, newValue, modifier)
+  function PlayermatApi.updateCounter(matColor, type, newValue, modifier)
     for _, mat in pairs(getMatForColor(matColor)) do
       mat.call("updateCounter", { type = type, newValue = newValue, modifier = modifier })
     end
@@ -262,7 +261,7 @@ do
   -- Triggers the draw function for the specified playermat
   ---@param matColor string Color of the playermat - White, Orange, Green, Red or All
   ---@param number number Amount of cards to draw
-  PlayermatApi.drawCardsWithReshuffle = function(matColor, number)
+  function PlayermatApi.drawCardsWithReshuffle(matColor, number)
     for _, mat in pairs(getMatForColor(matColor)) do
       mat.call("drawCardsWithReshuffle", number)
     end
@@ -271,18 +270,18 @@ do
   -- Returns the resource counter amount
   ---@param matColor string Color of the playermat - White, Orange, Green or Red (does not support "All")
   ---@param type string Counter to target
-  PlayermatApi.getCounterValue = function(matColor, type)
+  function PlayermatApi.getCounterValue(matColor, type)
     for _, mat in pairs(getMatForColor(matColor)) do
       return mat.call("getCounterValue", type)
     end
   end
 
   -- Returns a list of mat colors that have an investigator placed
-  PlayermatApi.getUsedMatColors = function()
+  function PlayermatApi.getUsedMatColors()
     local usedColors = {}
     for matColor, mat in pairs(getMatForColor("All")) do
       local searchPos = mat.positionToWorld(localInvestigatorPosition)
-      local searchResult = searchLib.atPosition(searchPos, "isCardOrDeck")
+      local searchResult = SearchLib.atPosition(searchPos, "isCardOrDeck")
       if #searchResult > 0 then
         table.insert(usedColors, matColor)
       end
@@ -291,11 +290,11 @@ do
   end
 
   -- Returns a list of investigator card objects
-  PlayermatApi.getUsedInvestigatorCards = function()
+  function PlayermatApi.getUsedInvestigatorCards()
     local usedCards = {}
     for matColor, mat in pairs(getMatForColor("All")) do
       local searchPos = mat.positionToWorld(localInvestigatorPosition)
-      local searchResult = searchLib.atPosition(searchPos, "isCardOrDeck")
+      local searchResult = SearchLib.atPosition(searchPos, "isCardOrDeck")
       if #searchResult > 0 then
         usedCards[matColor] = searchResult[1]
       end
@@ -305,10 +304,10 @@ do
 
   -- Returns investigator name
   ---@param matColor string Color of the playermat - White, Orange, Green or Red (does not support "All")
-  PlayermatApi.getInvestigatorName = function(matColor)
+  function PlayermatApi.getInvestigatorName(matColor)
     for _, mat in pairs(getMatForColor(matColor)) do
       local searchPos = mat.positionToWorld(localInvestigatorPosition)
-      local searchResult = searchLib.atPosition(searchPos, "isCardOrDeck")
+      local searchResult = SearchLib.atPosition(searchPos, "isCardOrDeck")
       if #searchResult == 1 then
         return searchResult[1].getName()
       end
@@ -318,7 +317,7 @@ do
 
   -- Resets the specified skill tracker to "1, 1, 1, 1"
   ---@param matColor string Color of the playermat - White, Orange, Green, Red or All
-  PlayermatApi.resetSkillTracker = function(matColor)
+  function PlayermatApi.resetSkillTracker(matColor)
     for _, mat in pairs(getMatForColor(matColor)) do
       mat.call("resetSkillTracker")
     end
@@ -326,7 +325,7 @@ do
 
   -- Updates the XML for the slot symbols based on the slotData table
   ---@param matColor string Color of the playermat - White, Orange, Green, Red or All
-  PlayermatApi.updateSlotSymbols = function(matColor)
+  function PlayermatApi.updateSlotSymbols(matColor)
     for _, mat in pairs(getMatForColor(matColor)) do
       mat.call("updateSlotSymbols")
     end
@@ -335,7 +334,7 @@ do
   -- Finds all objects on the playermat and associated set aside zone and returns a table
   ---@param matColor string Color of the playermat - White, Orange, Green, Red or All
   ---@param filter? string Name of the filte function (see util/SearchLib)
-  PlayermatApi.searchAroundPlayermat = function(matColor, filter)
+  function PlayermatApi.searchAroundPlayermat(matColor, filter)
     local objList = {}
     for _, mat in pairs(getMatForColor(matColor)) do
       for _, obj in ipairs(mat.call("searchAroundSelf", filter)) do
@@ -347,7 +346,7 @@ do
 
   -- Discard a non-hidden card from the corresponding player's hand
   ---@param matColor string Color of the playermat - White, Orange, Green, Red or All
-  PlayermatApi.doDiscardOne = function(matColor)
+  function PlayermatApi.doDiscardOne(matColor)
     for _, mat in pairs(getMatForColor(matColor)) do
       mat.call("doDiscardOne")
     end
@@ -355,14 +354,14 @@ do
 
   -- Spawns the regular action tokens
   ---@param matColor string Color of the playermat - White, Orange, Green, Red or All
-  PlayermatApi.spawnActionTokens = function(matColor)
+  function PlayermatApi.spawnActionTokens(matColor)
     for _, mat in pairs(getMatForColor(matColor)) do
       mat.call("spawnActionTokens")
     end
   end
 
   -- Triggers the metadata sync for all playermats
-  PlayermatApi.syncAllCustomizableCards = function()
+  function PlayermatApi.syncAllCustomizableCards()
     for _, mat in pairs(getMatForColor("All")) do
       mat.call("syncAllCustomizableCards")
     end
@@ -371,7 +370,7 @@ do
   -- Gets the exhaust rotation that's set in the mat's option panel
   ---@param matColor string Color of the playermat - White, Orange, Green or Red (does not support "All")
   ---@param convertToGlobal? boolean True if the global (Vector) rotation is requested (otherwise just local Y-rotation)
-  PlayermatApi.getExhaustRotation = function(matColor, convertToGlobal)
+  function PlayermatApi.getExhaustRotation(matColor, convertToGlobal)
     for _, mat in pairs(getMatForColor(matColor)) do
       return mat.call("getExhaustRotation", convertToGlobal)
     end
@@ -382,9 +381,9 @@ do
   ---@param position? table New position for the playermat
   ---@param rotationY? number New y-rotation for the playermat (X and Z will be 0)
   ---@param positionOffset? table Positional offset for the playermat
-  PlayermatApi.moveAndRotate = function(matColor, position, rotationY, positionOffset)
+  function PlayermatApi.moveAndRotate(matColor, position, rotationY, positionOffset)
     -- get mat and related objects
-    local mat = guidReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
+    local mat = GUIDReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
     if not mat then return end
 
     -- get current transform data
@@ -416,10 +415,10 @@ do
     end
 
     -- get objects on the mat
-    for _, obj in ipairs(searchLib.onObject(mat, "isInteractable")) do
+    for _, obj in ipairs(SearchLib.onObject(mat, "isInteractable")) do
       if not movedObjects[obj.getGUID()] then
         -- make sure object isn't owned by another mat
-        local owner = guidReferenceApi.getOwnerOfObject(obj)
+        local owner = GUIDReferenceApi.getOwnerOfObject(obj)
         if owner == "Mythos" or owner == matColor then
           moveAndRotateObject(obj)
         end
@@ -427,14 +426,14 @@ do
     end
 
     -- move owned objects (including the mat)
-    for _, obj in pairs(guidReferenceApi.getObjectsByOwner(matColor)) do
+    for _, obj in pairs(GUIDReferenceApi.getObjectsByOwner(matColor)) do
       if not movedObjects[obj.getGUID()] then
         moveAndRotateObject(obj)
       end
     end
 
     -- make sure the Token Remover Zone is updated
-    local tokenRemover = guidReferenceApi.getObjectByOwnerAndType(matColor, "TokenRemover")
+    local tokenRemover = GUIDReferenceApi.getObjectByOwnerAndType(matColor, "TokenRemover")
     if tokenRemover ~= nil then
       tokenRemover.call("updateZone")
     end
