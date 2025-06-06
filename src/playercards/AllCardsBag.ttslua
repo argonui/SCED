@@ -15,6 +15,7 @@ local cycleIndex             = {}
 
 local indexingDone           = false
 local otherCardsDetected     = false
+local indexedCustomCycles    = {}
 
 -- helper data for class sorting
 local classValueList         = {
@@ -126,6 +127,7 @@ function buildIndex()
   cardCount = 0
   indexingDone = false
   otherCardsDetected = false
+  indexedCustomCycles = {}
 
   -- process the allcardsbag itself
   local selfData = self.getData()
@@ -171,6 +173,11 @@ end
 function processContainedObjects(containedObjects, customDeck)
   for _, objData in ipairs(containedObjects) do
     if objData.ContainedObjects then
+      -- this is a container, so check if it has a memo to mark it as custom content pack
+      if objData.Memo and objData.Memo ~= "" then
+        indexedCustomCycles[objData.Memo] = true
+      end
+
       -- recursively process nested containers
       processContainedObjects(objData.ContainedObjects, objData.CustomDeck)
     elseif objData.Name == "Card" or objData.Name == "CardCustom" then
@@ -413,6 +420,10 @@ function isIndexReady()
     broadcastToAll("Still loading player cards, please try again in a few seconds", { 0.9, 0.2, 0.2 })
   end
   return indexingDone
+end
+
+function isCustomCycleIndexed(cycleId)
+  return indexedCustomCycles[cycleId] == true
 end
 
 -- Returns a specific card from the bag, based on ArkhamDB ID

@@ -1,6 +1,6 @@
 do
-  local allCardsBagApi = require("playercards/AllCardsBagApi")
-  local playAreaApi    = require("playarea/PlayAreaApi")
+  local AllCardsBagApi = require("playercards/AllCardsBagApi")
+  local PlayAreaApi    = require("playarea/PlayAreaApi")
 
   local ArkhamDb = {}
   local internal = {}
@@ -56,7 +56,7 @@ do
       callback)
     -- Get a simple card to see if the bag indexes are complete. If not, abort
     -- the deck load. The called method will handle player notification.
-    local checkCard = allCardsBagApi.getCardById("01001")
+    local checkCard = AllCardsBagApi.getCardById("01001")
     if (checkCard ~= nil and checkCard.data == nil) then
       return false, "Indexing not complete"
     end
@@ -74,14 +74,14 @@ do
 
     local deck = Request.start(deckUri, function(status)
       if string.find(status.text, "<!DOCTYPE html>") or string.find(status.text, "No share was found for this deck") then
-        internal.maybePrint("Private deck ID " .. deckId .. " is not shared.", playerColor)
+        printToAll("Private deck ID " .. deckId .. " is not shared.", playerColor)
         return false, "Private deck " .. deckId .. " is not shared"
       end
 
       local json = JSON.decode(internal.fixUtf16String(status.text))
 
       if not json then
-        internal.maybePrint("Deck ID " .. deckId .. " not found.", playerColor)
+        printToAll("Deck ID " .. deckId .. " not found.", playerColor)
         return false, "Deck not found!"
       end
 
@@ -109,9 +109,9 @@ do
           if (adbCardInfo.xp ~= nil and adbCardInfo.xp > 0) then
             cardName = cardName .. " (" .. adbCardInfo.xp .. ")"
           end
-          internal.maybePrint("Card not found: " .. cardName .. ", card ID " .. cardId, playerColor)
+          printToAll("Card not found: " .. cardName .. ", card ID " .. cardId, playerColor)
         else
-          internal.maybePrint("Card not found in ArkhamDB/Index, ID " .. cardId, playerColor)
+          printToAll("Card not found in ArkhamDB/Index, ID " .. cardId, playerColor)
         end
       end)
   end
@@ -139,7 +139,7 @@ do
       return
     end
 
-    internal.maybePrint(table.concat({ "Found decklist: ", deck.name }), playerColor)
+    printToAll("Found decklist: " .. deck.name, playerColor)
 
     -- Initialize deck slot table and perform common transformations. The order of these should not
     -- be changed, as later steps may act on cards added in each. For example, a random weakness or
@@ -152,12 +152,27 @@ do
       deckMeta = JSON.decode(deck.meta) or {}
     end
 
+    -- make sure the necessary custom content is loaded
+    if deckMeta.fan_made_content then
+      local everythingIndexed = true
+
+      for cycleId, cycleData in pairs(deckMeta.fan_made_content.cycles or {}) do
+        local isIndexed = AllCardsBagApi.isCustomCycleIndexed(cycleId)
+        if not isIndexed then
+          everythingIndexed = false
+          printToAll("Please add " .. cycleData.real_name .. " and try again.")
+        end
+      end
+
+      if not everythingIndexed then return end
+    end
+
     -- maybe change investigator code to the transformed investigator (The Great Work / Body of a Yithian)
     deck.investigator_code = deckMeta.transform_into or deck.investigator_code
 
     -- get class for investigator to handle specific weaknesses
     local class
-    local card = allCardsBagApi.getCardById(deck.investigator_code)
+    local card = AllCardsBagApi.getCardById(deck.investigator_code)
     if card and card.metadata then class = card.metadata.class end
     local restrictions = { class = class, standalone = standalone }
     internal.maybeDrawRandomWeakness(slots, playerColor, restrictions)
@@ -192,14 +207,14 @@ do
     slots[RANDOM_WEAKNESS_ID] = nil
 
     if randomWeaknessAmount > 0 then
-      local weaknessIds = allCardsBagApi.getRandomWeaknessIds(randomWeaknessAmount, restrictions)
+      local weaknessIds = AllCardsBagApi.getRandomWeaknessIds(randomWeaknessAmount, restrictions)
       for _, weaknessId in ipairs(weaknessIds) do
         slots[weaknessId] = (slots[weaknessId] or 0) + 1
       end
       if #weaknessIds == 1 then
-        internal.maybePrint("Added 1 random basic weakness to deck", playerColor)
+        printToAll("Added 1 random basic weakness to deck", playerColor)
       else
-        internal.maybePrint("Added " .. #weaknessIds .. " random basic weaknesses to deck", playerColor)
+        printToAll("Added " .. #weaknessIds .. " random basic weaknesses to deck", playerColor)
       end
     end
   end
@@ -266,13 +281,13 @@ do
   internal.maybeAddUpgradeSheets = function(slots)
     for cardId, _ in pairs(slots) do
       -- upgrade sheets for customizable cards
-      local upgradesheet = allCardsBagApi.getCardById(cardId .. "-c")
+      local upgradesheet = AllCardsBagApi.getCardById(cardId .. "-c")
       if upgradesheet ~= nil then
         slots[cardId .. "-c"] = 1
       elseif string.sub(cardId, -2) == "-t" then
         -- if this is a taboo'd card, get the basic upgradesheet as fallback
         local baseId = string.sub(cardId, 1, -3) -- Remove the last 2 characters
-        local upgradesheetBase = allCardsBagApi.getCardById(baseId .. "-c")
+        local upgradesheetBase = AllCardsBagApi.getCardById(baseId .. "-c")
         if upgradesheetBase ~= nil then
           slots[baseId .. "-c"] = 1
         end
@@ -297,11 +312,11 @@ do
   ---@param playerColor string Color of the player this deck is being loaded for. Used for broadcast if an error occurs
   internal.maybeAddOnTheMend = function(slots, playerColor)
     if slots["09006"] ~= nil then
-      local investigatorCount = playAreaApi.getInvestigatorCount()
+      local investigatorCount = PlayAreaApi.getInvestigatorCount()
       if investigatorCount ~= nil then
         slots["09006"] = investigatorCount
       else
-        internal.maybePrint("Something went wrong with the load, adding 4 copies of On the Mend", playerColor)
+        printToAll("Something went wrong with the load, adding 4 copies of On the Mend", playerColor)
         slots["09006"] = 4
       end
     end
@@ -360,7 +375,7 @@ do
           slots[str] = (slots[str] or 0) + 1
         elseif instructor == "remove:" then
           if slots[str] == nil then
-            internal.maybePrint("Tried to remove card ID " .. str .. ", but didn't find card in deck.", playerColor)
+            printToAll("Tried to remove card ID " .. str .. ", but didn't find card in deck.", playerColor)
           else
             slots[str] = math.max(slots[str] - 1, 0)
 
@@ -385,7 +400,7 @@ do
   internal.extractBondedCards = function(slots)
     local bondedList = {}
     for cardId, cardCount in pairs(slots) do
-      local card = allCardsBagApi.getCardById(cardId)
+      local card = AllCardsBagApi.getCardById(cardId)
       if card ~= nil and card.metadata.bonded ~= nil then
         for _, bond in ipairs(card.metadata.bonded) do
           -- add bonded cards (exactly the amount that exists physically)
@@ -413,10 +428,10 @@ do
           -- Make sure there's a taboo version of the card before we replace it
           -- SCED only maintains the most recent taboo cards. If a deck is using
           -- an older taboo list it's possible the card isn't a taboo any more
-          local tabooCard = allCardsBagApi.getCardById(cardId .. "-t")
+          local tabooCard = AllCardsBagApi.getCardById(cardId .. "-t")
           if tabooCard == nil then
-            local basicCard = allCardsBagApi.getCardById(cardId)
-            internal.maybePrint("Taboo version for " .. basicCard.data.Nickname .. " is not available. Using standard version", playerColor)
+            local basicCard = AllCardsBagApi.getCardById(cardId)
+            printToAll("Taboo version for " .. basicCard.data.Nickname .. " is not available. Using standard version", playerColor)
           else
             slots[cardId .. "-t"] = slots[cardId]
             slots[cardId] = nil
@@ -426,18 +441,10 @@ do
     end
   end
 
-  internal.maybePrint = function(message, playerColor)
-    if playerColor ~= "None" then
-      printToAll(message, playerColor)
-    end
-  end
-
   -- Gets the ArkhamDB config info from the configuration object.
   ---@return table: configuration data
   internal.getConfiguration = function()
-    local configuration = getObjectsWithTag("import_configuration_provider")[1].getTable("configuration")
-    printPriority = configuration.priority
-    return configuration
+    return getObjectsWithTag("import_configuration_provider")[1].getTable("configuration")
   end
 
   internal.fixUtf16String = function(str)
@@ -529,7 +536,7 @@ do
         on_success(results, table.unpack(parameters))
       elseif on_error == nil then
         for _, request in ipairs(errors) do
-          internal.maybePrint(table.concat({ "[ERROR]", request.uri, ":", request.error_message }))
+          printToAll(table.concat({ "[ERROR]", request.uri, ":", request.error_message }))
         end
       else
         on_error(requests, table.unpack(parameters))
