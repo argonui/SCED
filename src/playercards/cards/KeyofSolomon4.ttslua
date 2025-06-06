@@ -36,14 +36,23 @@ function initialize()
   loopId = Wait.time(maybeUpdateButtonState, 1, -1)
 end
 
-function triggerAbility(player)
+function triggerAbility(player, _, tokenType)
   if not updated then return end
   updated = false
 
   local matColor = PlayermatApi.getMatColorByPosition(self.getPosition())
-  BlessCurseManagerApi.addToken("Curse", player.color)
-  PlayermatApi.drawCardsWithReshuffle(matColor, 1)
+  BlessCurseManagerApi.removeToken(tokenType, player.color)
+
+  if tokenType == "Curse" then
+    PlayermatApi.updateCounter(matColor, "ResourceCounter", nil, 2)
+    printToColor("Added 2 resources to " .. matColor .. "'s resource pool.", player.color)
+  else
+    printToColor("Heal up to 2 damage/horror from an Investigator or Ally.", player.color)
+  end
+
   Wait.frames(maybeUpdateButtonState, 3)
+
+  -- exhaust card
   self.setRotationSmooth(PlayermatApi.getExhaustRotation(matColor, true), nil, true)
 end
 
@@ -59,21 +68,49 @@ function round(num, dec)
   return math.floor(num * mult + 0.5) / mult
 end
 
+-- count tokens in the bag and show appropriate buttons
 function maybeUpdateButtonState()
   updated = true
-  local numInBag = BlessCurseManagerApi.getBlessCurseInBag()
-  setUiState(numInBag.Curse < 10 and not isExhausted())
+
+  local state = { Bless = false, Curse = false }
+
+  if not isExhausted() then
+    local numInBag = BlessCurseManagerApi.getBlessCurseInBag()
+
+    if numInBag.Bless > numInBag.Curse and numInBag.Bless > 0 then
+      state.Bless = true
+    end
+
+    if numInBag.Curse > numInBag.Bless and numInBag.Curse > 0 then
+      state.Curse = true
+    end
+  end
+
+  setUiState(state)
 end
 
-function setUiState(available)
-  self.UI.setAttribute("Curse", "active", available)
-  self.UI.setAttribute("inactiveCurse", "active", not available)
+function setUiState(state)
+  log(state)
+  for _, tokenName in ipairs({ "Bless", "Curse" }) do
+    self.UI.setAttribute(tokenName, "active", state[tokenName])
+    self.UI.setAttribute("inactive" .. tokenName, "active", not state[tokenName])
+  end
 end
 
 function errorMessage()
   if isExhausted() then
     broadcastToAll(self.getName() .. " isn't ready.", "Red")
   else
-    broadcastToAll("Can't add more than 10 curses.", "Red")
+    local numInBag = BlessCurseManagerApi.getBlessCurseInBag()
+
+    if numInBag.Bless == 0 and numInBag.Curse == 0 then
+      broadcastToAll("There are no Bless or Curse tokens in the chaos bag.", "Red")
+    elseif numInBag.Bless > numInBag.Curse then
+      broadcastToAll("There are more Bless tokens than Curse tokens in the chaos bag.", "Red")
+    elseif numInBag.Curse > numInBag.Bless then
+      broadcastToAll("There are more Curse tokens than Bless tokens in the chaos bag.", "Red")
+    else
+      broadcastToAll("There are equal Bless and Curse tokens in the chaos bag.", "Red")
+    end
   end
 end
