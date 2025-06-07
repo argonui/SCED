@@ -1,10 +1,10 @@
 require("playercards/PlayerCardSpawner")
 
-local allCardsBagApi            = require("playercards/AllCardsBagApi")
-local arkhamDb                  = require("arkhamdb/ArkhamDb")
+local AllCardsBagApi            = require("playercards/AllCardsBagApi")
+local ArkhamDb                  = require("arkhamdb/ArkhamDb")
 local GlobalApi                 = require("Global/GlobalApi")
-local guidReferenceApi          = require("core/GUIDReferenceApi")
-local playermatApi              = require("playermat/PlayermatApi")
+local GUIDReferenceApi          = require("core/GUIDReferenceApi")
+local PlayermatApi              = require("playermat/PlayermatApi")
 local zones                     = require("playermat/Zones")
 
 local matsWithInvestigator      = {}
@@ -37,7 +37,7 @@ local standalone                = false
 function onLoad(script_state)
   initializeUi(JSON.decode(script_state))
   math.randomseed(os.time())
-  arkhamDb.initialize()
+  ArkhamDb.initialize()
 end
 
 function onSave() return JSON.encode(getUiState()) end
@@ -123,7 +123,7 @@ function makeDeckIdFields()
   iParams.width = INPUT_FIELD_WIDTH
   iParams.height = INPUT_FIELD_HEIGHT
   iParams.font_size = 320
-  iParams.tooltip = "Deck ID from ArkhamDB URL of the deck\nPublished URL: 'https://arkhamdb.com/decklist/view/101/knowledge-overwhelming-solo-deck-1.0' = '101'\nPrivate URL: 'https://arkhamdb.com/deck/view/102' = '102'\n\nAlso supports the deck ID from shared decks from arkham.build!"
+  iParams.tooltip = "Deck ID from ArkhamDB URL of the deck\nPublished URL: 'https://ArkhamDb.com/decklist/view/101/knowledge-overwhelming-solo-deck-1.0' = '101'\nPrivate URL: 'https://ArkhamDb.com/deck/view/102' = '102'\n\nAlso supports the deck ID from shared decks from arkham.build!"
   iParams.alignment = 3 -- Center
   iParams.color = FIELD_COLOR
   iParams.font_color = { 0, 0, 0 }
@@ -191,31 +191,21 @@ end
 
 -- start the deck importing process
 function loadDecks()
-  co = coroutine.create(loadDecksCoroutine)
-  resumeLoadDecks()
-end
+  if not AllCardsBagApi.isIndexReady() then return end
 
--- perform the deck importing (with a pause after each deck load)
--- this pause will for example allow weaknesses to be spawned so that the RBW drawing can detect them
-function loadDecksCoroutine()
-  if not allCardsBagApi.isIndexReady() then return end
-  matsWithInvestigator = playermatApi.getUsedMatColors()
+  -- intentionally global variable for cross-function access
+  matsWithInvestigator = PlayermatApi.getUsedMatColors()
 
-  local matObjects = guidReferenceApi.getObjectsByType("Playermat")
+  -- perform the deck importing (with a pause after each deck load)
+  -- this pause will for example allow weaknesses to be spawned so that the RBW drawing can detect them
+  local count = 0
+  local matObjects = GUIDReferenceApi.getObjectsByType("Playermat")
   for matColor, _ in pairs(matObjects) do
     local deckId = _G[string.lower(matColor) .. "DeckId"]
     if deckId ~= nil and deckId ~= "" then
-      buildDeck(matColor, deckId)
-      coroutine.yield()
+      Wait.time(function() buildDeck(matColor, deckId) end, 0.01 + count)
+      count = count + 1
     end
-  end
-end
-
--- resume the deck importing process
-function resumeLoadDecks()
-  if co and coroutine.status(co) ~= "dead" then
-    local status, err = coroutine.resume(co)
-    if not status then error(err) end
   end
 end
 
@@ -263,7 +253,7 @@ end
 
 function buildDeck(playerColor, deckId)
   local uiState = getUiState()
-  arkhamDb.getDecklist(
+  ArkhamDb.getDecklist(
     playerColor,
     deckId,
     uiState.privateDeck,
@@ -275,161 +265,166 @@ end
 -- Process the slot list, which defines the card Ids and counts of cards to load. Spawn those cards
 -- at the appropriate zones and report an error to the user if any could not be loaded.
 -- This is a callback function which handles the results of ArkhamDb.getDecklist()
--- This method uses an encapsulated coroutine with yields to make the card spawning cleaner.
 ---@param slots table Key-Value table of cardId:count
 ---@param investigatorId string ArkhamDB ID (code) for this deck's investigator.
 --     Investigator cards should already be added to the slots list if they should be spawned,
 --     but this value is separate to check for special handling for certain investigators
 ---@param bondedList table A table of cardID keys to meaningless values. Card IDs in this list were added
 --     from a parent bonded card.
----@param customizations table ArkhamDB data for customizations on customizable cards
+---@param deckMeta table Metadata for the deck (contains the customizations on customizable cards for example)
 ---@param playerColor string Color name of the player mat to place this deck on (e.g. "Red")
 ---@param loadAltInvestigator string Contains the name of alternative art for the investigator ("normal", "revised" or "promo")
-function loadCards(slots, investigatorId, bondedList, customizations, playerColor, loadAltInvestigator)
-  function coinside()
-    local slotsCopy = deepCopy(slots)
-    local cardsToSpawn = {}
-    local resourceModifier = 0
-    local zoneWithAttachments = {}
-    cardsWithAttachments = {
-      ["03264"] = "reserve", -- Stick to the Plan
-      ["05002"] = true,      -- Joe Diamond
-      ["07303"] = "reserve", -- Ancestral Knowledge
-      ["09077"] = true,      -- Underworld Market
-      ["09077-t"] = true,    -- Underworld Market (Taboo)
-      ["10079"] = "reserve", -- Bewitching
-      ["11080"] = "reserve"  -- Eldritch Brand
-    }
+function loadCards(slots, investigatorId, bondedList, deckMeta, playerColor, loadAltInvestigator)
+  local slotsCopy = deepCopy(slots)
+  local cardsToSpawn = {}
+  local resourceModifier = 0
+  local zoneWithAttachments = {}
 
-    -- reset the startsInPlayCount
-    startsInPlayCount = 0
+  -- this table is initialized with the state of the respective zones, will be updated during this function
+  cardsWithAttachments = {
+    ["03264"] = "reserve", -- Stick to the Plan
+    ["05002"] = true,      -- Joe Diamond
+    ["07303"] = "reserve", -- Ancestral Knowledge
+    ["09077"] = true,      -- Underworld Market
+    ["09077-t"] = true,    -- Underworld Market (Taboo)
+    ["10079"] = "reserve", -- Bewitching
+    ["11080"] = "reserve"  -- Eldritch Brand
+  }
 
-    -- reserve slots for certain cards with attachments
-    for cardId, state in pairs(cardsWithAttachments) do
-      if state == "reserve" then
-        if slotsCopy[cardId] and slotsCopy[cardId] > 0 then
-          -- increase startsInPlayCount by 1 and reserve slot for this card
-          startsInPlayCount = startsInPlayCount + 1
-          cardsWithAttachments[cardId] = startsInPlayCount
+  -- reset the startsInPlayCount
+  startsInPlayCount = 0
 
-          -- reserve an additional slot for the attachments
-          startsInPlayCount = startsInPlayCount + 1
-          zoneWithAttachments["Blank" .. startsInPlayCount] = true
-        end
-      end
+  -- look for cards with attachments not in the above list (fan-made for example)
+  for cardId, _ in pairs(slots) do
+    if cardsWithAttachments[cardId] == nil and deckMeta["attachments_" .. cardId] then
+      -- assume that these cards should be placed on the playermat
+      cardsWithAttachments[cardId] = "reserve"
     end
-
-    for cardId, cardCount in pairs(slots) do
-      local card = allCardsBagApi.getCardById(cardId)
-      if card ~= nil then
-        local reservedSlot = cardsWithAttachments[cardId]
-        if type(reservedSlot) == "number" and reservedSlot < 6 then
-          cardZone = "Blank" .. cardsWithAttachments[cardId]
-        else
-          cardZone = getDefaultCardZone(card.metadata, bondedList)
-        end
-        for i = 1, cardCount do
-          table.insert(cardsToSpawn, { data = card.data, metadata = card.metadata, zone = cardZone })
-        end
-        slots[cardId] = 0
-      end
-
-      -- check for resource modifiers
-      if cardId == "02037" then -- Indebted
-        resourceModifier = resourceModifier - 2 * cardCount
-      elseif cardId == "05278" then -- Another Day, Another Dollar
-        resourceModifier = resourceModifier + 2 * cardCount
-      elseif cardId == "11756b" then -- completed Good Money
-        resourceModifier = resourceModifier + 5 * cardCount
-      end
-    end
-
-    updateStartingResources(playerColor, resourceModifier)
-    handleAllAttachments(cardsToSpawn, slotsCopy, bondedList, customizations, playerColor)
-
-    -- parallel Jim Culver handling
-    if investigatorId == "02004-p" or investigatorId == "02004-pb" then
-      handleSpiritDeck(cardsToSpawn, playerColor, customizations)
-    end
-
-    handleCustomizableUpgrades(cardsToSpawn, customizations)
-    handlePeteSignatureAssets(investigatorId, cardsToSpawn)
-
-    -- Split the card list into separate lists for each zone
-    local zoneDecks = buildZoneLists(cardsToSpawn)
-
-    -- Check for existing cards in zones and maybe skip them
-    removeBusyZones(playerColor, zoneDecks)
-
-    -- Spawn attachment helpers if option is enabled
-    if GlobalApi.getOptionPanelState()["showAttachmentHelper"] then
-      local objs = getObjectsWithTag("AttachmentHelperBag")
-      if #objs > 0 then
-        local helperRot = zones.getDefaultCardRotation(playerColor, "Blank1")
-        for cardId, reservedSlot in pairs(cardsWithAttachments) do
-          if type(reservedSlot) == "number" and reservedSlot < 6 then
-            local helper = objs[1].takeObject({
-              position = zones.getZonePosition(playerColor, "Blank" .. (reservedSlot + 1)):setAt("y", 1.8),
-              rotation = helperRot,
-              smooth = false
-            })
-            coWaitFrames(3)
-            helper.call("loadDataFromMetadata", { md = { id = cardId } })
-            coWaitFrames(3)
-          end
-        end
-      end
-    end
-
-    -- Spawn the list for each zone
-    for zone, zoneCards in pairs(zoneDecks) do
-      local deckPos = zones.getZonePosition(playerColor, zone):setAt("y", 3)
-      local deckRot = zones.getDefaultCardRotation(playerColor, zone)
-      local callback = nil
-
-      -- if this is a zone with attachments, spawn cards facedown and add additional delay
-      if zoneWithAttachments[zone] then
-        deckRot = deckRot:setAt("z", 180)
-      end
-
-      -- If cards are spread too close together TTS groups them weirdly, selecting multiples
-      -- when hovering over a single card. This distance is the minimum to avoid that.
-      local spreadDistance = 1.15
-      if (zone == "SetAside4") then
-        -- SetAside4 is reserved for customization cards, and we want them spread on the table
-        -- so their checkboxes are visible
-        -- TO-DO: take into account that spreading will make multiple rows
-        -- (this is affected by the user's local settings!)
-        if (playerColor == "White") then
-          deckPos.z = deckPos.z + (#zoneCards - 1) * spreadDistance
-        elseif (playerColor == "Green") then
-          deckPos.x = deckPos.x + (#zoneCards - 1) * spreadDistance
-        end
-        callback = function(deck) deck.spread(spreadDistance) end
-      elseif zone == "Deck" then
-        callback = function(deck) deckSpawned(deck, playerColor) end
-      elseif zone == "Investigator" or zone == "Minicard" then
-        callback = function(card) loadAltArt(card, loadAltInvestigator) end
-      end
-      Spawner.spawnCards(zoneCards, deckPos, deckRot, true, callback)
-      coWaitFrames(3)
-    end
-
-    -- Look for any cards which haven't been loaded
-    local hadError = false
-    for cardId, remainingCount in pairs(slots) do
-      if remainingCount > 0 then
-        hadError = true
-        arkhamDb.logCardNotFound(cardId, playerColor)
-      end
-    end
-    if (not hadError) then
-      printToAll("Deck loaded successfully!", playerColor)
-    end
-    resumeLoadDecks()
-    return 1
   end
-  startLuaCoroutine(self, "coinside")
+
+  -- reserve slots for certain cards with attachments
+  for cardId, state in pairs(cardsWithAttachments) do
+    if state == "reserve" then
+      if slotsCopy[cardId] and slotsCopy[cardId] > 0 then
+        -- increase startsInPlayCount by 1 and reserve slot for this card
+        startsInPlayCount = startsInPlayCount + 1
+        cardsWithAttachments[cardId] = startsInPlayCount
+
+        -- reserve an additional slot for the attachments
+        zoneWithAttachments[startsInPlayTracker()] = true
+      end
+    end
+  end
+
+  for cardId, cardCount in pairs(slots) do
+    local card = AllCardsBagApi.getCardById(cardId)
+    if card ~= nil then
+      local reservedSlot = cardsWithAttachments[cardId]
+      if type(reservedSlot) == "number" and reservedSlot < 6
+          and card.metadata and card.metadata.type ~= "Investigator" then
+        -- keep investigators in the regular spot always
+        -- TODO: update the startsInPlayCount so that this doesn't leave an empty spot
+        cardZone = "Blank" .. reservedSlot
+      else
+        cardZone = getDefaultCardZone(card.metadata, bondedList)
+      end
+
+      for i = 1, cardCount do
+        table.insert(cardsToSpawn, { data = card.data, metadata = card.metadata, zone = cardZone })
+      end
+
+      slots[cardId] = 0
+    end
+
+    resourceModifier = resourceModifier + cardCount * getStartingResourceModifier(cardId)
+  end
+
+  updateStartingResources(playerColor, resourceModifier)
+  handleAllAttachments(cardsToSpawn, slotsCopy, bondedList, deckMeta, playerColor)
+  handleSpiritDeck(investigatorId, cardsToSpawn, deckMeta, playerColor)
+  handleCustomizableUpgrades(cardsToSpawn, deckMeta)
+  handlePeteSignatureAssets(investigatorId, cardsToSpawn)
+
+  -- Split the card list into separate lists for each zone
+  local zoneDecks = buildZoneLists(cardsToSpawn)
+
+  -- Check for existing cards in zones and maybe skip them
+  removeBusyZones(playerColor, zoneDecks)
+
+  -- Spawn attachment helpers if option is enabled
+  if GlobalApi.getOptionPanelState()["showAttachmentHelper"] then
+    local objs = getObjectsWithTag("AttachmentHelperBag")
+    if #objs > 0 then
+      local helperRot = zones.getDefaultCardRotation(playerColor, "Blank1")
+      for cardId, reservedSlot in pairs(cardsWithAttachments) do
+        if type(reservedSlot) == "number" and reservedSlot < 6 then
+          local helper = objs[1].takeObject({
+            position = zones.getZonePosition(playerColor, "Blank" .. (reservedSlot + 1)):setAt("y", 1.8),
+            rotation = helperRot,
+            smooth = false
+          })
+          Wait.frames(function() helper.call("loadDataFromMetadata", { md = { id = cardId } }) end, 3)
+        end
+      end
+    end
+  end
+
+  -- Spawn the list for each zone
+  for zone, zoneCards in pairs(zoneDecks) do
+    local deckPos = zones.getZonePosition(playerColor, zone):setAt("y", 3)
+    local deckRot = zones.getDefaultCardRotation(playerColor, zone)
+    local callback = nil
+
+    -- if this is a zone with attachments, spawn cards facedown and add additional delay
+    if zoneWithAttachments[zone] then
+      deckRot = deckRot:setAt("z", 180)
+    end
+
+    -- If cards are spread too close together TTS groups them weirdly, selecting multiples
+    -- when hovering over a single card. This distance is the minimum to avoid that.
+    local spreadDistance = 1.15
+    if (zone == "SetAside4") then
+      -- SetAside4 is reserved for customization cards, and we want them spread on the table
+      -- so their checkboxes are visible
+      -- TO-DO: take into account that spreading will make multiple rows
+      -- (this is affected by the user's local settings!)
+      if (playerColor == "White") then
+        deckPos.z = deckPos.z + (#zoneCards - 1) * spreadDistance
+      elseif (playerColor == "Green") then
+        deckPos.x = deckPos.x + (#zoneCards - 1) * spreadDistance
+      end
+      callback = function(deck) deck.spread(spreadDistance) end
+    elseif zone == "Deck" then
+      callback = function(deck) deckSpawned(deck, playerColor) end
+    elseif zone == "Investigator" or zone == "Minicard" then
+      callback = function(card) loadAltArt(card, loadAltInvestigator) end
+    end
+    Spawner.spawnCards(zoneCards, deckPos, deckRot, true, callback)
+  end
+
+  -- Look for any cards which haven't been loaded
+  local hadError = false
+  for cardId, remainingCount in pairs(slots) do
+    if remainingCount > 0 then
+      hadError = true
+      ArkhamDb.logCardNotFound(cardId, playerColor)
+    end
+  end
+
+  if not hadError then
+    printToAll("Deck loaded successfully!", playerColor)
+  end
+end
+
+function getStartingResourceModifier(cardId)
+  if cardId == "02037" then -- Indebted
+    return - 2
+  elseif cardId == "05278" then -- Another Day, Another Dollar
+    return 2
+  elseif cardId == "11756b" then -- completed Good Money
+    return 5
+  end
+  return 0
 end
 
 -- Callback handler for the main deck spawning. Looks for cards which should start in hand, and
@@ -437,7 +432,7 @@ end
 ---@param deck tts__Object Callback-provided spawned deck object
 ---@param playerColor string Color of the player to draw the cards to
 function deckSpawned(deck, playerColor)
-  local player = Player[playermatApi.getPlayerColor(playerColor)]
+  local player = Player[PlayermatApi.getPlayerColor(playerColor)]
   local handPos = player.getHandTransform(1).position -- Only one hand zone per player
   local deckCards = deck.getData().ContainedObjects
 
@@ -475,7 +470,7 @@ end
 -- Returns the simple name of a card given its ID. This will find the card and strip any trailing
 -- SCED-specific suffixes such as (Taboo) or (Level)
 function getCardName(cardId)
-  local card = allCardsBagApi.getCardById(cardId)
+  local card = AllCardsBagApi.getCardById(cardId)
   if card then
     local name = card.data.Nickname
     if string.find(name, " %(") then
@@ -515,8 +510,8 @@ function removeBusyZones(playerColor, zoneDecks)
   end
 
   -- check for existing minicard
-  local mat = guidReferenceApi.getObjectByOwnerAndType(playerColor, "Playermat")
-  local activeInvestigatorData = playermatApi.getActiveInvestigatorData(playerColor)
+  local mat = GUIDReferenceApi.getObjectByOwnerAndType(playerColor, "Playermat")
+  local activeInvestigatorData = PlayermatApi.getActiveInvestigatorData(playerColor)
   local miniId = activeInvestigatorData.miniId
 
   -- remove taboo suffix since we don't have this for minicards
@@ -535,7 +530,7 @@ function removeBusyZones(playerColor, zoneDecks)
 
   -- check for existing deck
   local cardsInDeckArea = 0
-  for _, obj in pairs(playermatApi.getDeckAreaObjects(playerColor)) do
+  for _, obj in pairs(PlayermatApi.getDeckAreaObjects(playerColor)) do
     if obj.type == "Card" then
       cardsInDeckArea = cardsInDeckArea + 1
     elseif obj.type == "Deck" then
@@ -557,15 +552,15 @@ function removeBusyZones(playerColor, zoneDecks)
 end
 
 -- handle cards with attachments (Stick to the Plan, Underworld Market and Bewitching)
-function handleAllAttachments(cardsToSpawn, slotsCopy, bondedList, customizations, playerColor)
+function handleAllAttachments(cardsToSpawn, slotsCopy, bondedList, deckMeta, playerColor)
   for cardId, reservedSlot in pairs(cardsWithAttachments) do
     if slotsCopy[cardId] and slotsCopy[cardId] > 0 then
-      if customizations["attachments_" .. cardId] and type(reservedSlot) == "number" and reservedSlot < 6 then
-        handleAttachment(cardId, cardsToSpawn, customizations, playerColor)
+      if deckMeta["attachments_" .. cardId] and type(reservedSlot) == "number" and reservedSlot < 6 then
+        handleAttachment(cardId, cardsToSpawn, deckMeta, playerColor)
       elseif cardId == "09077" or cardId == "09077-t" then
-        handleUnderworldMarket(cardsToSpawn, customizations, playerColor)
+        handleUnderworldMarket(cardsToSpawn, deckMeta, playerColor)
       elseif cardId == "05002" then
-        handleHunchDeck(cardsToSpawn, customizations, bondedList, playerColor)
+        handleHunchDeck(cardsToSpawn, deckMeta, bondedList, playerColor)
       elseif cardId == "07303" then
         handleAncestralKnowledge(cardsToSpawn)
       end
@@ -573,10 +568,15 @@ function handleAllAttachments(cardsToSpawn, slotsCopy, bondedList, customization
   end
 end
 
-function handleAttachment(parentId, cardsToSpawn, customizations, playerColor)
+-- handles attachments for cards (Stick to the Plan etc.)
+---@param parentId string CardID for the card that has the attachments
+---@param cardsToSpawn table Deck list being created
+---@param deckMeta table Metadata for the deck (contains the customizations on customizable cards for example)
+---@param playerColor string Color this deck is being loaded for
+function handleAttachment(parentId, cardsToSpawn, deckMeta, playerColor)
   -- get list of cards that are attached (split by ",")
   local attachmentList = {}
-  for str in string.gmatch(customizations["attachments_" .. parentId], "([^,]+)") do
+  for str in string.gmatch(deckMeta["attachments_" .. parentId], "([^,]+)") do
     table.insert(attachmentList, str)
   end
 
@@ -591,7 +591,15 @@ function handleAttachment(parentId, cardsToSpawn, customizations, playerColor)
       end
     end
   end
-  printToAll("Loaded attachment selection from arkham.build selection for ID " .. parentId, playerColor)
+
+  -- get the proper name for the parent card
+  local cardName = "ID " .. parentId
+  local card = AllCardsBagApi.getCardById(parentId)
+  if card ~= nil then
+    cardName = card.data.Nickname
+  end
+
+  printToAll("Loaded attachment selection for " .. cardName, playerColor)
 end
 
 function handleAncestralKnowledge(cardsToSpawn)
@@ -615,13 +623,13 @@ end
 
 -- Extract all Insight events to SetAside5 to build the Hunch Deck for Joe Diamond
 ---@param cardsToSpawn table Deck list being created
----@param customizations table ArkhamDB data for customizations on customizable cards
+---@param deckMeta table Metadata for the deck (contains the customizations on customizable cards for example)
 ---@param playerColor string Color this deck is being loaded for
-function handleHunchDeck(cardsToSpawn, customizations, bondedList, playerColor)
+function handleHunchDeck(cardsToSpawn, deckMeta, bondedList, playerColor)
   local attachmentList = {}
-  if customizations["attachments_05002"] then
+  if deckMeta["attachments_05002"] then
     -- get list of cards that are attached (split by ",")
-    for str in string.gmatch(customizations["attachments_05002"], "([^,]+)") do
+    for str in string.gmatch(deckMeta["attachments_05002"], "([^,]+)") do
       table.insert(attachmentList, str)
     end
   else
@@ -658,15 +666,18 @@ function handleHunchDeck(cardsToSpawn, customizations, bondedList, playerColor)
 end
 
 -- Extract all Ally assets to SetAside5 to build the Spirit Deck for parallel Jim Culver
+---@param investigatorId string ID for the deck's investigator card
 ---@param cardsToSpawn table Deck list being created
+---@param deckMeta table Metadata for the deck (contains the customizations on customizable cards for example)
 ---@param playerColor string Color this deck is being loaded for
----@param customizations table ArkhamDB data for customizations on customizable cards
-function handleSpiritDeck(cardsToSpawn, playerColor, customizations)
+function handleSpiritDeck(investigatorId, cardsToSpawn, deckMeta, playerColor)
+  if investigatorId ~= "02004-p" and investigatorId ~= "02004-pb" then return end
+
   local spiritList = {}
-  if customizations["extra_deck"] then
+  if deckMeta["extra_deck"] then
     -- split by ","
-    for str in string.gmatch(customizations["extra_deck"], "([^,]+)") do
-      local card = allCardsBagApi.getCardById(str)
+    for str in string.gmatch(deckMeta["extra_deck"], "([^,]+)") do
+      local card = AllCardsBagApi.getCardById(str)
       if card ~= nil then
         table.insert(cardsToSpawn, { data = card.data, metadata = card.metadata, zone = "SetAside5" })
         table.insert(spiritList, str)
@@ -700,13 +711,13 @@ end
 
 -- Check for and handle Underworld Market by moving all Illicit cards to UnderSetAside6
 ---@param cardsToSpawn table Deck list being created
----@param customizations table ArkhamDB data for customizations on customizable cards
+---@param deckMeta table Metadata for the deck (contains the customizations on customizable cards for example)
 ---@param playerColor string Color this deck is being loaded for
-function handleUnderworldMarket(cardsToSpawn, customizations, playerColor)
+function handleUnderworldMarket(cardsToSpawn, deckMeta, playerColor)
   local attachmentList = {}
-  if customizations["attachments_09077"] then
+  if deckMeta["attachments_09077"] then
     -- get list of cards that are attached (split by ",")
-    for str in string.gmatch(customizations["attachments_09077"], "([^,]+)") do
+    for str in string.gmatch(deckMeta["attachments_09077"], "([^,]+)") do
       table.insert(attachmentList, str)
     end
   else
@@ -743,12 +754,12 @@ end
 -- For any customization upgrade cards in the card list, process the metadata from the deck to
 -- set the save state to show the correct checkboxes/text field values
 ---@param cardList table Deck list being created
----@param customizations table ArkhamDB data for customizations on customizable cards
-function handleCustomizableUpgrades(cardList, customizations)
+---@param deckMeta table Metadata for the deck (contains the customizations on customizable cards for example)
+function handleCustomizableUpgrades(cardList, deckMeta)
   for _, card in ipairs(cardList) do
     if card.metadata.type == "UpgradeSheet" then
       local baseId = string.sub(card.metadata.id, 1, 5)
-      local upgrades = customizations["cus_" .. baseId]
+      local upgrades = deckMeta["cus_" .. baseId]
 
       if upgrades ~= nil then
         -- contains the amount of markedBoxes (left to right) per row (starting at row 1)
@@ -759,7 +770,7 @@ function handleCustomizableUpgrades(cardList, customizations)
 
         -- get the index and xp values (looks like this: X|X,X|X, ..)
         -- input string from ArkhamDB is split by ","
-        for str in string.gmatch(customizations["cus_" .. baseId], "([^,]+)") do
+        for str in string.gmatch(upgrades, "([^,]+)") do
           table.insert(index_xp, str)
         end
 
@@ -851,7 +862,7 @@ end
 ---@param resourceModifier number Modifier for the starting resources
 function updateStartingResources(playerColor, resourceModifier)
   if resourceModifier ~= 0 then
-    playermatApi.updateCounter(playerColor, "ResourceCounter", _, resourceModifier)
+    PlayermatApi.updateCounter(playerColor, "ResourceCounter", _, resourceModifier)
     printToAll("Modified starting resources", playerColor)
   end
 end
@@ -868,11 +879,4 @@ function deepCopy(data)
     end
   end
   return copiedList
-end
-
--- pauses the current coroutine for 'frameCount' frames
-function coWaitFrames(frameCount)
-  for k = 1, frameCount do
-    coroutine.yield()
-  end
 end

@@ -1,4 +1,6 @@
-local guidReferenceApi       = require("core/GUIDReferenceApi")
+local CoroutineLib           = require("util/CoroutineLib")
+local DeckImporterApi        = require("arkhamdb/DeckImporterApi")
+local GUIDReferenceApi       = require("core/GUIDReferenceApi")
 
 local debugSpawnData         = {
   --{ id = "11050", pos = { -55.21, 1.6, 14.96 }, rot = { 0, 270, 0 }, moveCam = true }
@@ -15,6 +17,8 @@ local cycleIndex             = {}
 
 local indexingDone           = false
 local otherCardsDetected     = false
+local indexedCustomCycles    = {}
+local necessaryCustomCycles  = {}
 
 -- helper data for class sorting
 local classValueList         = {
@@ -110,7 +114,7 @@ end
 -- Clears the bag indexes and starts the coroutine to rebuild the indexes
 function startIndexBuild()
   clearIndexes()
-  startLuaCoroutine(self, "buildIndex")
+  CoroutineLib.start(buildIndex)
 end
 
 function onObjectLeaveContainer(container, _)
@@ -126,6 +130,7 @@ function buildIndex()
   cardCount = 0
   indexingDone = false
   otherCardsDetected = false
+  indexedCustomCycles = {}
 
   -- process the allcardsbag itself
   local selfData = self.getData()
@@ -147,12 +152,27 @@ function buildIndex()
   updatePlayerCardPanel()
   indexingDone = true
 
+  -- maybe spawn cards for debugging
   if not didDebugSpawn then
     debugSpawn()
     didDebugSpawn = true
   end
 
-  return 1
+  -- check if all necessary cycles are loaded and then notify Deck Importer
+  local allNecessaryCyclesLoaded = false
+  for cycleId, state in pairs(necessaryCustomCycles) do
+    -- this is set to true here to indicate that there is at least one custom cycle requested
+    allNecessaryCyclesLoaded = true
+    if state == true and not indexedCustomCycles[cycleId] then
+      allNecessaryCyclesLoaded = false
+      break
+    end
+  end
+
+  if allNecessaryCyclesLoaded then
+    necessaryCustomCycles = {}
+    DeckImporterApi.loadDecks()
+  end
 end
 
 function debugSpawn()
@@ -171,6 +191,11 @@ end
 function processContainedObjects(containedObjects, customDeck)
   for _, objData in ipairs(containedObjects) do
     if objData.ContainedObjects then
+      -- this is a container, so check if it has a memo to mark it as custom content pack
+      if objData.Memo and objData.Memo ~= "" then
+        indexedCustomCycles[objData.Memo] = true
+      end
+
       -- recursively process nested containers
       processContainedObjects(objData.ContainedObjects, objData.CustomDeck)
     elseif objData.Name == "Card" or objData.Name == "CardCustom" then
@@ -197,7 +222,7 @@ function processContainedObjects(containedObjects, customDeck)
       cardCount = cardCount + 1
       if cardCount > 19 then
         cardCount = 0
-        coroutine.yield(0)
+        CoroutineLib.yieldFrames()
       end
     end
   end
@@ -403,7 +428,7 @@ end
 
 -- inform the player card panel about the presence of other cards (no cycle -> fan-made)
 function updatePlayerCardPanel()
-  local panel = guidReferenceApi.getObjectByOwnerAndType("Mythos", "PlayerCardPanel")
+  local panel = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "PlayerCardPanel")
   panel.call("createXML", otherCardsDetected)
 end
 
@@ -413,6 +438,14 @@ function isIndexReady()
     broadcastToAll("Still loading player cards, please try again in a few seconds", { 0.9, 0.2, 0.2 })
   end
   return indexingDone
+end
+
+function isCustomCycleIndexed(cycleId)
+  return indexedCustomCycles[cycleId] == true
+end
+
+function addCustomCycleToQueueForDeckImporting(cycleId)
+  necessaryCustomCycles[cycleId] = true
 end
 
 -- Returns a specific card from the bag, based on ArkhamDB ID
