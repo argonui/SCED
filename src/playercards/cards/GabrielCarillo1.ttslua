@@ -1,0 +1,79 @@
+require("playercards/CardsWithHelper")
+local blessCurseManagerApi = require("chaosbag/BlessCurseManagerApi")
+local playermatApi         = require("playermat/PlayermatApi")
+
+-- intentionally global
+hasXML                     = true
+isHelperEnabled            = false
+local updated, loopId, tokenAdded
+
+function updateSave()
+  self.script_state = JSON.encode({
+    isHelperEnabled = isHelperEnabled,
+    loopId = loopId
+  })
+end
+
+function onLoad(savedData)
+  if savedData and savedData ~= "" then
+    local loadedData = JSON.decode(savedData)
+    isHelperEnabled = loadedData.isHelperEnabled
+    loopId = loadedData.loopId
+  end
+  if isHelperEnabled then updateDisplay() end
+end
+
+function shutOff()
+  if loopId then
+    Wait.stop(loopId)
+    loopId = nil
+  end
+end
+
+function initialize()
+  maybeUpdateButtonState()
+  loopId = Wait.time(maybeUpdateButtonState, 1, -1)
+end
+
+function resolveToken(player, _, tokenType)
+  if not updated then return end
+
+  local matColor
+  if player.color == "Black" then
+    matColor = playermatApi.getMatColorByPosition(self.getPosition())
+  else
+    matColor = playermatApi.getMatColor(player.color)
+  end
+
+  blessCurseManagerApi.addToken("Curse", player.color)
+  tokenAdded = true
+  playermatApi.drawCardsWithReshuffle(matColor, 1)
+
+  updated = false
+  Wait.frames(maybeUpdateButtonState, 2)
+end
+
+-- count tokens in the bag and show appropriate buttons
+function maybeUpdateButtonState()
+  setUiState()
+  updated = true
+end
+
+function doInUpkeep()
+  tokenAdded = false
+  maybeUpdateButtonState()
+end
+
+function setUiState(params)
+  if tokenAdded then
+    self.UI.hide("Curse")
+    self.UI.show("inactiveCurse")
+  else
+    self.UI.show("Curse")
+    self.UI.hide("inactiveCurse")
+  end
+end
+
+function errorMessage()
+  broadcastToAll("Ability already used.", "Red")
+end
