@@ -1439,7 +1439,7 @@ function onClick_downloadAll(player)
   -- hide download window
   changeWindowVisibilityForColor(player.color, "downloadWindow", false)
 
-  startLuaCoroutine(Global, "coroutineDownloadAll")
+  CoroutineLib.start(coroutineDownloadAll)
 end
 
 function coroutineDownloadAll()
@@ -1464,7 +1464,7 @@ function coroutineDownloadAll()
       "ContainedObjects": [
   ]]
 
-  local posx = -45.0
+  local posx = -45
   local downloadedItems = 0
   local skippedItems = 0
 
@@ -1485,7 +1485,7 @@ function coroutineDownloadAll()
           skippedItems = skippedItems + 1
           break
         end
-        coroutine.yield(0)
+        CoroutineLib.yieldFrames()
       end
     end
     local JSONCopy = JSON
@@ -1498,7 +1498,6 @@ function coroutineDownloadAll()
 
   broadcastToAll(downloadedItems .. " objects downloaded.", "Green")
   broadcastToAll(skippedItems .. " objects had a time-out / error.", "Orange")
-  return 1
 end
 
 -- spawns a placeholder box for the selected object
@@ -1765,6 +1764,20 @@ end
 
 function fallback(text, default)
   return (text and text ~= "") and text or default
+end
+
+function downloadCustomCycle(cycleId)
+  -- look for correct content
+  for contentType, contentData in pairs(library) do
+    for _, itemData in ipairs(contentData) do
+      if itemData.cycle_code == cycleId then
+        local url = SOURCE_REPO .. params.filename .. ".json"
+        requestObj = WebRequest.get(url, function(request) contentDownloadCallback(request, itemData, true) end)
+        return
+      end
+    end
+  end
+  print("Requested content couldn't be found in library.")
 end
 
 -- formats the json response from the webrequest into a key-value lua table
@@ -2141,7 +2154,7 @@ end
 
 -- called after the webrequest of downloading an item
 -- deletes the placeholder and spawns the downloaded item
-function contentDownloadCallback(request, params)
+function contentDownloadCallback(request, params, addToAdditionalCards)
   requestObj = nil
 
   -- error handling
@@ -2162,7 +2175,7 @@ function contentDownloadCallback(request, params)
     end
   end
 
-  if params.addToAdditionalCards then
+  if addToAdditionalCards then
     local additionalCardsBag = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "AdditionalPlayerCardsBag")
     spawnTable.position = additionalCardsBag.getPosition()
     spawnTable.rotation = additionalCardsBag.getRotation()
