@@ -192,30 +192,21 @@ end
 
 -- start the deck importing process
 function loadDecks()
-  co = CoroutineLib.start(loadDecksCoroutine)
-end
-
--- perform the deck importing (with a pause after each deck load)
--- this pause will for example allow weaknesses to be spawned so that the RBW drawing can detect them
-function loadDecksCoroutine()
   if not AllCardsBagApi.isIndexReady() then return end
+
+  -- intentionally global variable for cross-function access
   matsWithInvestigator = PlayermatApi.getUsedMatColors()
 
+  -- perform the deck importing (with a pause after each deck load)
+  -- this pause will for example allow weaknesses to be spawned so that the RBW drawing can detect them
+  local count = 0
   local matObjects = GUIDReferenceApi.getObjectsByType("Playermat")
   for matColor, _ in pairs(matObjects) do
     local deckId = _G[string.lower(matColor) .. "DeckId"]
     if deckId ~= nil and deckId ~= "" then
-      buildDeck(matColor, deckId)
-      CoroutineLib.yieldFrames()
+      Wait.time(function() buildDeck(matColor, deckId) end, 0.01 + count * 0.5)
+      count = count + 1
     end
-  end
-end
-
--- resume the deck importing process
-function resumeLoadDecks()
-  if co and coroutine.status(co) ~= "dead" then
-    local status, err = coroutine.resume(co)
-    if not status then error(err) end
   end
 end
 
@@ -275,7 +266,6 @@ end
 -- Process the slot list, which defines the card Ids and counts of cards to load. Spawn those cards
 -- at the appropriate zones and report an error to the user if any could not be loaded.
 -- This is a callback function which handles the results of ArkhamDb.getDecklist()
--- This method uses an encapsulated coroutine with yields to make the card spawning cleaner.
 ---@param slots table Key-Value table of cardId:count
 ---@param investigatorId string ArkhamDB ID (code) for this deck's investigator.
 --     Investigator cards should already be added to the slots list if they should be spawned,
@@ -286,154 +276,145 @@ end
 ---@param playerColor string Color name of the player mat to place this deck on (e.g. "Red")
 ---@param loadAltInvestigator string Contains the name of alternative art for the investigator ("normal", "revised" or "promo")
 function loadCards(slots, investigatorId, bondedList, deckMeta, playerColor, loadAltInvestigator)
-  function loadCardsCoroutine()
-    local slotsCopy = deepCopy(slots)
-    local cardsToSpawn = {}
-    local resourceModifier = 0
-    local zoneWithAttachments = {}
+  local slotsCopy = deepCopy(slots)
+  local cardsToSpawn = {}
+  local resourceModifier = 0
+  local zoneWithAttachments = {}
 
-    -- this table is initialized with the state of the respective zones, will be updated during this function
-    cardsWithAttachments = {
-      ["03264"] = "reserve", -- Stick to the Plan
-      ["05002"] = true,      -- Joe Diamond
-      ["07303"] = "reserve", -- Ancestral Knowledge
-      ["09077"] = true,      -- Underworld Market
-      ["09077-t"] = true,    -- Underworld Market (Taboo)
-      ["10079"] = "reserve", -- Bewitching
-      ["11080"] = "reserve"  -- Eldritch Brand
-    }
+  -- this table is initialized with the state of the respective zones, will be updated during this function
+  cardsWithAttachments = {
+    ["03264"] = "reserve", -- Stick to the Plan
+    ["05002"] = true,      -- Joe Diamond
+    ["07303"] = "reserve", -- Ancestral Knowledge
+    ["09077"] = true,      -- Underworld Market
+    ["09077-t"] = true,    -- Underworld Market (Taboo)
+    ["10079"] = "reserve", -- Bewitching
+    ["11080"] = "reserve"  -- Eldritch Brand
+  }
 
-    -- reset the startsInPlayCount
-    startsInPlayCount = 0
+  -- reset the startsInPlayCount
+  startsInPlayCount = 0
 
-    -- look for cards with attachments not in the above list (fan-made for example)
-    for cardId, _ in pairs(slots) do
-      if cardsWithAttachments[cardId] == nil and customizations["attachments_" .. cardId] then
-        -- assume that these cards should be placed on the playermat
-        cardsWithAttachments[cardId] = "reserve"
-      end
+  -- look for cards with attachments not in the above list (fan-made for example)
+  for cardId, _ in pairs(slots) do
+    if cardsWithAttachments[cardId] == nil and deckMeta["attachments_" .. cardId] then
+      -- assume that these cards should be placed on the playermat
+      cardsWithAttachments[cardId] = "reserve"
     end
-
-    -- reserve slots for certain cards with attachments
-    for cardId, state in pairs(cardsWithAttachments) do
-      if state == "reserve" then
-        if slotsCopy[cardId] and slotsCopy[cardId] > 0 then
-          -- increase startsInPlayCount by 1 and reserve slot for this card
-          startsInPlayCount = startsInPlayCount + 1
-          cardsWithAttachments[cardId] = startsInPlayCount
-
-          -- reserve an additional slot for the attachments
-          zoneWithAttachments[startsInPlayTracker()] = true
-        end
-      end
-    end
-
-    for cardId, cardCount in pairs(slots) do
-      local card = AllCardsBagApi.getCardById(cardId)
-      if card ~= nil then
-        local reservedSlot = cardsWithAttachments[cardId]
-        if type(reservedSlot) == "number" and reservedSlot < 6
-            and card.metadata and card.metadata.type ~= "Investigator" then
-          -- keep investigators in the regular spot always
-          -- TODO: update the startsInPlayCount so that this doesn't leave an empty spot
-          cardZone = "Blank" .. reservedSlot
-        else
-          cardZone = getDefaultCardZone(card.metadata, bondedList)
-        end
-
-        for i = 1, cardCount do
-          table.insert(cardsToSpawn, { data = card.data, metadata = card.metadata, zone = cardZone })
-        end
-
-        slots[cardId] = 0
-      end
-
-      resourceModifier = resourceModifier + cardCount * getStartingResourceModifier(cardId)
-    end
-
-    updateStartingResources(playerColor, resourceModifier)
-    handleAllAttachments(cardsToSpawn, slotsCopy, bondedList, deckMeta, playerColor)
-    handleSpiritDeck(investigatorId, cardsToSpawn, deckMeta, playerColor)
-    handleCustomizableUpgrades(cardsToSpawn, deckMeta)
-    handlePeteSignatureAssets(investigatorId, cardsToSpawn)
-
-    -- Split the card list into separate lists for each zone
-    local zoneDecks = buildZoneLists(cardsToSpawn)
-
-    -- Check for existing cards in zones and maybe skip them
-    removeBusyZones(playerColor, zoneDecks)
-
-    -- Spawn attachment helpers if option is enabled
-    if GlobalApi.getOptionPanelState()["showAttachmentHelper"] then
-      local objs = getObjectsWithTag("AttachmentHelperBag")
-      if #objs > 0 then
-        local helperRot = zones.getDefaultCardRotation(playerColor, "Blank1")
-        for cardId, reservedSlot in pairs(cardsWithAttachments) do
-          if type(reservedSlot) == "number" and reservedSlot < 6 then
-            local helper = objs[1].takeObject({
-              position = zones.getZonePosition(playerColor, "Blank" .. (reservedSlot + 1)):setAt("y", 1.8),
-              rotation = helperRot,
-              smooth = false
-            })
-            CoroutineLib.yieldFrames(3)
-            helper.call("loadDataFromMetadata", { md = { id = cardId } })
-            CoroutineLib.yieldFrames(3)
-          end
-        end
-      end
-    end
-
-    -- Spawn the list for each zone
-    for zone, zoneCards in pairs(zoneDecks) do
-      local deckPos = zones.getZonePosition(playerColor, zone):setAt("y", 3)
-      local deckRot = zones.getDefaultCardRotation(playerColor, zone)
-      local callback = nil
-
-      -- if this is a zone with attachments, spawn cards facedown and add additional delay
-      if zoneWithAttachments[zone] then
-        deckRot = deckRot:setAt("z", 180)
-      end
-
-      -- If cards are spread too close together TTS groups them weirdly, selecting multiples
-      -- when hovering over a single card. This distance is the minimum to avoid that.
-      local spreadDistance = 1.15
-      if (zone == "SetAside4") then
-        -- SetAside4 is reserved for customization cards, and we want them spread on the table
-        -- so their checkboxes are visible
-        -- TO-DO: take into account that spreading will make multiple rows
-        -- (this is affected by the user's local settings!)
-        if (playerColor == "White") then
-          deckPos.z = deckPos.z + (#zoneCards - 1) * spreadDistance
-        elseif (playerColor == "Green") then
-          deckPos.x = deckPos.x + (#zoneCards - 1) * spreadDistance
-        end
-        callback = function(deck) deck.spread(spreadDistance) end
-      elseif zone == "Deck" then
-        callback = function(deck) deckSpawned(deck, playerColor) end
-      elseif zone == "Investigator" or zone == "Minicard" then
-        callback = function(card) loadAltArt(card, loadAltInvestigator) end
-      end
-      Spawner.spawnCards(zoneCards, deckPos, deckRot, true, callback)
-      CoroutineLib.yieldFrames(3)
-    end
-
-    -- Look for any cards which haven't been loaded
-    local hadError = false
-    for cardId, remainingCount in pairs(slots) do
-      if remainingCount > 0 then
-        hadError = true
-        ArkhamDb.logCardNotFound(cardId, playerColor)
-      end
-    end
-
-    if not hadError then
-      printToAll("Deck loaded successfully!", playerColor)
-    end
-
-    resumeLoadDecks()
   end
 
-  CoroutineLib.start(loadCardsCoroutine)
+  -- reserve slots for certain cards with attachments
+  for cardId, state in pairs(cardsWithAttachments) do
+    if state == "reserve" then
+      if slotsCopy[cardId] and slotsCopy[cardId] > 0 then
+        -- increase startsInPlayCount by 1 and reserve slot for this card
+        startsInPlayCount = startsInPlayCount + 1
+        cardsWithAttachments[cardId] = startsInPlayCount
+
+        -- reserve an additional slot for the attachments
+        zoneWithAttachments[startsInPlayTracker()] = true
+      end
+    end
+  end
+
+  for cardId, cardCount in pairs(slots) do
+    local card = AllCardsBagApi.getCardById(cardId)
+    if card ~= nil then
+      local reservedSlot = cardsWithAttachments[cardId]
+      if type(reservedSlot) == "number" and reservedSlot < 6
+          and card.metadata and card.metadata.type ~= "Investigator" then
+        -- keep investigators in the regular spot always
+        -- TODO: update the startsInPlayCount so that this doesn't leave an empty spot
+        cardZone = "Blank" .. reservedSlot
+      else
+        cardZone = getDefaultCardZone(card.metadata, bondedList)
+      end
+
+      for i = 1, cardCount do
+        table.insert(cardsToSpawn, { data = card.data, metadata = card.metadata, zone = cardZone })
+      end
+
+      slots[cardId] = 0
+    end
+
+    resourceModifier = resourceModifier + cardCount * getStartingResourceModifier(cardId)
+  end
+
+  updateStartingResources(playerColor, resourceModifier)
+  handleAllAttachments(cardsToSpawn, slotsCopy, bondedList, deckMeta, playerColor)
+  handleSpiritDeck(investigatorId, cardsToSpawn, deckMeta, playerColor)
+  handleCustomizableUpgrades(cardsToSpawn, deckMeta)
+  handlePeteSignatureAssets(investigatorId, cardsToSpawn)
+
+  -- Split the card list into separate lists for each zone
+  local zoneDecks = buildZoneLists(cardsToSpawn)
+
+  -- Check for existing cards in zones and maybe skip them
+  removeBusyZones(playerColor, zoneDecks)
+
+  -- Spawn attachment helpers if option is enabled
+  if GlobalApi.getOptionPanelState()["showAttachmentHelper"] then
+    local objs = getObjectsWithTag("AttachmentHelperBag")
+    if #objs > 0 then
+      local helperRot = zones.getDefaultCardRotation(playerColor, "Blank1")
+      for cardId, reservedSlot in pairs(cardsWithAttachments) do
+        if type(reservedSlot) == "number" and reservedSlot < 6 then
+          local helper = objs[1].takeObject({
+            position = zones.getZonePosition(playerColor, "Blank" .. (reservedSlot + 1)):setAt("y", 1.8),
+            rotation = helperRot,
+            smooth = false
+          })
+          Wait.frames(function() helper.call("loadDataFromMetadata", { md = { id = cardId } }) end, 3)
+        end
+      end
+    end
+  end
+
+  -- Spawn the list for each zone
+  for zone, zoneCards in pairs(zoneDecks) do
+    local deckPos = zones.getZonePosition(playerColor, zone):setAt("y", 3)
+    local deckRot = zones.getDefaultCardRotation(playerColor, zone)
+    local callback = nil
+
+    -- if this is a zone with attachments, spawn cards facedown and add additional delay
+    if zoneWithAttachments[zone] then
+      deckRot = deckRot:setAt("z", 180)
+    end
+
+    -- If cards are spread too close together TTS groups them weirdly, selecting multiples
+    -- when hovering over a single card. This distance is the minimum to avoid that.
+    local spreadDistance = 1.15
+    if (zone == "SetAside4") then
+      -- SetAside4 is reserved for customization cards, and we want them spread on the table
+      -- so their checkboxes are visible
+      -- TO-DO: take into account that spreading will make multiple rows
+      -- (this is affected by the user's local settings!)
+      if (playerColor == "White") then
+        deckPos.z = deckPos.z + (#zoneCards - 1) * spreadDistance
+      elseif (playerColor == "Green") then
+        deckPos.x = deckPos.x + (#zoneCards - 1) * spreadDistance
+      end
+      callback = function(deck) deck.spread(spreadDistance) end
+    elseif zone == "Deck" then
+      callback = function(deck) deckSpawned(deck, playerColor) end
+    elseif zone == "Investigator" or zone == "Minicard" then
+      callback = function(card) loadAltArt(card, loadAltInvestigator) end
+    end
+    Spawner.spawnCards(zoneCards, deckPos, deckRot, true, callback)
+  end
+
+  -- Look for any cards which haven't been loaded
+  local hadError = false
+  for cardId, remainingCount in pairs(slots) do
+    if remainingCount > 0 then
+      hadError = true
+      ArkhamDb.logCardNotFound(cardId, playerColor)
+    end
+  end
+
+  if not hadError then
+    printToAll("Deck loaded successfully!", playerColor)
+  end
 end
 
 function getStartingResourceModifier(cardId)
