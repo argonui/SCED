@@ -1,4 +1,6 @@
-local guidReferenceApi       = require("core/GUIDReferenceApi")
+local CoroutineLib           = require("util/CoroutineLib")
+local DeckImporterApi        = require("arkhamdb/DeckImporterApi")
+local GUIDReferenceApi       = require("core/GUIDReferenceApi")
 
 local debugSpawnData         = {
   --{ id = "11050", pos = { -55.21, 1.6, 14.96 }, rot = { 0, 270, 0 }, moveCam = true }
@@ -16,6 +18,7 @@ local cycleIndex             = {}
 local indexingDone           = false
 local otherCardsDetected     = false
 local indexedCustomCycles    = {}
+local necessaryCustomCycles  = {}
 
 -- helper data for class sorting
 local classValueList         = {
@@ -111,7 +114,7 @@ end
 -- Clears the bag indexes and starts the coroutine to rebuild the indexes
 function startIndexBuild()
   clearIndexes()
-  startLuaCoroutine(self, "buildIndex")
+  CoroutineLib.start(buildIndex)
 end
 
 function onObjectLeaveContainer(container, _)
@@ -149,12 +152,27 @@ function buildIndex()
   updatePlayerCardPanel()
   indexingDone = true
 
+  -- maybe spawn cards for debugging
   if not didDebugSpawn then
     debugSpawn()
     didDebugSpawn = true
   end
 
-  return 1
+  -- check if all necessary cycles are loaded and then notify Deck Importer
+  local allNecessaryCyclesLoaded = false
+  for _, cycleId in pairs(necessaryCustomCycles) do
+    -- this is set to true here to indicate that there is at least one custom cycle requested
+    allNecessaryCyclesLoaded = true
+    if not indexedCustomCycles[cycleId] then
+      allNecessaryCyclesLoaded = false
+      break
+    end
+  end
+
+  if allNecessaryCyclesLoaded then
+    indexedCustomCycles = {}
+    DeckImporterApi.loadDecks()
+  end
 end
 
 function debugSpawn()
@@ -410,7 +428,7 @@ end
 
 -- inform the player card panel about the presence of other cards (no cycle -> fan-made)
 function updatePlayerCardPanel()
-  local panel = guidReferenceApi.getObjectByOwnerAndType("Mythos", "PlayerCardPanel")
+  local panel = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "PlayerCardPanel")
   panel.call("createXML", otherCardsDetected)
 end
 
@@ -424,6 +442,10 @@ end
 
 function isCustomCycleIndexed(cycleId)
   return indexedCustomCycles[cycleId] == true
+end
+
+function addCustomCycleToQueueForDeckImporting(cycleId)
+  necessaryCustomCycles[cycleId] = true
 end
 
 -- Returns a specific card from the bag, based on ArkhamDB ID
