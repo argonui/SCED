@@ -2,6 +2,7 @@ require("Global/ChaosTokenMessages")
 require("Global/TableSetupData")
 require("core/Constants")
 local BlessCurseManagerApi        = require("chaosbag/BlessCurseManagerApi")
+local CoroutineLib                = require("util/CoroutineLib")
 local GUIDReferenceApi            = require("core/GUIDReferenceApi")
 local MythosAreaApi               = require("mythos/MythosAreaApi")
 local NavigationOverlayApi        = require("core/NavigationOverlayApi")
@@ -1409,14 +1410,12 @@ function placeholder_download(params)
     -- update progress bar
     while requestObj do
       UI.setAttribute('download_progress', 'percentage', requestObj.download_progress * 100)
-      coroutine.yield(0)
+      CoroutineLib.yieldFrames()
     end
     UI.setAttribute('download_progress', 'percentage', 100)
 
     -- wait 30 frames
-    for i = 1, 30 do
-      coroutine.yield(0)
-    end
+    CoroutineLib.yieldFrames(30)
 
     -- hide progress bar
     UI.setAttribute('download_progress', 'active', false)
@@ -1425,12 +1424,12 @@ function placeholder_download(params)
     if params.player then
       changeWindowVisibilityForColor(params.player.color, "downloadWindow", false)
     end
-    return 1
   end
 
   local url = SOURCE_REPO .. params.filename .. ".json"
   requestObj = WebRequest.get(url, function(request) contentDownloadCallback(request, params) end)
-  startLuaCoroutine(Global, 'downloadCoroutine')
+
+  CoroutineLib.start(downloadCoroutine)
 end
 
 -- spawns a bag that contains every object from the library
@@ -2163,6 +2162,12 @@ function contentDownloadCallback(request, params)
     end
   end
 
+  if params.addToAdditionalCards then
+    local additionalCardsBag = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "AdditionalPlayerCardsBag")
+    spawnTable.position = additionalCardsBag.getPosition()
+    spawnTable.rotation = additionalCardsBag.getRotation()
+  end
+
   -- if position is undefined, get empty position
   if not spawnTable.position then
     local pos = getValidSpawnPosition()
@@ -2194,6 +2199,11 @@ function contentDownloadCallback(request, params)
         if pingPlayer.color ~= "Grey" then
           pingPlayer.pingTable(obj.getPosition())
         end
+      end
+
+      -- add memo to identify custom content with the AllCardsBag
+      if params.cycle_code then
+        obj.setMemo(params.cycle_code)
       end
 
       -- add gmnotes for "reloading"
