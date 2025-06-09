@@ -2,6 +2,7 @@ require("Global/ChaosTokenMessages")
 require("Global/TableSetupData")
 require("core/Constants")
 local BlessCurseManagerApi        = require("chaosbag/BlessCurseManagerApi")
+local CoroutineLib                = require("util/CoroutineLib")
 local GUIDReferenceApi            = require("core/GUIDReferenceApi")
 local MythosAreaApi               = require("mythos/MythosAreaApi")
 local NavigationOverlayApi        = require("core/NavigationOverlayApi")
@@ -35,6 +36,7 @@ local lastZoneEnterObject         = nil
 
 -- online functionality related variables
 local library, requestObj, modMeta, searchFilter, authorFilter
+local donwnloadPending            = {}
 local acknowledgedUpgradeVersions = {}
 local authorList                  = {}
 local contentToShow               = "campaign"
@@ -1409,14 +1411,12 @@ function placeholder_download(params)
     -- update progress bar
     while requestObj do
       UI.setAttribute('download_progress', 'percentage', requestObj.download_progress * 100)
-      coroutine.yield(0)
+      CoroutineLib.yieldFrames()
     end
     UI.setAttribute('download_progress', 'percentage', 100)
 
     -- wait 30 frames
-    for i = 1, 30 do
-      coroutine.yield(0)
-    end
+    CoroutineLib.yieldFrames(30)
 
     -- hide progress bar
     UI.setAttribute('download_progress', 'active', false)
@@ -1425,12 +1425,12 @@ function placeholder_download(params)
     if params.player then
       changeWindowVisibilityForColor(params.player.color, "downloadWindow", false)
     end
-    return 1
   end
 
   local url = SOURCE_REPO .. params.filename .. ".json"
   requestObj = WebRequest.get(url, function(request) contentDownloadCallback(request, params) end)
-  startLuaCoroutine(Global, 'downloadCoroutine')
+
+  CoroutineLib.start(downloadCoroutine)
 end
 
 -- spawns a bag that contains every object from the library
@@ -1440,7 +1440,7 @@ function onClick_downloadAll(player)
   -- hide download window
   changeWindowVisibilityForColor(player.color, "downloadWindow", false)
 
-  startLuaCoroutine(Global, "coroutineDownloadAll")
+  CoroutineLib.start(coroutineDownloadAll)
 end
 
 function coroutineDownloadAll()
@@ -1465,7 +1465,7 @@ function coroutineDownloadAll()
       "ContainedObjects": [
   ]]
 
-  local posx = -45.0
+  local posx = -45
   local downloadedItems = 0
   local skippedItems = 0
 
@@ -1486,7 +1486,7 @@ function coroutineDownloadAll()
           skippedItems = skippedItems + 1
           break
         end
-        coroutine.yield(0)
+        CoroutineLib.yieldFrames()
       end
     end
     local JSONCopy = JSON
@@ -1499,7 +1499,6 @@ function coroutineDownloadAll()
 
   broadcastToAll(downloadedItems .. " objects downloaded.", "Green")
   broadcastToAll(skippedItems .. " objects had a time-out / error.", "Orange")
-  return 1
 end
 
 -- spawns a placeholder box for the selected object
@@ -1766,6 +1765,26 @@ end
 
 function fallback(text, default)
   return (text and text ~= "") and text or default
+end
+
+function downloadCustomCycle(cycleId)
+  if donwnloadPending[cycleId] then return end
+
+  -- look for correct content
+  for contentType, contentData in pairs(library) do
+    for _, itemData in ipairs(contentData) do
+      if itemData.cycle_code == cycleId then
+        donwnloadPending[cycleId] = true
+        local url = SOURCE_REPO .. itemData.filename .. ".json"
+        requestObj = WebRequest.get(url, function(request)
+          contentDownloadCallback(request, itemData, true)
+          Wait.time(function() donwnloadPending[cycleId] = false end, 1)
+        end)
+        return
+      end
+    end
+  end
+  print("Requested content couldn't be found in library.")
 end
 
 -- formats the json response from the webrequest into a key-value lua table
@@ -2142,7 +2161,7 @@ end
 
 -- called after the webrequest of downloading an item
 -- deletes the placeholder and spawns the downloaded item
-function contentDownloadCallback(request, params)
+function contentDownloadCallback(request, params, addToAdditionalCards)
   requestObj = nil
 
   -- error handling
@@ -2161,6 +2180,12 @@ function contentDownloadCallback(request, params)
       spawnTable.scale    = replacedObject.getScale()
       destroyObject(replacedObject)
     end
+  end
+
+  if addToAdditionalCards then
+    local additionalCardsBag = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "AdditionalPlayerCardsBag")
+    spawnTable.position = additionalCardsBag.getPosition() + Vector(0, 2, 0)
+    spawnTable.rotation = additionalCardsBag.getRotation()
   end
 
   -- if position is undefined, get empty position
@@ -2196,17 +2221,19 @@ function contentDownloadCallback(request, params)
         end
       end
 
+      -- add memo to identify custom content with the AllCardsBag
+      if params.cycle_code then
+        obj.setMemo(params.cycle_code)
+      end
+
       -- add gmnotes for "reloading"
       obj.setGMNotes(params.filename)
       obj.addTag("Reloadable")
-      onObjectSpawn(obj)
     end, 0.1)
   end
 
-  if pcall(function() spawnObjectJSON(spawnTable) end) then
-    print('Object loaded.')
-  else
-    print('Error loading object.')
+  if not pcall(function() spawnObjectJSON(spawnTable) end) then
+    print('Error loading ' .. params.filename)
   end
 end
 
