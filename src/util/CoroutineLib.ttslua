@@ -2,10 +2,15 @@ do
   local CoroutineLib = {}
 
   -- resumes a coroutine, outputs an error if needed and returns yielded values
-  local function resumeWithErrorHandling(co, ...)
+  function CoroutineLib.resumeWithErrorHandling(co, ...)
+    if type(co) ~= "thread" then error("Invalid coroutine passed") end
+    if coroutine.status(co) == "dead" then return end
     local results = {coroutine.resume(co, ...)}
     local ok = table.remove(results, 1)
-    if not ok then error(results[1]) end
+    if not ok then
+      error("Error resuming coroutine, check log for details")
+      log(results)
+    end
     return table.unpack(results)
   end
 
@@ -15,7 +20,7 @@ do
   ---@return boolean: True if the condition was met, or false if the (optional) timeout was reached.
   function CoroutineLib.yieldCondition(condition, timeout)
     local co = coroutine.running()
-    local resume = function() resumeWithErrorHandling(co) end
+    local resume = function() CoroutineLib.resumeWithErrorHandling(co) end
     Wait.condition(resume, condition, timeout, resume)
     coroutine.yield()
   end
@@ -25,7 +30,7 @@ do
   function CoroutineLib.yieldFrames(frames)
     frames = frames or 1
     local co = coroutine.running()
-    Wait.frames(function() resumeWithErrorHandling(co) end, frames)
+    Wait.frames(function() CoroutineLib.resumeWithErrorHandling(co) end, frames)
     coroutine.yield()
   end
 
@@ -34,14 +39,14 @@ do
   function CoroutineLib.yieldSeconds(seconds)
     seconds = seconds or 0.01
     local co = coroutine.running()
-    Wait.time(function() resumeWithErrorHandling(co) end, seconds)
+    Wait.time(function() CoroutineLib.resumeWithErrorHandling(co) end, seconds)
     coroutine.yield()
   end
 
   --- creates a coroutine from the specified function, and immediately starts it.
   function CoroutineLib.start(func, ...)
     local co = coroutine.create(func)
-    resumeWithErrorHandling(co, ...)
+    CoroutineLib.resumeWithErrorHandling(co, ...)
     return co
   end
 
@@ -51,13 +56,13 @@ do
     local originalCo = coroutine.running()
 
     if not originalCo then
-      error("CoroutineLib.interruptWithCoroutine must be called from within a coroutine.")
+      error("CoroutineLib.interruptWithCoroutine() must be called from within a coroutine.")
     end
 
     -- Create the interrupt coroutine
     CoroutineLib.start(function()
       interruptFunc()
-      Wait.frames(function() resumeWithErrorHandling(originalCo) end, 1)
+      Wait.frames(function() CoroutineLib.resumeWithErrorHandling(originalCo) end, 1)
     end)
 
     coroutine.yield() -- Yield the current coroutine until resumed again
