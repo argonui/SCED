@@ -1,0 +1,118 @@
+require("playercards/CardsWithHelper")
+local BlessCurseManagerApi = require("chaosbag/BlessCurseManagerApi")
+local PlayermatApi         = require("playermat/PlayermatApi")
+
+-- intentionally global
+hasXML                     = true
+isHelperEnabled            = false
+local updated, loopId
+
+function updateSave()
+  self.script_state = JSON.encode({
+    isHelperEnabled = isHelperEnabled,
+    loopId = loopId
+  })
+end
+
+function onLoad(savedData)
+  if savedData and savedData ~= "" then
+    local loadedData = JSON.decode(savedData)
+    isHelperEnabled = loadedData.isHelperEnabled
+    loopId = loadedData.loopId
+  end
+  if isHelperEnabled then updateDisplay() end
+end
+
+function shutOff()
+  if loopId then
+    Wait.stop(loopId)
+    loopId = nil
+  end
+end
+
+function initialize()
+  maybeUpdateButtonState()
+  loopId = Wait.time(maybeUpdateButtonState, 1, -1)
+end
+
+function triggerAbility(player, _, tokenType)
+  if not updated then return end
+  updated = false
+
+  local matColor = PlayermatApi.getMatColorByPosition(self.getPosition())
+  BlessCurseManagerApi.removeToken(tokenType, player.color)
+
+  if tokenType == "Curse" then
+    PlayermatApi.updateCounter(matColor, "ResourceCounter", nil, 2)
+    printToColor("Added 2 resources to " .. matColor .. "'s resource pool.", player.color)
+  else
+    printToColor("Heal up to 2 damage/horror from an Investigator or Ally.", player.color)
+  end
+
+  Wait.frames(maybeUpdateButtonState, 2)
+
+  -- exhaust card
+  self.setRotationSmooth(PlayermatApi.getExhaustRotation(matColor, true), nil, true)
+end
+
+function isExhausted()
+  local matColor        = PlayermatApi.getMatColorByPosition(self.getPosition())
+  local exhaustRotation = PlayermatApi.getExhaustRotation(matColor, true)
+  return round(self.getRotation().y, 0) == round(exhaustRotation.y, 0)
+end
+
+-- rounds a number (num) to the Nth decimal (dec)
+function round(num, dec)
+  local mult = 10 ^ (dec or 0)
+  return math.floor(num * mult + 0.5) / mult
+end
+
+-- count tokens in the bag and show appropriate buttons
+function maybeUpdateButtonState()
+  local state = { Bless = false, Curse = false }
+
+  if not isExhausted() then
+    local numInBag = BlessCurseManagerApi.getBlessCurseInBag()
+
+    if numInBag.Bless > numInBag.Curse and numInBag.Bless > 0 then
+      state.Bless = true
+    end
+
+    if numInBag.Curse > numInBag.Bless and numInBag.Curse > 0 then
+      state.Curse = true
+    end
+  end
+
+  setUiState(state)
+  updated = true
+end
+
+function setUiState(state)
+  for _, tokenName in ipairs({ "Bless", "Curse" }) do
+    if state[tokenName] then
+      self.UI.show(tokenName)
+      self.UI.hide("inactive" .. tokenName)
+    else
+      self.UI.show("inactive" .. tokenName)
+      self.UI.hide(tokenName)
+    end
+  end
+end
+
+function errorMessage()
+  if isExhausted() then
+    broadcastToAll(self.getName() .. " isn't ready.", "Red")
+  else
+    local numInBag = BlessCurseManagerApi.getBlessCurseInBag()
+
+    if numInBag.Bless == 0 and numInBag.Curse == 0 then
+      broadcastToAll("There are no Bless or Curse tokens in the chaos bag.", "Red")
+    elseif numInBag.Bless > numInBag.Curse then
+      broadcastToAll("There are more Bless tokens than Curse tokens in the chaos bag.", "Red")
+    elseif numInBag.Curse > numInBag.Bless then
+      broadcastToAll("There are more Curse tokens than Bless tokens in the chaos bag.", "Red")
+    else
+      broadcastToAll("There are equal Bless and Curse tokens in the chaos bag.", "Red")
+    end
+  end
+end

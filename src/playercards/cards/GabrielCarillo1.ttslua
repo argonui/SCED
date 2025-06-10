@@ -1,11 +1,12 @@
 require("playercards/CardsWithHelper")
-local blessCurseManagerApi = require("chaosbag/BlessCurseManagerApi")
-local playermatApi         = require("playermat/PlayermatApi")
+local BlessCurseManagerApi = require("chaosbag/BlessCurseManagerApi")
+local PlayermatApi         = require("playermat/PlayermatApi")
 
 -- intentionally global
 hasXML                     = true
 isHelperEnabled            = false
-local updated, loopId, tokenAdded
+
+local loopId, updated
 
 function updateSave()
   self.script_state = JSON.encode({
@@ -35,45 +36,33 @@ function initialize()
   loopId = Wait.time(maybeUpdateButtonState, 1, -1)
 end
 
-function resolveToken(player, _, tokenType)
+function triggerAbility(player)
   if not updated then return end
-
-  local matColor
-  if player.color == "Black" then
-    matColor = playermatApi.getMatColorByPosition(self.getPosition())
-  else
-    matColor = playermatApi.getMatColor(player.color)
-  end
-
-  blessCurseManagerApi.addToken("Curse", player.color)
-  tokenAdded = true
-  playermatApi.drawCardsWithReshuffle(matColor, 1)
-
   updated = false
+
+  local matColor = PlayermatApi.getMatColorByPosition(self.getPosition())
+  BlessCurseManagerApi.addToken("Curse", player.color)
+  PlayermatApi.drawCardsWithReshuffle(matColor, 1)
   Wait.frames(maybeUpdateButtonState, 2)
 end
 
--- count tokens in the bag and show appropriate buttons
 function maybeUpdateButtonState()
-  setUiState()
   updated = true
+  local numInBag = BlessCurseManagerApi.getBlessCurseInBag()
+  setUiState(numInBag.Curse < 10)
 end
 
-function doInUpkeep()
-  tokenAdded = false
-  maybeUpdateButtonState()
-end
-
-function setUiState(params)
-  if tokenAdded then
-    self.UI.hide("Curse")
-    self.UI.show("inactiveCurse")
+function setUiState(available)
+  local tokenName = "Curse"
+  if available then
+    self.UI.show(tokenName)
+    self.UI.hide("inactive" .. tokenName)
   else
-    self.UI.show("Curse")
-    self.UI.hide("inactiveCurse")
+    self.UI.show("inactive" .. tokenName)
+    self.UI.hide(tokenName)
   end
 end
 
 function errorMessage()
-  broadcastToAll("Ability already used.", "Red")
+  broadcastToAll("Can't add more than 10 curses.", "Red")
 end
