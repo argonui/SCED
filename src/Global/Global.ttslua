@@ -946,7 +946,10 @@ function drawChaosToken(params)
     local specificData = tokenData[name] or {}
     token.setDescription(specificData.description or "")
     trackChaosToken(name, params.mat.getMemo())
-    
+    if optionPanel['showTokenSplash'] then
+      tokenSplash(name)
+    end
+
     if not params.takeParameters then
       table.insert(chaosTokens, token)
     end
@@ -954,6 +957,54 @@ function drawChaosToken(params)
   else
     returnChaosTokens()
   end
+end
+
+-- splash drawn chaos token
+function tokenSplash(tokenName)
+  local namesToIds = createChaosTokenNameLookupTable()
+  local id = "token-" .. namesToIds[tokenName]
+  local MODIFIER_TOKENS_NAMES = {
+    ["Skull"] = true,
+    ["Cultist"] = true,
+    ["Elder Sign"] = true,
+    ["Tablet"]  = true,
+    ["Elder Thing"]  = true,
+    ["Custom Token"]  = true
+  }
+  local tokenData = MythosAreaApi.returnTokenData()
+  if waitIds["hideChaosSplash"] then
+    Wait.stop(waitIds["hideChaosSplash"])
+    waitIds["hideChaosSplash"] = nil
+  end
+
+  Wait.time(function()
+    UI.setAttribute("token-splash-image", "image", id)
+    UI.show('chaos_token')
+    -- determine if modifier should be shown
+    if MODIFIER_TOKENS_NAMES[tokenName] then
+      local modifier = TokenArrangerApi.getCurrentModifier(tokenName)
+      if modifier < 100 then
+        UI.setValue("chaos_modifier_text", "(" .. modifier .. ")")
+        UI.show('token_modifier')
+      end
+    end
+    -- determine if scenario card reference data should be shown
+    if tokenData then
+      if tokenData.tokenData[tokenName] then
+        local tokenDescription = tokenData.tokenData[tokenName].description
+        if tokenDescription then
+          UI.setValue("chaos_splash_text", tokenDescription)
+          UI.show('token_description')
+        end
+      end
+    end
+    waitIds["hideTokenSplash"] = Wait.time(function()
+      UI.hide('chaos_token')
+      UI.hide('token_description')
+      UI.hide('token_modifier')
+    end, 2)
+  end, 0.75)
+
 end
 
 function luckyPenny(_, tokenGUID)
