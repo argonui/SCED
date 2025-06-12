@@ -122,6 +122,7 @@ local RESOURCE_STATES             = {
   ["offering"] = 8
 }
 
+
 ---------------------------------------------------------
 -- general code
 ---------------------------------------------------------
@@ -205,6 +206,8 @@ function onLoad(savedData)
   if LOAD_DEBUG_OPTION_PANEL then
     Wait.time(function() loadOptionPanelState(DEBUG_OPTION_PANEL_STATE) end, 2)
   end
+
+  namesToIds = createChaosTokenNameLookupTable()
 end
 
 -- provides a random seed (from 1 to 999) to be used by "linked" objects like the action tokens
@@ -805,7 +808,7 @@ function returnAndRedraw(_, tokenGUID)
     if tokenName == "Bless" or tokenName == "Curse" then
       BlessCurseManagerApi.removeToken(tokenName)
     else
-      local invertedTable = createChaosTokenNameLookupTable()
+      local invertedTable = namesToIds
       removeChaosToken(invertedTable[tokenName])
     end
   end
@@ -961,7 +964,7 @@ end
 
 -- splash drawn chaos token
 function tokenSplash(tokenName)
-  local namesToIds = createChaosTokenNameLookupTable()
+  local numSeconds = 2
   local id = "token-" .. namesToIds[tokenName]
   local MODIFIER_TOKENS_NAMES = {
     ["Skull"] = true,
@@ -984,7 +987,11 @@ function tokenSplash(tokenName)
     if MODIFIER_TOKENS_NAMES[tokenName] then
       local modifier = TokenArrangerApi.getCurrentModifier(tokenName)
       if modifier < 100 then
-        UI.setValue("chaos_modifier_text", "(" .. modifier .. ")")
+        modifierTextBegin = "( "
+        if modifier > 0 then
+          modifierTextBegin = modifierTextBegin .. "+"
+        end
+        UI.setValue("chaos_modifier_text", modifierTextBegin .. modifier .. " )")
         UI.show('token_modifier')
       end
     end
@@ -995,6 +1002,7 @@ function tokenSplash(tokenName)
         if tokenDescription then
           UI.setValue("chaos_splash_text", tokenDescription)
           UI.show('token_description')
+          numSeconds = 2.5
         end
       end
     end
@@ -1002,7 +1010,7 @@ function tokenSplash(tokenName)
       UI.hide('chaos_token')
       UI.hide('token_description')
       UI.hide('token_modifier')
-    end, 2)
+    end, numSeconds)
   end, 0.75)
 
 end
@@ -1214,7 +1222,7 @@ end
 ---@api ChaosBag / ChaosBagApi
 function getChaosBagState()
   local tokens = {}
-  local invertedTable = createChaosTokenNameLookupTable()
+  local invertedTable = namesToIds
   local chaosBag = findChaosBag()
 
   for _, v in ipairs(chaosBag.getObjects()) do
@@ -3006,6 +3014,7 @@ function onClick_defaultSettings()
     showHandHelper            = false,
     showOneDamageHorror       = false,
     showSearchAssistant       = false,
+    showTokenSplash           = true,
     showTitleSplash           = true,
     tableSetup                = "Classic (4P)",
     useClassTexture           = true,
