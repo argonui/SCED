@@ -133,8 +133,8 @@ do
       for i = #objects, 1, -1 do
         local obj = objects[i]
 
-        -- add a 0.1s delay for each object (for animation purposes)
-        CoroutineLib.yieldSeconds(0.1)
+        -- add a 0.2s delay for each object (for animation purposes)
+        CoroutineLib.yieldSeconds(0.2)
 
         -- allow moving smoothly out of hand and temporarily lock it
         obj.setLock(true)
@@ -146,24 +146,27 @@ do
         obj.setPositionSmooth(newPos, false, true)
 
         -- wait for object to finish movement (or 2 seconds)
-        CoroutineLib.yieldCondition(function() return obj.isDestroyed() or not obj.isSmoothMoving() end, 2)
+        Wait.condition(
+          function()
+            -- revert toggles
+            obj.setLock(false)
+            obj.use_hands = true
 
-        -- revert toggles
-        obj.setLock(false)
-        obj.use_hands = true
+            -- use putObject to avoid a TTS bug that merges unrelated cards that are not resting
+            if #searchResult == 1 and targetObj ~= obj and not targetObj.isDestroyed() and not obj.isDestroyed() then
+              targetObj = targetObj.putObject(obj)
+            else
+              targetObj = obj
+            end
 
-        -- use putObject to avoid a TTS bug that merges unrelated cards that are not resting
-        if #searchResult == 1 and targetObj ~= obj and not targetObj.isDestroyed() and not obj.isDestroyed() then
-          targetObj = targetObj.putObject(obj)
-        else
-          targetObj = obj
-        end
-
-        -- this is the final object, maybe shuffle (delay to look less uncanny)
-        if i == 1 and targetObj.type == "Deck" and shuffle then
-          CoroutineLib.yieldFrames(3)
-          targetObj.shuffle()
-        end
+            -- this is the final object, maybe shuffle (delay to look less uncanny)
+            if i == 1 and targetObj.type == "Deck" and shuffle then
+              Wait.frames(function() targetObj.shuffle() end, 5)
+            end
+          end,
+          function() return obj.isDestroyed() or not obj.isSmoothMoving() end,
+          2
+        )
       end
     end
 
