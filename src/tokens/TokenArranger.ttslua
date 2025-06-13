@@ -1,8 +1,9 @@
-local chaosBagApi               = require("chaosbag/ChaosBagApi")
-local mythosAreaApi             = require("mythos/MythosAreaApi")
+local ChaosBagApi               = require("chaosbag/ChaosBagApi")
+local GlobalApi                 = require("Global/GlobalApi")
+local MythosAreaApi             = require("mythos/MythosAreaApi")
 
 -- position of the first token
-local START_POSITION            = Vector(-0.835, -0.05, -0.85)
+local START_POSITION            = Vector(-0.86, 0, -0.86)
 local TOKEN_OFFSET              = 0.3
 
 -- common parameters
@@ -52,29 +53,12 @@ local TOKEN_NAMES               = {
   ""
 }
 
-function getSaveData()
-  return {
-    tokenPrecedence    = tokenPrecedence,
-    percentage         = percentage,
-    includeDrawnTokens = includeDrawnTokens
-  }
-end
-
-function loadData(loadedData)
-  if not loadedData then return end
-
-  tokenPrecedence    = loadedData.tokenPrecedence
-  percentage         = loadedData.percentage
-  includeDrawnTokens = loadedData.includeDrawnTokens
-
-  updateUI()
-  updateSave()
-  Wait.time(layout, 1.5)
-end
-
 -- saving the precedence settings and information on the most recently loaded data
 function updateSave()
-  self.script_state = JSON.encode(getSaveData())
+  self.script_state = JSON.encode({
+    tokenPrecedence    = tokenPrecedence,
+    includeDrawnTokens = includeDrawnTokens
+  })
 end
 
 -- loading data, button creation and initial layouting
@@ -82,13 +66,12 @@ function onLoad(savedData)
   if savedData and savedData ~= "" then
     local loadedData   = JSON.decode(savedData)
     tokenPrecedence    = loadedData.tokenPrecedence
-    percentage         = loadedData.percentage
     includeDrawnTokens = loadedData.includeDrawnTokens
   else
     loadDefaultValues()
 
     -- grab token metadata from mythos area
-    Wait.time(function() onTokenDataChanged(mythosAreaApi.returnTokenData()) end, 0.2)
+    Wait.time(function() onTokenDataChanged(MythosAreaApi.returnTokenData()) end, 0.2)
   end
 
   createButtonsAndInputs()
@@ -110,28 +93,6 @@ function onLoad(savedData)
     includeDrawnTokens = not includeDrawnTokens
     local text = includeDrawnTokens and " " or " not "
     broadcastToAll("Token Arranger will" .. text .. "include currently drawn chaos tokens.", "Orange")
-    updateSave()
-    layout()
-  end)
-
-  self.addContextMenuItem("Toggle percentages", function()
-    if percentage then
-      percentage = false
-    else
-      percentage = "basic"
-      broadcastToAll("Percentages are unreliable when using tokens that draw other tokens (bless or curse for example).", "Yellow")
-    end
-    updateSave()
-    layout()
-  end)
-
-  self.addContextMenuItem("Toggle cumulative", function()
-    if percentage == "cumulative" then
-      percentage = "basic"
-    else
-      percentage = "cumulative"
-    end
-    broadcastToAll("Percentages are unreliable when using tokens that draw other tokens (bless or curse for example).", "Yellow")
     updateSave()
     layout()
   end)
@@ -168,6 +129,10 @@ function tokenInput(input, selected, index)
       layout()
     end
   end
+end
+
+function getCurrentModifier(tokenName)
+  return tokenPrecedence[tokenName][1]
 end
 
 -- loads the default precedence table
@@ -269,24 +234,27 @@ function deleteCopiedTokens()
 end
 
 -- creates buttons as labels as display for percentage values
-function createPercentageButton(tokenCount, rowCount, tokenName)
+function createPercentageButton(tokenCount, rowCount, tokenName, optionPanelState)
+  if optionPanelState == "No Odds" then return end
+
   -- make a copy of the global start position and adjust Y for buttons
-  local buttonPosition = START_POSITION:copy():setAt("y", -0.04)
+  local buttonPosition = START_POSITION:copy():setAt("y", 0.05)
 
   -- flip X-coodinate for buttons
   buttonPosition = buttonPosition * Vector(-1, 1, 1)
 
   -- x-offset to align buttons
-  buttonPosition = buttonPosition + Vector(0.035, 0, 0)
+  buttonPosition = buttonPosition + Vector(0.02, 0, 0)
 
   -- z-offset to align buttons
   buttonPosition = buttonPosition + Vector(0, 0, TOKEN_OFFSET) * (rowCount - 1)
 
-  if percentage == "cumulative" then
-    percentageLabel.scale = Vector(0.2, 0.2, 0.2)
+  -- adjust data if both labels are enabled
+  if optionPanelState == "Full" then
+    percentageLabel.scale    = Vector(0.22, 0.22, 0.22)
     percentageLabel.position = buttonPosition - Vector(0, 0, TOKEN_OFFSET * 0.19)
   else
-    percentageLabel.scale = Vector(0.275, 0.275, 0.275)
+    percentageLabel.scale    = Vector(0.26, 0.26, 0.26)
     percentageLabel.position = buttonPosition
   end
 
@@ -303,12 +271,23 @@ function createPercentageButton(tokenCount, rowCount, tokenName)
   end
 
   -- create label for base percentage
-  local basePercentage = math.floor((tokenCount.row / tokenCount.total) * 10000) / 100
-  percentageLabel.label = formatPercentage(basePercentage)
-  self.createButton(percentageLabel)
+  if optionPanelState == "Basic" or optionPanelState == "Full" then
+    local basePercentage = math.floor((tokenCount.row / tokenCount.total) * 10000) / 100
+    percentageLabel.label = formatPercentage(basePercentage)
+    self.createButton(percentageLabel)
+  elseif optionPanelState == "Cumulative" then
+    -- only display one digit for 100%
+    if tokenCount.sum == tokenCount.total then
+      percentageLabel.label = "100.0%"
+    else
+      local cumulativePercentage = math.floor((tokenCount.sum / tokenCount.total) * 10000) / 100
+      percentageLabel.label = formatPercentage(cumulativePercentage)
+    end
+    self.createButton(percentageLabel)
+  end
 
   -- optionally create label for cumulative percentage
-  if percentage == "cumulative" then
+  if optionPanelState == "Full" then
     percentageLabel.position = buttonPosition + Vector(0, 0, TOKEN_OFFSET * 0.19)
     percentageLabel.font_color = { 1, 1, 1 }
 
@@ -340,7 +319,7 @@ function layout(_, _, isRightClick)
   end
 
   -- get ChaosBag and stop if not found
-  local chaosBag = chaosBagApi.findChaosBag()
+  local chaosBag = ChaosBagApi.findChaosBag()
   if not chaosBag then
     updating = false
     return
@@ -351,7 +330,7 @@ function layout(_, _, isRightClick)
 
   -- optionally get the data for tokens in play
   if includeDrawnTokens then
-    for _, token in pairs(chaosBagApi.getTokensInPlay()) do
+    for _, token in pairs(ChaosBagApi.getTokensInPlay()) do
       if token ~= nil then
         table.insert(rawData, token.getData())
       end
@@ -395,9 +374,10 @@ function layout(_, _, isRightClick)
   -- laying out the tokens
   local rotation = self.getRotation()
   local localStartPos = START_POSITION:copy()
+  local optionPanelState = GlobalApi.getOptionPanelState()["tokenArrangerOdds"]
 
   -- make space for the percentage labels
-  if percentage then
+  if optionPanelState ~= "No Odds" then
     localStartPos = localStartPos - Vector(0.35, 0, 0)
   end
 
@@ -410,10 +390,8 @@ function layout(_, _, isRightClick)
   for _, item in ipairs(data) do
     -- this is true for the first token in a new row
     if item.value ~= currentValue then
-      if percentage then
-        tokenCount.sum = tokenCount.sum + tokenCount.row
-        createPercentageButton(tokenCount, rowCount, tokenName)
-      end
+      tokenCount.sum = tokenCount.sum + tokenCount.row
+      createPercentageButton(tokenCount, rowCount, tokenName, optionPanelState)
 
       location = Vector(localStartPos.x, location.y, location.z + TOKEN_OFFSET)
       currentValue = item.value
@@ -432,10 +410,8 @@ function layout(_, _, isRightClick)
   end
 
   -- this is repeated to create the button for the last token
-  if percentage then
-    tokenCount.sum = tokenCount.sum + tokenCount.row
-    createPercentageButton(tokenCount, rowCount, tokenName)
-  end
+  tokenCount.sum = tokenCount.sum + tokenCount.row
+  createPercentageButton(tokenCount, rowCount, tokenName, optionPanelState)
 
   -- small delay to limit update calls
   Wait.time(function() updating = false end, 0.1)
