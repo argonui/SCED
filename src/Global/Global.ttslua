@@ -26,6 +26,7 @@ local dynamicTokensPerCard        = {}
 
 local chaosTokens                 = {}
 local chaosTokensLastMatGUID      = nil
+local namesToIds
 
 -- chaos token stat tracking
 local tokenDrawingStats           = {}
@@ -210,6 +211,8 @@ function onLoad(savedData)
   if LOAD_DEBUG_OPTION_PANEL then
     Wait.time(function() loadOptionPanelState(DEBUG_OPTION_PANEL_STATE) end, 2)
   end
+
+  namesToIds = createChaosTokenNameLookupTable()
 end
 
 -- provides a random seed (from 1 to 999) to be used by "linked" objects like the action tokens
@@ -810,8 +813,7 @@ function returnAndRedraw(_, tokenGUID)
     if tokenName == "Bless" or tokenName == "Curse" then
       BlessCurseManagerApi.removeToken(tokenName)
     else
-      local invertedTable = createChaosTokenNameLookupTable()
-      removeChaosToken(invertedTable[tokenName])
+      removeChaosToken(namesToIds[tokenName])
     end
   end
 
@@ -951,7 +953,10 @@ function drawChaosToken(params)
     local specificData = tokenData[name] or {}
     token.setDescription(specificData.description or "")
     trackChaosToken(name, params.mat.getMemo())
-    
+    if optionPanel['showTokenSplash'] then
+      tokenSplash(name)
+    end
+
     if not params.takeParameters then
       table.insert(chaosTokens, token)
     end
@@ -959,6 +964,59 @@ function drawChaosToken(params)
   else
     returnChaosTokens()
   end
+end
+
+-- splash drawn chaos token
+function tokenSplash(tokenName)
+  local numSeconds = 2
+  local id = "token-" .. namesToIds[tokenName]
+  local MODIFIER_TOKENS_NAMES = {
+    ["Skull"] = true,
+    ["Cultist"] = true,
+    ["Elder Sign"] = true,
+    ["Tablet"]  = true,
+    ["Elder Thing"]  = true,
+    ["Custom Token"]  = true
+  }
+  local tokenData = MythosAreaApi.returnTokenData()
+  if waitIds["hideChaosSplash"] then
+    Wait.stop(waitIds["hideChaosSplash"])
+    waitIds["hideChaosSplash"] = nil
+  end
+
+  Wait.time(function()
+    UI.setAttribute("token-splash-image", "image", id)
+    UI.show('chaos_token')
+    -- determine if modifier should be shown
+    if MODIFIER_TOKENS_NAMES[tokenName] then
+      local modifier = TokenArrangerApi.getCurrentModifier(tokenName)
+      if modifier < 100 then
+        local modifierText = "( "
+        if modifier > 0 then
+          modifierText = modifierText .. "+"
+        end
+        UI.setValue("chaos_modifier_text", modifierText .. modifier .. " )")
+        UI.show('token_modifier')
+      end
+    end
+    -- determine if scenario card reference data should be shown
+    if tokenData then
+      if tokenData.tokenData[tokenName] then
+        local tokenDescription = tokenData.tokenData[tokenName].description
+        if tokenDescription then
+          UI.setValue("chaos_splash_text", tokenDescription)
+          UI.show('token_description')
+          numSeconds = 2.5
+        end
+      end
+    end
+    waitIds["hideTokenSplash"] = Wait.time(function()
+      UI.hide('chaos_token')
+      UI.hide('token_description')
+      UI.hide('token_modifier')
+    end, numSeconds)
+  end, 0.75)
+
 end
 
 function luckyPenny(_, tokenGUID)
@@ -1168,11 +1226,10 @@ end
 ---@api ChaosBag / ChaosBagApi
 function getChaosBagState()
   local tokens = {}
-  local invertedTable = createChaosTokenNameLookupTable()
   local chaosBag = findChaosBag()
 
   for _, v in ipairs(chaosBag.getObjects()) do
-    local id = invertedTable[v.name]
+    local id = namesToIds[v.name]
     if id then
       table.insert(tokens, id)
     else
@@ -2984,6 +3041,7 @@ function onClick_defaultSettings()
     showOneDamageHorror       = false,
     showSearchAssistant       = false,
     showTitleSplash           = true,
+    showTokenSplash           = false,
     tableSetup                = "Classic (4P)",
     tokenArrangerOdds         = "No Odds",
     useClassTexture           = true,
