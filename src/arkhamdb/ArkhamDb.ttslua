@@ -156,24 +156,38 @@ do
 
     -- make sure the necessary custom content is loaded
     if deckMeta.fan_made_content then
-      local everythingIndexed = true
-      local necessaryCustomContent = {}
-
-      for cycleId, cycleData in pairs(deckMeta.fan_made_content.cycles or {}) do
-        local isIndexed = AllCardsBagApi.isCustomCycleIndexed(cycleId)
-        if not isIndexed then
-          everythingIndexed = false
-          necessaryCustomContent[cycleId] = cycleData.real_name
+      -- check if all cards are available
+      local cardsAreAvailable = true
+      for cardId, cardCount in pairs(slots) do
+        if cardCount and cardCount > 0 then
+          local card = AllCardsBagApi.getCardById(cardId)
+          if not card then
+            cardsAreAvailable = false
+            break
+          end
         end
       end
 
-      if not everythingIndexed then
-        for cycleId, cycleName in pairs(necessaryCustomContent) do
-          internal.maybePrint("Attempting to download " .. cycleName)
-          AllCardsBagApi.addCustomCycleToQueueForDeckImporting(cycleId)
-          GlobalApi.downloadCustomCycle(cycleId)
+      if not cardsAreAvailable then
+        local everythingIndexed = true
+        local necessaryCustomContent = {}
+
+        for cycleId, cycleData in pairs(deckMeta.fan_made_content.cycles or {}) do
+          local isIndexed = AllCardsBagApi.isCustomCycleIndexed(cycleId)
+          if not isIndexed then
+            everythingIndexed = false
+            necessaryCustomContent[cycleId] = cycleData.real_name
+          end
         end
-        return
+
+        if not everythingIndexed then
+          for cycleId, cycleName in pairs(necessaryCustomContent) do
+            internal.maybePrint("Attempting to download " .. cycleName)
+            AllCardsBagApi.addCustomCycleToQueueForDeckImporting(cycleId)
+            GlobalApi.downloadCustomCycle(cycleId)
+          end
+          return
+        end
       end
     end
 
@@ -188,7 +202,7 @@ do
     internal.maybeDrawRandomWeakness(slots, playerColor, restrictions)
 
     -- handles alternative investigators (parallel, promo or revised art)
-    local loadAltInvestigator = internal.addInvestigatorCards(deck, slots)
+    local loadAltInvestigator = internal.addInvestigatorCards(deck, deckMeta, slots)
 
     internal.maybeModifyDeckFromDescription(slots, deck.description_md, playerColor)
     internal.maybeAddSummonedServitor(slots)
@@ -241,10 +255,9 @@ do
   ---@param slots table The slot list for cards in this deck. Table key is the cardId, value is the
   ---    number of those cards which will be spawned
   ---@return string: Contains the name of the art that should be loaded ("normal", "promo" or "revised")
-  internal.addInvestigatorCards = function(deck, slots)
+  internal.addInvestigatorCards = function(deck, deckMeta, slots)
     local investigatorId = deck.investigator_code
     slots[investigatorId .. "-m"] = 1
-    local deckMeta = JSON.decode(deck.meta)
 
     -- handling alternative investigator art and parallel investigators
     local loadAltInvestigator = "normal"
