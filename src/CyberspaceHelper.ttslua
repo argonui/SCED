@@ -1,0 +1,81 @@
+local GUIDReferenceApi = require("core/GUIDReferenceApi")
+local PlayermatApi     = require("playermat/PlayermatApi")
+
+function onRotate(_, flip, _, _, oldFlip)
+  if flip == oldFlip then return end
+
+  local roundedFlip = roundToMultiple(flip, 15) % 360
+  local frameColor
+
+  if roundedFlip == 180 then
+    frameColor = Color.new(200 / 255, 225 / 255, 252 / 255)
+    self.setName("Cyperspace")
+  elseif roundedFlip == 0 then
+    frameColor = Color.new(126 / 255, 71 / 255, 44 / 255)
+    self.setName("Meatspace")
+  end
+
+  if frameColor then
+    local closestMatColor = PlayermatApi.getMatColorByPosition(self.getPosition())
+    local closestMat = GUIDReferenceApi.getObjectByOwnerAndType(closestMatColor, "Playermat")
+
+    local lineData = generateBoxData(Vector(0, 0.1, 0), Vector(4.3, 0, 2.1), 0, frameColor, 0.05)
+    closestMat.setVectorLines(lineData)
+  end
+end
+
+function roundToMultiple(num, mult)
+  return math.floor((num + mult / 2) / mult) * mult
+end
+
+-- generates the lines data for a rectangular box
+---@param center tts__Vector Center of the box
+---@param size tts__Vector X and Z dimension of the box
+---@param rotation number Rotation around the Y-axis for the box
+---@param boxColor string Color for the box
+---@param thickness number Thickness for the box
+---@return table lines Vector line data for the box
+function generateBoxData(center, size, rotation, boxColor, thickness)
+  local halfWidth = size.x / 2
+  local halfDepth = size.z / 2
+
+  -- corners of the box in local coordinates
+  local corners = {
+    Vector(-halfWidth, 0, -halfDepth),
+    Vector(halfWidth, 0, -halfDepth),
+    Vector(halfWidth, 0, halfDepth),
+    Vector(-halfWidth, 0, halfDepth)
+  }
+
+  -- translate corners to global coordinates
+  for i, cornerVec in ipairs(corners) do
+    local rotatedCornerVec = cornerVec:rotateOver('y', rotation)
+    corners[i] = rotatedCornerVec + center
+  end
+
+  -- generate the lines data
+  local lines = {
+    {
+      points = { corners[1], corners[2] },
+      color = boxColor,
+      thickness = thickness
+    },
+    {
+      points = { corners[2], corners[3] },
+      color = boxColor,
+      thickness = thickness
+    },
+    {
+      points = { corners[3], corners[4] },
+      color = boxColor,
+      thickness = thickness
+    },
+    {
+      points = { corners[4], corners[1] },
+      color = boxColor,
+      thickness = thickness
+    }
+  }
+
+  return lines
+end
