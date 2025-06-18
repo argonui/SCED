@@ -170,6 +170,7 @@ do
 
       if not cardsAreAvailable then
         local everythingIndexed = true
+        local couldDownloadContent = true
         local necessaryCustomContent = {}
 
         for cycleId, cycleData in pairs(deckMeta.fan_made_content.cycles or {}) do
@@ -182,11 +183,17 @@ do
 
         if not everythingIndexed then
           for cycleId, cycleName in pairs(necessaryCustomContent) do
-            internal.maybePrint("Attempting to download " .. cycleName)
-            AllCardsBagApi.addCustomCycleToQueueForDeckImporting(cycleId)
-            GlobalApi.downloadCustomCycle(cycleId)
+            internal.maybePrint("Attempting to download " .. cycleName, playerColor)
+            local foundInLibrary = GlobalApi.downloadCustomCycle(cycleId)
+            if foundInLibrary then
+              AllCardsBagApi.addCustomCycleToQueueForDeckImporting(cycleId)
+            else
+              couldDownloadContent = false
+            end
           end
-          return
+
+          -- deck import will be retriggered when downloads are completed
+          if couldDownloadContent then return end
         end
       end
     end
