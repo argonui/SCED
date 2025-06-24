@@ -14,7 +14,7 @@ local victoryDisplayApi           = require("mythos/VictoryDisplayApi")
 local zones                       = require("playermat/Zones")
 
 -- option panel data
-local availableOptions            = {
+local AVAILABLE_OPTIONS           = {
   ["PERSONAL SETTINGS"] = {
     {
       id    = "slotEditing",
@@ -45,6 +45,12 @@ local availableOptions            = {
       id    = "exhaustRotation",
       title = "Specify Exhaust Rotation",
       type  = "input"
+    },
+    {
+      id      = "useResourceCounters",
+      title   = "Use Resource Counters",
+      type    = "dropdown",
+      options = { "Global", "Enabled", "Chef's Selection", "Disabled " }
     }
   }
 }
@@ -480,7 +486,8 @@ function doUpkeep(_, clickedByColor, isRightClick)
       -- draw up to 5 cards
       local cardsToDraw = 5 - #handCards + #cardsToDiscard
       if cardsToDraw > 0 then
-        printToColor("Discarding " .. #cardsToDiscard .. " and drawing " .. cardsToDraw .. " card(s) instead (Patrice)", messageColor)
+        printToColor("Discarding " .. #cardsToDiscard .. " and drawing " .. cardsToDraw .. " card(s) instead (Patrice)",
+          messageColor)
 
         -- add some time if there are any cards to discard
         local k = 0
@@ -494,7 +501,8 @@ function doUpkeep(_, clickedByColor, isRightClick)
     printToColor("Drawing 2 cards instead, discard 1 (Forced Learning)", messageColor)
     drawCardsWithReshuffle(2)
   elseif activeInvestigatorData.id == "89001" then
-    printToColor("Drawing 1 additional card — devour a non-weakness player card in your hand (Subject 5U-21)", messageColor)
+    printToColor("Drawing 1 additional card — devour a non-weakness player card in your hand (Subject 5U-21)",
+      messageColor)
     drawCardsWithReshuffle(2)
   else
     drawCardsWithReshuffle(1)
@@ -882,18 +890,16 @@ function createXML()
   local optionPanelXML = {
     tag = "TableLayout",
     attributes = {
-      id = "optionPanelMain",
-      scale = scale .. " " .. scale,
-      width = "1000",
-      rotation = "0 0 180",
-      active = optionPanelVisibility ~= "",
-      visibility = optionPanelVisibility,
-      color = "#000000",
-      outlineSize = "5 5",
-      outline = "grey",
-      showAnimation = "SlideIn_Right",
-      hideAnimation = "SlideOut_Right",
-      animationDuration = "0.2"
+      id                = "optionPanelMain",
+      scale             = scale .. " " .. scale,
+      width             = "1200",
+      columnWidths      = "800 400",
+      rotation          = "0 0 180",
+      active            = optionPanelVisibility ~= "",
+      visibility        = optionPanelVisibility,
+      color             = "#000000",
+      outlineSize       = "5 5",
+      outline           = "grey"
     },
     children = {
       -- header
@@ -922,7 +928,7 @@ function createXML()
   }
 
   -- add options groups
-  for groupName, groupData in pairs(availableOptions) do
+  for groupName, groupData in pairs(AVAILABLE_OPTIONS) do
     totalHeight = totalHeight + rowHeight.groupHeader
     -- group header
     local groupXML = {
@@ -931,7 +937,7 @@ function createXML()
       children = {
         {
           tag = "Cell",
-          attributes = { padding = "20 10 0 0", columnSpan = "3", color = "#222222" },
+          attributes = { padding = "20 10 0 0", columnSpan = "2", color = "#222222" },
           children = {
             {
               tag = "Panel",
@@ -959,7 +965,7 @@ function createXML()
           -- option title
           {
             tag = "Cell",
-            attributes = { padding = "20 10 5 5", color = "#333333", columnSpan = "2" },
+            attributes = { padding = "20 10 5 5", color = "#333333" },
             children = {
               {
                 tag = "Panel",
@@ -976,29 +982,34 @@ function createXML()
         }
       }
 
-      local typeXML
-      if optionData.type == "toggle" then
-        typeXML = {
-          tag = "Cell",
-          attributes = { padding = "10 10 5 5", color = "#333333" },
-          children = {
-            {
-              tag = "Button",
-              attributes = {
-                id = optionData.id,
-                image = optionPanelData[optionData.id] and "option_on" or "option_off",
-                onClick = "onClick_toggleOption",
-                rectAlignment = "MiddleRight",
-                offsetXY = "-30 0",
-                colors = "#FFFFFF|#dfdfdf",
-                height = "108",
-                width = "195",
-                ignoreLayout = "True"
-              }
-            }
+      -- default data, will be changed below
+      local typeXML = {
+        tag = "Cell",
+        attributes = { padding = "10 10 5 5", color = "#333333" },
+        children = {
+          {
+            attributes = {
+              id            = optionData.id,
+              rectAlignment = "MiddleRight",
+              offsetXY      = "-30 0",
+              fontSize      = "80",
+              height        = "108",
+              width         = "195",
+              ignoreLayout  = "True"
+            },
+            children = {}
           }
         }
+      }
+
+      if optionData.type == "toggle" then
+        -- create toggle button (on / off
+        typeXML.children[1].tag                = "Button"
+        typeXML.children[1].attributes.image   = optionPanelData[optionData.id] and "option_on" or "option_off"
+        typeXML.children[1].attributes.onClick = "onClick_toggleOption"
+        typeXML.children[1].attributes.colors  = "#FFFFFF|#dfdfdf"
       elseif optionData.type == "button" then
+        -- create a regular button
         local baseColor = Color.new(0.228, 0.249, 0.773)
 
         -- use the hand color for the selection button
@@ -1006,50 +1017,33 @@ function createXML()
           baseColor = Color[playerColor]
         end
 
-        typeXML = {
-          tag = "Cell",
-          attributes = { padding = "10 10 5 5", color = "#333333" },
-          children = {
-            {
-              tag = "Button",
-              attributes = {
-                id = optionData.id,
-                image = "option_button",
-                onClick = "onClick_" .. optionData.id,
-                rectAlignment = "MiddleRight",
-                offsetXY = "-30 0",
-                colors = getColorBlockForXmlButton(baseColor),
-                height = "108",
-                width = "195",
-                ignoreLayout = "True"
-              }
-            }
-          }
-        }
+        typeXML.children[1].tag                = "Button"
+        typeXML.children[1].attributes.image   = "option_button"
+        typeXML.children[1].attributes.onClick = "onClick_" .. optionData.id
+        typeXML.children[1].attributes.colors  = getColorBlockForXmlButton(baseColor)
       elseif optionData.type == "input" then
-        typeXML = {
-          tag = "Cell",
-          attributes = { padding = "10 10 5 5", color = "#333333" },
-          children = {
-            {
-              tag = "InputField",
-              attributes = {
-                id = optionData.id,
-                onEndEdit = "onEndEdit",
-                rectAlignment = "MiddleRight",
-                text = optionPanelData[optionData.id] or "",
-                characterValidation = "Integer",
-                fontSize = "80",
-                textAlignment = "MiddleCenter",
-                offsetXY = "-30 0",
-                height = "108",
-                width = "195",
-                ignoreLayout = "True"
-              }
-            }
-          }
-        }
+        -- create an inputfield
+        typeXML.children[1].tag                            = "InputField"
+        typeXML.children[1].attributes.onEndEdit           = "onEndEdit_" .. optionData.id
+        typeXML.children[1].attributes.text                = optionPanelData[optionData.id] or ""
+        typeXML.children[1].attributes.characterValidation = "Integer"
+        typeXML.children[1].attributes.textAlignment       = "MiddleCenter"
+      elseif optionData.type == "dropdown" then
+        -- create a dropdown menu
+        typeXML.children[1].tag                       = "Dropdown"
+        typeXML.children[1].attributes.onValueChanged = "onValueChanged_" .. optionData.id
+        typeXML.children[1].attributes.text           = optionPanelData[optionData.id] or ""
+        typeXML.children[1].attributes.raycastTarget  = "true"
+        typeXML.children[1].attributes.fontSize       = "50"
+        typeXML.children[1].attributes.width          = "390"
+        typeXML.children[1].attributes.children       = {}
+
+        -- add options
+        for _, option in ipairs(optionData.options) do
+          table.insert(typeXML.children[1].children, { tag = "Option", attributes = { fontSize = "25" }, value = option })
+        end
       end
+
       table.insert(optionXML.children, typeXML)
       table.insert(optionPanelXML.children, optionXML)
     end
@@ -1057,10 +1051,12 @@ function createXML()
   table.insert(xml, optionPanelXML)
 
   -- set correct height
-  optionPanelXML.attributes.height = totalHeight
+  optionPanelXML.attributes.height   = totalHeight
 
   -- set correct position to align with playermat
-  optionPanelXML.attributes.position = (setAsideDirection * 270) .. " " .. (-95 + scale * totalHeight / 2) .. " -65"
+  local horizontalOffset             = (optionPanelXML.attributes.width * scale / 2 + 215) * setAsideDirection
+  local verticalOffset               = totalHeight * scale / 2 - 95
+  optionPanelXML.attributes.position = horizontalOffset .. " " .. verticalOffset .. " -65"
 
   self.UI.setXmlTable(xml)
 end
@@ -1273,16 +1269,14 @@ function modifySlot(newSlot, cardPosition)
   updateSlotSymbols()
 end
 
-function onEndEdit(player, text, elementId)
-  if elementId == "exhaustRotation" then
-    local angle = roundToMultiple(tonumber(text), 15) % 360
-    self.UI.setAttribute("exhaustRotation", "text", angle)
-    optionPanelData["exhaustRotation"] = angle
-    updateSave()
+function onEndEdit_exhaustRotation(player, text)
+  local angle = roundToMultiple(tonumber(text), 15) % 360
+  self.UI.setAttribute("exhaustRotation", "text", angle)
+  optionPanelData["exhaustRotation"] = angle
+  updateSave()
 
-    if math.abs(angle) > 90 then
-      printToColor("It's recommended to choose a value between 0° and 90°.", player.color, "Yellow")
-    end
+  if math.abs(angle) > 90 then
+    printToColor("It's recommended to choose a value between 0° and 90°.", player.color, "Yellow")
   end
 end
 
