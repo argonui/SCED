@@ -46,10 +46,10 @@ def convert_po_to_lua():
                 if not lang_code:
                     lang_code = os.path.splitext(filename)[0]
                     print(
-                        f"  > Warning: 'Language' metadata not set in '{filename}'. Falling back to filename for language code: '{lang_code}'"
+                        f"> Warning: 'Language' metadata not set in '{filename}'. Falling back to filename for language code: '{lang_code}'"
                     )
 
-                print(f"  > Processing '{filename}' for language: '{lang_code}'...")
+                print(f"> Processing '{filename}' for language: '{lang_code}'...")
 
                 # Process each translated entry in the .po file.
                 for entry in po_file.translated_entries():
