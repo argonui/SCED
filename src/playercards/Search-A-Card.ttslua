@@ -1,6 +1,7 @@
 require("playercards/PlayerCardSpawner")
 
 local allCardsBagApi           = require("playercards/AllCardsBagApi")
+local utf8                     = require("util/utf8")
 
 local BUTTON_LABELS            = {
   spawn = {
@@ -171,51 +172,73 @@ function spawnCardList(cardList)
   Spawner.spawnCards(cardList, pos, rot, true)
 end
 
+-- Parses a search string with filters, using the manually included UTF-8 library
+-- to correctly handle Cyrillic and other Unicode characters
 function parseSearchString(input)
   local filters = {}
   local searchTerm = {}
   local i = 1
-  local length = #input
+  local length = utf8.len(input)
 
   local function skipWhitespace()
-    while i <= length and input:sub(i, i):match("%s") do
+    while i <= length do
+      local char = utf8.sub(input, i, i)
+      if not string.match(char, "%s") then
+        break
+      end
       i = i + 1
     end
   end
 
   local function parseQuotedValue()
-    local start = i
-    i = i + 1 -- Skip the opening quote
-    while i <= length and input:sub(i, i) ~= '"' do
+    i = i + 1     -- skip the opening quote
+    local start_char_pos = i
+
+    while i <= length and utf8.sub(input, i, i) ~= '"' do
       i = i + 1
     end
-    if i > length then
-      printToAll("Unclosed quoted value")
+
+    local start_byte_pos = utf8.offset(input, start_char_pos)
+    local end_byte_pos = utf8.offset(input, i)
+
+    local value = ""
+    if start_byte_pos and end_byte_pos then
+      value = string.sub(input, start_byte_pos, end_byte_pos - 1)
     end
-    local value = input:sub(start + 1, i - 1)
-    i = i + 1 -- Skip the closing quote
+
+    i = i + 1     -- skip the closing quote
     return value
   end
 
   local function parseUnquotedValue()
-    local start = i
-    while i <= length and not input:sub(i, i):match("[%s\"<>:!]") do
+    local start_char_pos = i
+    while i <= length do
+      local char = utf8.sub(input, i, i)
+      if utf8.match(char, "[%s\"<>:!]") then
+        break
+      end
       i = i + 1
     end
-    return input:sub(start, i - 1)
+
+    local start_byte_pos = utf8.offset(input, start_char_pos)
+    local end_byte_pos = utf8.offset(input, i)
+
+    if start_byte_pos and end_byte_pos then
+      return string.sub(input, start_byte_pos, end_byte_pos - 1)
+    else
+      return ""
+    end
   end
 
-  local function parseFilter()
-    local key = input:sub(i, i)
-    i = i + 1
-    local operator = input:sub(i, i)
-    if not operator:match("[:<>!]") then
-      printToAll("Invalid operator: " .. operator)
-    end
-    i = i + 1
-    skipWhitespace()
+  local function parseFilter(char_before_op)
+    local key = char_before_op
+    local operator = utf8.sub(input, i + 1, i + 1)
+
+    i = i + 2            -- advance index past the key and the operator
+
+    skipWhitespace()     -- skip space between operator and value
     local value
-    if input:sub(i, i) == '"' then
+    if i <= length and utf8.sub(input, i, i) == '"' then
       value = parseQuotedValue()
     else
       value = parseUnquotedValue()
@@ -223,27 +246,29 @@ function parseSearchString(input)
     filters[key] = { operator = operator, value = value }
   end
 
+  -- skip whitespace at the very beginning of the parse
   skipWhitespace()
+
+  -- main parsing loop
   while i <= length do
-    local char = input:sub(i, i)
-    if char:match("%a") then
-      if i + 1 <= length and input:sub(i + 1, i + 1):match("[:<>!]") then
-        parseFilter()
-      else
-        -- Treat as part of the main search term
-        table.insert(searchTerm, char)
-        i = i + 1
-      end
+    local char = utf8.sub(input, i, i)
+    local next_char = ""
+    if i + 1 <= length then
+      next_char = utf8.sub(input, i + 1, i + 1)
+    end
+
+    if next_char ~= "" and string.find("[:<>!]", next_char, 1, true) then
+      parseFilter(char)
     else
       table.insert(searchTerm, char)
       i = i + 1
     end
   end
 
-  -- Combine the search term parts into a single string
-  local term = table.concat(searchTerm)
+  local term = table.concat(searchTerm, "")
   if term ~= "" then
-    filters.search = term:match("^%s*(.-)%s*$")
+    -- handle any trailing spaces after the last word or filter
+    filters.search = string.match(term, "^%s*(.-)%s*$")
   end
 
   return filters
