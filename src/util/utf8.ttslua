@@ -2,37 +2,32 @@
 --
 --  Lua 5.2+ UTF-8 support library (TTS-Safe Version)
 --
---  This version has been modified to remove all calls to `require` and `lpeg`
---  to ensure compatibility with the Tabletop Simulator environment.
+--  This version has been modified to ensure compatibility with Tabletop Simulator
 --
 --  Based on the work of (c) 2014-2017 André Arko
 --
 --]======================================================================================]
 
 do
-  -- Create the table that will hold our UTF-8 functions
-  utf8 = {}
+  local utf8 = {}
+  local charpattern = "([%z\1-\127\194-\244][\128-\191]*)"
 
-  -- Pattern to match a single UTF-8 character byte sequence
-  utf8.charpattern = "([%z\1-\127\194-\244][\128-\191]*)"
-
-  -- Returns the number of UTF-8 characters in a string.
-  ---@param s string
-  ---@return number
-  function utf8.len(s)
-    if not s or s == "" then return 0 end
-    -- The gsub function returns the string and the number of substitutions made.
-    -- We match every valid UTF-8 character and replace it with a placeholder,
-    -- then we return the count of replacements.
-    return select(2, string.gsub(s, utf8.charpattern, ""))
+  function utf8.offset(s, n)
+    if n <= 1 then return n end
+    local byte_pos = 1
+    for _ = 1, n - 1 do
+      local _, next_byte_pos = string.find(s, charpattern, byte_pos)
+      if not next_byte_pos then return nil end
+      byte_pos = next_byte_pos + 1
+    end
+    return byte_pos
   end
 
-  -- Returns the substring of `s` that starts at `i` and continues for `j` characters.
-  -- Handles negative indices like the standard string.sub.
-  ---@param s string
-  ---@param i number The starting character index
-  ---@param j? number The ending character index
-  ---@return string: The substring
+  function utf8.len(s)
+    if not s or s == "" then return 0 end
+    return select(2, string.gsub(s, charpattern, ""))
+  end
+
   function utf8.sub(s, i, j)
     j = j or -1
     local n = utf8.len(s)
@@ -41,56 +36,27 @@ do
     if j < 0 then j = n + j + 1 end
     if i < 1 then i = 1 end
     if j > n then j = n end
-
     if i > j then return "" end
 
     local byte_start_offset = utf8.offset(s, i)
-    -- The end position is the start of the j+1 character
     local byte_end_offset = utf8.offset(s, j + 1)
 
     if byte_start_offset then
       if byte_end_offset then
         return string.sub(s, byte_start_offset, byte_end_offset - 1)
       else
-        -- If j is the last character, byte_end_offset will be nil
         return string.sub(s, byte_start_offset)
       end
     end
-
     return ""
   end
 
-  -- Returns the byte position (offset) in the string for a given character position.
-  ---@param s string
-  ---@param n number The character position (1-based)
-  ---@return number: The byte position
-  function utf8.offset(s, n)
-    if n <= 1 then return n end
-
-    local byte_pos = 1
-    -- Find the start of the nth character
-    for _ = 1, n - 1 do
-      -- Find the end of the current character, which is the start of the next
-      local _, next_byte_pos = string.find(s, utf8.charpattern, byte_pos)
-      if not next_byte_pos then return nil end -- n is out of bounds
-      byte_pos = next_byte_pos + 1
-    end
-    return byte_pos
-  end
-
-  -- A simplified, TTS-safe version of utf8.match.
-  -- It only supports the specific character class pattern needed by our parser.
-  ---@param s string The character to check
-  ---@param p string The pattern (e.g., "[%s\"<>:!]")
-  ---@return string: The character if it matches, otherwise nil
   function utf8.match(s, p)
     local pattern_chars = string.match(p, "^%[(.+)%]$")
     if pattern_chars then
-      -- Check for standard character classes like %s
       if string.match(s, "%s") and string.find(pattern_chars, "%%s") then
         return s
       end
-      -- Check for literal characters
       if string.find(pattern_chars, s, 1, true) then
         return s
       end
@@ -98,11 +64,11 @@ do
     return nil
   end
 
-  -- Pass-through functions that don't need UTF-8 special handling
-  utf8.byte = string.byte
-  utf8.char = string.char
-  utf8.find = string.find
-  utf8.gmatch = string.gmatch
+  -- Pass-through functions from the standard `string` library
+  utf8.byte    = string.byte
+  utf8.char    = string.char
+  utf8.find    = string.find
+  utf8.gmatch  = string.gmatch
   utf8.reverse = string.reverse
 
   return utf8
