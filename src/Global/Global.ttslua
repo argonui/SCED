@@ -189,7 +189,7 @@ function onLoad(savedData)
   Wait.time(NavigationOverlayApi.createXmlButtons, 0.6)
   Wait.time(NavigationOverlayApi.updateVisibility, 0.8)
   Wait.time(PlayAreaApi.updatePlayAreaGallery, 1.0) -- also selects the first item after 0.1s
-  Wait.time(updateOptionPanelLanguage, 1.2)
+  Wait.time(updateGlobalUiLanguage, 1.2)
   Wait.time(initializeLibrary, 1.4) -- also simulates a click on the first item after 0.1s
 
   -- add a button and context menu to the chaos token stat tracker
@@ -2367,17 +2367,41 @@ end
 -- Option Panel related functionality
 ---------------------------------------------------------
 
-function updateOptionPanelLanguage()
-  for _, id in ipairs(i18n.optionPanelTextIDs) do
-    updateUiText(id)
-  end
+function updateGlobalUiLanguage()
+  local uiTable = UI.getXmlTable()
+  if not uiTable then return end
+
+  recursiveTranslate(uiTable)
+
+  UI.setXmlTable(uiTable)
 end
 
-function updateUiText(id)
-  if string.endsWith(id, "_tooltip") then
-    UI.setAttribute(id, "tooltip", i18n.getById(id))
-  else
-    UI.setValue(id, i18n.getById(id))
+-- This helper function recursively translates the UI table.
+---@param elements table A table of UI element nodes (like the root table or a 'children' table)
+function recursiveTranslate(elements)
+  -- Ensure we have a table to iterate over
+  if type(elements) ~= "table" then return end
+
+  for _, element in ipairs(elements) do
+    -- Ensure the element itself is a table and has attributes with an id
+    if type(element) == "table" and element.attributes and element.attributes.id then
+      local id = element.attributes.id
+
+      -- Check for and apply a translation for the element's text
+      local text = i18n.getById(id)
+      if text ~= id then
+        if string.endsWith(id, "_tooltip") then
+          element.attributes.tooltip = text
+        else
+          element.value = text
+        end
+      end
+    end
+
+    -- If the element has children, do the same for them
+    if element.children then
+      recursiveTranslate(element.children)
+    end
   end
 end
 
@@ -2399,7 +2423,7 @@ end
 -- called by the language selection dropdown
 function languageSelected(_, selectedIndex, id)
   optionPanel[id] = LANGUAGES[tonumber(selectedIndex) + 1].code
-  updateOptionPanelLanguage()
+  updateGlobalUiLanguage()
 end
 
 -- returns the ID (position in the table) for a provided language code
