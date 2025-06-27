@@ -1,12 +1,10 @@
 import os
 import polib
 
-# --- CONFIGURATION ---
 # This script assumes it is located inside the 'locales' folder.
 # The path where the final Lua file will be saved.
 # It will navigate up one directory and then into 'src/Global/'.
 OUTPUT_LUA_FILE = os.path.join("..", "src", "Global", "i18nData.ttslua")
-# --- END CONFIGURATION ---
 
 
 def to_lua_string(s):
