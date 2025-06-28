@@ -1,0 +1,131 @@
+LANGUAGES             = {
+  { code = "zh_CN", name = "简体中文", font = "font_chinese_fzlibian" },
+  { code = "zh_TW", name = "繁體中文", font = "font_chinese_fzlibian" },
+  { code = "de", name = "Deutsch", font = "font_teutonic-arkham" },
+  { code = "en", name = "English", font = "font_teutonic-arkham" },
+  { code = "es", name = "Español", font = "font_teutonic-arkham" },
+  { code = "fr", name = "Français", font = "font_teutonic-arkham" },
+  { code = "it", name = "Italiano", font = "font_teutonic-arkham" },
+  { code = "ru", name = "Русский", font = "font_russian_conkordia" }
+}
+SPECIAL_FONT_PREFIXES = {
+  DW_   = true,
+  OP_   = true,
+  NO_   = true,
+  PAG_  = true,
+  CUH_  = true,
+  CARD_ = true,
+  BB_   = false
+}
+i18n                  = {}
+
+function i18n.getStrById(id)
+  if I18N_DATA[id] then
+    local val = I18N_DATA[id][optionPanel.uiLanguage]
+    if val and val ~= "" then
+      return val
+    end
+    return I18N_DATA[id].en or id
+  end
+  return id
+end
+
+---@param code? string Language code
+function i18n.getFont(code)
+  code = code or optionPanel.uiLanguage
+  for _, tbl in ipairs(LANGUAGES) do
+    if tbl.code == code then
+      return tbl.font
+    end
+  end
+  return "font_teutonic-arkham"
+end
+
+function i18n.getFontById(id)
+  -- exclude tooltips
+  if string.endsWith(id, "tooltip") then return end
+
+  -- get prefix
+  local prefix = i18n.getPrefix(id)
+
+  -- exclude objects without prefix
+  if not prefix then return end
+
+  -- exclude objects with not-matching prefix
+  if not SPECIAL_FONT_PREFIXES[prefix] then return end
+
+  -- get the default font for the current language
+  return i18n.getFont()
+end
+
+function i18n.getPrefix(str)
+  local delimiter = "_"
+
+  -- Find the ending position of the first occurrence of the delimiter
+  local endPos = string.find(str, delimiter)
+
+  -- Extract the substring from the beginning to the end of the delimiter
+  if endPos then
+    return string.sub(str, 1, endPos)
+  end
+end
+
+function i18n.updateGlobalUiLanguage()
+  local xmlTable = UI.getXmlTable()
+  i18n.recursiveTranslate(xmlTable)
+  updateGlobalXml(xmlTable)
+  updateOptionPanelState()
+end
+
+-- This helper function recursively translates the UI table.
+---@param elements table A table of UI element nodes (like the root table or a 'children' table)
+function i18n.recursiveTranslate(elements)
+  if type(elements) ~= "table" then return end
+
+  for _, element in ipairs(elements) do
+    if type(element) == "table" and element.attributes and element.attributes.id then
+      local id = element.attributes.id
+
+      -- Check for and apply a translation for the element's text
+      i18n.updateElementText(element, id)
+
+      -- Also check for additional data
+      i18n.updateElementText(element, id .. "+tooltip")
+      i18n.updateElementText(element, id .. "+placeholder")
+    end
+
+    -- If the element has children, do the same for them
+    if element.children then
+      i18n.recursiveTranslate(element.children)
+    end
+  end
+end
+
+function i18n.updateElementText(element, id)
+  local text = i18n.getStrById(id)
+  if text ~= id then
+    if string.endsWith(id, "tooltip") then
+      element.attributes.tooltip = text
+    elseif string.endsWith(id, "placeholder") then
+      element.attributes.placeholder = text
+    elseif string.endsWith(id, "text") then
+      element.attributes.text = text
+    else
+      element.value = text
+    end
+
+    -- maybe also update the font
+    local font = i18n.getFontById(id)
+    if font then
+      element.attributes.font = font
+    end
+  end
+end
+
+function i18n.updateObjectUILanguage(obj)
+  if obj ~= nil then
+    local xmlTable = obj.UI.getXmlTable()
+    i18n.recursiveTranslate(xmlTable)
+    obj.UI.setXmlTable(xmlTable)
+  end
+end
