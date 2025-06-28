@@ -1,16 +1,17 @@
 require("core/Constants")
-local allCardsBagApi              = require("playercards/AllCardsBagApi")
-local chaosBagApi                 = require("chaosbag/ChaosBagApi")
-local deckLib                     = require("util/DeckLib")
+local AllCardsBagApi              = require("playercards/AllCardsBagApi")
+local ChaosBagApi                 = require("chaosbag/ChaosBagApi")
+local DeckLib                     = require("util/DeckLib")
 local GlobalApi                   = require("Global/GlobalApi")
-local guidReferenceApi            = require("core/GUIDReferenceApi")
-local mythosAreaApi               = require("mythos/MythosAreaApi")
-local navigationOverlayApi        = require("core/NavigationOverlayApi")
-local searchLib                   = require("util/SearchLib")
-local tokenChecker                = require("tokens/TokenChecker")
-local tokenManagerApi             = require("tokens/TokenManagerApi")
-local tokenSpawnTrackerApi        = require("tokens/TokenSpawnTrackerApi")
-local victoryDisplayApi           = require("mythos/VictoryDisplayApi")
+local GUIDReferenceApi            = require("core/GUIDReferenceApi")
+local i18nApi                     = require("Global/i18nApi")
+local MythosAreaApi               = require("mythos/MythosAreaApi")
+local NavigationOverlayApi        = require("core/NavigationOverlayApi")
+local SearchLib                   = require("util/SearchLib")
+local TokenChecker                = require("tokens/TokenChecker")
+local TokenManagerApi             = require("tokens/TokenManagerApi")
+local TokenSpawnTrackerApi        = require("tokens/TokenSpawnTrackerApi")
+local VictoryDisplayApi           = require("mythos/VictoryDisplayApi")
 local zones                       = require("playermat/Zones")
 
 -- option panel data
@@ -241,7 +242,7 @@ end
 
 -- get object references to owned objects
 function getOwnedObjects()
-  ownedObjects = guidReferenceApi.getObjectsByOwner(matColor)
+  ownedObjects = GUIDReferenceApi.getObjectsByOwner(matColor)
 end
 
 ---------------------------------------------------------
@@ -250,7 +251,7 @@ end
 
 -- searches an area and optionally filters the result
 function searchArea(origin, size, filter)
-  return searchLib.inArea(origin, self.getRotation(), size, filter)
+  return SearchLib.inArea(origin, self.getRotation(), size, filter)
 end
 
 -- finds all objects on the playermat and associated set aside zone.
@@ -307,18 +308,18 @@ function discardListOfObjects(objList)
         if func ~= nil then obj.call("resetSealedTokens") end
       end
       if obj.hasTag("PlayerCard") then
-        deckLib.placeOrMergeIntoDeck(obj, returnGlobalDiscardPosition(), self.getRotation())
+        DeckLib.placeOrMergeIntoDeck(obj, returnGlobalDiscardPosition(), self.getRotation())
       else
-        local discardPos = mythosAreaApi.getEncounterDiscardPosition()
-        deckLib.placeOrMergeIntoDeck(obj, discardPos, { x = 0, y = -90, z = 0 })
+        local discardPos = MythosAreaApi.getEncounterDiscardPosition()
+        DeckLib.placeOrMergeIntoDeck(obj, discardPos, { x = 0, y = -90, z = 0 })
       end
-    elseif tokenChecker.isChaosToken(obj) then
+    elseif TokenChecker.isChaosToken(obj) then
       -- put chaos tokens back into bag (e.g. Unrelenting)
-      chaosBagApi.returnChaosTokenToBag(obj, false)
+      ChaosBagApi.returnChaosTokenToBag(obj, false)
     elseif not obj.getLock() and not obj.hasTag("DontDiscard") and obj.interactable == true then
       -- don't touch locked objects (like the table etc.) or specific objects (like key tokens)
       if obj.getMemo() == "clueDoom" then
-        victoryDisplayApi.update()
+        VictoryDisplayApi.update()
       end
       ownedObjects.Trash.putObject(obj)
     end
@@ -431,7 +432,7 @@ function doUpkeep(_, clickedByColor, isRightClick)
 
       -- maybe replenish uses on certain cards (don't continue for cards on the deck (Norman) or in the discard pile)
       if cardMetadata.uses ~= nil and self.positionToLocal(obj.getPosition()).x > -1 and not obj.is_face_down then
-        tokenManagerApi.maybeReplenishCard(obj, cardMetadata.uses, self)
+        TokenManagerApi.maybeReplenishCard(obj, cardMetadata.uses, self)
       end
     elseif obj.type == "Deck" and not obj.is_face_down and not forcedLearning then -- check face up decks for forced learning
       for _, deepObj in ipairs(obj.getObjects()) do
@@ -481,7 +482,7 @@ function doUpkeep(_, clickedByColor, isRightClick)
 
       -- perform discarding 1 by 1
       local pos = returnGlobalDiscardPosition()
-      deckLib.placeOrMergeIntoDeck(cardsToDiscard, pos, self.getRotation())
+      DeckLib.placeOrMergeIntoDeck(cardsToDiscard, pos, self.getRotation())
 
       -- draw up to 5 cards
       local cardsToDraw = 5 - #handCards + #cardsToDiscard
@@ -669,7 +670,7 @@ function shuffleDiscardIntoDeck(player, _, elementId)
   end
 
   Wait.time(function()
-    deckLib.placeOrMergeIntoDeck(objects.discard, returnGlobalDrawPosition(), faceDownRotation, nil, true)
+    DeckLib.placeOrMergeIntoDeck(objects.discard, returnGlobalDrawPosition(), faceDownRotation, nil, true)
   end, delay)
 end
 
@@ -746,7 +747,7 @@ function doDiscardOne(_, clickedByColor)
     local cardName = card.getName()
     local cardId = choices[num] .. "/" .. #hand
 
-    deckLib.placeOrMergeIntoDeck(card, returnGlobalDiscardPosition(), self.getRotation())
+    DeckLib.placeOrMergeIntoDeck(card, returnGlobalDiscardPosition(), self.getRotation())
     local playerName = GlobalApi.getColoredName(playerColor)
     broadcastToAll(playerName .. " randomly discarded " .. cardName .. " (" .. cardId .. ").", "White")
   end
@@ -887,6 +888,7 @@ function createXML()
   local scale = 0.11
 
   -- main window
+  local fontName = i18nApi.getFont()
   local optionPanelXML = {
     tag = "TableLayout",
     attributes = {
@@ -916,7 +918,12 @@ function createXML()
                 children = {
                   {
                     tag = "Text",
-                    attributes = { font = "font_teutonic-arkham", fontSize = "110", text = "Options" }
+                    attributes = {
+                      id       = "PM_title_text",
+                      fontSize = "110",
+                      font     = fontName,
+                      text     = "Options"
+                    }
                   }
                 }
               }
@@ -928,7 +935,9 @@ function createXML()
   }
 
   -- add options groups
+  local groupCount = 0
   for groupName, groupData in pairs(AVAILABLE_OPTIONS) do
+    groupCount = groupCount + 1
     totalHeight = totalHeight + rowHeight.groupHeader
     -- group header
     local groupXML = {
@@ -945,7 +954,12 @@ function createXML()
               children = {
                 {
                   tag = "Text",
-                  attributes = { fontSize = "75", font = "font_teutonic-arkham", text = groupName }
+                  attributes = {
+                    id       = "PM_group_" .. groupCount .. "_text",
+                    fontSize = "75",
+                    font     = fontName,
+                    text     = groupName
+                  }
                 }
               }
             }
@@ -973,7 +987,12 @@ function createXML()
                 children = {
                   {
                     tag = "Text",
-                    attributes = { fontSize = "65", font = "font_teutonic-arkham", text = optionData.title }
+                    attributes = {
+                      id       = "PM_optionTitle_" .. optionData.id .. "_text",
+                      fontSize = "65",
+                      font     = fontName,
+                      text     = optionData.title
+                    }
                   }
                 }
               }
@@ -1032,15 +1051,23 @@ function createXML()
         -- create a dropdown menu
         typeXML.children[1].tag                       = "Dropdown"
         typeXML.children[1].attributes.onValueChanged = "onValueChanged_" .. optionData.id
-        typeXML.children[1].attributes.text           = optionPanelData[optionData.id] or ""
         typeXML.children[1].attributes.raycastTarget  = "true"
         typeXML.children[1].attributes.fontSize       = "50"
         typeXML.children[1].attributes.width          = "390"
         typeXML.children[1].attributes.children       = {}
 
         -- add options
-        for _, option in ipairs(optionData.options) do
-          table.insert(typeXML.children[1].children, { tag = "Option", attributes = { fontSize = "25" }, value = option })
+        for dropdownOptionId, option in ipairs(optionData.options) do
+          table.insert(typeXML.children[1].children, {
+            tag        = "Option",
+            value      = option,
+            attributes = {
+              id                = "PM_option_dropdown_" .. dropdownOptionId,
+              fontSize          = "25",
+              font              = fontName,
+              scrollSensitivity = "25"
+            }
+          })
         end
       end
 
@@ -1097,7 +1124,7 @@ function onClick_handColorSelect(player)
     -- update visibility for old and new color (delay to allow first call to resolve)
     GlobalApi.changeWindowVisibility(playerColor, "optionPanelMain", false, self)
     Wait.frames(function() GlobalApi.changeWindowVisibility(newColor, "optionPanelMain", true, self) end, 3)
-    navigationOverlayApi.copyVisibility(playerColor, newColor)
+    NavigationOverlayApi.copyVisibility(playerColor, newColor)
 
     -- if there was a seated player, reseat to the new color
     if Player[playerColor].seated then
@@ -1321,7 +1348,7 @@ function syncCustomizableMetadata(card, cardMetadata)
             card.setGMNotes(JSON.encode(cardMetadata))
           else
             -- restore original 'uses' metadata
-            local originalData = allCardsBagApi.getCardById(cardMetadata.id)
+            local originalData = AllCardsBagApi.getCardById(cardMetadata.id)
             if originalData and originalData.metadata and originalData.metadata.uses then
               cardMetadata.uses = originalData.metadata.uses
               card.setGMNotes(JSON.encode(cardMetadata))
@@ -1362,7 +1389,7 @@ function spawnTokensFor(object)
     end
   end
 
-  tokenManagerApi.spawnForCard(object, extraUses, spawnReactionToken)
+  TokenManagerApi.spawnForCard(object, extraUses, spawnReactionToken)
 end
 
 -- search for "Locked and Loaded"
@@ -1411,7 +1438,7 @@ function onCollisionEnter(collisionInfo)
       spawnTokensOrShowHelper(object)
     end
   elseif inArea(localCardPos, DECK_DISCARD_AREA) then
-    tokenSpawnTrackerApi.resetTokensSpawned(object)
+    TokenSpawnTrackerApi.resetTokensSpawned(object)
     GlobalApi.removeTokensFromObject(object, matColor)
     if md.id == "07224" then luckyPennyEnabled = false end
   elseif object.is_face_down == false then
@@ -1452,7 +1479,7 @@ function onObjectEnterContainer(container, object)
 
   local localCardPos = self.positionToLocal(object.getPosition())
   if inArea(localCardPos, DECK_DISCARD_AREA) then
-    tokenSpawnTrackerApi.resetTokensSpawned(object)
+    TokenSpawnTrackerApi.resetTokensSpawned(object)
     GlobalApi.removeTokensFromObject(object, matColor)
     local metadata = JSON.decode(object.getGMNotes()) or {}
     if metadata.id == "07224" then luckyPennyEnabled = false end
@@ -1524,7 +1551,7 @@ function maybeUpdateActiveInvestigator(card, md)
         local localSpawnPos = tokenSpawnPos[type][count[type]]
         local globalSpawnPos = self.positionToWorld(localSpawnPos):add(Vector(0, 0.2, 0))
         callbackParams.symbol = str
-        tokenManagerApi.spawnToken(globalSpawnPos, tokenType, rotation, callbackName, callbackParams)
+        TokenManagerApi.spawnToken(globalSpawnPos, tokenType, rotation, callbackName, callbackParams)
       end
     end
   end
@@ -1538,7 +1565,7 @@ function spawnActionTokens()
 
   for i = 1, 3 do
     local position = self.positionToWorld(Vector(-1.54 + i * 0.17, 0, -0.28)):add(Vector(0, 0.2, 0))
-    tokenManagerApi.spawnToken(position, tokenType, rotation, callbackName, callbackParams)
+    TokenManagerApi.spawnToken(position, tokenType, rotation, callbackName, callbackParams)
   end
 end
 
@@ -1549,10 +1576,10 @@ function newInvestigatorCallback(newId)
   Wait.frames(function() GlobalApi.updateActionTrackerTokens(matColor) end, 5)
 
   -- remove existing object that was placed for a specific investigator
-  local obj = guidReferenceApi.getObjectByOwnerAndType(matColor, "InvestigatorSpecifics")
+  local obj = GUIDReferenceApi.getObjectByOwnerAndType(matColor, "InvestigatorSpecifics")
   if obj ~= nil then
     obj.destruct()
-    guidReferenceApi.editIndex(matColor, "InvestigatorSpecifics")
+    GUIDReferenceApi.editIndex(matColor, "InvestigatorSpecifics")
   end
 
   if newId == "01005-p" or newId == "01005-pf" then -- parallel Wendy Adams
@@ -1570,11 +1597,11 @@ function newInvestigatorCallback(newId)
   elseif newId == "89001" then -- Subject 5U-21
     local pos = zones.getZonePosition(playerColor, "BelowSetAside")
     local rot = self.getRotation()
-    local sourceBag = guidReferenceApi.getObjectByOwnerAndType("Mythos", "ObjectSourceBag")
+    local sourceBag = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "ObjectSourceBag")
     for _, objData in ipairs(sourceBag.getData().ContainedObjects) do
       if objData["Nickname"] == "Subject 5U-21 Helper" then
         local spawnedObj = spawnObjectData({ data = objData, position = pos, rotation = rot })
-        guidReferenceApi.editIndex(matColor, "InvestigatorSpecifics", spawnedObj.getGUID())
+        GUIDReferenceApi.editIndex(matColor, "InvestigatorSpecifics", spawnedObj.getGUID())
         break
       end
     end
@@ -1587,8 +1614,8 @@ end
 function spawnInfiniteTokenBag(tokenType)
   local pos = zones.getZonePosition(matColor, "AboveSetAside")
   local rot = self.getRotation()
-  local spawnedObj = spawnObjectData({ data = tokenManagerApi.getDataForInfiniteBag(tokenType, pos, rot) })
-  guidReferenceApi.editIndex(matColor, "InvestigatorSpecifics", spawnedObj.getGUID())
+  local spawnedObj = spawnObjectData({ data = TokenManagerApi.getDataForInfiniteBag(tokenType, pos, rot) })
+  GUIDReferenceApi.editIndex(matColor, "InvestigatorSpecifics", spawnedObj.getGUID())
 end
 
 -- returns the mini ID for the currently placed investigator
@@ -1693,12 +1720,12 @@ end
 ---------------------------------------------------------
 
 function drawChaosTokenButton(_, _, isRightClick)
-  chaosBagApi.drawChaosToken(self, isRightClick)
+  ChaosBagApi.drawChaosToken(self, isRightClick)
 end
 
 function drawEncounterCard(_, _, isRightClick)
   local drawPos = getEncounterCardDrawPosition(not isRightClick)
-  mythosAreaApi.drawEncounterCard(matColor, drawPos)
+  MythosAreaApi.drawEncounterCard(matColor, drawPos)
 end
 
 function returnGlobalDiscardPosition()
@@ -1719,7 +1746,7 @@ function getEncounterCardDrawPosition(stack)
     local searchPos = Vector(-0.91, 0.5, -0.625)
     for i = 1, 5 do
       local globalSearchPos = self.positionToWorld(searchPos)
-      local searchResult = searchLib.atPosition(globalSearchPos, "isCardOrDeck")
+      local searchResult = SearchLib.atPosition(globalSearchPos, "isCardOrDeck")
       if #searchResult == 0 then
         drawPos = globalSearchPos
         break
@@ -1784,7 +1811,7 @@ function clickableClues(showCounter)
     local pos = self.positionToWorld({ x = -1.12, y = 0.05, z = 0.7 })
     for i = 1, clueCount do
       pos.y = pos.y + 0.045 * i
-      tokenManagerApi.spawnToken(pos, "clue", self.getRotation())
+      TokenManagerApi.spawnToken(pos, "clue", self.getRotation())
     end
   end
 end
