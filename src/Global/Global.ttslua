@@ -1,6 +1,8 @@
 require("Global/ChaosTokenMessages")
 require("Global/TableSetupData")
 require("core/Constants")
+require("Global/i18n")
+require("Global/i18nData")
 local BlessCurseManagerApi        = require("chaosbag/BlessCurseManagerApi")
 local CoroutineLib                = require("util/CoroutineLib")
 local GUIDReferenceApi            = require("core/GUIDReferenceApi")
@@ -43,25 +45,16 @@ local authorList                  = {}
 local contentToShow               = "campaign"
 local currentListItem             = 1
 local TAB_IDS                     = {
-  tab1 = "campaign",
-  tab2 = "scenario",
-  tab3 = "fanmade-campaign",
-  tab4 = "fanmade-scenario",
-  tab5 = "fanmade-playercards"
+  DW_tab1 = "campaign",
+  DW_tab2 = "scenario",
+  DW_tab3 = "fanmade-campaign",
+  DW_tab4 = "fanmade-scenario",
+  DW_tab5 = "fanmade-playercards"
 }
 
 -- optionPanel data (intentionally not local!)
 optionPanel                       = {}
 local sentOptionPanelMessage      = {}
-local LANGUAGES                   = {
-  { code = "zh_CN", name = "简体中文" },
-  { code = "zh_TW", name = "繁體中文" },
-  { code = "de", name = "Deutsch" },
-  { code = "en", name = "English" },
-  { code = "es", name = "Español" },
-  { code = "fr", name = "Français" },
-  { code = "it", name = "Italiano" }
-}
 local RESOURCE_OPTIONS            = {
   "enabled",
   "custom",
@@ -186,7 +179,8 @@ function onLoad(savedData)
   Wait.time(NavigationOverlayApi.createXmlButtons, 0.6)
   Wait.time(NavigationOverlayApi.updateVisibility, 0.8)
   Wait.time(PlayAreaApi.updatePlayAreaGallery, 1.0) -- also selects the first item after 0.1s
-  Wait.time(initializeLibrary, 1.2) -- also simulates a click on the first item after 0.1s
+  Wait.time(i18n.updateGlobalUiLanguage, 1.2)
+  Wait.time(initializeLibrary, 1.4) -- also simulates a click on the first item after 0.1s
 
   -- add a button and context menu to the chaos token stat tracker
   local statTracker = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "StatTracker")
@@ -546,6 +540,10 @@ function onObjectSpawn(obj)
     obj.addContextMenuItem("Redownload this", function(playerColor)
       placeholder_download({ filename = obj.getGMNotes(), player = Player[playerColor], replace = obj.getGUID() })
     end)
+  end
+
+  if obj.hasTag("i18n_XML") then
+    Wait.time(function() i18n.updateObjectUILanguage(obj) end, 1)
   end
 
   maybeAddDecalToChaosToken(obj)
@@ -1364,7 +1362,7 @@ function onSearchValueSubmit(_, value)
   end
 
   -- update XML so that the settings persists
-  UI.setAttribute("searchField", "text", value)
+  UI.setAttribute("DW_searchField", "text", value)
 
   -- turn off flag after 0.1s
   Wait.time(function() ignoreSubmit = false end, 0.1)
@@ -1375,15 +1373,17 @@ end
 
 -- callback function for the "author" dropdown in the download menu
 function onAuthorFilterChanged(_, value)
+  local authorId = returnAuthorId(value)
+
   -- store input value in global var
-  if value == "All authors" then
+  if authorId == 1 then
     authorFilter = nil
   else
     authorFilter = value
   end
 
   -- update XML so that the settings persists
-  UI.setAttribute("authorDropdown", "value", returnAuthorId(value))
+  UI.setAttribute("DW_authorDropdown", "value", authorId)
 
   -- update list (including new filter setting)
   updateDownloadItemList(true)
@@ -1413,8 +1413,8 @@ function onClick_tab(_, _, tabId)
 
   -- reset filters
   authorFilter, searchFilter = nil, nil
-  UI.setAttribute("searchField", "text", "")
-  UI.setAttribute("authorDropdown", "value", 0)
+  UI.setAttribute("DW_searchField", "text", "")
+  UI.setAttribute("DW_authorDropdown", "value", 0)
 
   updateDownloadItemList()
 end
@@ -1919,8 +1919,8 @@ function updateDownloadItemList(skipAuthorUpdate)
   if not skipAuthorUpdate then
     authorList = removeDuplicatesAndSort(authorList)
 
-    local authorDropdown = getXmlTableElementById(globalXml, 'authorDropdown')
-    authorDropdown.children = { { tag = "Option", value = "All authors" } }
+    local authorDropdown = getXmlTableElementById(globalXml, 'DW_authorDropdown')
+    authorDropdown.children = { { tag = "Option", value = i18n.getStrById("DW_authorDropdown") } }
     for _, author in ipairs(authorList) do
       table.insert(authorDropdown.children, { tag = "Option", value = author })
     end
@@ -2387,6 +2387,15 @@ end
 -- called by the language selection dropdown
 function languageSelected(_, selectedIndex, id)
   optionPanel[id] = LANGUAGES[tonumber(selectedIndex) + 1].code
+
+  -- update XML so that the settings persists
+  UI.setAttribute(id, "value", selectedIndex)
+
+  i18n.updateGlobalUiLanguage()
+
+  for _, obj in ipairs(getObjectsWithTag("i18n_XML")) do
+    i18n.updateObjectUILanguage(obj)
+  end
 end
 
 -- returns the ID (position in the table) for a provided language code
@@ -2401,6 +2410,9 @@ end
 -- called by the resource counter selection dropdown
 function resourceCounterSelected(_, selectedIndex, id)
   optionPanel[id] = RESOURCE_OPTIONS[tonumber(selectedIndex) + 1]
+
+  -- update XML so that the settings persists
+  UI.setAttribute(id, "value", selectedIndex)
 end
 
 -- returns the ID for the provided option name
@@ -2415,6 +2427,10 @@ end
 -- called by the resource counter selection dropdown
 function tokenArrangerOptionSelected(_, selectedIndex, id)
   optionPanel[id] = TOKEN_ARRANGER_OPTIONS[tonumber(selectedIndex) + 1]
+
+  -- update XML so that the settings persists
+  UI.setAttribute(id, "value", selectedIndex)
+
   TokenArrangerApi.layout()
 
   if optionPanel[id] ~= "No Odds" and not tokenArrangerWarningShown then
@@ -2644,6 +2660,9 @@ function tableSetupSelected(_, selectedIndex, id)
   local selectedValue = TABLE_SETUP_OPTIONS[tonumber(selectedIndex) + 1]
   updateTableSetup(selectedValue, optionPanel[id])
   optionPanel[id] = selectedValue
+
+  -- update XML so that the settings persists
+  UI.setAttribute(id, "value", selectedIndex)
 end
 
 -- returns the ID for the provided option name
@@ -2832,7 +2851,7 @@ end
 -- sets the option panel to the correct state (corresponding to 'optionPanel')
 function updateOptionPanelState()
   for id, optionValue in pairs(optionPanel) do
-    if id == "cardLanguage" and type(optionValue) == "string" then
+    if id == "uiLanguage" and type(optionValue) == "string" then
       local dropdownId = returnLanguageId(optionValue) - 1
       UI.setAttribute(id, "value", dropdownId)
     elseif id == "tokenArrangerOdds" and type(optionValue) == "string" then
@@ -3036,7 +3055,7 @@ end
 function onClick_defaultSettings()
   -- clean reset of variables
   optionPanel = {
-    cardLanguage              = "en",
+    uiLanguage                = "en",
     changePlayAreaImage       = false,
     enableCardHelpers         = true,
     makeDamageHorrorClickable = true,
