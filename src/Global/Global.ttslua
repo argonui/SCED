@@ -179,7 +179,7 @@ function onLoad(savedData)
   Wait.time(NavigationOverlayApi.createXmlButtons, 0.6)
   Wait.time(NavigationOverlayApi.updateVisibility, 0.8)
   Wait.time(PlayAreaApi.updatePlayAreaGallery, 1.0) -- also selects the first item after 0.1s
-  Wait.time(updateGlobalUiLanguage, 1.2)
+  Wait.time(i18n.updateGlobalUiLanguage, 1.2)
   Wait.time(initializeLibrary, 1.4) -- also simulates a click on the first item after 0.1s
 
   -- add a button and context menu to the chaos token stat tracker
@@ -540,6 +540,10 @@ function onObjectSpawn(obj)
     obj.addContextMenuItem("Redownload this", function(playerColor)
       placeholder_download({ filename = obj.getGMNotes(), player = Player[playerColor], replace = obj.getGUID() })
     end)
+  end
+
+  if obj.hasTag("i18n_XML") then
+    Wait.time(function() i18n.updateObjectUILanguage(obj) end, 1)
   end
 
   maybeAddDecalToChaosToken(obj)
@@ -2359,56 +2363,6 @@ end
 -- Option Panel related functionality
 ---------------------------------------------------------
 
-function updateGlobalUiLanguage()
-  local xmlTable = UI.getXmlTable()
-  recursiveTranslate(xmlTable)
-  updateGlobalXml(xmlTable)
-  updateOptionPanelState()
-end
-
--- This helper function recursively translates the UI table.
----@param elements table A table of UI element nodes (like the root table or a 'children' table)
-function recursiveTranslate(elements)
-  if type(elements) ~= "table" then return end
-
-  for _, element in ipairs(elements) do
-    if type(element) == "table" and element.attributes and element.attributes.id then
-      local id = element.attributes.id
-
-      -- Check for and apply a translation for the element's text
-      updateElementText(element, id)
-
-      -- Also check for additional data
-      updateElementText(element, id .. "+tooltip")
-      updateElementText(element, id .. "+placeholder")
-    end
-
-    -- If the element has children, do the same for them
-    if element.children then
-      recursiveTranslate(element.children)
-    end
-  end
-end
-
-function updateElementText(element, id)
-  local text = i18n.getStrById(id)
-  if text ~= id then
-    if string.endsWith(id, "tooltip") then
-      element.attributes.tooltip = text
-    elseif string.endsWith(id, "placeholder") then
-      element.attributes.placeholder = text
-    else
-      element.value = text
-    end
-
-    -- maybe also update the font
-    local font = i18n.getFontById(id)
-    if font then
-      element.attributes.font = font
-    end
-  end
-end
-
 -- changes the UI state and the internal variable for the togglebuttons
 function onClick_toggleOption(_, _, id)
   local currentState = optionPanel[id]
@@ -2431,7 +2385,11 @@ function languageSelected(_, selectedIndex, id)
   -- update XML so that the settings persists
   UI.setAttribute(id, "value", selectedIndex)
 
-  updateGlobalUiLanguage()
+  i18n.updateGlobalUiLanguage()
+
+  for _, obj in ipairs(getObjectsWithTag("i18n_XML")) do
+    i18n.updateObjectUILanguage(obj)
+  end
 end
 
 -- returns the ID (position in the table) for a provided language code
