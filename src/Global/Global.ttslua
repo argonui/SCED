@@ -3271,10 +3271,10 @@ end
 ---@param maxTokens number Maximum amount of tokens on a card
 function TokenManager.generateOffsets(maxTokens)
   tokenOffsets = {
-    [1] = { Vector(0, 3, -0.2) },
-    [2] = { Vector(0.4, 3, -0.2), Vector(-0.4, 3, -0.2) },
-    [3] = { Vector(0, 3, -0.9), Vector(0.4, 3, -0.2), Vector(-0.4, 3, -0.2) },
-    [4] = { Vector(0.4, 3, -0.9), Vector(-0.4, 3, -0.9), Vector(0.4, 3, -0.2), Vector(-0.4, 3, -0.2) }
+    [1] = { Vector(0, 0.1, -0.2) },
+    [2] = { Vector(0.4, 0.1, -0.2), Vector(-0.4, 0.1, -0.2) },
+    [3] = { Vector(0, 0.1, -0.9), Vector(0.4, 0.1, -0.2), Vector(-0.4, 0.1, -0.2) },
+    [4] = { Vector(0.4, 0.1, -0.9), Vector(-0.4, 0.1, -0.9), Vector(0.4, 0.1, -0.2), Vector(-0.4, 0.1, -0.2) }
   }
 
   -- generate offsets for numTokens > 4 dynamically
@@ -3283,7 +3283,7 @@ function TokenManager.generateOffsets(maxTokens)
     local rows = math.min(4, math.ceil(numTokens / 3))
     local tokensPlaced = 0
     for row = 1, rows do
-      local y = 3
+      local y = 0.1
       local z = -0.9 + (row - 1) * 0.7
       local tokensInRow = math.min(3, numTokens - tokensPlaced)
       for col = 1, tokensInRow do
@@ -3321,8 +3321,6 @@ function TokenManager.spawnTokenGroup(params)
   local tokenCount = params.tokenCount
   local replenish  = params.replenish
   local shiftDown  = params.shiftDown
-  local subType    = params.subType
-  local temporary  = params.temporary
   local matColor   = params.matColor
 
   if tokenType == "damage" or tokenType == "horror" then
@@ -3330,7 +3328,7 @@ function TokenManager.spawnTokenGroup(params)
   elseif shouldSpawnResourceCounter(tokenType, tokenCount, replenish, matColor) then
     TokenManager.spawnResourceCounterToken({ card = card, tokenValue = tokenCount })
   else
-    TokenManager.spawnMultipleTokens(card, tokenType, tokenCount, shiftDown, subType, temporary)
+    TokenManager.spawnMultipleTokens(params)
   end
 end
 
@@ -3392,14 +3390,26 @@ function TokenManager.spawnResourceCounterToken(params)
   })
 end
 
--- Spawns a number of tokens.
----@param tokenType string Type of token to spawn (template needs to be in source bag)
----@param tokenCount number How many tokens to spawn
----@param shiftDown? number An offset for the z-value of this group of tokens
----@param subType? string Subtype of token to spawn. This will only differ from the tokenName for resource or action tokens
----@param temporary? boolean If present adds the temporary tag to an action token
-function TokenManager.spawnMultipleTokens(card, tokenType, tokenCount, shiftDown, subType, temporary)
+-- Spawns a number of tokens
+function TokenManager.spawnMultipleTokens(params)
+  local card       = params.card
+  local tokenType  = params.tokenType
+  local tokenCount = params.tokenCount
+  local shiftDown  = params.shiftDown
+  local subType    = params.subType
+  local temporary  = params.temporary
+  local matColor   = params.matColor
+
   if tokenCount < 1 then return end
+
+  -- make sure tokens spawn correctly on rotated cards respective to the mat below
+  local referenceRotationY = 270
+  if matColor then
+    referenceRotationY = PlayermatApi.returnRotation(matColor).y
+  end
+
+  -- get the card's center position in the world
+  local cardWorldPosition = card.getPosition()
 
   local offsets = {}
   if tokenType == "clue" then
@@ -3410,13 +3420,17 @@ function TokenManager.spawnMultipleTokens(card, tokenType, tokenCount, shiftDown
       TokenManager.spawnResourceCounterToken({ card = card, tokenValue = tokenCount })
       return
     end
+
     for i = 1, tokenCount do
+      local localOffset = Vector(tokenOffsets[tokenCount][i])
+
       -- if spawning action tokens, increase offsets slightly since they are larger
       if tokenType == "universalActionAbility" then
-        offsets[i] = card.positionToWorld(tokenOffsets[tokenCount][i] * Vector(1.2, 1, 1.2))
-      else
-        offsets[i] = card.positionToWorld(tokenOffsets[tokenCount][i])
+        localOffset = localOffset * Vector(1.2, 1, 1.2)
       end
+
+      local worldOffset = localOffset:rotateOver("y", referenceRotationY)
+      offsets[i] = cardWorldPosition + worldOffset
 
       -- make sure tokens on face down cards spawn on the "up" side
       if card.is_face_down then
@@ -3426,13 +3440,9 @@ function TokenManager.spawnMultipleTokens(card, tokenType, tokenCount, shiftDown
   end
 
   if shiftDown ~= nil then
-    -- Copy the offsets to make sure we don't change the static values
-    local baseOffsets = offsets
-    offsets = {}
-
-    -- get a vector for the shifting (downwards local to the card)
-    local shiftDownVector = Vector(0, 0, shiftDown):rotateOver("y", card.getRotation().y)
-    for i, baseOffset in ipairs(baseOffsets) do
+    -- get a vector for the shifting (downwards local to reference rotation)
+    local shiftDownVector = Vector(0, 0, shiftDown):rotateOver("y", referenceRotationY)
+    for i, baseOffset in ipairs(offsets) do
       offsets[i] = baseOffset + shiftDownVector
     end
   end
@@ -3451,7 +3461,7 @@ function TokenManager.spawnMultipleTokens(card, tokenType, tokenCount, shiftDown
   local callbackName = nil
   local callbackParams = nil
   if tokenType == "universalActionAbility" then
-    local matColor = PlayermatApi.getMatColorByPosition(card.getPosition())
+    matColor = matColor or PlayermatApi.getMatColorByPosition(card.getPosition())
     local activeInvestigatorData = PlayermatApi.getActiveInvestigatorData(matColor)
     callbackName = "updateUniversalActionAbilityToken"
     callbackParams = {
@@ -3464,7 +3474,7 @@ function TokenManager.spawnMultipleTokens(card, tokenType, tokenCount, shiftDown
     TokenManager.spawnToken({
       position       = offsets[i],
       tokenType      = tokenType,
-      rotation       = card.getRotation(),
+      rotation       = Vector(0, referenceRotationY, 0),
       callbackName   = callbackName,
       callbackParams = callbackParams,
       addTag         = temporary and "Temporary" or nil
