@@ -3310,7 +3310,7 @@ function TokenManager.spawnForCard(params)
   if TokenSpawnTrackerApi.hasSpawnedTokens(params.card.getGUID()) then return end
   local metadata = JSON.decode(params.card.getGMNotes())
   if metadata ~= nil then
-    TokenManager.spawnTokensFromUses(params.card, params.extraUses, params.spawnReactionToken)
+    TokenManager.spawnTokensFromUses(params)
   end
 end
 
@@ -3323,18 +3323,26 @@ function TokenManager.spawnTokenGroup(params)
   local shiftDown  = params.shiftDown
   local subType    = params.subType
   local temporary  = params.temporary
+  local matColor   = params.matColor
 
   if tokenType == "damage" or tokenType == "horror" then
     TokenManager.spawnCounterToken(card, tokenType, tokenCount, shiftDown)
-  elseif shouldSpawnResourceCounter(tokenType, tokenCount, replenish) then
+  elseif shouldSpawnResourceCounter(tokenType, tokenCount, replenish, matColor) then
     TokenManager.spawnResourceCounterToken({ card = card, tokenValue = tokenCount })
   else
     TokenManager.spawnMultipleTokens(card, tokenType, tokenCount, shiftDown, subType, temporary)
   end
 end
 
-function shouldSpawnResourceCounter(tokenType, tokenCount, replenish)
-  if tokenType == "resource" then
+function shouldSpawnResourceCounter(tokenType, tokenCount, replenish, matColor)
+  if tokenType ~= "resource" then return false end
+
+  local matSetting = "Global"
+  if matColor then
+    matSetting = PlayermatApi.getResourceCounterOption(matColor)
+  end
+
+  if matSetting == "Global" then
     if optionPanel["useResourceCounters"] == "enabled" then
       return true
     elseif optionPanel["useResourceCounters"] == "custom" then
@@ -3342,6 +3350,15 @@ function shouldSpawnResourceCounter(tokenType, tokenCount, replenish)
       if tokenCount == 0 or (replenish and tokenCount < 3) then
         return true
       end
+    end
+  end
+
+  if matSetting == "Enabled" then
+    return true
+  elseif matSetting == "Chef's Selection" then
+    -- spawn a resource counter for cards with "0 uses" or small amount of replenshing tokens
+    if tokenCount == 0 or (replenish and tokenCount < 3) then
+      return true
     end
   end
   return false
@@ -3549,11 +3566,18 @@ end
 
 -- Spawn tokens for a card based on the uses metadata. This will consider the face up/down state
 -- of the card for both locations and standard cards.
----@param card tts__Object Card to maybe spawn tokens for
----@param extraUses? table A table of <use type>=<count> which will modify the number of tokens
+---@param params table Parameters
+-----@param card tts__Object Card to maybe spawn tokens for
+-----@param extraUses? table A table of <use type>=<count> which will modify the number of tokens
 ---    spawned for that type. e.g. Akachi's playermat should pass "Charge"=1
----@param spawnReactionToken? boolean Whether there should spawn an additional reaction token (atm only for Michael)
-function TokenManager.spawnTokensFromUses(card, extraUses, spawnReactionToken)
+-----@param spawnReactionToken? boolean Whether there should spawn an additional reaction token (atm only for Michael)
+-----@param matColor? string Color of the triggering playermat - White, Orange, Green or Red
+function TokenManager.spawnTokensFromUses(params)
+  local card               = params.card
+  local extraUses          = params.extraUses
+  local spawnReactionToken = params.spawnReactionToken
+  local matColor           = params.matColor
+
   local uses = TokenManager.getUses(card)
   if uses == nil then return end
 
@@ -3582,7 +3606,8 @@ function TokenManager.spawnTokensFromUses(card, extraUses, spawnReactionToken)
       tokenCount = tokenCount,
       replenish  = useInfo.replenish,
       shiftDown  = (i - 1) * 0.8,
-      subType    = useInfo.type
+      subType    = useInfo.type,
+      matColor   = matColor
     })
   end
 
