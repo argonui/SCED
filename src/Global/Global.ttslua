@@ -39,7 +39,7 @@ local lastZoneEnterObject         = nil
 
 -- online functionality related variables
 local library, requestObj, modMeta, searchFilter, authorFilter
-local downloadPending            = {}
+local downloadPending             = {}
 local acknowledgedUpgradeVersions = {}
 local authorList                  = {}
 local contentToShow               = "campaign"
@@ -55,16 +55,25 @@ local TAB_IDS                     = {
 -- optionPanel data (intentionally not local!)
 optionPanel                       = {}
 local sentOptionPanelMessage      = {}
-local RESOURCE_OPTIONS            = {
-  "enabled",
-  "custom",
-  "disabled"
-}
-local TOKEN_ARRANGER_OPTIONS = {
-  "No Odds",
-  "Basic",
-  "Cumulative",
-  "Full"
+local DROPDOWN_DATA               = {
+  tableSetup = {
+    "Classic (4P)",
+    "Classic (2P)",
+    "Upright (4P)",
+    "Sides (4P)",
+    "True Solo (1P)"
+  },
+  tokenArrangerOdds = {
+    "No Odds",
+    "Basic",
+    "Cumulative",
+    "Full"
+  },
+  useResourceCounters = {
+    "enabled",
+    "custom",
+    "disabled"
+  }
 }
 
 -- defines the area for the "regular" mythos area
@@ -180,7 +189,7 @@ function onLoad(savedData)
   Wait.time(NavigationOverlayApi.updateVisibility, 0.8)
   Wait.time(PlayAreaApi.updatePlayAreaGallery, 1.0) -- also selects the first item after 0.1s
   Wait.time(i18n.updateGlobalUiLanguage, 1.2)
-  Wait.time(initializeLibrary, 1.4) -- also simulates a click on the first item after 0.1s
+  Wait.time(initializeLibrary, 1.4)                 -- also simulates a click on the first item after 0.1s
 
   -- add a button and context menu to the chaos token stat tracker
   local statTracker = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "StatTracker")
@@ -543,7 +552,7 @@ function onObjectSpawn(obj)
   end
 
   if obj.hasTag("i18n_XML") then
-    Wait.time(function() i18n.updateObjectUILanguage(obj) end, 1)
+    Wait.time(function() i18n.updateObjectUiLanguage(obj) end, 1)
   end
 
   maybeAddDecalToChaosToken(obj)
@@ -969,12 +978,12 @@ function tokenSplash(tokenName)
   local numSeconds = 2
   local id = "token-" .. namesToIds[tokenName]
   local MODIFIER_TOKENS_NAMES = {
-    ["Skull"] = true,
-    ["Cultist"] = true,
-    ["Elder Sign"] = true,
-    ["Tablet"]  = true,
+    ["Skull"]        = true,
+    ["Cultist"]      = true,
+    ["Elder Sign"]   = true,
+    ["Tablet"]       = true,
     ["Elder Thing"]  = true,
-    ["Custom Token"]  = true
+    ["Custom Token"] = true
   }
   local tokenData = MythosAreaApi.returnTokenData()
   if waitIds["hideChaosSplash"] then
@@ -1014,7 +1023,6 @@ function tokenSplash(tokenName)
       UI.hide('token_modifier')
     end, numSeconds)
   end, 0.75)
-
 end
 
 function luckyPenny(_, tokenGUID)
@@ -2384,17 +2392,56 @@ function onClick_playAreaConnectionColor(player, _, id)
   end)
 end
 
--- called by the language selection dropdown
-function languageSelected(_, selectedIndex, id)
-  optionPanel[id] = LANGUAGES[tonumber(selectedIndex) + 1].code
+-- called by selecting something in a dropdown
+function onDropdownChange(player, selectedIndex, id)
+  local indexNumber = tonumber(selectedIndex) + 1
+  local oldValue    = optionPanel[id]
+  local valueToStore
 
-  -- update XML so that the settings persists
-  UI.setAttribute(id, "value", selectedIndex)
+  -- specific value getting
+  if id == "removePlayermat" then
+    if selectedIndex == 0 then return end
+  elseif id == "uiLanguage" then
+    valueToStore = LANGUAGES[indexNumber].code
+  else
+    valueToStore = DROPDOWN_DATA[id][indexNumber]
+  end
 
-  i18n.updateGlobalUiLanguage()
+  optionPanel[id] = valueToStore
 
-  for _, obj in ipairs(getObjectsWithTag("i18n_XML")) do
-    i18n.updateObjectUILanguage(obj)
+  if id == "removePlayermat" then
+    -- set selected value back to first option
+    UI.setAttribute(id, "value", 0)
+  else
+    -- update XML so that the settings persists
+    UI.setAttribute(id, "value", selectedIndex)
+  end
+
+  -- potentially special follow-up
+  if id == "removePlayermat" then
+    local matColor = MAT_COLORS[tonumber(selectedIndex)]
+    confirmPlayermatRemoval(player, matColor)
+  elseif id == "uiLanguage" then
+    i18n.updateGlobalUiLanguage()
+    i18n.updateAllObjectsUiLanguage()
+  elseif id == "tableSetup" then
+    updateTableSetup(valueToStore, oldValue)
+  elseif id == "tokenArrangerOdds" then
+    TokenArrangerApi.layout()
+
+    if valueToStore ~= "No Odds" and not tokenArrangerWarningShown then
+      broadcastToAll(
+      "Odds calculation is unreliable when using tokens that draw other tokens (bless or curse for example).", "Yellow")
+      tokenArrangerWarningShown = true
+    end
+  end
+end
+
+function getDropdownOptionId(id, name)
+  for index, optionName in ipairs(DROPDOWN_DATA[id]) do
+    if optionName == name then
+      return index
+    end
   end
 end
 
@@ -2407,52 +2454,8 @@ function returnLanguageId(code)
   end
 end
 
--- called by the resource counter selection dropdown
-function resourceCounterSelected(_, selectedIndex, id)
-  optionPanel[id] = RESOURCE_OPTIONS[tonumber(selectedIndex) + 1]
-
-  -- update XML so that the settings persists
-  UI.setAttribute(id, "value", selectedIndex)
-end
-
--- returns the ID for the provided option name
-function returnResourceCounterId(name)
-  for index, optionName in ipairs(RESOURCE_OPTIONS) do
-    if optionName == name then
-      return index
-    end
-  end
-end
-
--- called by the resource counter selection dropdown
-function tokenArrangerOptionSelected(_, selectedIndex, id)
-  optionPanel[id] = TOKEN_ARRANGER_OPTIONS[tonumber(selectedIndex) + 1]
-
-  -- update XML so that the settings persists
-  UI.setAttribute(id, "value", selectedIndex)
-
-  TokenArrangerApi.layout()
-
-  if optionPanel[id] ~= "No Odds" and not tokenArrangerWarningShown then
-    broadcastToAll("Odds calculation is unreliable when using tokens that draw other tokens (bless or curse for example).", "Yellow")
-    tokenArrangerWarningShown = true
-  end
-end
-
--- returns the ID for the provided option name
-function returnTokenArrangerOptionId(name)
-  for index, optionName in ipairs(TOKEN_ARRANGER_OPTIONS) do
-    if optionName == name then
-      return index
-    end
-  end
-end
-
 -- called by the playermat removal selection dropdown
-function playermatRemovalSelected(player, selectedIndex, id)
-  if selectedIndex == "0" then return end
-
-  local matColor = MAT_COLORS[tonumber(selectedIndex)]
+function confirmPlayermatRemoval(player, matColor)
   local mat = GUIDReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
 
   if mat then
@@ -2466,9 +2469,6 @@ function playermatRemovalSelected(player, selectedIndex, id)
     player.showConfirmDialog("Do you want to respawn " .. matColor .. "'s playermat and related objects?",
       function() spawnPlayermat(matColor) end)
   end
-
-  -- set selected value back to first option
-  UI.setAttribute(id, "value", 0)
 end
 
 -- removes a playermat and all related objects from play
@@ -2655,25 +2655,6 @@ function updateTransformData(data, position, rotation)
   data.Transform.rotZ = rotation.z
 end
 
--- called by the table setup selection dropdown
-function tableSetupSelected(_, selectedIndex, id)
-  local selectedValue = TABLE_SETUP_OPTIONS[tonumber(selectedIndex) + 1]
-  updateTableSetup(selectedValue, optionPanel[id])
-  optionPanel[id] = selectedValue
-
-  -- update XML so that the settings persists
-  UI.setAttribute(id, "value", selectedIndex)
-end
-
--- returns the ID for the provided option name
-function returnTableSetupId(name)
-  for index, optionName in ipairs(TABLE_SETUP_OPTIONS) do
-    if optionName == name then
-      return index
-    end
-  end
-end
-
 function spawnSharedBagArea()
   spawnData = spawnData or collectPlayermatSpawnData()
   if not spawnData then return end
@@ -2852,17 +2833,9 @@ end
 function updateOptionPanelState()
   for id, optionValue in pairs(optionPanel) do
     if id == "uiLanguage" and type(optionValue) == "string" then
-      local dropdownId = returnLanguageId(optionValue) - 1
-      UI.setAttribute(id, "value", dropdownId)
-    elseif id == "tokenArrangerOdds" and type(optionValue) == "string" then
-      local dropdownId = returnTokenArrangerOptionId(optionValue) - 1
-      UI.setAttribute(id, "value", dropdownId)
-    elseif id == "useResourceCounters" and type(optionValue) == "string" then
-      local dropdownId = returnResourceCounterId(optionValue) - 1
-      UI.setAttribute(id, "value", dropdownId)
-    elseif id == "tableSetup" and type(optionValue) == "string" then
-      local dropdownId = returnTableSetupId(optionValue) - 1
-      UI.setAttribute(id, "value", dropdownId)
+      UI.setAttribute(id, "value", returnLanguageId(optionValue) - 1)
+    elseif DROPDOWN_DATA[id] and type(optionValue) == "string" then
+      UI.setAttribute(id, "value", getDropdownOptionId(id, optionValue) - 1)
     elseif id == "playAreaConnectionColor" then
       UI.setAttribute(id, "color", "#" .. Color.new(optionValue):toHex())
     elseif (type(optionValue) == "boolean" and optionValue)
