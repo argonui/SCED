@@ -39,7 +39,7 @@ local lastZoneEnterObject         = nil
 
 -- online functionality related variables
 local library, requestObj, modMeta, searchFilter, authorFilter
-local downloadPending            = {}
+local downloadPending             = {}
 local acknowledgedUpgradeVersions = {}
 local authorList                  = {}
 local contentToShow               = "campaign"
@@ -55,16 +55,25 @@ local TAB_IDS                     = {
 -- optionPanel data (intentionally not local!)
 optionPanel                       = {}
 local sentOptionPanelMessage      = {}
-local RESOURCE_OPTIONS            = {
-  "enabled",
-  "custom",
-  "disabled"
-}
-local TOKEN_ARRANGER_OPTIONS = {
-  "No Odds",
-  "Basic",
-  "Cumulative",
-  "Full"
+local DROPDOWN_DATA               = {
+  tableSetup = {
+    "Classic (4P)",
+    "Classic (2P)",
+    "Upright (4P)",
+    "Sides (4P)",
+    "True Solo (1P)"
+  },
+  tokenArrangerOdds = {
+    "No Odds",
+    "Basic",
+    "Cumulative",
+    "Full"
+  },
+  useResourceCounters = {
+    "enabled",
+    "custom",
+    "disabled"
+  }
 }
 
 -- defines the area for the "regular" mythos area
@@ -180,7 +189,7 @@ function onLoad(savedData)
   Wait.time(NavigationOverlayApi.updateVisibility, 0.8)
   Wait.time(PlayAreaApi.updatePlayAreaGallery, 1.0) -- also selects the first item after 0.1s
   Wait.time(i18n.updateGlobalUiLanguage, 1.2)
-  Wait.time(initializeLibrary, 1.4) -- also simulates a click on the first item after 0.1s
+  Wait.time(initializeLibrary, 1.4)                 -- also simulates a click on the first item after 0.1s
 
   -- add a button and context menu to the chaos token stat tracker
   local statTracker = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "StatTracker")
@@ -543,7 +552,7 @@ function onObjectSpawn(obj)
   end
 
   if obj.hasTag("i18n_XML") then
-    Wait.time(function() i18n.updateObjectUILanguage(obj) end, 1)
+    Wait.time(function() i18n.updateObjectUiLanguage(obj) end, 1)
   end
 
   maybeAddDecalToChaosToken(obj)
@@ -969,12 +978,12 @@ function tokenSplash(tokenName)
   local numSeconds = 2
   local id = "token-" .. namesToIds[tokenName]
   local MODIFIER_TOKENS_NAMES = {
-    ["Skull"] = true,
-    ["Cultist"] = true,
-    ["Elder Sign"] = true,
-    ["Tablet"]  = true,
+    ["Skull"]        = true,
+    ["Cultist"]      = true,
+    ["Elder Sign"]   = true,
+    ["Tablet"]       = true,
     ["Elder Thing"]  = true,
-    ["Custom Token"]  = true
+    ["Custom Token"] = true
   }
   local tokenData = MythosAreaApi.returnTokenData()
   if waitIds["hideChaosSplash"] then
@@ -1014,7 +1023,6 @@ function tokenSplash(tokenName)
       UI.hide('token_modifier')
     end, numSeconds)
   end, 0.75)
-
 end
 
 function luckyPenny(_, tokenGUID)
@@ -1372,30 +1380,21 @@ function onSearchValueSubmit(_, value)
 end
 
 -- callback function for the "author" dropdown in the download menu
-function onAuthorFilterChanged(_, value)
-  local authorId = returnAuthorId(value)
+function onAuthorFilterChanged(_, selectedIndex)
+  selectedIndex = tonumber(selectedIndex)
 
   -- store input value in global var
-  if authorId == 1 then
+  if selectedIndex == 0 then
     authorFilter = nil
   else
-    authorFilter = value
+    authorFilter = authorList[selectedIndex]
   end
 
   -- update XML so that the settings persists
-  UI.setAttribute("DW_authorDropdown", "value", authorId)
+  UI.setAttribute("DW_authorDropdown", "value", selectedIndex)
 
   -- update list (including new filter setting)
   updateDownloadItemList(true)
-end
-
--- helper function to get the ID of the dropdown selection
-function returnAuthorId(name)
-  for index, optionName in ipairs(authorList) do
-    if optionName == name then
-      return index
-    end
-  end
 end
 
 -- forwards the requested content type to the update function and sets highlight to clicked tab
@@ -1920,7 +1919,7 @@ function updateDownloadItemList(skipAuthorUpdate)
     authorList = removeDuplicatesAndSort(authorList)
 
     local authorDropdown = getXmlTableElementById(globalXml, 'DW_authorDropdown')
-    authorDropdown.children = { { tag = "Option", value = i18n.getStrById("DW_authorDropdown") } }
+    authorDropdown.children = { { tag = "Option", value = i18n.getStrById("DW_all_authors") } }
     for _, author in ipairs(authorList) do
       table.insert(authorDropdown.children, { tag = "Option", value = author })
     end
@@ -2384,17 +2383,56 @@ function onClick_playAreaConnectionColor(player, _, id)
   end)
 end
 
--- called by the language selection dropdown
-function languageSelected(_, selectedIndex, id)
-  optionPanel[id] = LANGUAGES[tonumber(selectedIndex) + 1].code
+-- called by selecting something in a dropdown
+function onDropdownChange(player, selectedIndex, id)
+  local indexNumber = tonumber(selectedIndex) + 1
+  local oldValue    = optionPanel[id]
+  local valueToStore
 
-  -- update XML so that the settings persists
-  UI.setAttribute(id, "value", selectedIndex)
+  -- specific value getting
+  if id == "removePlayermat" then
+    if selectedIndex == 0 then return end
+  elseif id == "uiLanguage" then
+    valueToStore = LANGUAGES[indexNumber].code
+  else
+    valueToStore = DROPDOWN_DATA[id][indexNumber]
+  end
 
-  i18n.updateGlobalUiLanguage()
+  optionPanel[id] = valueToStore
 
-  for _, obj in ipairs(getObjectsWithTag("i18n_XML")) do
-    i18n.updateObjectUILanguage(obj)
+  if id == "removePlayermat" then
+    -- set selected value back to first option
+    UI.setAttribute(id, "value", 0)
+  else
+    -- update XML so that the settings persists
+    UI.setAttribute(id, "value", selectedIndex)
+  end
+
+  -- potentially special follow-up
+  if id == "removePlayermat" then
+    local matColor = MAT_COLORS[tonumber(selectedIndex)]
+    confirmPlayermatRemoval(player, matColor)
+  elseif id == "uiLanguage" then
+    i18n.updateGlobalUiLanguage()
+    i18n.updateAllObjectsUiLanguage()
+  elseif id == "tableSetup" then
+    updateTableSetup(valueToStore, oldValue)
+  elseif id == "tokenArrangerOdds" then
+    TokenArrangerApi.layout()
+
+    if valueToStore ~= "No Odds" and not tokenArrangerWarningShown then
+      broadcastToAll(
+      "Odds calculation is unreliable when using tokens that draw other tokens (bless or curse for example).", "Yellow")
+      tokenArrangerWarningShown = true
+    end
+  end
+end
+
+function getDropdownOptionIndex(id, name)
+  for index, optionName in ipairs(DROPDOWN_DATA[id]) do
+    if optionName == name then
+      return index
+    end
   end
 end
 
@@ -2407,52 +2445,8 @@ function returnLanguageId(code)
   end
 end
 
--- called by the resource counter selection dropdown
-function resourceCounterSelected(_, selectedIndex, id)
-  optionPanel[id] = RESOURCE_OPTIONS[tonumber(selectedIndex) + 1]
-
-  -- update XML so that the settings persists
-  UI.setAttribute(id, "value", selectedIndex)
-end
-
--- returns the ID for the provided option name
-function returnResourceCounterId(name)
-  for index, optionName in ipairs(RESOURCE_OPTIONS) do
-    if optionName == name then
-      return index
-    end
-  end
-end
-
--- called by the resource counter selection dropdown
-function tokenArrangerOptionSelected(_, selectedIndex, id)
-  optionPanel[id] = TOKEN_ARRANGER_OPTIONS[tonumber(selectedIndex) + 1]
-
-  -- update XML so that the settings persists
-  UI.setAttribute(id, "value", selectedIndex)
-
-  TokenArrangerApi.layout()
-
-  if optionPanel[id] ~= "No Odds" and not tokenArrangerWarningShown then
-    broadcastToAll("Odds calculation is unreliable when using tokens that draw other tokens (bless or curse for example).", "Yellow")
-    tokenArrangerWarningShown = true
-  end
-end
-
--- returns the ID for the provided option name
-function returnTokenArrangerOptionId(name)
-  for index, optionName in ipairs(TOKEN_ARRANGER_OPTIONS) do
-    if optionName == name then
-      return index
-    end
-  end
-end
-
 -- called by the playermat removal selection dropdown
-function playermatRemovalSelected(player, selectedIndex, id)
-  if selectedIndex == "0" then return end
-
-  local matColor = MAT_COLORS[tonumber(selectedIndex)]
+function confirmPlayermatRemoval(player, matColor)
   local mat = GUIDReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
 
   if mat then
@@ -2466,9 +2460,6 @@ function playermatRemovalSelected(player, selectedIndex, id)
     player.showConfirmDialog("Do you want to respawn " .. matColor .. "'s playermat and related objects?",
       function() spawnPlayermat(matColor) end)
   end
-
-  -- set selected value back to first option
-  UI.setAttribute(id, "value", 0)
 end
 
 -- removes a playermat and all related objects from play
@@ -2655,25 +2646,6 @@ function updateTransformData(data, position, rotation)
   data.Transform.rotZ = rotation.z
 end
 
--- called by the table setup selection dropdown
-function tableSetupSelected(_, selectedIndex, id)
-  local selectedValue = TABLE_SETUP_OPTIONS[tonumber(selectedIndex) + 1]
-  updateTableSetup(selectedValue, optionPanel[id])
-  optionPanel[id] = selectedValue
-
-  -- update XML so that the settings persists
-  UI.setAttribute(id, "value", selectedIndex)
-end
-
--- returns the ID for the provided option name
-function returnTableSetupId(name)
-  for index, optionName in ipairs(TABLE_SETUP_OPTIONS) do
-    if optionName == name then
-      return index
-    end
-  end
-end
-
 function spawnSharedBagArea()
   spawnData = spawnData or collectPlayermatSpawnData()
   if not spawnData then return end
@@ -2852,17 +2824,9 @@ end
 function updateOptionPanelState()
   for id, optionValue in pairs(optionPanel) do
     if id == "uiLanguage" and type(optionValue) == "string" then
-      local dropdownId = returnLanguageId(optionValue) - 1
-      UI.setAttribute(id, "value", dropdownId)
-    elseif id == "tokenArrangerOdds" and type(optionValue) == "string" then
-      local dropdownId = returnTokenArrangerOptionId(optionValue) - 1
-      UI.setAttribute(id, "value", dropdownId)
-    elseif id == "useResourceCounters" and type(optionValue) == "string" then
-      local dropdownId = returnResourceCounterId(optionValue) - 1
-      UI.setAttribute(id, "value", dropdownId)
-    elseif id == "tableSetup" and type(optionValue) == "string" then
-      local dropdownId = returnTableSetupId(optionValue) - 1
-      UI.setAttribute(id, "value", dropdownId)
+      UI.setAttribute(id, "value", returnLanguageId(optionValue) - 1)
+    elseif DROPDOWN_DATA[id] and type(optionValue) == "string" then
+      UI.setAttribute(id, "value", getDropdownOptionIndex(id, optionValue) - 1)
     elseif id == "playAreaConnectionColor" then
       UI.setAttribute(id, "color", "#" .. Color.new(optionValue):toHex())
     elseif (type(optionValue) == "boolean" and optionValue)
@@ -3298,10 +3262,10 @@ end
 ---@param maxTokens number Maximum amount of tokens on a card
 function TokenManager.generateOffsets(maxTokens)
   tokenOffsets = {
-    [1] = { Vector(0, 3, -0.2) },
-    [2] = { Vector(0.4, 3, -0.2), Vector(-0.4, 3, -0.2) },
-    [3] = { Vector(0, 3, -0.9), Vector(0.4, 3, -0.2), Vector(-0.4, 3, -0.2) },
-    [4] = { Vector(0.4, 3, -0.9), Vector(-0.4, 3, -0.9), Vector(0.4, 3, -0.2), Vector(-0.4, 3, -0.2) }
+    [1] = { Vector(0, 0.1, -0.2) },
+    [2] = { Vector(0.4, 0.1, -0.2), Vector(-0.4, 0.1, -0.2) },
+    [3] = { Vector(0, 0.1, -0.9), Vector(0.4, 0.1, -0.2), Vector(-0.4, 0.1, -0.2) },
+    [4] = { Vector(0.4, 0.1, -0.9), Vector(-0.4, 0.1, -0.9), Vector(0.4, 0.1, -0.2), Vector(-0.4, 0.1, -0.2) }
   }
 
   -- generate offsets for numTokens > 4 dynamically
@@ -3310,7 +3274,7 @@ function TokenManager.generateOffsets(maxTokens)
     local rows = math.min(4, math.ceil(numTokens / 3))
     local tokensPlaced = 0
     for row = 1, rows do
-      local y = 3
+      local y = 0.1
       local z = -0.9 + (row - 1) * 0.7
       local tokensInRow = math.min(3, numTokens - tokensPlaced)
       for col = 1, tokensInRow do
@@ -3337,31 +3301,35 @@ function TokenManager.spawnForCard(params)
   if TokenSpawnTrackerApi.hasSpawnedTokens(params.card.getGUID()) then return end
   local metadata = JSON.decode(params.card.getGMNotes())
   if metadata ~= nil then
-    TokenManager.spawnTokensFromUses(params.card, params.extraUses, params.spawnReactionToken)
+    TokenManager.spawnTokensFromUses(params)
   end
 end
 
 -- Spawns a set of tokens on the given card.
 function TokenManager.spawnTokenGroup(params)
-  local card       = params.card
-  local tokenType  = params.tokenType
-  local tokenCount = params.tokenCount
-  local replenish  = params.replenish
-  local shiftDown  = params.shiftDown
-  local subType    = params.subType
-  local temporary  = params.temporary
-
-  if tokenType == "damage" or tokenType == "horror" then
-    TokenManager.spawnCounterToken(card, tokenType, tokenCount, shiftDown)
-  elseif shouldSpawnResourceCounter(tokenType, tokenCount, replenish) then
-    TokenManager.spawnResourceCounterToken({ card = card, tokenValue = tokenCount })
+  if params.tokenType == "damage" or params.tokenType == "horror" then
+    TokenManager.spawnCounterToken(params)
+  elseif shouldSpawnResourceCounter(params) then
+    TokenManager.spawnResourceCounterToken(params)
   else
-    TokenManager.spawnMultipleTokens(card, tokenType, tokenCount, shiftDown, subType, temporary)
+    TokenManager.spawnMultipleTokens(params)
   end
 end
 
-function shouldSpawnResourceCounter(tokenType, tokenCount, replenish)
-  if tokenType == "resource" then
+function shouldSpawnResourceCounter(params)
+  local matColor   = params.matColor
+  local replenish  = params.replenish
+  local tokenCount = params.tokenCount
+  local tokenType  = params.tokenType
+
+  if tokenType ~= "resource" then return false end
+
+  local matSetting = "Global"
+  if matColor then
+    matSetting = PlayermatApi.getResourceCounterOption(matColor)
+  end
+
+  if matSetting == "Global" then
     if optionPanel["useResourceCounters"] == "enabled" then
       return true
     elseif optionPanel["useResourceCounters"] == "custom" then
@@ -3371,45 +3339,67 @@ function shouldSpawnResourceCounter(tokenType, tokenCount, replenish)
       end
     end
   end
+
+  if matSetting == "Enabled" then
+    return true
+  elseif matSetting == "Chef's Selection" then
+    -- spawn a resource counter for cards with "0 uses" or small amount of replenshing tokens
+    if tokenCount == 0 or (replenish and tokenCount < 3) then
+      return true
+    end
+  end
   return false
 end
 
 -- Spawns a single counter token and sets the value to tokenValue. Used for damage and horror tokens.
----@param card tts__Object Card to spawn tokens on
----@param tokenType string Type of token to spawn (template needs to be in source bag)
----@param tokenValue number Value to set the damage/horror to
-function TokenManager.spawnCounterToken(card, tokenType, tokenValue, shiftDown)
+function TokenManager.spawnCounterToken(params)
   TokenManager.spawnToken({
-    position    = card.positionToWorld(tokenOffsets[1][1] + Vector(0, 0, shiftDown)),
-    tokenType   = tokenType,
-    rotation    = card.getRotation(),
-    scriptstate = tokenValue
+    position    = params.card.positionToWorld(tokenOffsets[1][1] + Vector(0, 0, params.shiftDown)),
+    tokenType   = params.tokenType,
+    rotation    = params.card.getRotation(),
+    scriptstate = params.tokenValue
   })
 end
 
 -- Spawns a single resource counter token and sets the value to tokenValue.
----@param params table Parameters:
----   card tts__Object Card to spawn token on
----   tokenValue number Value to set the counter to
 function TokenManager.spawnResourceCounterToken(params)
   local card = params.card
-  local tokenValue = params.tokenValue
   TokenManager.spawnToken({
     position    = card.positionToWorld(card.positionToLocal(card.getPosition()) + Vector(0, 0.2, -0.5)),
     tokenType   = "resourceCounter",
     rotation    = card.getRotation(),
-    scriptstate = tokenValue
+    scriptstate = params.tokenCount or params.tokenValue
   })
 end
 
--- Spawns a number of tokens.
----@param tokenType string Type of token to spawn (template needs to be in source bag)
----@param tokenCount number How many tokens to spawn
----@param shiftDown? number An offset for the z-value of this group of tokens
----@param subType? string Subtype of token to spawn. This will only differ from the tokenName for resource or action tokens
----@param temporary? boolean If present adds the temporary tag to an action token
-function TokenManager.spawnMultipleTokens(card, tokenType, tokenCount, shiftDown, subType, temporary)
+-- Spawns a number of tokens
+function TokenManager.spawnMultipleTokens(params)
+  local card       = params.card
+  local tokenType  = params.tokenType
+  local tokenCount = params.tokenCount
+  local shiftDown  = params.shiftDown
+  local subType    = params.subType
+  local temporary  = params.temporary
+  local matColor   = params.matColor
+
   if tokenCount < 1 then return end
+
+  -- attempt to get matColor dynamically
+  if not matColor then
+    local owner = GUIDReferenceApi.getOwnerOfObject(params.card)
+    if owner ~= "Mythos" then
+      matColor = owner
+    end
+  end
+
+  -- make sure tokens spawn correctly on rotated cards respective to the mat below
+  local referenceRotationY = 270
+  if matColor then
+    referenceRotationY = PlayermatApi.returnRotation(matColor).y
+  end
+
+  -- get the card's center position in the world
+  local cardWorldPosition = card.getPosition()
 
   local offsets = {}
   if tokenType == "clue" then
@@ -3417,16 +3407,20 @@ function TokenManager.spawnMultipleTokens(card, tokenType, tokenCount, shiftDown
   else
     if tokenCount > 12 then
       printToAll("Attempting to spawn " .. tokenCount .. " tokens. Spawning clickable counter instead.")
-      TokenManager.spawnResourceCounterToken({ card = card, tokenValue = tokenCount })
+      TokenManager.spawnResourceCounterToken(params)
       return
     end
+
     for i = 1, tokenCount do
+      local localOffset = Vector(tokenOffsets[tokenCount][i])
+
       -- if spawning action tokens, increase offsets slightly since they are larger
       if tokenType == "universalActionAbility" then
-        offsets[i] = card.positionToWorld(tokenOffsets[tokenCount][i] * Vector(1.2, 1, 1.2))
-      else
-        offsets[i] = card.positionToWorld(tokenOffsets[tokenCount][i])
+        localOffset = localOffset * Vector(1.2, 1, 1.2)
       end
+
+      local worldOffset = localOffset:rotateOver("y", referenceRotationY)
+      offsets[i] = cardWorldPosition + worldOffset
 
       -- make sure tokens on face down cards spawn on the "up" side
       if card.is_face_down then
@@ -3436,13 +3430,9 @@ function TokenManager.spawnMultipleTokens(card, tokenType, tokenCount, shiftDown
   end
 
   if shiftDown ~= nil then
-    -- Copy the offsets to make sure we don't change the static values
-    local baseOffsets = offsets
-    offsets = {}
-
-    -- get a vector for the shifting (downwards local to the card)
-    local shiftDownVector = Vector(0, 0, shiftDown):rotateOver("y", card.getRotation().y)
-    for i, baseOffset in ipairs(baseOffsets) do
+    -- get a vector for the shifting (downwards local to reference rotation)
+    local shiftDownVector = Vector(0, 0, shiftDown):rotateOver("y", referenceRotationY)
+    for i, baseOffset in ipairs(offsets) do
       offsets[i] = baseOffset + shiftDownVector
     end
   end
@@ -3461,7 +3451,7 @@ function TokenManager.spawnMultipleTokens(card, tokenType, tokenCount, shiftDown
   local callbackName = nil
   local callbackParams = nil
   if tokenType == "universalActionAbility" then
-    local matColor = PlayermatApi.getMatColorByPosition(card.getPosition())
+    matColor = matColor or PlayermatApi.getMatColorByPosition(card.getPosition())
     local activeInvestigatorData = PlayermatApi.getActiveInvestigatorData(matColor)
     callbackName = "updateUniversalActionAbilityToken"
     callbackParams = {
@@ -3474,7 +3464,7 @@ function TokenManager.spawnMultipleTokens(card, tokenType, tokenCount, shiftDown
     TokenManager.spawnToken({
       position       = offsets[i],
       tokenType      = tokenType,
-      rotation       = card.getRotation(),
+      rotation       = Vector(0, referenceRotationY, 0),
       callbackName   = callbackName,
       callbackParams = callbackParams,
       addTag         = temporary and "Temporary" or nil
@@ -3576,11 +3566,18 @@ end
 
 -- Spawn tokens for a card based on the uses metadata. This will consider the face up/down state
 -- of the card for both locations and standard cards.
----@param card tts__Object Card to maybe spawn tokens for
----@param extraUses? table A table of <use type>=<count> which will modify the number of tokens
+---@param params table Parameters
+-----@param card tts__Object Card to maybe spawn tokens for
+-----@param extraUses? table A table of <use type>=<count> which will modify the number of tokens
 ---    spawned for that type. e.g. Akachi's playermat should pass "Charge"=1
----@param spawnReactionToken? boolean Whether there should spawn an additional reaction token (atm only for Michael)
-function TokenManager.spawnTokensFromUses(card, extraUses, spawnReactionToken)
+-----@param spawnReactionToken? boolean Whether there should spawn an additional reaction token (atm only for Michael)
+-----@param matColor? string Color of the triggering playermat - White, Orange, Green or Red
+function TokenManager.spawnTokensFromUses(params)
+  local card               = params.card
+  local extraUses          = params.extraUses
+  local spawnReactionToken = params.spawnReactionToken
+  local matColor           = params.matColor
+
   local uses = TokenManager.getUses(card)
   if uses == nil then return end
 
@@ -3609,7 +3606,8 @@ function TokenManager.spawnTokensFromUses(card, extraUses, spawnReactionToken)
       tokenCount = tokenCount,
       replenish  = useInfo.replenish,
       shiftDown  = (i - 1) * 0.8,
-      subType    = useInfo.type
+      subType    = useInfo.type,
+      matColor   = matColor
     })
   end
 
