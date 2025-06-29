@@ -3316,23 +3316,21 @@ end
 
 -- Spawns a set of tokens on the given card.
 function TokenManager.spawnTokenGroup(params)
-  local card       = params.card
-  local tokenType  = params.tokenType
-  local tokenCount = params.tokenCount
-  local replenish  = params.replenish
-  local shiftDown  = params.shiftDown
-  local matColor   = params.matColor
-
-  if tokenType == "damage" or tokenType == "horror" then
-    TokenManager.spawnCounterToken(card, tokenType, tokenCount, shiftDown)
-  elseif shouldSpawnResourceCounter(tokenType, tokenCount, replenish, matColor) then
-    TokenManager.spawnResourceCounterToken({ card = card, tokenValue = tokenCount })
+  if params.tokenType == "damage" or params.tokenType == "horror" then
+    TokenManager.spawnCounterToken(params)
+  elseif shouldSpawnResourceCounter(params) then
+    TokenManager.spawnResourceCounterToken(params)
   else
     TokenManager.spawnMultipleTokens(params)
   end
 end
 
-function shouldSpawnResourceCounter(tokenType, tokenCount, replenish, matColor)
+function shouldSpawnResourceCounter(params)
+  local matColor   = params.matColor
+  local replenish  = params.replenish
+  local tokenCount = params.tokenCount
+  local tokenType  = params.tokenType
+
   if tokenType ~= "resource" then return false end
 
   local matSetting = "Global"
@@ -3363,30 +3361,23 @@ function shouldSpawnResourceCounter(tokenType, tokenCount, replenish, matColor)
 end
 
 -- Spawns a single counter token and sets the value to tokenValue. Used for damage and horror tokens.
----@param card tts__Object Card to spawn tokens on
----@param tokenType string Type of token to spawn (template needs to be in source bag)
----@param tokenValue number Value to set the damage/horror to
-function TokenManager.spawnCounterToken(card, tokenType, tokenValue, shiftDown)
+function TokenManager.spawnCounterToken(params)
   TokenManager.spawnToken({
-    position    = card.positionToWorld(tokenOffsets[1][1] + Vector(0, 0, shiftDown)),
-    tokenType   = tokenType,
-    rotation    = card.getRotation(),
-    scriptstate = tokenValue
+    position    = params.card.positionToWorld(tokenOffsets[1][1] + Vector(0, 0, params.shiftDown)),
+    tokenType   = params.tokenType,
+    rotation    = params.card.getRotation(),
+    scriptstate = params.tokenValue
   })
 end
 
 -- Spawns a single resource counter token and sets the value to tokenValue.
----@param params table Parameters:
----   card tts__Object Card to spawn token on
----   tokenValue number Value to set the counter to
 function TokenManager.spawnResourceCounterToken(params)
   local card = params.card
-  local tokenValue = params.tokenValue
   TokenManager.spawnToken({
     position    = card.positionToWorld(card.positionToLocal(card.getPosition()) + Vector(0, 0.2, -0.5)),
     tokenType   = "resourceCounter",
     rotation    = card.getRotation(),
-    scriptstate = tokenValue
+    scriptstate = params.tokenCount or params.tokenValue
   })
 end
 
@@ -3401,6 +3392,14 @@ function TokenManager.spawnMultipleTokens(params)
   local matColor   = params.matColor
 
   if tokenCount < 1 then return end
+
+  -- attempt to get matColor dynamically
+  if not matColor then
+    local owner = GUIDReferenceApi.getOwnerOfObject(params.card)
+    if owner ~= "Mythos" then
+      matColor = owner
+    end
+  end
 
   -- make sure tokens spawn correctly on rotated cards respective to the mat below
   local referenceRotationY = 270
@@ -3417,7 +3416,7 @@ function TokenManager.spawnMultipleTokens(params)
   else
     if tokenCount > 12 then
       printToAll("Attempting to spawn " .. tokenCount .. " tokens. Spawning clickable counter instead.")
-      TokenManager.spawnResourceCounterToken({ card = card, tokenValue = tokenCount })
+      TokenManager.spawnResourceCounterToken(params)
       return
     end
 
