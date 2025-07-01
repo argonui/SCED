@@ -13,6 +13,33 @@ Inside the `locales` folder, you will find several key files:
 
 ---
 
+## Message ID (`msgid`) Naming Conventions
+
+To keep the translation system organized and easy to debug, we use a consistent naming convention for all `msgid` entries. The structure is: `PREFIX_ElementName_suffix`
+
+-   **`PREFIX_`**: A short code indicating which part of the mod the text belongs to. This helps group related strings together.
+    -   `OP_` = Option Panel
+    -   `DW_` = Download Window
+    -   `CARD_` = Card-specific text (Example: Luger P08)
+    -   *(etc.)*
+
+-   **`ElementName`**: A descriptive, camelCase name for the UI element itself.
+    -   Example: `uiLanguage`, `showTitleSplash`
+
+-   **`_suffix`**: (Optional) A suffix used when an element has multiple translatable parts.
+    -   `_tooltip`: For the element's tooltip text.
+    -   `_placeholder`: For placeholder text in an input field.
+    -   `_option1`, `_option2`: For different options in a dropdown menu.
+
+**Examples:**
+-   `OP_uiLanguage`: The main text for the UI Language dropdown in the Options Panel.
+-   `OP_uiLanguage_tooltip`: The tooltip text for that same dropdown.
+-   `OP_useResourceCounters_option1`: The first option in the "Use Resource Counters" dropdown.
+
+Following this convention is crucial for the automated translation scripts to work correctly.
+
+---
+
 ## Workflow 1: Adding a New Language
 
 If you are a contributor who wants to add a language that doesn't exist yet (e.g., Japanese), follow these steps:
