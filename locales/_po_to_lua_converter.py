@@ -1,8 +1,9 @@
+# This scripts converts the .po files into a Lua table and
+# stores it in the specified file to include it in the TTS mod.
 import os
 import polib
 
 # This script assumes it is located inside the 'locales' folder.
-# The path where the final Lua file will be saved.
 # It will navigate up one directory and then into 'src/Global/'.
 OUTPUT_LUA_FILE = os.path.join("..", "src", "Global", "i18nData.ttslua")
 
