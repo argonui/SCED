@@ -1,9 +1,9 @@
+# This scripts copies missing string and comments from the MASTER_PO_FILE
+# to the other .po files in the same folder.
 import os
 import polib
 
-
 # This script assumes it is located inside the 'locales' folder.
-# The name of the master file that contains all the latest strings.
 # All other .po files will be updated based on this one.
 MASTER_PO_FILE = "en.po"
 

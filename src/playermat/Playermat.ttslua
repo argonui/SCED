@@ -1,20 +1,21 @@
 require("core/Constants")
-local allCardsBagApi              = require("playercards/AllCardsBagApi")
-local chaosBagApi                 = require("chaosbag/ChaosBagApi")
-local deckLib                     = require("util/DeckLib")
+local AllCardsBagApi              = require("playercards/AllCardsBagApi")
+local ChaosBagApi                 = require("chaosbag/ChaosBagApi")
+local DeckLib                     = require("util/DeckLib")
 local GlobalApi                   = require("Global/GlobalApi")
-local guidReferenceApi            = require("core/GUIDReferenceApi")
-local mythosAreaApi               = require("mythos/MythosAreaApi")
-local navigationOverlayApi        = require("core/NavigationOverlayApi")
-local searchLib                   = require("util/SearchLib")
-local tokenChecker                = require("tokens/TokenChecker")
-local tokenManagerApi             = require("tokens/TokenManagerApi")
-local tokenSpawnTrackerApi        = require("tokens/TokenSpawnTrackerApi")
-local victoryDisplayApi           = require("mythos/VictoryDisplayApi")
+local GUIDReferenceApi            = require("core/GUIDReferenceApi")
+local i18nApi                     = require("Global/i18nApi")
+local MythosAreaApi               = require("mythos/MythosAreaApi")
+local NavigationOverlayApi        = require("core/NavigationOverlayApi")
+local SearchLib                   = require("util/SearchLib")
+local TokenChecker                = require("tokens/TokenChecker")
+local TokenManagerApi             = require("tokens/TokenManagerApi")
+local TokenSpawnTrackerApi        = require("tokens/TokenSpawnTrackerApi")
+local VictoryDisplayApi           = require("mythos/VictoryDisplayApi")
 local zones                       = require("playermat/Zones")
 
 -- option panel data
-local availableOptions            = {
+local AVAILABLE_OPTIONS           = {
   ["PERSONAL SETTINGS"] = {
     {
       id    = "slotEditing",
@@ -45,6 +46,12 @@ local availableOptions            = {
       id    = "exhaustRotation",
       title = "Specify Exhaust Rotation",
       type  = "input"
+    },
+    {
+      id      = "useResourceCounters",
+      title   = "Use Resource Counters",
+      type    = "dropdown",
+      options = { "Global", "Enabled", "Chef's Selection", "Disabled " }
     }
   }
 }
@@ -235,7 +242,7 @@ end
 
 -- get object references to owned objects
 function getOwnedObjects()
-  ownedObjects = guidReferenceApi.getObjectsByOwner(matColor)
+  ownedObjects = GUIDReferenceApi.getObjectsByOwner(matColor)
 end
 
 ---------------------------------------------------------
@@ -244,7 +251,7 @@ end
 
 -- searches an area and optionally filters the result
 function searchArea(origin, size, filter)
-  return searchLib.inArea(origin, self.getRotation(), size, filter)
+  return SearchLib.inArea(origin, self.getRotation(), size, filter)
 end
 
 -- finds all objects on the playermat and associated set aside zone.
@@ -301,18 +308,18 @@ function discardListOfObjects(objList)
         if func ~= nil then obj.call("resetSealedTokens") end
       end
       if obj.hasTag("PlayerCard") then
-        deckLib.placeOrMergeIntoDeck(obj, returnGlobalDiscardPosition(), self.getRotation())
+        DeckLib.placeOrMergeIntoDeck(obj, returnGlobalDiscardPosition(), self.getRotation())
       else
-        local discardPos = mythosAreaApi.getEncounterDiscardPosition()
-        deckLib.placeOrMergeIntoDeck(obj, discardPos, { x = 0, y = -90, z = 0 })
+        local discardPos = MythosAreaApi.getEncounterDiscardPosition()
+        DeckLib.placeOrMergeIntoDeck(obj, discardPos, { x = 0, y = -90, z = 0 })
       end
-    elseif tokenChecker.isChaosToken(obj) then
+    elseif TokenChecker.isChaosToken(obj) then
       -- put chaos tokens back into bag (e.g. Unrelenting)
-      chaosBagApi.returnChaosTokenToBag(obj, false)
+      ChaosBagApi.returnChaosTokenToBag(obj, false)
     elseif not obj.getLock() and not obj.hasTag("DontDiscard") and obj.interactable == true then
       -- don't touch locked objects (like the table etc.) or specific objects (like key tokens)
       if obj.getMemo() == "clueDoom" then
-        victoryDisplayApi.update()
+        VictoryDisplayApi.update()
       end
       ownedObjects.Trash.putObject(obj)
     end
@@ -425,7 +432,7 @@ function doUpkeep(_, clickedByColor, isRightClick)
 
       -- maybe replenish uses on certain cards (don't continue for cards on the deck (Norman) or in the discard pile)
       if cardMetadata.uses ~= nil and self.positionToLocal(obj.getPosition()).x > -1 and not obj.is_face_down then
-        tokenManagerApi.maybeReplenishCard(obj, cardMetadata.uses, self)
+        TokenManagerApi.maybeReplenishCard(obj, cardMetadata.uses, self)
       end
     elseif obj.type == "Deck" and not obj.is_face_down and not forcedLearning then -- check face up decks for forced learning
       for _, deepObj in ipairs(obj.getObjects()) do
@@ -475,12 +482,13 @@ function doUpkeep(_, clickedByColor, isRightClick)
 
       -- perform discarding 1 by 1
       local pos = returnGlobalDiscardPosition()
-      deckLib.placeOrMergeIntoDeck(cardsToDiscard, pos, self.getRotation())
+      DeckLib.placeOrMergeIntoDeck(cardsToDiscard, pos, self.getRotation())
 
       -- draw up to 5 cards
       local cardsToDraw = 5 - #handCards + #cardsToDiscard
       if cardsToDraw > 0 then
-        printToColor("Discarding " .. #cardsToDiscard .. " and drawing " .. cardsToDraw .. " card(s) instead (Patrice)", messageColor)
+        printToColor("Discarding " .. #cardsToDiscard .. " and drawing " .. cardsToDraw .. " card(s) instead (Patrice)",
+          messageColor)
 
         -- add some time if there are any cards to discard
         local k = 0
@@ -494,7 +502,8 @@ function doUpkeep(_, clickedByColor, isRightClick)
     printToColor("Drawing 2 cards instead, discard 1 (Forced Learning)", messageColor)
     drawCardsWithReshuffle(2)
   elseif activeInvestigatorData.id == "89001" then
-    printToColor("Drawing 1 additional card — devour a non-weakness player card in your hand (Subject 5U-21)", messageColor)
+    printToColor("Drawing 1 additional card — devour a non-weakness player card in your hand (Subject 5U-21)",
+      messageColor)
     drawCardsWithReshuffle(2)
   else
     drawCardsWithReshuffle(1)
@@ -661,7 +670,7 @@ function shuffleDiscardIntoDeck(player, _, elementId)
   end
 
   Wait.time(function()
-    deckLib.placeOrMergeIntoDeck(objects.discard, returnGlobalDrawPosition(), faceDownRotation, nil, true)
+    DeckLib.placeOrMergeIntoDeck(objects.discard, returnGlobalDrawPosition(), faceDownRotation, nil, true)
   end, delay)
 end
 
@@ -738,7 +747,7 @@ function doDiscardOne(_, clickedByColor)
     local cardName = card.getName()
     local cardId = choices[num] .. "/" .. #hand
 
-    deckLib.placeOrMergeIntoDeck(card, returnGlobalDiscardPosition(), self.getRotation())
+    DeckLib.placeOrMergeIntoDeck(card, returnGlobalDiscardPosition(), self.getRotation())
     local playerName = GlobalApi.getColoredName(playerColor)
     broadcastToAll(playerName .. " randomly discarded " .. cardName .. " (" .. cardId .. ").", "White")
   end
@@ -871,29 +880,28 @@ function createXML()
 
   -- work out the size
   local rowHeight = {
-    header = 200,
+    header      = 200,
     groupHeader = 150,
-    option = 150
+    option      = 150
   }
   local totalHeight = rowHeight.header
   local scale = 0.11
 
   -- main window
+  local fontName = i18nApi.getFont()
   local optionPanelXML = {
     tag = "TableLayout",
     attributes = {
-      id = "optionPanelMain",
-      scale = scale .. " " .. scale,
-      width = "1000",
-      rotation = "0 0 180",
-      active = optionPanelVisibility ~= "",
-      visibility = optionPanelVisibility,
-      color = "#000000",
-      outlineSize = "5 5",
-      outline = "grey",
-      showAnimation = "SlideIn_Right",
-      hideAnimation = "SlideOut_Right",
-      animationDuration = "0.2"
+      id           = "optionPanelMain",
+      scale        = scale .. " " .. scale,
+      width        = "1200",
+      columnWidths = "800 400",
+      rotation     = "0 0 180",
+      active       = optionPanelVisibility ~= "",
+      visibility   = optionPanelVisibility,
+      color        = "#000000",
+      outlineSize  = "5 5",
+      outline      = "grey"
     },
     children = {
       -- header
@@ -910,7 +918,12 @@ function createXML()
                 children = {
                   {
                     tag = "Text",
-                    attributes = { font = "font_teutonic-arkham", fontSize = "110", text = "Options" }
+                    attributes = {
+                      id       = "PM_title_text",
+                      fontSize = 110,
+                      font     = fontName,
+                      text     = "Options"
+                    }
                   }
                 }
               }
@@ -922,7 +935,9 @@ function createXML()
   }
 
   -- add options groups
-  for groupName, groupData in pairs(availableOptions) do
+  local groupCount = 0
+  for groupName, groupData in pairs(AVAILABLE_OPTIONS) do
+    groupCount = groupCount + 1
     totalHeight = totalHeight + rowHeight.groupHeader
     -- group header
     local groupXML = {
@@ -931,7 +946,7 @@ function createXML()
       children = {
         {
           tag = "Cell",
-          attributes = { padding = "20 10 0 0", columnSpan = "3", color = "#222222" },
+          attributes = { padding = "20 10 0 0", columnSpan = "2", color = "#222222" },
           children = {
             {
               tag = "Panel",
@@ -939,7 +954,12 @@ function createXML()
               children = {
                 {
                   tag = "Text",
-                  attributes = { fontSize = "75", font = "font_teutonic-arkham", text = groupName }
+                  attributes = {
+                    id       = "PM_group_" .. groupCount .. "_text",
+                    fontSize = 75,
+                    font     = fontName,
+                    text     = groupName
+                  }
                 }
               }
             }
@@ -959,7 +979,7 @@ function createXML()
           -- option title
           {
             tag = "Cell",
-            attributes = { padding = "20 10 5 5", color = "#333333", columnSpan = "2" },
+            attributes = { padding = "20 10 5 5", color = "#333333" },
             children = {
               {
                 tag = "Panel",
@@ -967,38 +987,49 @@ function createXML()
                 children = {
                   {
                     tag = "Text",
-                    attributes = { fontSize = "65", font = "font_teutonic-arkham", text = optionData.title }
+                    attributes = {
+                      id       = "PM_optionTitle_" .. optionData.id .. "_text",
+                      fontSize = 65,
+                      font     = fontName,
+                      text     = optionData.title
+                    }
                   }
                 }
               }
             }
-          },
+          }
         }
       }
 
-      local typeXML
-      if optionData.type == "toggle" then
-        typeXML = {
-          tag = "Cell",
-          attributes = { padding = "10 10 5 5", color = "#333333" },
-          children = {
-            {
-              tag = "Button",
-              attributes = {
-                id = optionData.id,
-                image = optionPanelData[optionData.id] and "option_on" or "option_off",
-                onClick = "onClick_toggleOption",
-                rectAlignment = "MiddleRight",
-                offsetXY = "-30 0",
-                colors = "#FFFFFF|#dfdfdf",
-                height = "108",
-                width = "195",
-                ignoreLayout = "True"
-              }
-            }
+      -- default data, will be changed below
+      local typeXML = {
+        tag = "Cell",
+        attributes = { padding = "10 10 5 5", color = "#333333" },
+        children = {
+          {
+            attributes = {
+              id            = optionData.id,
+              rectAlignment = "MiddleRight",
+              offsetXY      = "-30 0",
+              fontSize      = 80,
+              height        = 108,
+              width         = 195,
+              ignoreLayout  = "True"
+            },
+            children = {}
           }
         }
+      }
+
+      local subTable = typeXML.children[1]
+      if optionData.type == "toggle" then
+        -- create toggle button (on / off
+        subTable.tag                = "Button"
+        subTable.attributes.image   = optionPanelData[optionData.id] and "option_on" or "option_off"
+        subTable.attributes.onClick = "onClick_toggleOption"
+        subTable.attributes.colors  = "#FFFFFF|#dfdfdf"
       elseif optionData.type == "button" then
+        -- create a regular button
         local baseColor = Color.new(0.228, 0.249, 0.773)
 
         -- use the hand color for the selection button
@@ -1006,50 +1037,50 @@ function createXML()
           baseColor = Color[playerColor]
         end
 
-        typeXML = {
-          tag = "Cell",
-          attributes = { padding = "10 10 5 5", color = "#333333" },
-          children = {
-            {
-              tag = "Button",
-              attributes = {
-                id = optionData.id,
-                image = "option_button",
-                onClick = "onClick_" .. optionData.id,
-                rectAlignment = "MiddleRight",
-                offsetXY = "-30 0",
-                colors = getColorBlockForXmlButton(baseColor),
-                height = "108",
-                width = "195",
-                ignoreLayout = "True"
-              }
-            }
-          }
-        }
+        subTable.tag                = "Button"
+        subTable.attributes.image   = "option_button"
+        subTable.attributes.onClick = "onClick_" .. optionData.id
+        subTable.attributes.colors  = getColorBlockForXmlButton(baseColor)
       elseif optionData.type == "input" then
-        typeXML = {
-          tag = "Cell",
-          attributes = { padding = "10 10 5 5", color = "#333333" },
-          children = {
-            {
-              tag = "InputField",
-              attributes = {
-                id = optionData.id,
-                onEndEdit = "onEndEdit",
-                rectAlignment = "MiddleRight",
-                text = optionPanelData[optionData.id] or "",
-                characterValidation = "Integer",
-                fontSize = "80",
-                textAlignment = "MiddleCenter",
-                offsetXY = "-30 0",
-                height = "108",
-                width = "195",
-                ignoreLayout = "True"
-              }
-            }
-          }
-        }
+        -- create an inputfield
+        subTable.tag                            = "InputField"
+        subTable.attributes.onEndEdit           = "onEndEdit_" .. optionData.id
+        subTable.attributes.text                = optionPanelData[optionData.id] or ""
+        subTable.attributes.characterValidation = "Integer"
+        subTable.attributes.textAlignment       = "MiddleCenter"
+      elseif optionData.type == "slider" then
+        -- create a slider (not yet used)
+        subTable.tag                       = "Slider"
+        subTable.attributes.onValueChanged = "onSliderChange"
+        subTable.attributes.width          = subTable.attributes.width * 2
+        subTable.attributes.wholeNumbers   = true
+        subTable.attributes.minValue       = 1
+        subTable.attributes.maxValue       = 12
+        subTable.attributes.value          = 6
+      elseif optionData.type == "dropdown" then
+        -- create a dropdown menu
+        subTable.tag                          = "Dropdown"
+        subTable.attributes.id                = optionData.id
+        subTable.attributes.onValueChanged    = "onDropdownChange(selectedIndex)"
+        subTable.attributes.value             = getDropdownOptionIndex(optionData.id, optionPanelData[optionData.id]) - 1
+        subTable.attributes.raycastTarget     = "true"
+        subTable.attributes.dropdownHeight    = 250 * math.min(#optionData.options, 3)
+        subTable.attributes.itemHeight        = 70
+        subTable.attributes.fontSize          = 60
+        subTable.attributes.font              = fontName
+        subTable.attributes.width             = subTable.attributes.width * 2
+        subTable.attributes.children          = {}
+
+        -- add options
+        for dropdownOptionId, option in ipairs(optionData.options) do
+          table.insert(subTable.children, {
+            tag        = "Option",
+            value      = option,
+            attributes = { id = "PM_option_dropdown_" .. dropdownOptionId }
+          })
+        end
       end
+
       table.insert(optionXML.children, typeXML)
       table.insert(optionPanelXML.children, optionXML)
     end
@@ -1057,10 +1088,12 @@ function createXML()
   table.insert(xml, optionPanelXML)
 
   -- set correct height
-  optionPanelXML.attributes.height = totalHeight
+  optionPanelXML.attributes.height   = totalHeight
 
   -- set correct position to align with playermat
-  optionPanelXML.attributes.position = (setAsideDirection * 270) .. " " .. (-95 + scale * totalHeight / 2) .. " -65"
+  local horizontalOffset             = (optionPanelXML.attributes.width * scale / 2 + 215) * setAsideDirection
+  local verticalOffset               = totalHeight * scale / 2 - 95
+  optionPanelXML.attributes.position = horizontalOffset .. " " .. verticalOffset .. " -65"
 
   self.UI.setXmlTable(xml)
 end
@@ -1101,7 +1134,7 @@ function onClick_handColorSelect(player)
     -- update visibility for old and new color (delay to allow first call to resolve)
     GlobalApi.changeWindowVisibility(playerColor, "optionPanelMain", false, self)
     Wait.frames(function() GlobalApi.changeWindowVisibility(newColor, "optionPanelMain", true, self) end, 3)
-    navigationOverlayApi.copyVisibility(playerColor, newColor)
+    NavigationOverlayApi.copyVisibility(playerColor, newColor)
 
     -- if there was a seated player, reseat to the new color
     if Player[playerColor].seated then
@@ -1273,21 +1306,23 @@ function modifySlot(newSlot, cardPosition)
   updateSlotSymbols()
 end
 
-function onEndEdit(player, text, elementId)
-  if elementId == "exhaustRotation" then
-    local angle = roundToMultiple(tonumber(text), 15) % 360
-    self.UI.setAttribute("exhaustRotation", "text", angle)
-    optionPanelData["exhaustRotation"] = angle
-    updateSave()
+function onEndEdit_exhaustRotation(player, text)
+  local angle = roundToMultiple(tonumber(text), 15) % 360
+  self.UI.setAttribute("exhaustRotation", "text", angle)
+  optionPanelData["exhaustRotation"] = angle
+  updateSave()
 
-    if math.abs(angle) > 90 then
-      printToColor("It's recommended to choose a value between 0° and 90°.", player.color, "Yellow")
-    end
+  if math.abs(angle) > 90 then
+    printToColor("It's recommended to choose a value between 0° and 90°.", player.color, "Yellow")
   end
 end
 
 function roundToMultiple(num, mult)
   return math.floor((num + mult / 2) / mult) * mult
+end
+
+function getResourceCounterOption()
+  return optionPanelData["useResourceCounters"]
 end
 
 function getExhaustRotation(convertToGlobal)
@@ -1296,6 +1331,37 @@ function getExhaustRotation(convertToGlobal)
     return Vector(0, (self.getRotation().y + exhaustRotation) % 360, 0)
   else
     return exhaustRotation
+  end
+end
+
+function onDropdownChange(_, selectedIndex, id)
+  optionPanelData[id] = getDropdownOptionValue(id, tonumber(selectedIndex) + 1)
+
+  -- update XML so that the settings persists
+  self.UI.setAttribute(id, "value", selectedIndex)
+end
+
+function getDropdownOptionValue(optionId, selectedIndex)
+  for _, groupData in pairs(AVAILABLE_OPTIONS) do
+    for _, optionData in pairs(groupData) do
+      if optionData.id == optionId then
+        return optionData.options[selectedIndex]
+      end
+    end
+  end
+end
+
+function getDropdownOptionIndex(optionId, selectedValue)
+  for _, groupData in pairs(AVAILABLE_OPTIONS) do
+    for _, optionData in pairs(groupData) do
+      if optionData.id == optionId then
+        for index, optionName in ipairs(optionData.options) do
+          if optionName == selectedValue then
+            return index
+          end
+        end
+      end
+    end
   end
 end
 
@@ -1327,7 +1393,7 @@ function syncCustomizableMetadata(card, cardMetadata)
             card.setGMNotes(JSON.encode(cardMetadata))
           else
             -- restore original 'uses' metadata
-            local originalData = allCardsBagApi.getCardById(cardMetadata.id)
+            local originalData = AllCardsBagApi.getCardById(cardMetadata.id)
             if originalData and originalData.metadata and originalData.metadata.uses then
               cardMetadata.uses = originalData.metadata.uses
               card.setGMNotes(JSON.encode(cardMetadata))
@@ -1368,7 +1434,7 @@ function spawnTokensFor(object)
     end
   end
 
-  tokenManagerApi.spawnForCard(object, extraUses, spawnReactionToken)
+  TokenManagerApi.spawnForCard(object, extraUses, spawnReactionToken, matColor)
 end
 
 -- search for "Locked and Loaded"
@@ -1417,7 +1483,7 @@ function onCollisionEnter(collisionInfo)
       spawnTokensOrShowHelper(object)
     end
   elseif inArea(localCardPos, DECK_DISCARD_AREA) then
-    tokenSpawnTrackerApi.resetTokensSpawned(object)
+    TokenSpawnTrackerApi.resetTokensSpawned(object)
     GlobalApi.removeTokensFromObject(object, matColor)
     if md.id == "07224" then luckyPennyEnabled = false end
   elseif object.is_face_down == false then
@@ -1458,7 +1524,7 @@ function onObjectEnterContainer(container, object)
 
   local localCardPos = self.positionToLocal(object.getPosition())
   if inArea(localCardPos, DECK_DISCARD_AREA) then
-    tokenSpawnTrackerApi.resetTokensSpawned(object)
+    TokenSpawnTrackerApi.resetTokensSpawned(object)
     GlobalApi.removeTokensFromObject(object, matColor)
     local metadata = JSON.decode(object.getGMNotes()) or {}
     if metadata.id == "07224" then luckyPennyEnabled = false end
@@ -1530,7 +1596,7 @@ function maybeUpdateActiveInvestigator(card, md)
         local localSpawnPos = tokenSpawnPos[type][count[type]]
         local globalSpawnPos = self.positionToWorld(localSpawnPos):add(Vector(0, 0.2, 0))
         callbackParams.symbol = str
-        tokenManagerApi.spawnToken(globalSpawnPos, tokenType, rotation, callbackName, callbackParams)
+        TokenManagerApi.spawnToken(globalSpawnPos, tokenType, rotation, callbackName, callbackParams)
       end
     end
   end
@@ -1544,7 +1610,7 @@ function spawnActionTokens()
 
   for i = 1, 3 do
     local position = self.positionToWorld(Vector(-1.54 + i * 0.17, 0, -0.28)):add(Vector(0, 0.2, 0))
-    tokenManagerApi.spawnToken(position, tokenType, rotation, callbackName, callbackParams)
+    TokenManagerApi.spawnToken(position, tokenType, rotation, callbackName, callbackParams)
   end
 end
 
@@ -1555,10 +1621,10 @@ function newInvestigatorCallback(newId)
   Wait.frames(function() GlobalApi.updateActionTrackerTokens(matColor) end, 5)
 
   -- remove existing object that was placed for a specific investigator
-  local obj = guidReferenceApi.getObjectByOwnerAndType(matColor, "InvestigatorSpecifics")
+  local obj = GUIDReferenceApi.getObjectByOwnerAndType(matColor, "InvestigatorSpecifics")
   if obj ~= nil then
     obj.destruct()
-    guidReferenceApi.editIndex(matColor, "InvestigatorSpecifics")
+    GUIDReferenceApi.editIndex(matColor, "InvestigatorSpecifics")
   end
 
   if newId == "01005-p" or newId == "01005-pf" then -- parallel Wendy Adams
@@ -1576,11 +1642,11 @@ function newInvestigatorCallback(newId)
   elseif newId == "89001" then -- Subject 5U-21
     local pos = zones.getZonePosition(playerColor, "BelowSetAside")
     local rot = self.getRotation()
-    local sourceBag = guidReferenceApi.getObjectByOwnerAndType("Mythos", "ObjectSourceBag")
+    local sourceBag = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "ObjectSourceBag")
     for _, objData in ipairs(sourceBag.getData().ContainedObjects) do
       if objData["Nickname"] == "Subject 5U-21 Helper" then
         local spawnedObj = spawnObjectData({ data = objData, position = pos, rotation = rot })
-        guidReferenceApi.editIndex(matColor, "InvestigatorSpecifics", spawnedObj.getGUID())
+        GUIDReferenceApi.editIndex(matColor, "InvestigatorSpecifics", spawnedObj.getGUID())
         break
       end
     end
@@ -1593,8 +1659,8 @@ end
 function spawnInfiniteTokenBag(tokenType)
   local pos = zones.getZonePosition(matColor, "AboveSetAside")
   local rot = self.getRotation()
-  local spawnedObj = spawnObjectData({ data = tokenManagerApi.getDataForInfiniteBag(tokenType, pos, rot) })
-  guidReferenceApi.editIndex(matColor, "InvestigatorSpecifics", spawnedObj.getGUID())
+  local spawnedObj = spawnObjectData({ data = TokenManagerApi.getDataForInfiniteBag(tokenType, pos, rot) })
+  GUIDReferenceApi.editIndex(matColor, "InvestigatorSpecifics", spawnedObj.getGUID())
 end
 
 -- returns the mini ID for the currently placed investigator
@@ -1699,12 +1765,12 @@ end
 ---------------------------------------------------------
 
 function drawChaosTokenButton(_, _, isRightClick)
-  chaosBagApi.drawChaosToken(self, isRightClick)
+  ChaosBagApi.drawChaosToken(self, isRightClick)
 end
 
 function drawEncounterCard(_, _, isRightClick)
   local drawPos = getEncounterCardDrawPosition(not isRightClick)
-  mythosAreaApi.drawEncounterCard(matColor, drawPos)
+  MythosAreaApi.drawEncounterCard(matColor, drawPos)
 end
 
 function returnGlobalDiscardPosition()
@@ -1725,7 +1791,7 @@ function getEncounterCardDrawPosition(stack)
     local searchPos = Vector(-0.91, 0.5, -0.625)
     for i = 1, 5 do
       local globalSearchPos = self.positionToWorld(searchPos)
-      local searchResult = searchLib.atPosition(globalSearchPos, "isCardOrDeck")
+      local searchResult = SearchLib.atPosition(globalSearchPos, "isCardOrDeck")
       if #searchResult == 0 then
         drawPos = globalSearchPos
         break
@@ -1790,7 +1856,7 @@ function clickableClues(showCounter)
     local pos = self.positionToWorld({ x = -1.12, y = 0.05, z = 0.7 })
     for i = 1, clueCount do
       pos.y = pos.y + 0.045 * i
-      tokenManagerApi.spawnToken(pos, "clue", self.getRotation())
+      TokenManagerApi.spawnToken(pos, "clue", self.getRotation())
     end
   end
 end

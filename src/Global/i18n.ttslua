@@ -1,4 +1,9 @@
-LANGUAGES             = {
+--- This file contains all the core functions for handling internationalization (i18n)
+--- in the mod. It manages loading translated strings, applying them to the UI,
+--- and handling language-specific fonts.
+
+-- Defines all supported languages, their display names, and the required font for special UI elements.
+LANGUAGES = {
   { code = "zh_CN", name = "简体中文", font = "font_chinese_fzlibian" },
   { code = "zh_TW", name = "繁體中文", font = "font_chinese_fzlibian" },
   { code = "de", name = "Deutsch", font = "font_teutonic-arkham" },
@@ -6,8 +11,13 @@ LANGUAGES             = {
   { code = "es", name = "Español", font = "font_teutonic-arkham" },
   { code = "fr", name = "Français", font = "font_teutonic-arkham" },
   { code = "it", name = "Italiano", font = "font_teutonic-arkham" },
+  { code = "nl", name = "Nederlands", font = "font_teutonic-arkham" },
   { code = "ru", name = "Русский", font = "font_russian_conkordia" }
 }
+
+-- A whitelist of msgid prefixes. Only UI elements with these prefixes will have their
+-- font changed to the language-specific "special" font (e.g., for headers).
+-- This allows fine-grained control over which text elements get a stylized font.
 SPECIAL_FONT_PREFIXES = {
   DW_   = true,
   OP_   = true,
@@ -15,22 +25,38 @@ SPECIAL_FONT_PREFIXES = {
   PAG_  = true,
   CUH_  = true,
   CARD_ = true,
-  BB_   = false
+  PM_   = true,
+  BB_   = false -- Example of a prefix that is explicitly excluded from special fonts.
 }
-i18n                  = {}
 
+-- Main table to hold all i18n functions.
+i18n = {}
+
+--- Fetches a translated string from the I18N_DATA table.
+--- It follows a robust fallback system:
+--- 1. Try to get the string in the currently selected UI language.
+--- 2. If not found or empty, fall back to the English ('en') translation.
+--- 3. If the English translation is also missing, fall back to the ID itself.
+---@param id string The msgid of the string to retrieve.
+---@return string: The translated string or the id if no translation is found.
 function i18n.getStrById(id)
   if I18N_DATA[id] then
     local val = I18N_DATA[id][optionPanel.uiLanguage]
+    -- Check if the translation exists and is not an empty string.
     if val and val ~= "" then
       return val
     end
+    -- Fallback to English if the selected language is missing or empty.
     return I18N_DATA[id].en or id
   end
+  -- Fallback to the ID itself if the entry doesn't exist in I18N_DATA.
   return id
 end
 
----@param code? string Language code
+--- Gets the appropriate special font for a given language code.
+--- Defaults to the standard Arkham font if the language is not found.
+---@param code? string Language code (e.g., "de", "en"). Defaults to the current UI language.
+---@return string: The name of the font to use.
 function i18n.getFont(code)
   code = code or optionPanel.uiLanguage
   for _, tbl in ipairs(LANGUAGES) do
@@ -38,26 +64,27 @@ function i18n.getFont(code)
       return tbl.font
     end
   end
-  return "font_teutonic-arkham"
+  return "font_teutonic-arkham" -- Default fallback font.
 end
 
+--- Determines if a special font should be applied to a UI element based on its ID.
+---@param id string The msgid of the UI element.
+---@return string|nil: The font name if a special font should be used, otherwise nil.
 function i18n.getFontById(id)
-  -- exclude tooltips
+  -- Exclude tooltips from getting special fonts.
   if string.endsWith(id, "tooltip") then return end
 
-  -- get prefix
   local prefix = i18n.getPrefix(id)
 
-  -- exclude objects without prefix
-  if not prefix then return end
-
-  -- exclude objects with not-matching prefix
-  if not SPECIAL_FONT_PREFIXES[prefix] then return end
-
-  -- get the default font for the current language
-  return i18n.getFont()
+  -- Only proceed if a prefix exists and it's in our whitelist.
+  if prefix and SPECIAL_FONT_PREFIXES[prefix] then
+    return i18n.getFont()
+  end
 end
 
+--- A helper function to extract the prefix (e.g., "OP_") from a string ID.
+---@param str string The input string ID.
+---@return string|nil: The extracted prefix or nil if not found.
 function i18n.getPrefix(str)
   local delimiter = "_"
 
@@ -86,35 +113,39 @@ function i18n.recursiveTranslate(elements)
     if type(element) == "table" and element.attributes and element.attributes.id then
       local id = element.attributes.id
 
-      -- Check for and apply a translation for the element's text
+      -- The primary target for translation is the element's main text/value.
       i18n.updateElementText(element, id)
 
-      -- Also check for additional data
+      -- Also check for derived IDs for other attributes like tooltips and placeholders.
       i18n.updateElementText(element, id .. "+tooltip")
       i18n.updateElementText(element, id .. "+placeholder")
     end
 
-    -- If the element has children, do the same for them
+    -- If the element has children, recurse into them.
     if element.children then
       i18n.recursiveTranslate(element.children)
     end
   end
 end
 
+--- Applies a translated string and potentially a special font to a single UI element.
+--- It checks the suffix of the ID to determine which attribute to modify.
+---@param element table The UI element table.
+---@param id string The full string ID to look up (e.g., "OP_Header", "OP_uiLanguage_tooltip").
 function i18n.updateElementText(element, id)
   local text = i18n.getStrById(id)
+  -- Only apply changes if a translation was found (i.e., text is different from id).
   if text ~= id then
     if string.endsWith(id, "tooltip") then
       element.attributes.tooltip = text
     elseif string.endsWith(id, "placeholder") then
       element.attributes.placeholder = text
-    elseif string.endsWith(id, "text") then
-      element.attributes.text = text
     else
+      -- Default to updating the main text value of the element.
       element.value = text
     end
 
-    -- maybe also update the font
+    -- Check if a special font should also be applied.
     local font = i18n.getFontById(id)
     if font then
       element.attributes.font = font
@@ -122,8 +153,17 @@ function i18n.updateElementText(element, id)
   end
 end
 
-function i18n.updateObjectUILanguage(obj)
-  if obj ~= nil then
+--- Finds all in-game objects with the "i18n_XML" tag and updates their UI.
+function i18n.updateAllObjectsUiLanguage()
+  for _, obj in ipairs(getObjectsWithTag("i18n_XML")) do
+    i18n.updateObjectUiLanguage(obj)
+  end
+end
+
+--- Applies the recursive translation to a single game object's UI.
+---@param obj tts__Object The game object with a UI to translate.
+function i18n.updateObjectUiLanguage(obj)
+  if obj ~= nil and obj.UI then
     local xmlTable = obj.UI.getXmlTable()
     i18n.recursiveTranslate(xmlTable)
     obj.UI.setXmlTable(xmlTable)
