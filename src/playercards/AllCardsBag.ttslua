@@ -595,33 +595,11 @@ function getCustomInvestigatorData()
   }
 end
 
--- Searches the bag for cards which match the given name and returns a list. Note that this is
--- an O(n) search without index support. It may be slow.
--- Parameter array must contain these fields to define the search:
---   name: String or string fragment to search for names
---   exact: Whether the name match should be exact
-function getCardsByName(params)
-  local name       = params.name
-  local exact      = params.exact
-  local results    = {}
-
-  -- Track cards (by ID) that we've added to avoid duplicates that may come from alternate IDs
-  local addedCards = {}
-  for _, cardData in pairs(cardIdIndex) do
-    if (not addedCards[cardData.metadata.id]) then
-      if (exact and (string.lower(cardData.data.Nickname) == string.lower(name)))
-          or (not exact and string.find(string.lower(cardData.data.Nickname), string.lower(name), 1, true)) then
-        table.insert(results, cardData)
-        addedCards[cardData.metadata.id] = true
-      end
-    end
-  end
-  return results
-end
-
 function getCardsByFilter(params)
   local filters    = params.filters
   local exact      = params.exact
+  if exact == nil then exact = true end
+
   local results    = {}
 
   -- track cards (by ID) that we've added to avoid duplicates that may come from alternate IDs
@@ -716,6 +694,21 @@ function getCardsByFilter(params)
         local operator      = filters.f.operator
         local containsClass = string.find(cardClass, searchClass, 1, true)
         if (operator == ":" and not containsClass) or (operator == "!" and containsClass) then
+          cardMatches = false
+        end
+      end
+    end
+
+    -- compare cycle (c)
+    if filters.c and cardMatches then
+      if not cardData.metadata.cycle then
+        cardMatches = false
+      else
+        local searchCycle   = string.lower(filters.c.value)
+        local cardCycle     = string.lower(cardData.metadata.class)
+        local operator      = filters.c.operator
+        local cycleMatches  = searchCycle == cardCycle
+        if (operator == ":" and not cycleMatches) or (operator == "!" and cycleMatches) then
           cardMatches = false
         end
       end
