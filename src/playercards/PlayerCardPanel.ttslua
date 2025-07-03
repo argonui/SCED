@@ -526,45 +526,23 @@ end
 -- investigator cards and minicards as well as the signature cards.
 ---@param groupName string Name of the group to spawn, matching a key in InvestigatorPanelData
 function spawnInvestigators(groupName)
-  local investigatorList = {}
+  local cycle, class
 
   -- determine whether it's a cycle or class
   if tableContains(CLASS_LIST, groupName) then
-    investigatorList = AllCardsBagApi.getCardsByFilter({
-      t = { operator = ":", value = "Investigator" },
-      f = { operator = ":", value = groupName },
-    })
+    class = groupName
   else
-    investigatorList = AllCardsBagApi.getCardsByFilter({
-      t = { operator = ":", value = "Investigator" },
-      c = { operator = ":", value = groupName },
-    })
-  end
-  log(investigatorList)
-
-  --TODO
-
-  local mainData = INVESTIGATOR_GROUPS[groupName]
-  local subData = INVESTIGATORS
-
-  -- handling for custom investigators
-  if groupName == "Other" then
-    local customData = AllCardsBagApi.getCustomInvestigatorData()
-    mainData = customData.InvestigatorGroup
-    subData = customData.InvestigatorSubdata
+    cycle = groupName
   end
 
-  if mainData == nil or subData == nil then
-    printToAll("No investigator data for '" .. groupName .. "' yet")
-    return
-  end
+  local invData = AllCardsBagApi.getInvestigatorData(cycle, class)
 
   local col = 0
   local row = 1
-  local investigatorCount = #mainData
+  local investigatorCount = #invData.InvestigatorGroup
   local position = getInvestigatorRowStartPos(investigatorCount, row)
 
-  for _, investigatorName in ipairs(mainData) do
+  for _, investigatorName in ipairs(invData.InvestigatorGroup) do
     col = col + 1
     if col > INVESTIGATOR_MAX_COLS then
       col      = 0
@@ -572,7 +550,7 @@ function spawnInvestigators(groupName)
       position = getInvestigatorRowStartPos(investigatorCount, row)
     end
 
-    for _, spawnSpec in ipairs(buildInvestigatorSpawnSpec(investigatorName, subData[investigatorName], position)) do
+    for _, spawnSpec in ipairs(buildInvestigatorSpawnSpec(investigatorName, invData.InvestigatorSubdata[investigatorName], position)) do
       spawnBag.spawn(spawnSpec)
     end
     position:add(investigatorPositionShiftCol)
