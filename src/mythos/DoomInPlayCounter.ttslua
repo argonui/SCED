@@ -1,5 +1,6 @@
-local guidReferenceApi = require("core/GUIDReferenceApi")
-local playermatApi     = require("playermat/PlayermatApi")
+local GUIDReferenceApi = require("core/GUIDReferenceApi")
+local PlayermatApi     = require("playermat/PlayermatApi")
+local SearchLib        = require("util/SearchLib")
 
 local ZONE, TRASH
 local IGNORE_TAG       = "DoomCounter_ignore"
@@ -33,8 +34,8 @@ function onLoad(savedData)
     color = { 0, 0, 0, 0 }
   })
 
-  TRASH = guidReferenceApi.getObjectByOwnerAndType("Mythos", "Trash")
-  ZONE = guidReferenceApi.getObjectByOwnerAndType("Mythos", "PlayAreaZone")
+  TRASH = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "Trash")
+  ZONE = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "PlayAreaZone")
   Wait.time(updateCounter, 2, -1)
 end
 
@@ -68,9 +69,19 @@ end
 function countDoomInPlay()
   local count = 0
 
-  for _, obj in ipairs(getObjects()) do
+  -- doom in main play area
+  for _, obj in ipairs(ZONE.getObjects()) do
     count = count + getDoomAmount(obj)
   end
+
+  -- doom on Mythos Area
+  local MythosArea = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "MythosArea")
+  for _, obj in ipairs(SearchLib.onObject(MythosArea)) do
+    count = count + getDoomAmount(obj)
+  end
+
+  -- doom on Playermats
+  count = count + PlayermatApi.getDoomCount("All")
 
   return count
 end
@@ -98,7 +109,7 @@ end
 -- removes doom from playermats / playarea
 function removeDoom(options)
   if options.Playermats then
-    local count = removeDoomFromList(playermatApi.searchAroundPlayermat("All"))
+    local count = removeDoomFromList(PlayermatApi.searchAroundPlayermat("All"))
     if count > 0 then
       broadcastToAll(count .. " doom removed from playermats.", "White")
     end
