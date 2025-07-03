@@ -2,7 +2,6 @@ local GUIDReferenceApi = require("core/GUIDReferenceApi")
 local PlayermatApi     = require("playermat/PlayermatApi")
 local SearchLib        = require("util/SearchLib")
 
-local ZONE, TRASH
 local IGNORE_TAG       = "DoomCounter_ignore"
 local subtractDoom     = false
 
@@ -16,7 +15,7 @@ function onLoad(savedData)
     subtractDoom = JSON.decode(savedData) or false
   end
 
-  self.addContextMenuItem("Toggle Doom Mode", function() toggleSubtractDoom() end)
+  self.addContextMenuItem("Toggle Doom Mode", toggleSubtractDoom)
   self.createButton({
     label = "0",
     click_function = "none",
@@ -30,8 +29,6 @@ function onLoad(savedData)
     color = { 0, 0, 0, 0 }
   })
 
-  TRASH = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "Trash")
-  ZONE = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "PlayAreaZone")
   Wait.time(updateCounter, 2, -1)
 end
 
@@ -66,7 +63,8 @@ function countDoomInPlay()
   local count = 0
 
   -- doom in main play area
-  for _, obj in ipairs(ZONE.getObjects()) do
+  local zone = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "PlayAreaZone")
+  for _, obj in ipairs(zone.getObjects()) do
     count = count + getDoomAmount(obj)
   end
 
@@ -112,7 +110,8 @@ function removeDoom(options)
   end
 
   if options.Playarea then
-    local count = removeDoomFromList(ZONE.getObjects())
+    local zone = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "PlayAreaZone")
+    local count = removeDoomFromList(zone.getObjects())
     if count > 0 then
       broadcastToAll(count .. " doom removed from play area.", "White")
     end
@@ -121,6 +120,7 @@ end
 
 -- removes doom from provided object list and returns the removed amount
 function removeDoomFromList(objList)
+  local trash = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "Trash")
   local count = 0
   for _, obj in ipairs(objList) do
     local amount = getDoomAmount(obj, true)
@@ -128,7 +128,7 @@ function removeDoomFromList(objList)
       if obj.getMemo() == "DoomCounter" then
         obj.call("updateVal", 0)
       else
-        TRASH.putObject(obj)
+        trash.putObject(obj)
       end
       count = count + amount
     end
