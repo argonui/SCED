@@ -167,6 +167,10 @@ local optionPanelVisibility       = ""
 local ownedObjects                = {}
 local matColor                    = self.getMemo()
 
+-- continuously updated
+local clueCount                   = 0
+local doomCount                   = 0
+
 function updateSave()
   optionPanelVisibility = self.UI.getAttribute("optionPanelMain", "visibility") or ""
   self.script_state = JSON.encode({
@@ -238,6 +242,19 @@ function onLoad(savedData)
   showDrawButton()
   createXML()
   Wait.time(function() collisionEnabled = true end, 0.1)
+
+  -- make sure the casts (for each playermat) are not in the same frame
+  local startDelay = 0
+  if matColor == "Orange" then
+    startDelay = 0.5
+  elseif matColor == "Green" then
+    startDelay = 1
+  elseif matColor == "Red" then
+    startDelay = 1.5
+  end
+  Wait.time(function()
+    Wait.time(searchForClueDoom, 2, -1)
+  end, startDelay)
 end
 
 -- get object references to owned objects
@@ -249,20 +266,13 @@ end
 -- utility functions
 ---------------------------------------------------------
 
--- searches an area and optionally filters the result
-function searchArea(origin, size, filter)
-  return SearchLib.inArea(origin, self.getRotation(), size, filter)
-end
-
 -- finds all objects on the playermat and associated set aside zone.
 function searchAroundSelf(filter)
-  local scale = self.getScale()
+  local scale  = self.getScale()
   local bounds = self.getBoundsNormalized()
 
   -- Increase the width to cover the set aside zone
-  bounds.size.x = bounds.size.x + SEARCH_AROUND_SELF_X_BUFFER
-  bounds.size.y = 1
-  bounds.size.z = bounds.size.z + SEARCH_AROUND_SELF_Z_BUFFER
+  local size = Vector(bounds.size.x + SEARCH_AROUND_SELF_X_BUFFER, 2, bounds.size.z + SEARCH_AROUND_SELF_Z_BUFFER)
 
   -- 'setAsideDirection' accounts for the set aside zone being on the left or right,
   -- depending on the table position of the playermat
@@ -273,13 +283,11 @@ function searchAroundSelf(filter)
   local localCenter = self.positionToLocal(bounds.center)
   localCenter.x = localCenter.x + setAsideDirection * SEARCH_AROUND_SELF_X_BUFFER / 2 / scale.x
   localCenter.z = localCenter.z - SEARCH_AROUND_SELF_Z_BUFFER / 2 / scale.z
-  return searchArea(self.positionToWorld(localCenter), bounds.size, filter)
-end
 
--- searches the area around the draw deck and discard pile
-function searchDeckAndDiscardArea(filter)
-  local pos = self.positionToWorld(DECK_DISCARD_AREA.center)
-  return searchArea(pos, DECK_DISCARD_AREA.size * self.getScale(), filter)
+  -- Perform the search
+  local pos = self.positionToWorld(localCenter) + Vector(0, 1, 0)
+  local rot = self.getRotation()
+  return SearchLib.inArea(pos, rot, size, filter)
 end
 
 -- updates the internal "messageColor" which is used for print/broadcast statements if no player is seated
@@ -336,7 +344,7 @@ function makeDiscardButton(id)
   self.setVar(handlerName, function()
     local cardSizeSearch = Vector(2, 2, 3.2)
     local globalSearchPosition = self.positionToWorld(searchPosition)
-    local searchResult = searchArea(globalSearchPosition, cardSizeSearch)
+    local searchResult = SearchLib.inArea(globalSearchPosition, self.getRotation(), cardSizeSearch)
     return discardListOfObjects(searchResult)
   end)
   self.createButton({
@@ -367,10 +375,10 @@ function makeDrawAreaButton()
 end
 
 function discardOrMove(_, playerColor, isRightClick)
-  local searchPosition = Vector(1.365, 1, -0.62)
-  local cardSizeSearch = Vector(2, 2, 3.2)
-  local globalSearchPosition = self.positionToWorld(searchPosition)
-  local searchResult = searchArea(globalSearchPosition, cardSizeSearch)
+  local searchPosition = self.positionToWorld(Vector(1.365, 1, -0.62))
+  local searchRotation = self.getRotation()
+  local searchSize     = Vector(2, 2, 3.2) -- roughly size of a card
+  local searchResult   = SearchLib.inArea(searchPosition, searchRotation, searchSize)
 
   if isRightClick then
     local threatAreaPos = getEncounterCardDrawPosition(false)
@@ -602,7 +610,16 @@ end
 ---@return table: string-indexed table with references to the found objects
 function getDeckAreaObjects()
   local deckAreaObjects = {}
-  for _, object in ipairs(searchDeckAndDiscardArea("isCardOrDeck")) do
+
+  -- perform the search for cards / decks
+  local pos          = self.positionToWorld(DECK_DISCARD_AREA.center)
+  local rot          = self.getRotation()
+  local size         = DECK_DISCARD_AREA.size * self.getScale()
+  local filter       = "isCardOrDeck"
+  local searchResult = SearchLib.inArea(pos, rot, size, filter)
+
+  -- detect deck / discard and topcard
+  for _, object in ipairs(searchResult) do
     if self.positionToLocal(object.getPosition()).z > 0.5 then
       deckAreaObjects.discard = object
       -- Norman Withers handling
@@ -1833,7 +1850,7 @@ end
 ---@param showCounter boolean Whether the clickable clue counter should be visible
 function clickableClues(showCounter)
   local clickerPos = ownedObjects.ClickableClueCounter.getPosition()
-  local clueCount = 0
+  local currentCount = 0
 
   -- move clue counters
   local modY = showCounter and 0.525 or -0.525
@@ -1841,20 +1858,20 @@ function clickableClues(showCounter)
 
   if showCounter then
     -- get current clue count
-    clueCount = ownedObjects.ClueCounter.getVar("exposedValue")
+    currentCount = clueCount
 
     -- remove clues
-    ownedObjects.ClueCounter.call("removeAllClues", ownedObjects.Trash)
+    removeClues()
 
     -- set value for clue clickers
-    ownedObjects.ClickableClueCounter.call("updateVal", clueCount)
+    ownedObjects.ClickableClueCounter.call("updateVal", currentCount)
   else
     -- get current clue count
-    clueCount = ownedObjects.ClickableClueCounter.getVar("val")
+    currentCount = ownedObjects.ClickableClueCounter.getVar("val")
 
     -- spawn clues
     local pos = self.positionToWorld({ x = -1.12, y = 0.05, z = 0.7 })
-    for i = 1, clueCount do
+    for i = 1, currentCount do
       pos.y = pos.y + 0.045 * i
       TokenManagerApi.spawnToken(pos, "clue", self.getRotation())
     end
@@ -1871,26 +1888,101 @@ end
 
 -- removes all clues (moving tokens to the trash and setting counters to 0)
 function removeClues()
-  ownedObjects.ClueCounter.call("removeAllClues", ownedObjects.Trash)
+  searchForClueDoom(true)
   ownedObjects.ClickableClueCounter.call("updateVal", 0)
 end
 
 -- reports the clue count
----@param useClickableCounters boolean Controls which type of counter is getting checked
-function getClueCount(useClickableCounters)
-  if useClickableCounters then
+function getClueCount()
+  if GlobalApi.getOptionPanelState().useClueClickers then
     if ownedObjects.ClickableClueCounter then
       return ownedObjects.ClickableClueCounter.getVar("val")
     else
       return 0
     end
   else
-    if ownedObjects.ClueCounter then
-      return ownedObjects.ClueCounter.getVar("exposedValue")
-    else
-      return 0
-    end
+    return clueCount
   end
+end
+
+-- reports the doom count
+function getDoomCount()
+  return doomCount
+end
+
+function searchForClueDoom(removeClues)
+  local foundTokens = { clue = 0, doom = 0 }
+
+  for _, obj in ipairs(SearchLib.onObject(self, "isTileOrToken")) do
+    local clueQuantity = getClueQuantityOfObject(obj)
+    local doomQuantity = getDoomQuantityOfObject(obj)
+
+    -- maybe remove clues
+    if removeClues and clueQuantity > 0 then
+      if ownedObjects.Trash then
+        ownedObjects.Trash.putObject(obj)
+      else
+        obj.destruct()
+      end
+      clueQuantity = 0
+    end
+
+    foundTokens.clue = foundTokens.clue + clueQuantity
+    foundTokens.doom = foundTokens.doom + doomQuantity
+  end
+
+  -- update global variable
+  clueCount = foundTokens.clue
+  doomCount = foundTokens.doom
+
+  -- update clue counter button
+  if ownedObjects.ClueCounter then
+    ownedObjects.ClueCounter.clearButtons()
+    ownedObjects.ClueCounter.createButton({
+      label          = clueCount,
+      click_function = "none",
+      function_owner = self,
+      position       = { 0, 0.1, 0 },
+      height         = 0,
+      width          = 0,
+      font_color     = { 0, 0, 0 },
+      font_size      = 2000
+    })
+  end
+end
+
+function getClueQuantityOfObject(obj)
+  -- check memo
+  if obj.memo ~= "clueDoom" then return 0 end
+
+  -- check flip (clues are face up)
+  if obj.is_face_down then return 0 end
+
+  -- exclude threat area
+  local localPos = self.positionToLocal(obj.getPosition())
+  if localPos.z < -0.4 then return 0 end
+
+  -- handle stacks
+  return math.abs(obj.getQuantity())
+end
+
+function getDoomQuantityOfObject(obj)
+  -- check for ignore tag
+  if obj.hasTag("DoomCounter_ignore") then return 0 end
+
+  -- handle clickable doom counters
+  if obj.memo == "DoomCounter" then
+    return obj.getVar("val")
+  end
+
+  -- check memo
+  if obj.memo ~= "clueDoom" then return 0 end
+
+  -- check flip (doom is face down)
+  if not obj.is_face_down then return 0 end
+
+  -- handle stacks
+  return math.abs(obj.getQuantity())
 end
 
 -- Sets this playermat's snap points to limit snapping to matching card types or not. If matchTypes
