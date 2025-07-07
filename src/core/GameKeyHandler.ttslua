@@ -1,17 +1,17 @@
-local blessCurseManagerApi = require("chaosbag/BlessCurseManagerApi")
+local BlessCurseManagerApi = require("chaosbag/BlessCurseManagerApi")
 local GlobalApi            = require("Global/GlobalApi")
-local guidReferenceApi     = require("core/GUIDReferenceApi")
-local mythosAreaApi        = require("mythos/MythosAreaApi")
-local navigationOverlayApi = require("core/NavigationOverlayApi")
-local playAreaApi          = require("playarea/PlayAreaApi")
-local playermatApi         = require("playermat/PlayermatApi")
-local searchLib            = require("util/SearchLib")
-local tokenChecker         = require("tokens/TokenChecker")
-local victoryDisplayApi    = require("mythos/VictoryDisplayApi")
+local GUIDReferenceApi     = require("core/GUIDReferenceApi")
+local MythosAreaApi        = require("mythos/MythosAreaApi")
+local NavigationOverlayApi = require("core/NavigationOverlayApi")
+local PlayAreaApi          = require("playarea/PlayAreaApi")
+local PlayermatApi         = require("playermat/PlayermatApi")
+local SearchLib            = require("util/SearchLib")
+local TokenChecker         = require("tokens/TokenChecker")
+local VictoryDisplayApi    = require("mythos/VictoryDisplayApi")
 
-local sentMessage = false
+local sentMessage          = false
 
-local virtualColor = {}
+local virtualColor         = {}
 
 function onLoad()
   addHotkey("Add doom to agenda", addDoomToAgenda)
@@ -23,7 +23,7 @@ function onLoad()
   addHotkey("Move card to Victory Display", moveCardToVictoryDisplay)
   addHotkey("Place card into threat area", takeCardIntoThreatArea)
   addHotkey("Remove a use", removeOneUse)
-  addHotkey("Reshuffle encounter deck", mythosAreaApi.reshuffleEncounterDeck)
+  addHotkey("Reshuffle encounter deck", MythosAreaApi.reshuffleEncounterDeck)
   addHotkey("Set virtual color for next Hotkey", setVirtualColor)
   addHotkey("Switch seat clockwise", switchSeatClockwise)
   addHotkey("Switch seat counter-clockwise", switchSeatCounterClockwise)
@@ -47,21 +47,21 @@ function triggerUpkeep(playerColor)
   end
 
   if #Player.getPlayers() == 1 then
-    local usedMats = playermatApi.getUsedMatColors()
+    local usedMats = PlayermatApi.getUsedMatColors()
     for _, matColor in ipairs(usedMats) do
-      playermatApi.doUpkeepFromHotkey(matColor, playerColor)
+      PlayermatApi.doUpkeepFromHotkey(matColor, playerColor)
     end
-    playAreaApi.readyCards()
+    PlayAreaApi.readyCards()
     return
   end
 
-  local matColor = playermatApi.getMatColor(vColor)
-  playermatApi.doUpkeepFromHotkey(matColor, playerColor)
+  local matColor = PlayermatApi.getMatColor(vColor)
+  PlayermatApi.doUpkeepFromHotkey(matColor, playerColor)
 end
 
 -- adds 1 doom to the agenda
 function addDoomToAgenda()
-  local doomCounter = guidReferenceApi.getObjectByOwnerAndType("Mythos", "DoomCounter")
+  local doomCounter = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "DoomCounter")
   doomCounter.call("addVal", 1)
 end
 
@@ -78,25 +78,25 @@ function takeCardIntoThreatArea(playerColor, hoveredObject)
     return
   end
 
-  local matColor = playermatApi.getMatColor(vColor)
+  local matColor = PlayermatApi.getMatColor(vColor)
   local cardRot = hoveredObject.getRotation()
 
   -- do not continue if the threat area is already full
-  local threatAreaPos = playermatApi.getEncounterCardDrawPosition(matColor, false)
-  if threatAreaPos == playermatApi.getEncounterCardDrawPosition(matColor, true) then
+  local threatAreaPos = PlayermatApi.getEncounterCardDrawPosition(matColor, false)
+  if threatAreaPos == PlayermatApi.getEncounterCardDrawPosition(matColor, true) then
     broadcastToColor("Threat area is full.", playerColor, "Yellow")
     return
   end
 
   -- get the rotation of the owning playermat (or Mythos)
-  local cardOwner = guidReferenceApi.getOwnerOfObject(hoveredObject)
+  local cardOwner = GUIDReferenceApi.getOwnerOfObject(hoveredObject)
   local ownerRotation = Vector(0, 270, 0)
   if cardOwner ~= "Mythos" then
-    ownerRotation = playermatApi.returnRotation(cardOwner)
+    ownerRotation = PlayermatApi.returnRotation(cardOwner)
   end
 
   -- work out the new rotation
-  local matRotation = playermatApi.returnRotation(matColor)
+  local matRotation = PlayermatApi.returnRotation(matColor)
   local newCardRot = cardRot:setAt("y", roundToMultiple(matRotation.y + cardRot.y - ownerRotation.y, 45))
 
   -- move the main card to threat area
@@ -123,7 +123,7 @@ function discardObject(playerColor, hoveredObject)
     discardGroup(vColor, selectedObjects)
     return
 
-  -- only continue if an unlocked card, deck or tile was hovered
+    -- only continue if an unlocked card, deck or tile was hovered
   elseif hoveredObject == nil
       or (hoveredObject.type ~= "Card" and hoveredObject.type ~= "Deck" and hoveredObject.type ~= "Tile")
       or hoveredObject.locked then
@@ -132,7 +132,7 @@ function discardObject(playerColor, hoveredObject)
   end
 
   -- these should probably not be discarded normally: ask player for confirmation
-  local tokenData = mythosAreaApi.returnTokenData()
+  local tokenData = MythosAreaApi.returnTokenData()
   local scenarioName = tokenData.currentScenario
   if scenarioName ~= "Lost in Time and Space" and scenarioName ~= "The Secret Name" then
     if hoveredObject.type == "Deck" or hoveredObject.hasTag("Location") then
@@ -159,18 +159,18 @@ function performDiscard(playerColor, targetObject)
 
   -- discard tokens / tiles on cards / decks
   if targetObject.type ~= "Tile" then
-    for _, obj in ipairs(searchLib.onObject(targetObject, "isTileOrToken")) do
+    for _, obj in ipairs(SearchLib.onObject(targetObject, "isTileOrToken")) do
       table.insert(discardTheseObjects, obj)
     end
   end
 
   -- update playarea connections
   if targetObject.type == "Card" then
-    playAreaApi.maybeUntrackLocation(targetObject)
+    PlayAreaApi.maybeUntrackLocation(targetObject)
   end
 
   local discardForMatColor = getColorToDiscardFor(targetObject, playerColor)
-  playermatApi.discardListOfObjects(discardForMatColor, discardTheseObjects)
+  PlayermatApi.discardListOfObjects(discardForMatColor, discardTheseObjects)
 end
 
 function discardGroup(playerColor, selectedObjects)
@@ -200,32 +200,33 @@ function discardTopDeck(playerColor, hoveredObject)
   -- take top card from deck (unless it is already a single card)
   local takenCard = hoveredObject
   if hoveredObject.type == "Deck" then
-    takenCard = hoveredObject.takeObject({ index = 0 })
+    local offset = hoveredObject.getBounds().size.y / 2 + 0.3
+    takenCard = hoveredObject.takeObject({ position = hoveredObject.getPosition() + Vector(0, offset, 0) })
   else
     -- check if this card was the topCard of a deck (and then flip the next one)
-    local owner = guidReferenceApi.getOwnerOfObject(hoveredObject)
+    local owner = GUIDReferenceApi.getOwnerOfObject(hoveredObject)
     if owner == "Mythos" then
-      local encounterDeckObjects = mythosAreaApi.getEncounterDeckObjects()
+      local encounterDeckObjects = MythosAreaApi.getEncounterDeckObjects()
       if hoveredObject == encounterDeckObjects.topCard then
-        Wait.frames(function() mythosAreaApi.flipTopCardFromDeck() end, 3)
+        Wait.frames(function() MythosAreaApi.flipTopCardFromDeck() end, 3)
       end
     else
-      local deckAreaObjects = playermatApi.getDeckAreaObjects(owner)
+      local deckAreaObjects = PlayermatApi.getDeckAreaObjects(owner)
       if hoveredObject == deckAreaObjects.topCard then
-        Wait.frames(function() playermatApi.flipTopCardFromDeck(owner) end, 3)
+        Wait.frames(function() PlayermatApi.flipTopCardFromDeck(owner) end, 3)
       end
     end
   end
-  Wait.frames(function() performDiscard(vColor, takenCard) end, 1)
+  performDiscard(vColor, takenCard)
 end
 
 -- helper function to get the player to trigger the discard function for
 function getColorToDiscardFor(hoveredObject, playerColor)
   local pos = hoveredObject.getPosition()
-  local closestMatColor = playermatApi.getMatColorByPosition(pos)
+  local closestMatColor = PlayermatApi.getMatColorByPosition(pos)
 
   -- check if actually on the closest playermat
-  local closestMat = guidReferenceApi.getObjectByOwnerAndType(closestMatColor, "Playermat")
+  local closestMat = GUIDReferenceApi.getObjectByOwnerAndType(closestMatColor, "Playermat")
   local bounds = closestMat.getBounds()
 
   -- define the area "near" the playermat
@@ -242,7 +243,7 @@ function getColorToDiscardFor(hoveredObject, playerColor)
   end
 
   -- discard to closest mat if card is in a hand
-  local handZone = guidReferenceApi.getObjectByOwnerAndType(closestMatColor, "HandZone")
+  local handZone = GUIDReferenceApi.getObjectByOwnerAndType(closestMatColor, "HandZone")
   for _, zone in ipairs(hoveredObject.getZones()) do
     if zone == handZone then
       return closestMatColor
@@ -253,7 +254,7 @@ function getColorToDiscardFor(hoveredObject, playerColor)
   if playerColor == "Black" then
     return closestMatColor
   else
-    return playermatApi.getMatColor(playerColor)
+    return PlayermatApi.getMatColor(playerColor)
   end
 end
 
@@ -264,8 +265,8 @@ function moveCardToVictoryDisplay(playerColor, hoveredObject)
       hoveredObject.call("releaseAllTokensWrapper", { playerColor = playerColor })
     end
 
-    playAreaApi.maybeUntrackLocation(hoveredObject)
-    victoryDisplayApi.placeCard(hoveredObject)
+    PlayAreaApi.maybeUntrackLocation(hoveredObject)
+    VictoryDisplayApi.placeCard(hoveredObject)
   end
 end
 
@@ -292,15 +293,15 @@ function removeOneUse(playerColor, hoveredObject)
     local searchSize = hoveredObject.getBounds().size:scale(0.8):setAt("y", 1)
 
     -- if this card is on a playermat, search an upright box
-    local owner = guidReferenceApi.getOwnerOfObject(hoveredObject)
+    local owner = GUIDReferenceApi.getOwnerOfObject(hoveredObject)
     if owner ~= "Mythos" then
-      searchRot = playermatApi.returnRotation(owner)
+      searchRot = PlayermatApi.returnRotation(owner)
 
       -- we're only searching 90% of the cards area to avoid matching tokens on other cards
-      searchSize = Vector( 2, 1, 3.2 ) * 0.9
+      searchSize = Vector(2, 1, 3.2) * 0.9
     end
 
-    local searchResult = searchLib.inArea(cardPos, searchRot, searchSize, "isTileOrToken")
+    local searchResult = SearchLib.inArea(cardPos, searchRot, searchSize, "isTileOrToken")
 
     if #searchResult == 0 then
       broadcastToColor("No tokens found!", playerColor, "Yellow")
@@ -369,7 +370,7 @@ function removeOneUse(playerColor, hoveredObject)
   end
 
   -- release sealed token if card has one and no uses
-  if tokenChecker.isChaosToken(targetObject) and hoveredObject.hasTag("CardThatSeals") then
+  if TokenChecker.isChaosToken(targetObject) and hoveredObject.hasTag("CardThatSeals") then
     local func = hoveredObject.getVar("releaseOneToken") -- check if function exists
     if func ~= nil then
       hoveredObject.call("releaseOneToken", playerColor)
@@ -387,7 +388,7 @@ function removeOneUse(playerColor, hoveredObject)
   if hoveredObject.type == "Card" then
     cardName = hoveredObject.getName()
   else
-    local searchResult = searchLib.belowPosition(targetObject.getPosition(), "isCard")
+    local searchResult = SearchLib.belowPosition(targetObject.getPosition(), "isCard")
     if #searchResult > 0 then
       cardName = searchResult[1].getName()
     end
@@ -422,14 +423,14 @@ function removeOneUse(playerColor, hoveredObject)
   broadcastToAll(playerName .. " removed a token (" .. tokenName .. ")" .. cardInfo .. ".", "White")
 
   local discardForMatColor = getColorToDiscardFor(hoveredObject, vColor)
-  playermatApi.discardListOfObjects(discardForMatColor, { targetObject })
+  PlayermatApi.discardListOfObjects(discardForMatColor, { targetObject })
 end
 
 -- sets the virtual player color for the next playerColor-based hotkey-press
 function setVirtualColor(playerColor)
   local searchPos = Player[playerColor].getPointerPosition()
-  local matColor = playermatApi.getMatColorByPosition(searchPos)
-  local handColor = playermatApi.getPlayerColor(matColor)
+  local matColor = PlayermatApi.getMatColorByPosition(searchPos)
+  local handColor = PlayermatApi.getPlayerColor(matColor)
 
   if handColor == playerColor then
     if virtualColor[playerColor] then
@@ -495,7 +496,7 @@ function switchSeat(playerColor, direction)
   end
 
   -- get used playermats
-  local usedColors = playermatApi.getUsedMatColors()
+  local usedColors = PlayermatApi.getUsedMatColors()
   table.sort(usedColors, sortByFixedOrder)
 
   -- get current seat index
@@ -520,23 +521,23 @@ function switchSeat(playerColor, direction)
   end
 
   -- swap color
-  navigationOverlayApi.loadCamera(Player[vColor] or Player[playerColor], _, usedColors[index])
+  NavigationOverlayApi.loadCamera(Player[vColor] or Player[playerColor], _, usedColors[index])
 end
 
 function takeClueFromLocationWhite(_, hoveredObject)
-  takeClueFromLocation(playermatApi.getPlayerColor("White"), hoveredObject)
+  takeClueFromLocation(PlayermatApi.getPlayerColor("White"), hoveredObject)
 end
 
 function takeClueFromLocationOrange(_, hoveredObject)
-  takeClueFromLocation(playermatApi.getPlayerColor("Orange"), hoveredObject)
+  takeClueFromLocation(PlayermatApi.getPlayerColor("Orange"), hoveredObject)
 end
 
 function takeClueFromLocationGreen(_, hoveredObject)
-  takeClueFromLocation(playermatApi.getPlayerColor("Green"), hoveredObject)
+  takeClueFromLocation(PlayermatApi.getPlayerColor("Green"), hoveredObject)
 end
 
 function takeClueFromLocationRed(_, hoveredObject)
-  takeClueFromLocation(playermatApi.getPlayerColor("Red"), hoveredObject)
+  takeClueFromLocation(PlayermatApi.getPlayerColor("Red"), hoveredObject)
 end
 
 -- takes a clue from a location, player needs to hover the clue directly or the location
@@ -556,7 +557,7 @@ function takeClueFromLocation(playerColor, hoveredObject)
     return
   elseif hoveredObject.type == "Card" then
     cardName = hoveredObject.getName()
-    local searchResult = searchLib.onObject(hoveredObject, "isClue")
+    local searchResult = SearchLib.onObject(hoveredObject, "isClue")
 
     if #searchResult == 0 then
       broadcastToColor("This card does not have any clues on it.", messageColor, "Yellow")
@@ -571,7 +572,7 @@ function takeClueFromLocation(playerColor, hoveredObject)
     end
 
     clue = hoveredObject
-    local searchResult = searchLib.belowPosition(clue.getPosition(), "isCard")
+    local searchResult = SearchLib.belowPosition(clue.getPosition(), "isCard")
 
     if #searchResult ~= 0 then
       cardName = searchResult[1].getName()
@@ -586,21 +587,21 @@ function takeClueFromLocation(playerColor, hoveredObject)
 
   -- determine the matColor and position
   local clickableClues = GlobalApi.getOptionPanelState()["useClueClickers"]
-  local matColor = playermatApi.getMatColor(vColor)
+  local matColor = PlayermatApi.getMatColor(vColor)
   local pos
 
   if clickableClues then
-    local trash = guidReferenceApi.getObjectByOwnerAndType(matColor, "Trash")
+    local trash = GUIDReferenceApi.getObjectByOwnerAndType(matColor, "Trash")
     pos = trash.getPosition():setAt("y", 2)
-    playermatApi.updateCounter(matColor, "ClickableClueCounter", _, 1)
+    PlayermatApi.updateCounter(matColor, "ClickableClueCounter", _, 1)
   else
-    pos = playermatApi.transformLocalPosition({ x = -1.12, y = 0.2, z = 0.7 }, matColor)
+    pos = PlayermatApi.transformLocalPosition({ x = -1.12, y = 0.2, z = 0.7 }, matColor)
   end
 
-  local rot = playermatApi.returnRotation(matColor)
+  local rot = PlayermatApi.returnRotation(matColor)
 
   -- check if found clue is a stack or single token
-  local tempPos = clue.getPosition()+ Vector(0, 0.15, 0)
+  local tempPos = clue.getPosition() + Vector(0, 0.15, 0)
   if clue.getQuantity() > 1 then
     clue = clue.takeObject({ position = tempPos })
   else
@@ -618,17 +619,17 @@ function takeClueFromLocation(playerColor, hoveredObject)
   end
   broadcastToAll(playerName .. " took one clue" .. cardInfo .. ".", "White")
 
-  victoryDisplayApi.update()
+  VictoryDisplayApi.update()
 end
 
 -- broadcasts the bless/curse status to the calling player
 function showBlessCurseStatus(playerColor)
-  blessCurseManagerApi.broadcastStatus(playerColor)
+  BlessCurseManagerApi.broadcastStatus(playerColor)
 end
 
 -- adds Wendy's menu to the hovered card
 function addBlurseSealingMenu(playerColor, hoveredObject)
-  blessCurseManagerApi.addBlurseSealingMenu(playerColor, hoveredObject)
+  BlessCurseManagerApi.addBlurseSealingMenu(playerColor, hoveredObject)
 end
 
 function getBottomCardFromDeck(playerColor, hoverObject)
@@ -648,16 +649,16 @@ end
 
 function viewMythosArea(playerColor)
   local vColor = getVirtualColor(playerColor)
-  navigationOverlayApi.loadCamera(Player[vColor] or Player[playerColor], 1)
+  NavigationOverlayApi.loadCamera(Player[vColor] or Player[playerColor], 1)
 end
 
 function viewPlayermat(playerColor)
   local vColor = getVirtualColor(playerColor)
-  local matColor = playermatApi.getMatColor(vColor)
+  local matColor = PlayermatApi.getMatColor(vColor)
   if not matColor then
     broadcastToColor("Couldn't find playermat.", playerColor, "Red")
   end
-  navigationOverlayApi.loadCamera(Player[vColor] or Player[playerColor], _, matColor)
+  NavigationOverlayApi.loadCamera(Player[vColor] or Player[playerColor], _, matColor)
 end
 
 -- Simple method to check if the given point is in a specified area
