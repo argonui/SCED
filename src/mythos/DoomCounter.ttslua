@@ -1,7 +1,8 @@
-local guidReferenceApi = require("core/GUIDReferenceApi")
-local mythosAreaApi    = require("mythos/MythosAreaApi")
-local playAreaApi      = require("playarea/PlayAreaApi")
-local searchLib        = require("util/SearchLib")
+local GUIDReferenceApi = require("core/GUIDReferenceApi")
+local MathLib          = require("util/MathLib")
+local MythosAreaApi    = require("mythos/MythosAreaApi")
+local PlayAreaApi      = require("playarea/PlayAreaApi")
+local SearchLib        = require("util/SearchLib")
 
 local optionsVisible   = false
 local options          = {
@@ -44,7 +45,7 @@ end
 
 -- called by the invisible button to change displayed value
 function addOrSubtract(_, _, isRightClick)
-  local newVal = math.min(math.max(val + (isRightClick and -1 or 1), 0), 99)
+  local newVal = MathLib.clamp(val + (isRightClick and -1 or 1), 0, 99)
   if val ~= newVal then
     updateVal(newVal)
   end
@@ -77,7 +78,7 @@ end
 function broadcastDoom(val)
   local md = getDoomMetadata()
   local mod = getDoomThresholdModifier()
-  local invCount = playAreaApi.getInvestigatorCount()
+  local invCount = PlayAreaApi.getInvestigatorCount()
 
   -- maybe apply additional doom threshold for solo play
   local soloDoomThreshold = 0
@@ -88,7 +89,7 @@ function broadcastDoom(val)
   -- sum the doom thresholds and modifiers
   local doomThreshold = (md.doomThreshold or 0) + mod + (md.doomThresholdPerInvestigator or 0) * invCount + soloDoomThreshold
 
-  local doomInPlayCounter = guidReferenceApi.getObjectByOwnerAndType("Mythos", "DoomInPlayCounter")
+  local doomInPlayCounter = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "DoomInPlayCounter")
   if doomInPlayCounter and md.subtractDoomInPlay then
     local previousState = doomInPlayCounter.call("toggleSubtractDoom", true)
     if previousState == false then
@@ -143,7 +144,7 @@ function startReset()
     -- omitting the number will broadcast a special message just for this case
     updateVal()
   end
-  local doomInPlayCounter = guidReferenceApi.getObjectByOwnerAndType("Mythos", "DoomInPlayCounter")
+  local doomInPlayCounter = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "DoomInPlayCounter")
   if doomInPlayCounter then
     doomInPlayCounter.call("removeDoom", options)
   end
@@ -151,8 +152,8 @@ end
 
 -- get doom threshold from top card of Agenda deck
 function getDoomMetadata()
-  local agendaPos = mythosAreaApi.getAgendaPosition()
-  local searchResult = searchLib.atPosition(agendaPos, "isCardOrDeck")
+  local agendaPos = MythosAreaApi.getAgendaPosition()
+  local searchResult = SearchLib.atPosition(agendaPos, "isCardOrDeck")
 
   if #searchResult == 1 then
     local obj = searchResult[1]
@@ -173,7 +174,7 @@ function getDoomThresholdModifier()
   local appliedModifierGUIDs = {}
 
   -- check playarea
-  local playAreaZone = guidReferenceApi.getObjectByOwnerAndType("Mythos", "PlayAreaZone")
+  local playAreaZone = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "PlayAreaZone")
   for _, obj in ipairs(playAreaZone.getObjects()) do
     if not obj.is_face_down and obj.type == "Card" then
       local md = JSON.decode(obj.getGMNotes()) or {}
@@ -183,8 +184,8 @@ function getDoomThresholdModifier()
   end
 
   -- check mythos area (make sure we don't apply cards twice that are in both areas)
-  local mythosArea = guidReferenceApi.getObjectByOwnerAndType("Mythos", "MythosArea")
-  for _, obj in ipairs(searchLib.onObject(mythosArea, "isCard", Vector(0.9, 1, 0.9))) do
+  local mythosArea = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "MythosArea")
+  for _, obj in ipairs(SearchLib.onObject(mythosArea, "isCard", Vector(0.9, 1, 0.9))) do
     if not obj.is_face_down and appliedModifierGUIDs[obj.getGUID()] == nil then
       local md = JSON.decode(obj.getGMNotes()) or {}
       mod = mod + (md.modifyDoomThreshold or 0)
