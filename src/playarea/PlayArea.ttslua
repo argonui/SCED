@@ -38,17 +38,13 @@ local SHIFT_OFFSETS        = {
   up    = { x = 6.54, y = 0, z = 0.00 },
   down  = { x = -6.54, y = 0, z = 0.00 }
 }
-local EXCLUDED_SCENARIOS   = {
-  ["The Witching Hour"] = true,
-  ["The Heart of Madness"] = true
-}
 
 local locations            = {}
 local locationConnections  = {}
 local draggingGuids        = {}
 local missingData          = {}
 local collisionEnabled     = false
-local currentScenario, connectionsEnabled
+local connectionsEnabled, excludedScenario
 
 ---------------------------------------------------------
 -- general code
@@ -57,9 +53,9 @@ local currentScenario, connectionsEnabled
 function updateSave()
   self.script_state = JSON.encode({
     trackedLocations   = locations,
-    currentScenario    = currentScenario,
     connectionColor    = connectionColor,
-    connectionsEnabled = connectionsEnabled
+    connectionsEnabled = connectionsEnabled,
+    excludedScenario   = excludedScenario
   })
 end
 
@@ -67,9 +63,9 @@ function onLoad(savedData)
   if savedData and savedData ~= "" then
     local loadedData   = JSON.decode(savedData) or {}
     locations          = loadedData.trackedLocations or {}
-    currentScenario    = loadedData.currentScenario
     connectionColor    = loadedData.connectionColor or { 0.4, 0.4, 0.4, 1 }
     connectionsEnabled = loadedData.connectionsEnabled
+    excludedScenario   = loadedData.excludedScenario
   end
 
   Wait.time(function() collisionEnabled = true end, 0.1)
@@ -668,12 +664,11 @@ function setConnectionColor(color)
   updateSave()
 end
 
-function onScenarioChanged(scenarioName)
-  currentScenario = scenarioName
-  if not showLocationLinks() then
-    if connectionsEnabled then
-      broadcastToAll("Automatic location connections not available for this scenario")
-    end
+---@param temporaryDisable boolean True if connections are disabled for this scenario
+function onScenarioChanged(temporaryDisable)
+  excludedScenario = temporaryDisable
+  if connectionsEnabled and excludedScenario then
+    broadcastToAll("Automatic location connections not available for this scenario")
   end
   updateSave()
 end
@@ -700,7 +695,7 @@ function isInPlayArea(object)
 end
 
 function showLocationLinks()
-  return not EXCLUDED_SCENARIOS[currentScenario] and connectionsEnabled
+  return not excludedScenario and connectionsEnabled
 end
 
 -- Rebuilds local snap points (could be useful in the future again)
