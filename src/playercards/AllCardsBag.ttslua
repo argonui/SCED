@@ -11,8 +11,13 @@ local cardIdIndex            = {}
 local classAndLevelIndex     = {}
 local customInvestigatorData = {}
 local customSignatureDict    = {}
+
 local basicWeaknessList      = {}
 local uniqueWeaknessList     = {}
+local evolvedWeaknessList    = {}
+local bondedList             = {}
+local upgradeSheetList       = {}
+
 local cycleIndex             = {}
 
 local indexingDone           = false
@@ -108,6 +113,9 @@ function clearIndexes()
   customSignatureDict    = {}
   basicWeaknessList      = {}
   uniqueWeaknessList     = {}
+  evolvedWeaknessList    = {}
+  bondedList             = {}
+  upgradeSheetList       = {}
 end
 
 -- Clears the bag indexes and starts the coroutine to rebuild the indexes
@@ -272,11 +280,28 @@ function buildSupplementalIndexes()
       -- Add card to the basic weakness list, if appropriate. Some weaknesses have multiple copies, and are added multiple times
       if card.metadata.weakness then
         table.insert(uniqueWeaknessList, cardId)
+
         if card.metadata.basicWeaknessCount ~= nil then
           for i = 1, card.metadata.basicWeaknessCount do
             table.insert(basicWeaknessList, cardId)
           end
         end
+
+        if card.metadata.evolvedWeakness then
+          table.insert(evolvedWeaknessList, cardId)
+        end
+      end
+
+      -- Add bonded cards to bondedList
+      if card.metadata.bonded then
+        for _, bondedData in ipairs(card.metadata.bonded) do
+          table.insert(bondedList, bondedData.id)
+        end
+      end
+
+      -- Add upgradesheets to upgradeSheetList
+      if card.metadata.type == "UpgradeSheet" then
+        table.insert(upgradeSheetList, card.metadata.id)
       end
 
       -- Excludes signature cards and story assets for official cycles (which have no class or level)
@@ -404,11 +429,34 @@ function sortIndexes()
   -- sort weakness indices
   table.sort(basicWeaknessList)
   table.sort(uniqueWeaknessList)
+  table.sort(evolvedWeaknessList)
+
+  -- remove duplicates and sort bonded list
+  bondedList = removeDuplicatesAndSort(bondedList)
+
+  -- sort upgradesheet index
+  table.sort(upgradeSheetList)
 
   -- sort custom investigator / minicard data
   for _, indexTable in pairs(customInvestigatorData) do
     table.sort(indexTable, metadataSortFunction)
   end
+end
+
+function removeDuplicatesAndSort(t)
+  local seen = {}
+  local result = {}
+
+  for _, value in ipairs(t) do
+    if not seen[value] then
+      seen[value] = true
+      table.insert(result, value)
+    end
+  end
+
+  table.sort(result)
+
+  return result
 end
 
 -- get the parent id for minicards by removing the last two characters
@@ -829,6 +877,18 @@ end
 
 function getUniqueWeaknesses()
   return uniqueWeaknessList
+end
+
+function getEvolvedWeaknesses()
+  return evolvedWeaknessList
+end
+
+function getBondedCardList()
+  return bondedList
+end
+
+function getUpgradeSheetList()
+  return upgradeSheetList
 end
 
 -- Helper function that adds one to the table entry for the number of weaknesses in play

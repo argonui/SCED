@@ -1,75 +1,72 @@
 ---@diagnostic disable: param-type-mismatch
 require("playercards/PlayerCardPanelData")
 
-local allCardsBagApi = require("playercards/AllCardsBagApi")
-local arkhamDb = require("arkhamdb/ArkhamDb")
-local spawnBag = require("playercards/SpawnBag")
+local AllCardsBagApi                   = require("playercards/AllCardsBagApi")
+local arkhamDb                         = require("arkhamdb/ArkhamDb")
+local spawnBag                         = require("playercards/SpawnBag")
 
-local lastWeaknessTrait = "Madness"
+local lastWeaknessTrait                = "Madness"
 
 -- Size and position information for the three rows of class buttons
-local CIRCLE_BUTTON_SIZE = 250
-local CLASS_BUTTONS_X_OFFSET = 0.1325
-local INVESTIGATOR_ROW_START = Vector(0.125, 0.1, -0.447)
-local LEVEL_ZERO_ROW_START = Vector(0.125, 0.1, -0.007)
-local UPGRADED_ROW_START = Vector(0.125, 0.1, 0.333)
+local CIRCLE_BUTTON_SIZE               = 250
+local CLASS_BUTTONS_X_OFFSET           = 0.1325
+local INVESTIGATOR_ROW_START           = Vector(0.125, 0.1, -0.447)
+local LEVEL_ZERO_ROW_START             = Vector(0.125, 0.1, -0.007)
+local UPGRADED_ROW_START               = Vector(0.125, 0.1, 0.333)
 
 -- Size and position information for the two blocks of other buttons
-local MISC_BUTTONS_X_OFFSET = 0.155
-local WEAKNESS_ROW_START = Vector(0.157, 0.1, 0.666)
-local OTHER_ROW_START = Vector(0.605, 0.1, 0.666)
+local MISC_BUTTONS_X_OFFSET            = 0.155
+local WEAKNESS_ROW_START               = Vector(0.157, 0.1, 0.666)
+local OTHER_ROW_START                  = Vector(0.605, 0.1, 0.666)
 
 -- Size and position information for the Cycle (box) buttons
-local CYCLE_BUTTON_SIZE = 468
-local CYCLE_BUTTON_START = Vector(-0.716, 0.1, -0.39)
-local CYCLE_COLUMN_COUNT = 3
-local CYCLE_BUTTONS_X_OFFSET = 0.267
-local CYCLE_BUTTONS_Z_OFFSET = 0.2665
+local CYCLE_BUTTON_SIZE                = 468
+local CYCLE_BUTTON_START               = Vector(-0.716, 0.1, -0.39)
+local CYCLE_COLUMN_COUNT               = 3
+local CYCLE_BUTTONS_X_OFFSET           = 0.267
+local CYCLE_BUTTONS_Z_OFFSET           = 0.2665
 
 local STARTER_DECK_MODE_SELECTED_COLOR = { 0.2, 0.2, 0.2, 0.8 }
-local TRANSPARENT = { 0, 0, 0, 0 }
+local TRANSPARENT                      = { 0, 0, 0, 0 }
 
-local FACE_UP_ROTATION = { x = 0, y = 270, z = 0 }
-local FACE_DOWN_ROTATION = { x = 0, y = 270, z = 180 }
+local FACE_UP_ROTATION                 = { x = 0, y = 270, z = 0 }
+local FACE_DOWN_ROTATION               = { x = 0, y = 270, z = 180 }
 
 -- ----------  IMPORTANT  ----------
 -- Coordinates defined below are in global dimensions relative to the panel - DO NOT USE THESE
 -- DIRECTLY. Call scalePositions() before use, and reference the variables below
 
 -- Layout width for a single card, in global coordinate space
-local CARD_WIDTH = 2.3
+local CARD_WIDTH                       = 2.3
 
 -- Coordinates to begin laying out cards. These vary based on the cards that are being placed by
 -- considering the width of the cards, number of cards, and desired spread intervals.
 -- IMPORTANT! Because of the mix of global card sizes and relative-to-scale positions, the X and Y
 -- coordinates on these provide global disances while the Z is local.
-local START_POSITIONS = {
-  classCards       = Vector(CARD_WIDTH * 9.5, 2, 1.4),
-  investigator     = Vector(7 * 2.5, 2, 1.3),
-  cycle            = Vector(CARD_WIDTH * 9.5, 2, 2.4),
-  other            = Vector(CARD_WIDTH * 9.5, 2, 1.4),
-  randomWeakness   = Vector(0, 2, 1.4),
-  -- Because the card spread is handled by the SpawnBag, we don't know (programatically) where this
-  -- should be placed. If more customizable cards are added it will need to be moved.
-  summonedServitor = Vector(CARD_WIDTH * -7.5, 2, 1.7)
+local START_POSITIONS                  = {
+  classCards     = Vector(CARD_WIDTH * 9.5, 2, 1.4),
+  investigator   = Vector(7 * 2.5, 2, 1.3),
+  cycle          = Vector(CARD_WIDTH * 9.5, 2, 2.4),
+  other          = Vector(CARD_WIDTH * 9.5, 2, 1.4),
+  randomWeakness = Vector(0, 2, 1.4)
 }
 
 -- Shifts to move rows of cards, and groups of rows, as different groupings are laid out
-local CARD_ROW_OFFSET = 3.7
-local CARD_GROUP_OFFSET = 2
-local CARD_MAX_ROWS = 15
-local CARD_MAX_COLS = 20
+local CARD_ROW_OFFSET                  = 3.7
+local CARD_GROUP_OFFSET                = 2
+local CARD_MAX_ROWS                    = 15
+local CARD_MAX_COLS                    = 20
 
 -- Position offsets for investigator decks in investigator mode, defines the spacing for how the
 -- rows and columns are laid out
-local INVESTIGATOR_POSITION_SHIFT_ROW = Vector(0, 0, 10)
-local INVESTIGATOR_POSITION_SHIFT_COL = Vector(-6, 0, 0)
-local INVESTIGATOR_MAX_COLS = 7
+local INVESTIGATOR_POSITION_SHIFT_ROW  = Vector(0, 0, 10)
+local INVESTIGATOR_POSITION_SHIFT_COL  = Vector(-6, 0, 0)
+local INVESTIGATOR_MAX_COLS            = 7
 
 -- Positions relative to the minicard to place other stacks. Both signature card piles and starter
 -- decks use SIGNATURE_OFFSET
-local INVESTIGATOR_CARD_OFFSET = Vector(0, 0, 2.55)
-local INVESTIGATOR_SIGNATURE_OFFSET = Vector(0, 0, 5.75)
+local INVESTIGATOR_CARD_OFFSET         = Vector(0, 0, 2.55)
+local INVESTIGATOR_SIGNATURE_OFFSET    = Vector(0, 0, 5.75)
 
 -- USE THESE! Positions and offset shifts accounting for the scale of the panel
 local startPositions
@@ -80,7 +77,7 @@ local investigatorPositionShiftCol
 local investigatorCardOffset
 local investigatorSignatureOffset
 
-local CLASS_LIST = {
+local CLASS_LIST                       = {
   "Guardian",
   "Seeker",
   "Rogue",
@@ -88,7 +85,7 @@ local CLASS_LIST = {
   "Survivor",
   "Neutral"
 }
-local CYCLE_LIST = {
+local CYCLE_LIST                       = {
   "Core",
   "The Dunwich Legacy",
   "The Path to Carcosa",
@@ -104,8 +101,8 @@ local CYCLE_LIST = {
 }
 
 local excludedNonBasicWeaknesses
-local spawnStarterDecks = false
-local helpVisibleToPlayers = {}
+local spawnStarterDecks                = false
+local helpVisibleToPlayers             = {}
 
 function onSave()
   return JSON.encode({ spawnBagState = spawnBag.getStateForSave() })
@@ -132,7 +129,7 @@ function buildExcludedWeaknessList()
       excludedNonBasicWeaknesses[signatureId] = true
     end
   end
-  for _, weaknessId in ipairs(EVOLVED_WEAKNESSES) do
+  for _, weaknessId in ipairs(AllCardsBagApi.getEvolvedWeaknesses()) do
     excludedNonBasicWeaknesses[weaknessId] = true
   end
 end
@@ -154,21 +151,21 @@ function createHelpButton()
   self.createButton({
     function_owner = self,
     click_function = "toggleHelp",
-    position = Vector(0.845, 0.1, -0.855),
-    height = 180,
-    width = 180,
-    scale = Vector(0.25, 1, 0.25),
-    color = TRANSPARENT
+    position       = Vector(0.845, 0.1, -0.855),
+    height         = 180,
+    width          = 180,
+    scale          = Vector(0.25, 1, 0.25),
+    color          = TRANSPARENT
   })
 end
 
 function createInvestigatorButtons()
   local invButtonParams = {
     function_owner = self,
-    height = CIRCLE_BUTTON_SIZE,
-    width = CIRCLE_BUTTON_SIZE,
-    scale = Vector(0.25, 1, 0.25),
-    color = TRANSPARENT
+    height         = CIRCLE_BUTTON_SIZE,
+    width          = CIRCLE_BUTTON_SIZE,
+    scale          = Vector(0.25, 1, 0.25),
+    color          = TRANSPARENT
   }
   local buttonPos = INVESTIGATOR_ROW_START:copy()
   for _, class in ipairs(CLASS_LIST) do
@@ -183,10 +180,10 @@ end
 function createLevelZeroButtons()
   local l0ButtonParams = {
     function_owner = self,
-    height = CIRCLE_BUTTON_SIZE,
-    width = CIRCLE_BUTTON_SIZE,
-    scale = Vector(0.25, 1, 0.25),
-    color = TRANSPARENT
+    height         = CIRCLE_BUTTON_SIZE,
+    width          = CIRCLE_BUTTON_SIZE,
+    scale          = Vector(0.25, 1, 0.25),
+    color          = TRANSPARENT
   }
   local buttonPos = LEVEL_ZERO_ROW_START:copy()
   for _, class in ipairs(CLASS_LIST) do
@@ -201,10 +198,10 @@ end
 function createUpgradedButtons()
   local upgradedButtonParams = {
     function_owner = self,
-    height = CIRCLE_BUTTON_SIZE,
-    width = CIRCLE_BUTTON_SIZE,
-    scale = Vector(0.25, 1, 0.25),
-    color = TRANSPARENT
+    height         = CIRCLE_BUTTON_SIZE,
+    width          = CIRCLE_BUTTON_SIZE,
+    scale          = Vector(0.25, 1, 0.25),
+    color          = TRANSPARENT
   }
   local buttonPos = UPGRADED_ROW_START:copy()
   for _, class in ipairs(CLASS_LIST) do
@@ -297,11 +294,11 @@ function createClearButton()
   self.createButton({
     function_owner = self,
     click_function = "deleteAll",
-    position = Vector(0, 0.1, 0.852),
-    height = 170,
-    width = 750,
-    scale = Vector(0.25, 1, 0.25),
-    color = TRANSPARENT
+    position       = Vector(0, 0.1, 0.852),
+    height         = 170,
+    width          = 750,
+    scale          = Vector(0.25, 1, 0.25),
+    color          = TRANSPARENT
   })
 end
 
@@ -309,33 +306,33 @@ function createInvestigatorModeButtons()
   self.createButton({
     function_owner = self,
     click_function = "setCardsOnlyMode",
-    position = Vector(0.251, 0.1, -0.322),
-    height = 170,
-    width = 760,
-    scale = Vector(0.25, 1, 0.25),
-    color = spawnStarterDecks and TRANSPARENT or STARTER_DECK_MODE_SELECTED_COLOR
+    position       = Vector(0.251, 0.1, -0.322),
+    height         = 170,
+    width          = 760,
+    scale          = Vector(0.25, 1, 0.25),
+    color          = spawnStarterDecks and TRANSPARENT or STARTER_DECK_MODE_SELECTED_COLOR
   })
   self.createButton({
     function_owner = self,
     click_function = "setspawnStarterDecks",
-    position = Vector(0.66, 0.1, -0.322),
-    height = 170,
-    width = 760,
-    scale = Vector(0.25, 1, 0.25),
-    color = spawnStarterDecks and STARTER_DECK_MODE_SELECTED_COLOR or TRANSPARENT
+    position       = Vector(0.66, 0.1, -0.322),
+    height         = 170,
+    width          = 760,
+    scale          = Vector(0.25, 1, 0.25),
+    color          = spawnStarterDecks and STARTER_DECK_MODE_SELECTED_COLOR or TRANSPARENT
   })
   local checkX = spawnStarterDecks and 0.52 or 0.11
   self.createButton({
     function_owner = self,
-    label = "✓",
+    label          = "✓",
     click_function = "doNothing",
-    position = Vector(checkX, 0.11, -0.317),
-    height = 0,
-    width = 0,
-    font_size = 300,
-    scale = Vector(0.1, 1, 0.1),
-    font_color = { 0, 0, 0 },
-    color = { 1, 1, 1 }
+    position       = Vector(checkX, 0.11, -0.317),
+    height         = 0,
+    width          = 0,
+    font_size      = 300,
+    scale          = Vector(0.1, 1, 0.1),
+    font_color     = { 0, 0, 0 },
+    color          = { 1, 1, 1 }
   })
 end
 
@@ -346,28 +343,28 @@ function createXML(showOtherCardsButton)
     {
       tag = "Panel",
       attributes = {
-        active = "false",
-        id = "helpPanel",
+        active   = "false",
+        id       = "helpPanel",
         position = "-165 -70 -2",
         rotation = "0 0 180",
-        height = "50",
-        width = "107",
-        color = "#00000099"
+        height   = "50",
+        width    = "107",
+        color    = "#00000099"
       },
       children = {
         tag = "Text",
         attributes = {
-          id = "helpText",
-          rectAlignment = "MiddleCenter",
-          height = "480",
-          width = "1000",
-          scale = "0.1 0.1 1",
-          fontSize = "66",
-          color = "#F5F5F5",
-          backgroundColor = "#FF0000",
-          alignment = "MiddleLeft",
+          id                 = "helpText",
+          rectAlignment      = "MiddleCenter",
+          height             = "480",
+          width              = "1000",
+          scale              = "0.1 0.1 1",
+          fontSize           = "66",
+          color              = "#F5F5F5",
+          backgroundColor    = "#FF0000",
+          alignment          = "MiddleLeft",
           horizontalOverflow = "wrap",
-          text = "• Select a group to place cards\n" ..
+          text               = "• Select a group to place cards\n" ..
               "• Copy the cards you want for your deck\n" ..
               "• Select a new group to clear the placed cards and see new ones\n" ..
               "• Clear to remove all cards"
@@ -382,10 +379,10 @@ function createXML(showOtherCardsButton)
     attributes = {
       position = "58.1 65.5 -11",
       rotation = "0 0 180",
-      height = "225",
-      width = "225",
-      scale = "0.1 0.1 1",
-      onClick = "spawnTDC"
+      height   = "225",
+      width    = "225",
+      scale    = "0.1 0.1 1",
+      onClick  = "spawnTDC"
     },
     children = {
       tag = "Image",
@@ -406,10 +403,10 @@ function createXML(showOtherCardsButton)
       attributes = {
         position = "31.45 65.5 -11",
         rotation = "0 0 180",
-        height = "225",
-        width = "225",
-        scale = "0.1 0.1 1",
-        onClick = "spawnOtherCards"
+        height   = "225",
+        width    = "225",
+        scale    = "0.1 0.1 1",
+        onClick  = "spawnOtherCards"
       },
       children = {
         tag = "Image",
@@ -525,7 +522,7 @@ function spawnInvestigators(groupName)
 
   -- handling for custom investigators
   if groupName == "Other" then
-    local customData = allCardsBagApi.getCustomInvestigatorData()
+    local customData = AllCardsBagApi.getCustomInvestigatorData()
     mainData = customData.InvestigatorGroup
     subData = customData.InvestigatorSubdata
   end
@@ -642,7 +639,7 @@ function spawnStarterDeck(investigatorName, investigatorData, position)
     for id, count in pairs(slots) do
       for i = 1, count do
         -- don't include mini-cards and investigators
-        local card = allCardsBagApi.getCardById(id)
+        local card = AllCardsBagApi.getCardById(id)
         if card and card.metadata and card.metadata.type ~= "Investigator" and card.metadata.type ~= "Minicard" then
           table.insert(cardIdList, id)
         end
@@ -670,15 +667,15 @@ end
 ---@param cardClass string Class to place ("Guardian", "Seeker", etc)
 ---@param isUpgraded boolean If true, spawn the Level 1-5 cards. Otherwise, Level 0.
 function placeClassCards(cardClass, isUpgraded)
-  if not allCardsBagApi.isIndexReady() then return end
+  if not AllCardsBagApi.isIndexReady() then return end
 
-  local cardIdList = allCardsBagApi.getCardsByClassAndLevel(cardClass, isUpgraded)
+  local cardIdList = AllCardsBagApi.getCardsByClassAndLevel(cardClass, isUpgraded)
 
   local skillList = {}
   local eventList = {}
   local assetList = {}
   for _, cardId in ipairs(cardIdList) do
-    local cardMetadata = allCardsBagApi.getCardById(cardId).metadata
+    local cardMetadata = AllCardsBagApi.getCardById(cardId).metadata
     if (cardMetadata.type == "Skill") then
       table.insert(skillList, cardId)
     elseif (cardMetadata.type == "Event") then
@@ -690,33 +687,33 @@ function placeClassCards(cardClass, isUpgraded)
   local groupPos = Vector(startPositions.classCards)
   if #skillList > 0 then
     spawnBag.spawn({
-      name = cardClass .. (isUpgraded and "upgraded" or "basic"),
-      cards = skillList,
-      globalPos = self.positionToWorld(groupPos),
-      rotation = FACE_UP_ROTATION,
-      spread = true,
+      name       = cardClass .. (isUpgraded and "upgraded" or "basic"),
+      cards      = skillList,
+      globalPos  = self.positionToWorld(groupPos),
+      rotation   = FACE_UP_ROTATION,
+      spread     = true,
       spreadCols = CARD_MAX_COLS
     })
     groupPos.z = groupPos.z + math.ceil(#skillList / CARD_MAX_COLS) * cardRowOffset + cardGroupOffset
   end
   if #eventList > 0 then
     spawnBag.spawn({
-      name = cardClass .. "event" .. (isUpgraded and "upgraded" or "basic"),
-      cards = eventList,
-      globalPos = self.positionToWorld(groupPos),
-      rotation = FACE_UP_ROTATION,
-      spread = true,
+      name       = cardClass .. "event" .. (isUpgraded and "upgraded" or "basic"),
+      cards      = eventList,
+      globalPos  = self.positionToWorld(groupPos),
+      rotation   = FACE_UP_ROTATION,
+      spread     = true,
       spreadCols = CARD_MAX_COLS
     })
     groupPos.z = groupPos.z + math.ceil(#eventList / CARD_MAX_COLS) * cardRowOffset + cardGroupOffset
   end
   if #assetList > 0 then
     spawnBag.spawn({
-      name = cardClass .. "asset" .. (isUpgraded and "upgraded" or "basic"),
-      cards = assetList,
-      globalPos = self.positionToWorld(groupPos),
-      rotation = FACE_UP_ROTATION,
-      spread = true,
+      name       = cardClass .. "asset" .. (isUpgraded and "upgraded" or "basic"),
+      cards      = assetList,
+      globalPos  = self.positionToWorld(groupPos),
+      rotation   = FACE_UP_ROTATION,
+      spread     = true,
       spreadCols = CARD_MAX_COLS
     })
   end
@@ -725,7 +722,7 @@ end
 -- Spawns the investigator sets and all cards for the given cycle
 ---@param cycle string Name of a cycle, should match the standard used in card metadata
 function spawnCycle(cycle)
-  if not allCardsBagApi.isIndexReady() then return end
+  if not AllCardsBagApi.isIndexReady() then return end
 
   -- sort custom cards and include cards without level
   local sortByMetadata = false
@@ -734,7 +731,7 @@ function spawnCycle(cycle)
     sortByMetadata = true
     includeNoLevelCards = true
   end
-  local cardList = allCardsBagApi.getCardsByCycle(cycle, sortByMetadata, includeNoLevelCards)
+  local cardList = AllCardsBagApi.getCardsByCycle(cycle, sortByMetadata, includeNoLevelCards)
 
   prepareToPlaceCards()
   local rowCount = spawnInvestigators(cycle)
@@ -756,54 +753,77 @@ function spawnCycle(cycle)
   end
 
   spawnBag.spawn({
-    name = "cycle" .. cycle,
-    cards = cardList,
-    globalPos = self.positionToWorld(cycleStartPos),
-    rotation = FACE_UP_ROTATION,
-    spread = true,
+    name       = "cycle" .. cycle,
+    cards      = cardList,
+    globalPos  = self.positionToWorld(cycleStartPos),
+    rotation   = FACE_UP_ROTATION,
+    spread     = true,
     spreadCols = CARD_MAX_COLS
   })
 end
 
 function spawnBonded()
+  if not AllCardsBagApi.isIndexReady() then return end
+
   prepareToPlaceCards()
   spawnBag.spawn({
-    name = "bonded",
-    cards = BONDED_CARD_LIST,
-    globalPos = self.positionToWorld(startPositions.classCards),
-    rotation = FACE_UP_ROTATION,
-    spread = true,
+    name       = "bonded",
+    cards      = AllCardsBagApi.getBondedCardList(),
+    globalPos  = self.positionToWorld(startPositions.classCards),
+    rotation   = FACE_UP_ROTATION,
+    spread     = true,
     spreadCols = CARD_MAX_COLS
   })
 end
 
 function spawnUpgradeSheets()
+  if not AllCardsBagApi.isIndexReady() then return end
+
   prepareToPlaceCards()
+  local upgradeSheetList = AllCardsBagApi.getUpgradeSheetList()
   spawnBag.spawn({
-    name = "upgradeSheets",
-    cards = UPGRADE_SHEET_LIST,
-    globalPos = self.positionToWorld(startPositions.classCards),
-    rotation = FACE_UP_ROTATION,
-    spread = true,
+    name       = "upgradeSheets",
+    cards      = upgradeSheetList,
+    globalPos  = self.positionToWorld(startPositions.classCards),
+    rotation   = FACE_UP_ROTATION,
+    spread     = true,
     spreadCols = CARD_MAX_COLS
   })
+
+  -- special handling for Summoned Servitor
+  local index
+  for i, id in ipairs(upgradeSheetList) do
+    if id == "09080-c" then
+      index = i
+    end
+  end
+
+  -- if upgradesheet is missing for some reason
+  if not index then return end
+
+  -- get the position above the Summoned Servitor Upgradesheet
+  local firstRowLength = math.min(#upgradeSheetList, CARD_MAX_COLS)
+  local scale = 1 / self.getScale().x
+  local ssPos = Vector(CARD_WIDTH * (firstRowLength / 2 - index + 0.5), 2, 1.14)
+  ssPos:scale(Vector(scale, scale, 1))
+
   spawnBag.spawn({
-    name = "servitor",
-    cards = { "09080-m" },
-    globalPos = self.positionToWorld(startPositions.summonedServitor),
-    rotation = FACE_UP_ROTATION,
+    name      = "servitor",
+    cards     = { "09080-m" },
+    globalPos = self.positionToWorld(ssPos),
+    rotation  = FACE_UP_ROTATION
   })
 end
 
 -- Clears the current cards, and places all basic weaknesses on the table.
 function spawnWeaknesses()
-  if not allCardsBagApi.isIndexReady() then return end
+  if not AllCardsBagApi.isIndexReady() then return end
 
   prepareToPlaceCards()
 
   -- exclude custom signature weaknesses
   local customExcludeList = {}
-  local customInvestigatorData = allCardsBagApi.getCustomInvestigatorData()
+  local customInvestigatorData = AllCardsBagApi.getCustomInvestigatorData()
   for investigatorId, invdata in pairs(customInvestigatorData.InvestigatorSubdata or {}) do
     for _, cardId in ipairs(invdata.signatures or {}) do
       customExcludeList[cardId] = true
@@ -812,8 +832,8 @@ function spawnWeaknesses()
 
   local basicWeaknessList = {}
   local otherWeaknessList = {}
-  for _, id in ipairs(allCardsBagApi.getUniqueWeaknesses()) do
-    local cardMetadata = allCardsBagApi.getCardById(id).metadata
+  for _, id in ipairs(AllCardsBagApi.getUniqueWeaknesses()) do
+    local cardMetadata = AllCardsBagApi.getCardById(id).metadata
     if cardMetadata.basicWeaknessCount ~= nil and cardMetadata.basicWeaknessCount > 0 then
       table.insert(basicWeaknessList, id)
     elseif excludedNonBasicWeaknesses[id] == nil and customExcludeList[id] == nil then
@@ -822,29 +842,31 @@ function spawnWeaknesses()
   end
   local groupPos = Vector(startPositions.classCards)
   spawnBag.spawn({
-    name = "basicWeaknesses",
-    cards = basicWeaknessList,
-    globalPos = self.positionToWorld(groupPos),
-    rotation = FACE_UP_ROTATION,
-    spread = true,
+    name       = "basicWeaknesses",
+    cards      = basicWeaknessList,
+    globalPos  = self.positionToWorld(groupPos),
+    rotation   = FACE_UP_ROTATION,
+    spread     = true,
     spreadCols = CARD_MAX_COLS
   })
   groupPos.z = groupPos.z + math.ceil(#basicWeaknessList / CARD_MAX_COLS) * cardRowOffset + cardGroupOffset
+
+  local evolvedWeaknessList = AllCardsBagApi.getEvolvedWeaknesses()
   spawnBag.spawn({
-    name = "evolvedWeaknesses",
-    cards = EVOLVED_WEAKNESSES,
-    globalPos = self.positionToWorld(groupPos),
-    rotation = FACE_UP_ROTATION,
-    spread = true,
+    name       = "evolvedWeaknesses",
+    cards      = evolvedWeaknessList,
+    globalPos  = self.positionToWorld(groupPos),
+    rotation   = FACE_UP_ROTATION,
+    spread     = true,
     spreadCols = CARD_MAX_COLS
   })
-  groupPos.z = groupPos.z + math.ceil(#EVOLVED_WEAKNESSES / CARD_MAX_COLS) * cardRowOffset + cardGroupOffset
+  groupPos.z = groupPos.z + math.ceil(#evolvedWeaknessList / CARD_MAX_COLS) * cardRowOffset + cardGroupOffset
   spawnBag.spawn({
-    name = "otherWeaknesses",
-    cards = otherWeaknessList,
-    globalPos = self.positionToWorld(groupPos),
-    rotation = FACE_UP_ROTATION,
-    spread = true,
+    name       = "otherWeaknesses",
+    cards      = otherWeaknessList,
+    globalPos  = self.positionToWorld(groupPos),
+    rotation   = FACE_UP_ROTATION,
+    spread     = true,
     spreadCols = CARD_MAX_COLS
   })
 end
@@ -853,7 +875,7 @@ function spawnRandomWeakness(_, playerColor, isRightClick)
   prepareToPlaceCards()
 
   if not isRightClick then
-    local weaknessIds = allCardsBagApi.getRandomWeaknessIds(1)
+    local weaknessIds = AllCardsBagApi.getRandomWeaknessIds(1)
     if weaknessIds[1] then
       spawnSingleWeakness(weaknessIds[1])
     end
@@ -862,7 +884,7 @@ function spawnRandomWeakness(_, playerColor, isRightClick)
       lastWeaknessTrait,
       function(text)
         lastWeaknessTrait = text
-        local weaknessIds = allCardsBagApi.getRandomWeaknessIds(1, { traits = text })
+        local weaknessIds = AllCardsBagApi.getRandomWeaknessIds(1, { traits = text })
         if weaknessIds[1] then
           spawnSingleWeakness(weaknessIds[1])
         end
