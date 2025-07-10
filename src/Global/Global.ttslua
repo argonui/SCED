@@ -6,6 +6,7 @@ require("Global/i18nData")
 local BlessCurseManagerApi        = require("chaosbag/BlessCurseManagerApi")
 local CoroutineLib                = require("util/CoroutineLib")
 local GUIDReferenceApi            = require("core/GUIDReferenceApi")
+local MathLib                     = require("util/MathLib")
 local MythosAreaApi               = require("mythos/MythosAreaApi")
 local NavigationOverlayApi        = require("core/NavigationOverlayApi")
 local PlayAreaApi                 = require("playarea/PlayAreaApi")
@@ -61,7 +62,8 @@ local DROPDOWN_DATA               = {
     "Classic (2P)",
     "Upright (4P)",
     "Sides (4P)",
-    "True Solo (1P)"
+    "True Solo (1P)",
+    "Rotated (2P)"
   },
   tokenArrangerOdds = {
     "No Odds",
@@ -81,6 +83,7 @@ local MYTHOS_AREA_DATA            = {
   upperLeft  = { x = 5.09, z = 17.45 },
   lowerRight = { x = -7.71, z = -17.45 },
   center     = Vector(-1.31, 1.45, 0),
+  rotation   = Vector(0, 270, 0)
 }
 
 -- this mapping of object names to index names is really important!
@@ -253,6 +256,10 @@ function tryObjectEnterContainer(container, object)
     return false
   elseif object.type == "Card" and object.getName() ~= "Atlach-Nacha" then
     handleTokenDetaching({ card = object })
+  elseif object.memo == "clueDoom" and container.memo == "clueDoom" then
+    local flip1 = MathLib.roundAngleToMultiple(object.getRotation().z, 180)
+    local flip2 = MathLib.roundAngleToMultiple(container.getRotation().z, 180)
+    return flip1 == flip2
   end
 
   PlayAreaApi.tryObjectEnterContainer(container, object)
@@ -298,13 +305,19 @@ function maybeMoveObjectToMythosArea(object)
   if not transformData then return end
 
   local objectPosition = object.getPosition()
+  local objectRotation = object.getRotation()
 
   -- check if object is in "regular" mythos area
   if not inArea(objectPosition, MYTHOS_AREA_DATA) then return end
 
-  -- calculate new position and move object
+  -- calculate new position and rotation and move object
   local positionDiff = transformData.position - MYTHOS_AREA_DATA.center
-  object.setPosition(objectPosition + positionDiff)
+  local rotationDiff = transformData.rotation - MYTHOS_AREA_DATA.rotation
+  local originOffset = objectPosition - MYTHOS_AREA_DATA.center
+  local originRotate = originOffset:rotateOver('y', rotationDiff.y)
+
+  object.setPosition(MYTHOS_AREA_DATA.center + originRotate + positionDiff)
+  object.setRotation(objectRotation + rotationDiff)
 end
 
 function maybeUpdateClueDoomStackCount(container, object)
@@ -649,7 +662,7 @@ function findChaosBag()
   local mythosArea = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "MythosArea")
   if mythosArea then
     for _, obj in ipairs(SearchLib.onObject(mythosArea)) do
-      if obj.getDescription() == "Chaos Bag" or obj.getDescription() == "Chaos Bag" then
+      if obj.getName() == "Chaos Bag" or obj.getDescription() == "Chaos Bag" then
         obj.addTag("CleanUpHelper_ignore")
         return obj
       end
@@ -4135,7 +4148,7 @@ function maybeReadyCard(params)
   end
 
   local cardRotation = card.getRotation()
-  local roundedRotY  = round(cardRotation.y, 0)
+  local roundedRotY  = MathLib.round(cardRotation.y)
   local yRotDiff     = roundedRotY - ownerRotation.y
 
   if yRotDiff < 0 then
@@ -4203,12 +4216,6 @@ function coWaitFrames(frameCount)
   for k = 1, frameCount do
     coroutine.yield(0)
   end
-end
-
--- rounds a number (num) to the Nth decimal (dec)
-function round(num, dec)
-  local mult = 10 ^ (dec or 0)
-  return math.floor(num * mult + 0.5) / mult
 end
 
 -- Simple method to check if the given point is in a specified area

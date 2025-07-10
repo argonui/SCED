@@ -49,8 +49,10 @@ function onLoad(savedData)
     local loadedState = JSON.decode(savedData) or {}
     scenarioCard      = getObjectFromGUID(loadedState.scenarioCardGuid) or nil
     currentScenario   = loadedState.currentScenario or ""
-    useFrontData      = loadedState.useFrontData or true
+    useFrontData      = loadedState.useFrontData
     tokenData         = loadedState.tokenData or {}
+
+    if useFrontData == nil then useFrontData = true end
   end
   Wait.time(function() collisionEnabled = true end, 0.1)
 end
@@ -60,7 +62,7 @@ function resetScenarioData()
   useFrontData = true
   tokenData = {}
   updateSave()
-  playAreaApi.onScenarioChanged("")
+  playAreaApi.onScenarioChanged(false)
 end
 
 function copyScenarioReferenceCard()
@@ -143,7 +145,7 @@ function getDataFromReferenceCard(card, cardName, md)
   -- detect if a new scenario card is placed down
   if currentScenario ~= newScenarioName then
     currentScenario = newScenarioName
-    fireScenarioChangedEvent()
+    fireScenarioChangedEvent(md)
   end
 
   if not md["tokens"] then
@@ -182,12 +184,12 @@ function onObjectEnterContainer(container, object)
 end
 
 -- fires if the scenario title changes
-function fireScenarioChangedEvent()
+function fireScenarioChangedEvent(md)
   -- maybe show the title splash screen
   Wait.frames(function() GlobalApi.titleSplash(currentScenario) end, 20)
 
-  -- set the scenario for the playarea (connections might be disabled)
-  playAreaApi.onScenarioChanged(currentScenario)
+  -- maybe temporarily disable the location connections
+  playAreaApi.onScenarioChanged(md.disableConnections)
 
   -- maybe update the playarea image
   local playAreaImageSelector = guidReferenceApi.getObjectByOwnerAndType("Mythos", "PlayAreaImageSelector")
@@ -408,6 +410,10 @@ end
 
 function getEncounterDiscardPosition()
   return self.positionToWorld(ENCOUNTER_DISCARD_POS)
+end
+
+function getEncounterDiscardRotation()
+  return self.getRotation()
 end
 
 function getScenarioReferenceCardPosition()
