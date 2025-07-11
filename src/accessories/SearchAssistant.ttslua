@@ -1,7 +1,7 @@
-local deckLib                  = require("util/DeckLib")
-local guidReferenceApi         = require("core/GUIDReferenceApi")
-local mythosAreaApi            = require("mythos/MythosAreaApi")
-local playermatApi             = require("playermat/PlayermatApi")
+local DeckLib                  = require("util/DeckLib")
+local GUIDReferenceApi         = require("core/GUIDReferenceApi")
+local MythosAreaApi            = require("mythos/MythosAreaApi")
+local PlayermatApi             = require("playermat/PlayermatApi")
 
 -- forward declaration of variables that are used across functions
 local matColor, handColor, drawDeckPosition, topCardDetected
@@ -25,7 +25,7 @@ local buttonLabels             = {
 function onLoad()
   createClickFunctions()
   normalView()
-  self.max_typed_number = 9999
+  self.max_typed_number = 99
 end
 
 function createClickFunctions()
@@ -65,17 +65,17 @@ function startSearch(messageColor, number)
   if ongoingSearch then return end
 
   -- intentionally global
-  owner = guidReferenceApi.getOwnerOfObject(self)
+  owner = GUIDReferenceApi.getOwnerOfObject(self)
   if owner == "Mythos" then
     if messageColor == "Black" then
       printToColor("This does not work when playing as black.", messageColor, "Red")
       return
     end
-    matColor  = playermatApi.getMatColor(messageColor)
+    matColor  = PlayermatApi.getMatColor(messageColor)
     handColor = messageColor
   else
     matColor  = owner
-    handColor = playermatApi.getPlayerColor(matColor)
+    handColor = PlayermatApi.getPlayerColor(matColor)
   end
 
   topCardDetected = false
@@ -83,9 +83,9 @@ function startSearch(messageColor, number)
   -- get draw deck
   local deckAreaObjects
   if owner == "Mythos" then
-    deckAreaObjects = mythosAreaApi.getEncounterDeckObjects()
+    deckAreaObjects = MythosAreaApi.getEncounterDeckObjects()
   else
-    deckAreaObjects = playermatApi.getDeckAreaObjects(matColor)
+    deckAreaObjects = PlayermatApi.getDeckAreaObjects(matColor)
   end
 
   if deckAreaObjects.draw == nil and deckAreaObjects.topCard == nil then
@@ -122,7 +122,7 @@ function startSearch(messageColor, number)
   local handData = Player[handColor].getHandTransform()
 
   -- create an additional hand zone
-  local handZone = guidReferenceApi.getObjectByOwnerAndType(matColor, "HandZone")
+  local handZone = GUIDReferenceApi.getObjectByOwnerAndType(matColor, "HandZone")
   local data = handZone.getData()
   handCount = Player[handColor].getHandCount() + 1
 
@@ -139,7 +139,7 @@ function startSearch(messageColor, number)
   data.Transform.scaleZ = data.Transform.scaleZ * 0.6
 
   local newHand = spawnObjectData({ data = data, position = position })
-  guidReferenceApi.editIndex(matColor, handZoneName, newHand.getGUID())
+  GUIDReferenceApi.editIndex(matColor, handZoneName, newHand.getGUID())
 
   -- add XML labels
   newHand.UI.setXmlTable({
@@ -288,29 +288,45 @@ end
 
 function endSearch(_, shuffle)
   local handToCheck = math.min(Player[handColor].getHandCount(), handCount)
-  local handCards = Player[handColor].getHandObjects(handToCheck)
+  local handCards   = Player[handColor].getHandObjects(handToCheck)
+  local faceDownRot = self.getRotation():setAt("z", 180)
+
+  -- reverse order for proper order after grouping
+  local reversedTable = {}
+  for i = #handCards, 1, -1 do
+    local card = handCards[i]
+    table.insert(reversedTable, card)
+
+    -- flip facedown and lock (to stop from dropping)
+    card.setRotation(faceDownRot)
+    card.setLock(true)
+  end
+
+  -- group and lock (to stop from dropping)
+  handCards = group(reversedTable)[1]
+  handCards.setLock(true)
 
   -- place cards on deck
-  deckLib.placeOrMergeIntoDeck(handCards, drawDeckPosition, self.getRotation():setAt("z", 180))
+  DeckLib.placeOrMergeIntoDeck(handCards, drawDeckPosition, faceDownRot)
 
-  local additionalHand = guidReferenceApi.getObjectByOwnerAndType(matColor, handZoneName)
+  -- remove the additional hand
+  local additionalHand = GUIDReferenceApi.getObjectByOwnerAndType(matColor, handZoneName)
   if additionalHand then
-    Wait.time(function()
-      additionalHand.destruct()
-      guidReferenceApi.editIndex(matColor, handZoneName, nil)
-    end, 0.5 + #handCards * 0.2)
+    additionalHand.destruct()
+    GUIDReferenceApi.editIndex(matColor, handZoneName, nil)
   end
 
   normalView()
 
+  -- wait until deck has fully formed
   Wait.time(function()
     -- maybe shuffle deck
     if shuffle == "true" then
       local deckAreaObjects
       if owner == "Mythos" then
-        deckAreaObjects = mythosAreaApi.getEncounterDeckObjects()
+        deckAreaObjects = MythosAreaApi.getEncounterDeckObjects()
       else
-        deckAreaObjects = playermatApi.getDeckAreaObjects(matColor)
+        deckAreaObjects = PlayermatApi.getDeckAreaObjects(matColor)
       end
 
       if deckAreaObjects.draw then
@@ -321,10 +337,10 @@ function endSearch(_, shuffle)
     -- Norman Withers / Eye of Ghatanothoa handling
     if topCardDetected then
       if owner == "Mythos" then
-        mythosAreaApi.flipTopCardFromDeck()
+        MythosAreaApi.flipTopCardFromDeck()
       else
-        playermatApi.flipTopCardFromDeck(matColor)
+        PlayermatApi.flipTopCardFromDeck(matColor)
       end
     end
-  end, 1 + #handCards * 0.2)
+  end, 1.5)
 end
