@@ -290,39 +290,35 @@ function endSearch(_, shuffle)
   local handToCheck = math.min(Player[handColor].getHandCount(), handCount)
   local handCards   = Player[handColor].getHandObjects(handToCheck)
   local faceDownRot = self.getRotation():setAt("z", 180)
-  local delay       = #handCards * 0.2
-  local placeDelay  = 0.01
 
-  if shuffle == "true" then
-    local reversedTable = {}
-    for i = #handCards, 1, -1 do
-      local card = handCards[i]
-      card.setRotation(faceDownRot)
-      card.setLock(true)
-      table.insert(reversedTable, card)
-    end
+  -- reverse order for proper order after grouping
+  local reversedTable = {}
+  for i = #handCards, 1, -1 do
+    local card = handCards[i]
+    table.insert(reversedTable, card)
 
-    delay      = 0.5
-    placeDelay = 0.25
-    handCards  = group(reversedTable)[1]
-    handCards.setLock(true)
+    -- flip facedown and lock (to stop from dropping)
+    card.setRotation(faceDownRot)
+    card.setLock(true)
   end
 
-  -- place cards on deck
-  Wait.time(function()
-    DeckLib.placeOrMergeIntoDeck(handCards, drawDeckPosition, faceDownRot)
-  end, placeDelay)
+  -- group and lock (to stop from dropping)
+  handCards = group(reversedTable)[1]
+  handCards.setLock(true)
 
+  -- place cards on deck
+  DeckLib.placeOrMergeIntoDeck(handCards, drawDeckPosition, faceDownRot)
+
+  -- remove the additional hand
   local additionalHand = GUIDReferenceApi.getObjectByOwnerAndType(matColor, handZoneName)
   if additionalHand then
-    Wait.time(function()
-      additionalHand.destruct()
-      GUIDReferenceApi.editIndex(matColor, handZoneName, nil)
-    end, 0.5 + delay)
+    additionalHand.destruct()
+    GUIDReferenceApi.editIndex(matColor, handZoneName, nil)
   end
 
   normalView()
 
+  -- wait until deck has fully formed
   Wait.time(function()
     -- maybe shuffle deck
     if shuffle == "true" then
@@ -346,5 +342,5 @@ function endSearch(_, shuffle)
         PlayermatApi.flipTopCardFromDeck(matColor)
       end
     end
-  end, 1 + delay)
+  end, 1.5)
 end
