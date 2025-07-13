@@ -1,9 +1,9 @@
 require("playercards/CardsWithHelper")
-local blessCurseManagerApi = require("chaosbag/BlessCurseManagerApi")
-local guidReferenceApi     = require("core/GUIDReferenceApi")
-local playermatApi         = require("playermat/PlayermatApi")
-local searchLib            = require("util/SearchLib")
-local tokenManagerApi      = require("tokens/TokenManagerApi")
+local BlessCurseManagerApi = require("chaosbag/BlessCurseManagerApi")
+local GUIDReferenceApi     = require("core/GUIDReferenceApi")
+local PlayermatApi         = require("playermat/PlayermatApi")
+local SearchLib            = require("util/SearchLib")
+local TokenManagerApi      = require("tokens/TokenManagerApi")
 local zones                = require("playermat/Zones")
 
 -- intentionally global
@@ -49,7 +49,7 @@ end
 function addTokenToBag(player, _, tokenType)
   if not updated then return end
   updated = false
-  blessCurseManagerApi.addToken(tokenType, player.color)
+  BlessCurseManagerApi.addToken(tokenType, player.color)
   faceDownReactionToken()
   Wait.frames(function() maybeUpdateButtonState(false) end, 5)
 end
@@ -57,16 +57,16 @@ end
 function removeAndExtraAction(player)
   if not updated then return end
   updated = false
-  blessCurseManagerApi.removeToken("Bless", player.color)
-  blessCurseManagerApi.removeToken("Bless", player.color)
-  blessCurseManagerApi.removeToken("Curse", player.color)
-  blessCurseManagerApi.removeToken("Curse", player.color)
+  BlessCurseManagerApi.removeToken("Bless", player.color)
+  BlessCurseManagerApi.removeToken("Bless", player.color)
+  BlessCurseManagerApi.removeToken("Curse", player.color)
+  BlessCurseManagerApi.removeToken("Curse", player.color)
   faceDownReactionToken()
   Wait.frames(function() maybeUpdateButtonState(false) end, 5)
 
   local position = self.getPosition()
-  local matColor = playermatApi.getMatColorByPosition(position)
-  local mat      = guidReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
+  local matColor = PlayermatApi.getMatColorByPosition(position)
+  local mat      = GUIDReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
   local rotation = mat.getRotation()
 
   -- find empty action token slots by checking snap points
@@ -78,7 +78,7 @@ function removeAndExtraAction(player)
     if i > 1 then
       if snap.tags[1] == "UniversalToken" then
         local snapPos = mat.positionToWorld(snap.position)
-        local searchResult = searchLib.atPosition(snapPos, "isUniversalToken")
+        local searchResult = SearchLib.atPosition(snapPos, "isUniversalToken")
         if #searchResult == 0 then
           emptyPos = snapPos
           break
@@ -89,19 +89,19 @@ function removeAndExtraAction(player)
 
   local callbackName = "updateUniversalActionAbilityToken"
   local callbackParams = { class = "Mystic", symbol = "Mystic" }
-  tokenManagerApi.spawnToken(emptyPos + Vector(0, 0.7, 0), "universalActionAbility", rotation, callbackName, callbackParams, nil, "Temporary")
+  TokenManagerApi.spawnToken(emptyPos + Vector(0, 0.7, 0), "universalActionAbility", rotation, callbackName, callbackParams, nil, "Temporary")
 end
 
 function elderSignAbility(player)
   updated = false
-  blessCurseManagerApi.addToken("Bless", player.color)
-  blessCurseManagerApi.addToken("Curse", player.color)
+  BlessCurseManagerApi.addToken("Bless", player.color)
+  BlessCurseManagerApi.addToken("Curse", player.color)
   Wait.frames(maybeUpdateButtonState, 5)
 end
 
 -- count tokens in the bag and show appropriate buttons
 function maybeUpdateButtonState(isAvailable)
-  local numInBag = blessCurseManagerApi.getBlessCurseInBag()
+  local numInBag = BlessCurseManagerApi.getBlessCurseInBag()
   local state = { Bless = false, Curse = false, Action = false, ElderSign = false }
 
   if numInBag.Bless <= numInBag.Curse and numInBag.Bless < 10 then
@@ -146,7 +146,7 @@ function setUiState(params)
 end
 
 function errorMessage(_, _, triggeringButton)
-  local numInBag = blessCurseManagerApi.getBlessCurseInBag()
+  local numInBag = BlessCurseManagerApi.getBlessCurseInBag()
   if isReactionTokenFaceDown() and triggeringButton ~= "ElderSign" then
     broadcastToAll("Ability already used.", "Red")
   elseif triggeringButton == "Action" then
@@ -162,11 +162,11 @@ end
 
 -- get reaction token on investigator card
 function getReactionToken()
-  local matColor = playermatApi.getMatColorByPosition(self.getPosition())
+  local matColor = PlayermatApi.getMatColorByPosition(self.getPosition())
   local pos      = zones.getZonePosition(matColor, "Investigator")
-  local rot      = playermatApi.returnRotation(matColor)
+  local rot      = PlayermatApi.returnRotation(matColor)
   local size     = Vector(2.5, 2, 3.5)
-  for _, obj in ipairs(searchLib.inArea(pos, rot, size, "isUniversalToken")) do
+  for _, obj in ipairs(SearchLib.inArea(pos, rot, size, "isUniversalToken")) do
     if string.sub(obj.getName(), -8, -1) == "Reaction" then
       return obj
     end

@@ -85,10 +85,10 @@ Thus it should be implemented like this:
   > require...
 ----------------------------------------------------------]]
 
-local blessCurseManagerApi = require("chaosbag/BlessCurseManagerApi")
-local chaosBagApi          = require("chaosbag/ChaosBagApi")
-local playermatApi         = require("playermat/PlayermatApi")
-local tokenArrangerApi     = require("tokens/TokenArrangerApi")
+local BlessCurseManagerApi = require("chaosbag/BlessCurseManagerApi")
+local ChaosBagApi          = require("chaosbag/ChaosBagApi")
+local PlayermatApi         = require("playermat/PlayermatApi")
+local TokenArrangerApi     = require("tokens/TokenArrangerApi")
 
 local sealedTokens         = {}
 local ID_URL_MAP           = {}
@@ -125,7 +125,7 @@ function onLoad(savedData)
     end
   end
 
-  ID_URL_MAP = chaosBagApi.getIdUrlMap()
+  ID_URL_MAP = ChaosBagApi.getIdUrlMap()
   generateContextMenu()
   updateStackSize()
   self.addTag("CardThatSeals")
@@ -171,13 +171,13 @@ function generateContextMenu()
       if not SHOW_MULTI_SEAL then
         self.addContextMenuItem("Seal " .. map.name, function(playerColor)
           self.removeFromPlayerSelection(playerColor)
-          if not chaosBagApi.canTouchChaosTokens() then return end
+          if not ChaosBagApi.canTouchChaosTokens() then return end
           sealToken(map.name, playerColor)
         end, KEEP_OPEN)
       else
         self.addContextMenuItem("Seal " .. SHOW_MULTI_SEAL .. " " .. map.name, function(playerColor)
           self.removeFromPlayerSelection(playerColor)
-          if not chaosBagApi.canTouchChaosTokens() then return end
+          if not ChaosBagApi.canTouchChaosTokens() then return end
           readBag()
           local allowed = true
           local notFound
@@ -204,7 +204,7 @@ end
 
 -- generates a list of chaos tokens that is in the chaos bag
 function readBag()
-  local chaosbag = chaosBagApi.findChaosBag()
+  local chaosbag = ChaosBagApi.findChaosBag()
   tokensInBag = {}
 
   for _, token in ipairs(chaosbag.getObjects()) do
@@ -232,8 +232,8 @@ function sealToken(name, playerColor)
     printToColor("Cannot seal any more tokens on this card", playerColor, "Red")
     return
   end
-  if not chaosBagApi.canTouchChaosTokens() then return end
-  local chaosbag = chaosBagApi.findChaosBag()
+  if not ChaosBagApi.canTouchChaosTokens() then return end
+  local chaosbag = ChaosBagApi.findChaosBag()
   for i, obj in ipairs(chaosbag.getObjects()) do
     if obj.name == name then
       return chaosbag.takeObject({
@@ -244,9 +244,9 @@ function sealToken(name, playerColor)
         callback_function = function(token)
           local guid = token.getGUID()
           table.insert(sealedTokens, guid)
-          tokenArrangerApi.layout()
+          TokenArrangerApi.layout()
           if name == "Bless" or name == "Curse" then
-            blessCurseManagerApi.sealedToken(name, guid)
+            BlessCurseManagerApi.sealedToken(name, guid)
           end
           -- destroy XML on just covered token
           if #sealedTokens > 1 then
@@ -268,7 +268,7 @@ end
 -- release the last sealed token
 function releaseOneToken(playerColor)
   self.removeFromPlayerSelection(playerColor)
-  if not chaosBagApi.canTouchChaosTokens() then return end
+  if not ChaosBagApi.canTouchChaosTokens() then return end
   if #sealedTokens == 0 then
     printToColor("No sealed token(s) found", playerColor)
   else
@@ -315,7 +315,7 @@ end
 -- release up to multiple tokens at once with no minimum
 function releaseMultipleTokens(playerColor)
   self.removeFromPlayerSelection(playerColor)
-  if not chaosBagApi.canTouchChaosTokens() then return end
+  if not ChaosBagApi.canTouchChaosTokens() then return end
   if #sealedTokens == 0 then
     printToColor("Not enough tokens sealed.", playerColor)
     return
@@ -343,7 +343,7 @@ end
 ---@param silent? boolean True if all messages should be surpressed
 function releaseAllTokens(playerColor, _, _, filterName, silent)
   self.removeFromPlayerSelection(playerColor)
-  if not chaosBagApi.canTouchChaosTokens() then return end
+  if not ChaosBagApi.canTouchChaosTokens() then return end
   if #sealedTokens == 0 then
     if not silent then
       printToColor("No sealed token(s) found", playerColor)
@@ -368,7 +368,7 @@ end
 -- returns multiple tokens at once to the token pool (with minimum)
 function returnMultipleTokens(playerColor)
   self.removeFromPlayerSelection(playerColor)
-  if not chaosBagApi.canTouchChaosTokens() then return end
+  if not ChaosBagApi.canTouchChaosTokens() then return end
   if SHOW_MULTI_RETURN <= #sealedTokens then
     for i = 1, SHOW_MULTI_RETURN do
       returnToken(table.remove(sealedTokens))
@@ -384,7 +384,7 @@ end
 -- returns all sealed tokens to the token pool
 function returnAllTokens(playerColor)
   self.removeFromPlayerSelection(playerColor)
-  if not chaosBagApi.canTouchChaosTokens() then return end
+  if not ChaosBagApi.canTouchChaosTokens() then return end
   printToColor("Returning " .. #sealedTokens .. " tokens to the token pool", playerColor)
   for i = 1, #sealedTokens do
     returnToken(table.remove(sealedTokens))
@@ -404,13 +404,13 @@ function putTokenAway(guid, filterName, silent)
   local name = token.getName()
   if filterName and filterName ~= name then return false end
 
-  local chaosbag = chaosBagApi.findChaosBag()
+  local chaosbag = ChaosBagApi.findChaosBag()
   chaosbag.putObject(token)
 
-  tokenArrangerApi.layout()
+  TokenArrangerApi.layout()
 
   if name == "Bless" or name == "Curse" then
-    blessCurseManagerApi.releasedToken(name, guid, nil, silent)
+    BlessCurseManagerApi.releasedToken(name, guid, nil, silent)
   end
 
   return true
@@ -424,7 +424,7 @@ function returnToken(guid)
   local name = token.getName()
   token.destruct()
   if name == "Bless" or name == "Curse" then
-    blessCurseManagerApi.returnedToken(name, guid)
+    BlessCurseManagerApi.returnedToken(name, guid)
   end
 end
 
@@ -478,8 +478,8 @@ function resolveTokenByGuid(playerColor, guidToBeResolved)
     resolvedToken.UI.setXml("")
   end
 
-  local closestMatColor = playermatApi.getMatColorByPosition(self.getPosition())
-  chaosBagApi.drawChaosToken(closestMatColor, true, _, guidToBeResolved)
+  local closestMatColor = PlayermatApi.getMatColorByPosition(self.getPosition())
+  ChaosBagApi.drawChaosToken(closestMatColor, true, _, guidToBeResolved)
   Player[playerColor].clearSelectedObjects()
 end
 

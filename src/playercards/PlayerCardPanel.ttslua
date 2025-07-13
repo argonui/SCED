@@ -2,8 +2,8 @@
 require("playercards/PlayerCardPanelData")
 
 local AllCardsBagApi                   = require("playercards/AllCardsBagApi")
-local arkhamDb                         = require("arkhamdb/ArkhamDb")
-local spawnBag                         = require("playercards/SpawnBag")
+local ArkhamDb                         = require("arkhamdb/ArkhamDb")
+local SpawnBag                         = require("playercards/SpawnBag")
 
 local lastWeaknessTrait                = "Madness"
 
@@ -105,17 +105,17 @@ local spawnStarterDecks                = false
 local helpVisibleToPlayers             = {}
 
 function onSave()
-  return JSON.encode({ spawnBagState = spawnBag.getStateForSave() })
+  return JSON.encode({ spawnBagState = SpawnBag.getStateForSave() })
 end
 
 function onLoad(savedData)
   if savedData and savedData ~= "" then
     local saveState = JSON.decode(savedData) or {}
     if saveState.spawnBagState ~= nil then
-      spawnBag.loadFromSave(saveState.spawnBagState)
+      SpawnBag.loadFromSave(saveState.spawnBagState)
     end
   end
-  arkhamDb.initialize()
+  ArkhamDb.initialize()
   buildExcludedWeaknessList()
   createButtons()
 end
@@ -497,7 +497,7 @@ end
 
 -- Deletes all cards currently placed on the table
 function deleteAll()
-  spawnBag.recall(true)
+  SpawnBag.recall(true)
 end
 
 -- Spawn an investigator group, based on the current UI setting for either investigators or starter decks
@@ -546,7 +546,7 @@ function spawnInvestigators(groupName)
     end
 
     for _, spawnSpec in ipairs(buildInvestigatorSpawnSpec(investigatorName, subData[investigatorName], position)) do
-      spawnBag.spawn(spawnSpec)
+      SpawnBag.spawn(spawnSpec)
     end
     position:add(investigatorPositionShiftCol)
   end
@@ -631,10 +631,10 @@ end
 function spawnStarterDeck(investigatorName, investigatorData, position)
   if not investigatorData.starterDeck then return end
   for _, spawnSpec in ipairs(buildCommonSpawnSpec(investigatorName, investigatorData, position, true)) do
-    spawnBag.spawn(spawnSpec)
+    SpawnBag.spawn(spawnSpec)
   end
   local deckPos = Vector(position):add(investigatorSignatureOffset)
-  arkhamDb.getDecklist("None", investigatorData.starterDeck, true, false, false, function(slots)
+  ArkhamDb.getDecklist("None", investigatorData.starterDeck, true, false, false, function(slots)
     local cardIdList = {}
     for id, count in pairs(slots) do
       for i = 1, count do
@@ -646,7 +646,7 @@ function spawnStarterDeck(investigatorName, investigatorData, position)
       end
     end
 
-    spawnBag.spawn({
+    SpawnBag.spawn({
       name = investigatorName .. "starter",
       cards = cardIdList,
       globalPos = self.positionToWorld(deckPos),
@@ -686,7 +686,7 @@ function placeClassCards(cardClass, isUpgraded)
   end
   local groupPos = Vector(startPositions.classCards)
   if #skillList > 0 then
-    spawnBag.spawn({
+    SpawnBag.spawn({
       name       = cardClass .. (isUpgraded and "upgraded" or "basic"),
       cards      = skillList,
       globalPos  = self.positionToWorld(groupPos),
@@ -697,7 +697,7 @@ function placeClassCards(cardClass, isUpgraded)
     groupPos.z = groupPos.z + math.ceil(#skillList / CARD_MAX_COLS) * cardRowOffset + cardGroupOffset
   end
   if #eventList > 0 then
-    spawnBag.spawn({
+    SpawnBag.spawn({
       name       = cardClass .. "event" .. (isUpgraded and "upgraded" or "basic"),
       cards      = eventList,
       globalPos  = self.positionToWorld(groupPos),
@@ -708,7 +708,7 @@ function placeClassCards(cardClass, isUpgraded)
     groupPos.z = groupPos.z + math.ceil(#eventList / CARD_MAX_COLS) * cardRowOffset + cardGroupOffset
   end
   if #assetList > 0 then
-    spawnBag.spawn({
+    SpawnBag.spawn({
       name       = cardClass .. "asset" .. (isUpgraded and "upgraded" or "basic"),
       cards      = assetList,
       globalPos  = self.positionToWorld(groupPos),
@@ -752,7 +752,7 @@ function spawnCycle(cycle)
     cardList = table.pack(table.unpack(cardList, 1, maxCardCount))
   end
 
-  spawnBag.spawn({
+  SpawnBag.spawn({
     name       = "cycle" .. cycle,
     cards      = cardList,
     globalPos  = self.positionToWorld(cycleStartPos),
@@ -766,7 +766,7 @@ function spawnBonded()
   if not AllCardsBagApi.isIndexReady() then return end
 
   prepareToPlaceCards()
-  spawnBag.spawn({
+  SpawnBag.spawn({
     name       = "bonded",
     cards      = AllCardsBagApi.getBondedCardList(),
     globalPos  = self.positionToWorld(startPositions.classCards),
@@ -781,7 +781,7 @@ function spawnUpgradeSheets()
 
   prepareToPlaceCards()
   local upgradeSheetList = AllCardsBagApi.getUpgradeSheetList()
-  spawnBag.spawn({
+  SpawnBag.spawn({
     name       = "upgradeSheets",
     cards      = upgradeSheetList,
     globalPos  = self.positionToWorld(startPositions.classCards),
@@ -807,7 +807,7 @@ function spawnUpgradeSheets()
   local ssPos = Vector(CARD_WIDTH * (firstRowLength / 2 - index + 0.5), 2, 1.14)
   ssPos:scale(Vector(scale, scale, 1))
 
-  spawnBag.spawn({
+  SpawnBag.spawn({
     name      = "servitor",
     cards     = { "09080-m" },
     globalPos = self.positionToWorld(ssPos),
@@ -841,7 +841,7 @@ function spawnWeaknesses()
     end
   end
   local groupPos = Vector(startPositions.classCards)
-  spawnBag.spawn({
+  SpawnBag.spawn({
     name       = "basicWeaknesses",
     cards      = basicWeaknessList,
     globalPos  = self.positionToWorld(groupPos),
@@ -852,7 +852,7 @@ function spawnWeaknesses()
   groupPos.z = groupPos.z + math.ceil(#basicWeaknessList / CARD_MAX_COLS) * cardRowOffset + cardGroupOffset
 
   local evolvedWeaknessList = AllCardsBagApi.getEvolvedWeaknesses()
-  spawnBag.spawn({
+  SpawnBag.spawn({
     name       = "evolvedWeaknesses",
     cards      = evolvedWeaknessList,
     globalPos  = self.positionToWorld(groupPos),
@@ -861,7 +861,7 @@ function spawnWeaknesses()
     spreadCols = CARD_MAX_COLS
   })
   groupPos.z = groupPos.z + math.ceil(#evolvedWeaknessList / CARD_MAX_COLS) * cardRowOffset + cardGroupOffset
-  spawnBag.spawn({
+  SpawnBag.spawn({
     name       = "otherWeaknesses",
     cards      = otherWeaknessList,
     globalPos  = self.positionToWorld(groupPos),
@@ -894,7 +894,7 @@ end
 
 -- spawn the random weakness
 function spawnSingleWeakness(weaknessId)
-  spawnBag.spawn({
+  SpawnBag.spawn({
     name = "randomWeakness",
     cards = { weaknessId },
     globalPos = self.positionToWorld(startPositions.randomWeakness),

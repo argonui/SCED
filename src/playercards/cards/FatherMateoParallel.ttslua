@@ -1,9 +1,9 @@
 require("playercards/CardsWithHelper")
-local blessCurseManagerApi = require("chaosbag/BlessCurseManagerApi")
-local chaosBagApi          = require("chaosbag/ChaosBagApi")
-local guidReferenceApi     = require("core/GUIDReferenceApi")
-local playermatApi         = require("playermat/PlayermatApi")
-local tokenArrangerApi     = require("tokens/TokenArrangerApi")
+local BlessCurseManagerApi = require("chaosbag/BlessCurseManagerApi")
+local ChaosBagApi          = require("chaosbag/ChaosBagApi")
+local GUIDReferenceApi     = require("core/GUIDReferenceApi")
+local PlayermatApi         = require("playermat/PlayermatApi")
+local TokenArrangerApi     = require("tokens/TokenArrangerApi")
 
 -- intentionally global
 hasXML                     = true
@@ -66,10 +66,10 @@ function releaseAllTokensWrapper(params)
 end
 
 function releaseAllTokens(playerColor, _, _, filterName, silent)
-  if not chaosBagApi.canTouchChaosTokens() then return end
+  if not ChaosBagApi.canTouchChaosTokens() then return end
   if filterName and filterName ~= "Bless" then return end
 
-  local chaosbag = chaosBagApi.findChaosBag()
+  local chaosbag = ChaosBagApi.findChaosBag()
 
   local count = 0
   for buttonId, state in pairs(buttonData) do
@@ -78,7 +78,7 @@ function releaseAllTokens(playerColor, _, _, filterName, silent)
       if token then
         count = count + 1
         chaosbag.putObject(token)
-        blessCurseManagerApi.releasedToken(token.getName(), state, nil, silent)
+        BlessCurseManagerApi.releasedToken(token.getName(), state, nil, silent)
       end
     end
   end
@@ -104,16 +104,16 @@ function releaseAllTokens(playerColor, _, _, filterName, silent)
     printToColor("Returning " .. count .. " " .. str .. " to the token pool", playerColor)
   end
 
-  tokenArrangerApi.layout()
+  TokenArrangerApi.layout()
   Player[playerColor].clearSelectedObjects()
 end
 
 -- count tokens in the bag and maybe grey buttons
 function maybeUpdateButtonState()
-  local numInBag = blessCurseManagerApi.getBlessCurseInBag()
+  local numInBag = BlessCurseManagerApi.getBlessCurseInBag()
   noBlessAvailable = (numInBag.Bless == 0)
 
-  local investigatorCards = playermatApi.getUsedInvestigatorCards()
+  local investigatorCards = PlayermatApi.getUsedInvestigatorCards()
   local tableLayoutHeight = 1800
 
   for buttonId, state in pairs(buttonData) do
@@ -122,7 +122,7 @@ function maybeUpdateButtonState()
         self.UI.setAttribute(buttonId, "color", getButtonColor("Inactive"))
         self.UI.setAttribute("Row_" .. buttonId, "active", true)
       else
-        local handColor = playermatApi.getPlayerColor(buttonId)
+        local handColor = PlayermatApi.getPlayerColor(buttonId)
         if handColor then
           self.UI.setAttribute(buttonId, "color", getButtonColor(handColor))
           self.UI.setAttribute("Row_" .. buttonId, "active", true)
@@ -147,7 +147,7 @@ end
 function onClick_sidebutton(player, clickType, buttonId)
   if buttonData[buttonId] == false then
     -- nothing sealed yet
-    local numInBag = blessCurseManagerApi.getBlessCurseInBag()
+    local numInBag = BlessCurseManagerApi.getBlessCurseInBag()
     noBlessAvailable = (numInBag.Bless == 0)
 
     if noBlessAvailable then
@@ -155,13 +155,13 @@ function onClick_sidebutton(player, clickType, buttonId)
       return
     end
 
-    if not chaosBagApi.canTouchChaosTokens() then return end
+    if not ChaosBagApi.canTouchChaosTokens() then return end
 
-    local chaosBag = chaosBagApi.findChaosBag()
+    local chaosBag = ChaosBagApi.findChaosBag()
     if not chaosBag then return end
 
-    local sealPos = playermatApi.transformLocalPosition(Vector(-1.177, 0, 0.002), buttonId)
-    local sealRot = playermatApi.returnRotation(buttonId)
+    local sealPos = PlayermatApi.transformLocalPosition(Vector(-1.177, 0, 0.002), buttonId)
+    local sealRot = PlayermatApi.returnRotation(buttonId)
 
     for i, obj in ipairs(chaosBag.getObjects()) do
       if obj.name == "Bless" then
@@ -174,13 +174,13 @@ function onClick_sidebutton(player, clickType, buttonId)
             local guid = token.getGUID()
             buttonData[buttonId] = guid
 
-            local handColor = playermatApi.getPlayerColor(buttonId)
+            local handColor = PlayermatApi.getPlayerColor(buttonId)
             broadcastToColor("Sealed bless for " .. handColor, player.color)
 
             maybeUpdateButtonState()
             updateSave()
-            tokenArrangerApi.layout()
-            blessCurseManagerApi.sealedToken("Bless", guid)
+            TokenArrangerApi.layout()
+            BlessCurseManagerApi.sealedToken("Bless", guid)
           end
         })
         break
@@ -188,11 +188,11 @@ function onClick_sidebutton(player, clickType, buttonId)
     end
   else
     -- bless token was sealed
-    local mat = guidReferenceApi.getObjectByOwnerAndType(buttonId, "Playermat")
-    local drawnToken = chaosBagApi.drawChaosToken(mat, true, _, buttonData[buttonId])
+    local mat = GUIDReferenceApi.getObjectByOwnerAndType(buttonId, "Playermat")
+    local drawnToken = ChaosBagApi.drawChaosToken(mat, true, _, buttonData[buttonId])
     if drawnToken then
       buttonData[buttonId] = false
-      local handColor = playermatApi.getPlayerColor(buttonId)
+      local handColor = PlayermatApi.getPlayerColor(buttonId)
       broadcastToColor("Resolved sealed bless for " .. Global.call("getColoredName", handColor), player.color)
       maybeUpdateButtonState()
       updateSave()
