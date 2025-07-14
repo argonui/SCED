@@ -186,13 +186,14 @@ function onLoad(savedData)
   TokenManager.initialize()
 
   -- these things update the Global XML and thus need to happen with delays
-  Wait.time(updateBlurseVisibility, 0.2)
-  Wait.time(createActionTrackerUI, 0.4)
-  Wait.time(NavigationOverlayApi.createXmlButtons, 0.6)
-  Wait.time(NavigationOverlayApi.updateVisibility, 0.8)
-  Wait.time(PlayAreaApi.updatePlayAreaGallery, 1.0) -- also selects the first item after 0.1s
-  Wait.time(i18n.updateGlobalUiLanguage, 1.2)
-  Wait.time(initializeLibrary, 1.4)                 -- also simulates a click on the first item after 0.1s
+  Wait.time(updateBlurseVisibility, getXmlDelay())
+  Wait.time(createActionTrackerUI, getXmlDelay())
+  Wait.time(NavigationOverlayApi.createXmlButtons, getXmlDelay())
+  Wait.time(NavigationOverlayApi.updateVisibility, getXmlDelay())
+  Wait.time(PlayAreaApi.updatePlayAreaGallery, getXmlDelay()) -- also selects the first item after 0.1s
+  Wait.time(i18n.updateGlobalUiLanguage, getXmlDelay())
+  Wait.time(initializeLibrary, getXmlDelay())                 -- also simulates a click on the first item after 0.1s
+  Wait.time(function() printToAll("XML UI initialized.", "Green") end, getXmlDelay())
 
   -- add a button and context menu to the chaos token stat tracker
   local statTracker = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "StatTracker")
@@ -201,11 +202,11 @@ function onLoad(savedData)
       {
         tag = "Button",
         attributes = {
-          onClick = "Global/handleStatTrackerClick",
+          onClick  = "Global/handleStatTrackerClick",
           position = "0 0 -11",
-          width = "135",
-          height = "135",
-          color = "#00000000"
+          width    = "135",
+          height   = "135",
+          color    = "#00000000"
         }
       }
     })
@@ -224,6 +225,11 @@ end
 -- provides a random seed (from 1 to 999) to be used by "linked" objects like the action tokens
 function getRandomSeed()
   return math.random(999)
+end
+
+function getXmlDelay()
+  xmlDelay = (xmlDelay or 0) + 0.2
+  return xmlDelay
 end
 
 -- Event hook for any object search. When chaos tokens are manipulated while the chaos bag
@@ -1891,7 +1897,7 @@ function updateDownloadItemList(skipAuthorUpdate)
   if not library then return end
 
   -- addition of list items according to library file
-  local globalXml = UI.getXmlTable()
+  local globalXml = Global.UI.getXmlTable() or {}
   local contentList = getXmlTableElementById(globalXml, 'contentList')
 
   -- reset the list of authors unless skipping
@@ -2036,7 +2042,7 @@ function createActionTrackerUI()
     table.insert(actionTrackerXml.children, playerRow)
   end
 
-  local xml = UI.getXmlTable()
+  local xml = Global.UI.getXmlTable() or {}
   table.insert(xml, actionTrackerXml)
   updateGlobalXml(xml)
   Wait.frames(updateActionTrackerWidth, 3)
@@ -2435,8 +2441,7 @@ function onDropdownChange(player, selectedIndex, id)
     TokenArrangerApi.layout()
 
     if valueToStore ~= "No Odds" and not tokenArrangerWarningShown then
-      broadcastToAll(
-      "Odds calculation is unreliable when using tokens that draw other tokens (bless or curse for example).", "Yellow")
+      broadcastToAll("Odds calculation is unreliable when using tokens that draw other tokens (bless or curse for example).", "Yellow")
       tokenArrangerWarningShown = true
     end
   end
@@ -3593,7 +3598,7 @@ function TokenManager.spawnTokensFromUses(params)
   local spawnReactionToken = params.spawnReactionToken
   local matColor           = params.matColor
 
-  local uses = TokenManager.getUses(card)
+  local uses               = TokenManager.getUses(card)
   if uses == nil then return end
 
   card.resting = true
