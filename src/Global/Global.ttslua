@@ -2873,7 +2873,9 @@ function applyOptionPanelChange(id, state)
 
     -- option: Clickable clue counters
   elseif id == "useClueClickers" then
-    PlayermatApi.clickableClues(state, "All")
+    -- a bit hacky, but we're using the delay to control whether the counter is spawned / removed before or after
+    Wait.frames(function() spawnOrRemoveHelperForPlayermats("Clickable Clue Counter", state) end, state and 0 or 20)
+    Wait.frames(function() PlayermatApi.clickableClues(state, "All") end, 10)
 
     -- option: Enable card helpers
   elseif id == "enableCardHelpers" then
@@ -2952,17 +2954,20 @@ end
 ---@param owner? string Owner of the object (defaults to "Mythos")
 ---@return string|nil GUID GUID of the spawnedObj (or nil if object was removed)
 function spawnOrRemoveHelper(state, name, position, rotation, owner)
+  local spawnedGUID
   if state then
     local pingPlayer = Player.getPlayers()[1]
     if pingPlayer.color ~= "Grey" then
       pingPlayer.pingTable(position)
     end
-    local spawnedGUID = spawnHelperObject(name, position, rotation).getGUID()
-    local cleanName = name:gsub("%s+", "")
-    GUIDReferenceApi.editIndex(owner or "Mythos", cleanName, spawnedGUID)
+    spawnedGUID = spawnHelperObject(name, position, rotation).getGUID()
   else
     removeHelperObject(name)
   end
+
+  -- update the index (it's intended that 'spawnedGUID' is nil when removing the object)
+  local cleanName = name:gsub("%s+", "")
+  GUIDReferenceApi.editIndex(owner or "Mythos", cleanName, spawnedGUID)
 end
 
 -- copies the specified tool (by name) from the option panel source bag
