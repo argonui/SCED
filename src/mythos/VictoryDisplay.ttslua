@@ -1,10 +1,7 @@
-local chaosBagApi      = require("chaosbag/ChaosBagApi")
-local deckLib          = require("util/DeckLib")
-local guidReferenceApi = require("core/GUIDReferenceApi")
-local playAreaApi      = require("playarea/PlayAreaApi")
-local searchLib        = require("util/SearchLib")
-local tokenArrangerApi = require("tokens/TokenArrangerApi")
-local tokenChecker     = require("tokens/TokenChecker")
+local DeckLib          = require("util/DeckLib")
+local GUIDReferenceApi = require("core/GUIDReferenceApi")
+local PlayAreaApi      = require("playarea/PlayAreaApi")
+local SearchLib        = require("util/SearchLib")
 
 local pendingCall      = false
 local missingData      = {}
@@ -127,7 +124,7 @@ function maybeUpdate(obj, delay, flipped)
   end
 
   -- only continue if the obj in in the play area
-  if not playAreaApi.isInPlayArea(obj) then return end
+  if not PlayAreaApi.isInPlayArea(obj) then return end
 
   startUpdate(delay)
 end
@@ -158,10 +155,10 @@ function updateCount()
   countedVP              = {}
   local victoryPoints    = {}
   victoryPoints.display  = 0
-  victoryPoints.playArea = playAreaApi.countVP()
+  victoryPoints.playArea = PlayAreaApi.countVP()
 
   -- count cards in victory display
-  for _, obj in ipairs(searchLib.onObject(self, "isCardOrDeck")) do
+  for _, obj in ipairs(SearchLib.onObject(self, "isCardOrDeck")) do
     -- check metadata for VP
     if obj.type == "Card" then
       local VP = getCardVP(obj, JSON.decode(obj.getGMNotes()))
@@ -233,7 +230,7 @@ function highlightMissingData()
   self.editButton({
     index = 3,
     tooltip = (highlightMissing and "En" or "Dis") ..
-    "able highlighting of cards without metadata (VP on these is not counted)."
+        "able highlighting of cards without metadata (VP on these is not counted)."
   })
   for _, obj in pairs(missingData) do
     if obj ~= nil then
@@ -244,7 +241,7 @@ function highlightMissingData()
       end
     end
   end
-  playAreaApi.highlightMissingData(highlightMissing)
+  PlayAreaApi.highlightMissingData(highlightMissing)
   highlightMissing = not highlightMissing
 end
 
@@ -263,12 +260,12 @@ function highlightCountedVP()
       end
     end
   end
-  playAreaApi.highlightCountedVP(highlightCounted)
+  PlayAreaApi.highlightCountedVP(highlightCounted)
   highlightCounted = not highlightCounted
 end
 
 function spawnAdditionalVP()
-  local sourceBag = guidReferenceApi.getObjectByOwnerAndType("Mythos", "ObjectSourceBag")
+  local sourceBag = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "ObjectSourceBag")
   for _, objData in ipairs(sourceBag.getData().ContainedObjects) do
     if objData["Nickname"] == "Additional Victory Points" then
       placeCard(spawnObjectData({ data = objData }))
@@ -290,7 +287,7 @@ function placeCard(card)
   local emptyIndex, emptyPos
   for i, snap in ipairs(snaps) do
     local snapPos = self.positionToWorld(snap.position)
-    local searchResult = searchLib.atPosition(snapPos, "isCardOrDeck")
+    local searchResult = SearchLib.atPosition(snapPos, "isCardOrDeck")
     if #searchResult == 0 then
       emptyPos = snapPos
       emptyIndex = i
@@ -299,8 +296,8 @@ function placeCard(card)
   end
 
   -- remove tokens from the card (does not remove chaos tokens)
-  local trash = guidReferenceApi.getObjectByOwnerAndType("Mythos", "Trash")
-  for _, obj in ipairs(searchLib.onObject(card, "isTileOrToken")) do
+  local trash = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "Trash")
+  for _, obj in ipairs(SearchLib.onObject(card, "isTileOrToken")) do
     if obj.memo and not obj.getLock() and obj.interactable then
       trash.putObject(obj)
     end
@@ -309,7 +306,7 @@ function placeCard(card)
   -- use the first snap position in case all slots are full
   local pos = emptyPos or self.positionToWorld(snaps[1].position)
   local rot = card.getRotation():setAt("x", 0):setAt("y", 270)
-  deckLib.placeOrMergeIntoDeck(card, pos, rot)
+  DeckLib.placeOrMergeIntoDeck(card, pos, rot)
 
   -- give a feedback message
   if emptyPos then

@@ -1,12 +1,12 @@
 require("core/Constants")
-local deckLib                     = require("util/DeckLib")
+local DeckLib                     = require("util/DeckLib")
 local GlobalApi                   = require("Global/GlobalApi")
-local guidReferenceApi            = require("core/GUIDReferenceApi")
-local playAreaApi                 = require("playarea/PlayAreaApi")
-local playermatApi                = require("playermat/PlayermatApi")
-local searchLib                   = require("util/SearchLib")
-local tokenArrangerApi            = require("tokens/TokenArrangerApi")
-local tokenSpawnTrackerApi        = require("tokens/TokenSpawnTrackerApi")
+local GUIDReferenceApi            = require("core/GUIDReferenceApi")
+local PlayAreaApi                 = require("playarea/PlayAreaApi")
+local PlayermatApi                = require("playermat/PlayermatApi")
+local SearchLib                   = require("util/SearchLib")
+local TokenArrangerApi            = require("tokens/TokenArrangerApi")
+local TokenSpawnTrackerApi        = require("tokens/TokenSpawnTrackerApi")
 
 -- local coordinates for mythos objects
 local AGENDA_POS                  = Vector(0.056, 0.1, 0.251)
@@ -62,7 +62,7 @@ function resetScenarioData()
   useFrontData = true
   tokenData = {}
   updateSave()
-  playAreaApi.onScenarioChanged(false)
+  PlayAreaApi.onScenarioChanged(false)
 end
 
 function copyScenarioReferenceCard()
@@ -71,15 +71,15 @@ function copyScenarioReferenceCard()
     return
   end
 
-  local usedColors = playermatApi.getUsedMatColors()
+  local usedColors = PlayermatApi.getUsedMatColors()
   if #usedColors == 0 then
     broadcastToAll("No investigators placed.", "Red")
     return
   end
 
   for _, color in ipairs(usedColors) do
-    local cardPosition = playermatApi.transformLocalPosition({ -1.365, 0.1, -0.625 }, color)
-    local searchResult = searchLib.atPosition(cardPosition, "isCardOrDeck")
+    local cardPosition = PlayermatApi.transformLocalPosition({ -1.365, 0.1, -0.625 }, color)
+    local searchResult = SearchLib.atPosition(cardPosition, "isCardOrDeck")
     if #searchResult == 0 then
       scenarioCard.clone({ position = cardPosition, snap_to_grid = true })
     elseif #searchResult == 1 then
@@ -87,7 +87,7 @@ function copyScenarioReferenceCard()
       local md = JSON.decode(obj.getGMNotes()) or {}
 
       if obj.getName() == "Scenario" or md.type == "ScenarioReference" then
-        local trash = guidReferenceApi.getObjectByOwnerAndType(color, "Trash")
+        local trash = GUIDReferenceApi.getObjectByOwnerAndType(color, "Trash")
         trash.putObject(obj)
         scenarioCard.clone({ position = cardPosition, snap_to_grid = true })
       end
@@ -117,7 +117,7 @@ function onCollisionEnter(collisionInfo)
 
   if inArea(localPos, ENCOUNTER_DECK_DISCARD_AREA) then
     -- reset spawned tokens and remove tokens from cards in encounter deck / discard area
-    Wait.frames(function() tokenSpawnTrackerApi.resetTokensSpawned(object) end, 1)
+    Wait.frames(function() TokenSpawnTrackerApi.resetTokensSpawned(object) end, 1)
     GlobalApi.handleTokenDetaching(object)
     GlobalApi.removeTokensFromObject(object, "Mythos")
   elseif inArea(localPos, SCENARIO_REFERENCE_AREA) then
@@ -178,7 +178,7 @@ end
 function onObjectEnterContainer(container, object)
   local localPos = self.positionToLocal(container.getPosition())
   if inArea(localPos, ENCOUNTER_DECK_DISCARD_AREA) then
-    tokenSpawnTrackerApi.resetTokensSpawned(object)
+    TokenSpawnTrackerApi.resetTokensSpawned(object)
     GlobalApi.removeTokensFromObject(object, "Mythos")
   end
 end
@@ -189,10 +189,10 @@ function fireScenarioChangedEvent(md)
   Wait.frames(function() GlobalApi.titleSplash(currentScenario) end, 20)
 
   -- maybe temporarily disable the location connections
-  playAreaApi.onScenarioChanged(md.disableConnections)
+  PlayAreaApi.onScenarioChanged(md.disableConnections)
 
   -- maybe update the playarea image
-  local playAreaImageSelector = guidReferenceApi.getObjectByOwnerAndType("Mythos", "PlayAreaImageSelector")
+  local playAreaImageSelector = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "PlayAreaImageSelector")
   playAreaImageSelector.call("maybeUpdatePlayAreaImage", currentScenario)
 
   -- maybe change behavior of some player cards or other objects
@@ -201,9 +201,9 @@ function fireScenarioChangedEvent(md)
   end
 
   -- maybe ask the host whether to update player count
-  local usedMatColors = playermatApi.getUsedMatColors()
+  local usedMatColors = PlayermatApi.getUsedMatColors()
   local matColorCount = #usedMatColors
-  local invCount = playAreaApi.getInvestigatorCount()
+  local invCount = PlayAreaApi.getInvestigatorCount()
 
   if matColorCount > 0 and matColorCount ~= invCount then
     for _, player in ipairs(Player.getPlayers()) do
@@ -211,7 +211,7 @@ function fireScenarioChangedEvent(md)
         Wait.time(function()
           player.showConfirmDialog("Detected wrong investigator count - update it?",
             function()
-              playAreaApi.setInvestigatorCount(#usedMatColors)
+              PlayAreaApi.setInvestigatorCount(#usedMatColors)
               printToAll("Updated investigator count")
             end
           )
@@ -222,13 +222,13 @@ function fireScenarioChangedEvent(md)
   end
 
   -- reset the token spawning for locations
-  tokenSpawnTrackerApi.resetAllLocations()
+  TokenSpawnTrackerApi.resetAllLocations()
 end
 
 -- fires if the scenario title or the difficulty changes
 function fireTokenDataChangedEvent()
   local fullData = returnTokenData()
-  tokenArrangerApi.onTokenDataChanged(fullData)
+  TokenArrangerApi.onTokenDataChanged(fullData)
   updateSave()
 end
 
@@ -251,7 +251,7 @@ function getEncounterDeckObjects()
   local center               = self.positionToWorld(ENCOUNTER_DECK_DISCARD_AREA.center)
   local size                 = ENCOUNTER_DECK_DISCARD_AREA.size * self.getScale()
 
-  for _, object in ipairs(searchLib.inArea(center, self.getRotation(), size, "isCardOrDeck")) do
+  for _, object in ipairs(SearchLib.inArea(center, self.getRotation(), size, "isCardOrDeck")) do
     if self.positionToLocal(object.getPosition()).x > 1.25 then
       encounterDeckObjects.discard = object
     elseif object.type == "Card" and not object.is_face_down then
@@ -306,8 +306,8 @@ function actualEncounterCardDraw(card, params)
     faceUpRotation = 180
   end
 
-  local rot = playermatApi.returnRotation(params.matColor):setAt("z", faceUpRotation)
-  deckLib.placeOrMergeIntoDeck(card, params.position, rot)
+  local rot = PlayermatApi.returnRotation(params.matColor):setAt("z", faceUpRotation)
+  DeckLib.placeOrMergeIntoDeck(card, params.position, rot)
 end
 
 -- gets the discard pile and shuffles it into the encounter deck
@@ -337,7 +337,7 @@ function reshuffleEncounterDeck(disablePrint)
     end
 
     Wait.time(function()
-      deckLib.placeOrMergeIntoDeck(objects.discard, getEncounterDeckPosition(), faceDownRotation, nil, true)
+      DeckLib.placeOrMergeIntoDeck(objects.discard, getEncounterDeckPosition(), faceDownRotation, nil, true)
     end, delay)
 
     if not disablePrint then
