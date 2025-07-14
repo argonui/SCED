@@ -54,7 +54,7 @@ function processContainedObjects(containedObjects, customDeck)
       -- recursively process nested containers
       processContainedObjects(objData.ContainedObjects, objData.CustomDeck)
     elseif objData.Name == "Card" or objData.Name == "CardCustom" then
-      if customDeck and objData.CustomDeck then
+      if customDeck then
         -- we might need to fix the "CustomDeck" entry for cards inside decks since TTS doesn't update it while they are in bags
         local wantedCustomDeckIdStr = tostring(objData.CardID):sub(1, -3)
         local presentCustomDeckIdNum = next(objData.CustomDeck)
@@ -74,7 +74,7 @@ function processContainedObjects(containedObjects, customDeck)
       end
       addCardToIndex(objData)
       itemCount = itemCount + 1
-    elseif objData.Name == "Custom_PDF" or objData.Name == "Custom_Tile" or objData.Name == "Custom_Board" or objData.Name == "Custom_Token" then
+    elseif objData.GMNotes and objData.GMNotes ~= "" then
       addObjectToIndex(objData)
       itemCount = itemCount + 1
     end
@@ -117,7 +117,6 @@ function addObjectToIndex(objectData)
   end
 
   if objectMetadata then
-    objectMetadata.id = objectMetadata.id
     objectIdIndex[objectMetadata.id] = { data = objectData, metadata = objectMetadata }
   end
   indexCount = indexCount + 1
@@ -125,7 +124,7 @@ end
 
 function parseObjectMetadata(objectData)
   -- using the more efficient 'json.parse()' to speed this process up
-  status, objectMetadata = pcall(function() return json.parse(objectData.GMNotes) end)
+  local status, objectMetadata = pcall(function() return json.parse(objectData.GMNotes) end)
 
   -- if an error happens, fallback to the regular parser
   if status ~= true or objectMetadata == nil then
@@ -176,12 +175,12 @@ function onObjectSpawn(obj)
   if indexCount == 0 then return end
   if obj.hasTag("Replaced") then return end
 
-  if obj.type == "Card" or obj.type == "Tile" or obj.type == "Board" or obj.type == "Token" then
-    handleSpawnedItem(obj)
-  elseif obj.type == "Deck" then
+  if obj.type == "Deck" then
     handleSpawnedDeck(obj)
   elseif obj.type == "Bag" then
     handleSpawnedBag(obj)
+  else
+    handleSpawnedItem(obj)
   end
 end
 
@@ -217,8 +216,10 @@ function handleSpawnedItem(item)
   if not md.id then return end
 
   -- check if it's in the index
-  local itemData = getCardById({ id = md.id })
-  if itemData == nil then
+  local itemData
+  if item.type == "Card" then
+    itemData = getCardById({ id = md.id })
+  else
     itemData = getObjectById({ id = md.id })
   end
   if itemData == nil then return end
@@ -231,7 +232,16 @@ function handleSpawnedItem(item)
         local rot = item.getRotation()
         local itemList = { { data = objData, metadata = md } }
         item.destruct()
-        Spawner.spawnCards(itemList, pos, rot, false)
+        if item.type == "Card" then
+          Spawner.spawnCards(itemList, pos, rot, false)
+        else
+          spawnObjectData({
+            data = objData,
+            position = pos,
+            rotation = rot,
+            callback_function = nil
+          })
+        end
       end
     end
   end, 1)
