@@ -1796,6 +1796,9 @@ function stopFadeOutXml()
 end
 
 function fadeOutXml(id, owner, time)
+  -- A list of all UI attributes that will be looked for and modified
+  local FADEABLE_COLOR_ATTRIBUTES = { "color", "textColor", "outlineColor", "imageColor" }
+
   local targetUi = UI
   if owner then
     targetUi = owner.UI
@@ -1805,32 +1808,34 @@ function fadeOutXml(id, owner, time)
   if not xmlElement then return end
   local elementsToFade = getAllChildElements(xmlElement)
 
-  -- Store the initial state of each element
+  -- Store the initial state of each element. The key is the element ID.
   local initialStates = {}
   for _, element in ipairs(elementsToFade) do
     if element.attributes and element.attributes.id then
-      local el_id = element.attributes.id
-      local colorStr = targetUi.getAttribute(el_id, "color")
-      local property = "color"
-      if colorStr == nil then
-        colorStr = targetUi.getAttribute(el_id, "textColor")
-        property = "textColor"
-      end
+      local elementId = element.attributes.id
 
-      if colorStr then
-        local initialColor
-        if colorStr:sub(1, 1) == "#" then
-          initialColor = ColorLib.hexToColor(colorStr)
-        else
-          initialColor = Color.fromString(colorStr)
-        end
+      -- Loop through the list of possible color attributes
+      for _, property in ipairs(FADEABLE_COLOR_ATTRIBUTES) do
+        local colorStr = targetUi.getAttribute(elementId, property)
+        if colorStr then
+          -- A color attribute was found, so parse it
+          local initialColor
+          if colorStr:sub(1, 1) == "#" then
+            initialColor = ColorLib.hexToColor(colorStr)
+          else
+            initialColor = Color.fromString(colorStr)
+          end
 
-        if initialColor then
-          table.insert(initialStates, {
-            id       = el_id,
-            property = property,
-            color    = initialColor
-          })
+          if initialColor then
+            -- Create an entry for this ID if it doesn't exist yet
+            initialStates[elementId] = initialStates[elementId] or {}
+
+            -- Add this found color property to the element's list
+            table.insert(initialStates[elementId], {
+              property = property,
+              color    = initialColor
+            })
+          end
         end
       end
     end
@@ -1842,10 +1847,14 @@ function fadeOutXml(id, owner, time)
     while timeElapsed < time do
       local currentAlpha = 1 - timeElapsed / time
 
-      for _, state in ipairs(initialStates) do
-        local newColor = state.color:copy()
-        newColor:setAt("a", newColor.a * currentAlpha)
-        targetUi.setAttribute(state.id, state.property, ColorLib.colorToHex(newColor))
+      -- Loop through the IDs in our state table
+      for elementId, properties in pairs(initialStates) do
+        -- Loop through each color property found for that ID
+        for _, state in ipairs(properties) do
+          local newColor = state.color:copy()
+          newColor:setAt("a", newColor.a * currentAlpha)
+          targetUi.setAttribute(elementId, state.property, ColorLib.colorToHex(newColor))
+        end
       end
 
       CoroutineLib.yieldSeconds(timeStep)
@@ -1859,12 +1868,13 @@ function fadeOutXml(id, owner, time)
     end
 
     targetUi.setAttribute(id, "active", false)
-
     CoroutineLib.yieldFrames()
 
-    -- restore original colors
-    for _, state in ipairs(initialStates) do
-      targetUi.setAttribute(state.id, state.property, ColorLib.colorToHex(state.color))
+    -- Restore original colors
+    for elementId, properties in pairs(initialStates) do
+      for _, state in ipairs(properties) do
+        targetUi.setAttribute(elementId, state.property, ColorLib.colorToHex(state.color))
+      end
     end
   end
 
@@ -2542,7 +2552,7 @@ function onDropdownChange(player, selectedIndex, id)
 
     if valueToStore ~= "No Odds" and not tokenArrangerWarningShown then
       broadcastToAll(
-      "Odds calculation is unreliable when using tokens that draw other tokens (bless or curse for example).", "Yellow")
+        "Odds calculation is unreliable when using tokens that draw other tokens (bless or curse for example).", "Yellow")
       tokenArrangerWarningShown = true
     end
   end
