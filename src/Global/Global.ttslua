@@ -1791,20 +1791,28 @@ function changeWindowVisibilityForColor(color, windowId, overrideState, owner)
   return visible
 end
 
+-- stops the currently ongoing fadeout
 function stopFadeOutXml()
   stopFadeOut = true
 end
 
-function fadeOutXml(id, owner, time)
+-- toggles the visibility of the specific window for the specified color
+---@param params table Table with the following parameters:
+--- id string ID of the XML element
+--- owner? tts__Object Object that owns the XML (or nil if Global)
+--- time? number Time in seconds for the fade-out (defaults to 2)
+function fadeOutXml(params)
+  stopFadeOut = nil
+
   -- A list of all UI attributes that will be looked for and modified
   local FADEABLE_COLOR_ATTRIBUTES = { "color", "colors", "textColor", "outline" }
 
   local targetUi = UI
-  if owner then
-    targetUi = owner.UI
+  if params.owner then
+    targetUi = params.owner.UI
   end
 
-  local xmlElement = getXmlTableElementById(targetUi.getXmlTable(), id)
+  local xmlElement = getXmlTableElementById(targetUi.getXmlTable(), params.id)
   if not xmlElement then return end
   local elementsToFade = getAllChildElements(xmlElement)
 
@@ -1851,6 +1859,7 @@ function fadeOutXml(id, owner, time)
   end
 
   function co_fadeOutXml()
+    local time = params.time or 2
     local timeStep = 0.05
     local timeElapsed = 0
     while timeElapsed < time do
@@ -1876,7 +1885,7 @@ function fadeOutXml(id, owner, time)
       end
     end
 
-    targetUi.setAttribute(id, "active", false)
+    targetUi.setAttribute(params.id, "active", false)
     CoroutineLib.yieldFrames()
 
     -- Restore original colors
