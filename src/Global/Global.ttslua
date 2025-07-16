@@ -194,9 +194,6 @@ function onLoad(savedData)
   Wait.time(i18n.updateGlobalUiLanguage, getXmlDelay())
   Wait.time(initializeLibrary, getXmlDelay())                 -- also simulates a click on the first item after 0.1s
   Wait.time(function() printToAll("XML UI initialized.", "Green") end, getXmlDelay())
-  
-  -- TODO: remove this
-  Wait.time(function() fadeOutXml("BB_navbar2", nil, 1) end, getXmlDelay() + 2)
 
   -- add a button and context menu to the chaos token stat tracker
   local statTracker = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "StatTracker")
@@ -1793,47 +1790,105 @@ function changeWindowVisibilityForColor(color, windowId, overrideState, owner)
   return visible
 end
 
--- TODO: remove this
-function onChat()
-  fadeOutXml("BB_navbar2", nil, 1)
-end
-
 function fadeOutXml(id, owner, time)
   local targetUi = UI
   if owner then
     targetUi = owner.UI
   end
 
-  local active = targetUi.getAttribute(id, "active")
-  if active == false then return end
-
-  -- Find the specific element we want to start the fade from
   local xmlElement = getXmlTableElementById(targetUi.getXmlTable(), id)
-
-  if not xmlElement then
-    log("fadeOutXml: Could not find element with id: " .. id)
-    return
-  end
-
-  -- Get a list of the target element and all its children
+  if not xmlElement then return end
   local elementsToFade = getAllChildElements(xmlElement)
 
+  -- Store the initial state of each element
+  local initialStates = {}
   for _, element in ipairs(elementsToFade) do
     if element.attributes and element.attributes.id then
-      log("Found element to fade: " .. element.attributes.id)
-    else
-      log("Found unnamed element to fade: " .. element.tag)
+      local el_id = element.attributes.id
+      local colorStr = targetUi.getAttribute(el_id, "color")
+      local property = "color"
+      if colorStr == nil then
+        colorStr = targetUi.getAttribute(el_id, "textColor")
+        property = "textColor"
+      end
+
+      if colorStr then
+        local initialColor
+        if colorStr:sub(1, 1) == "#" then
+          initialColor = hexToColor(colorStr)
+        else
+          initialColor = Color.fromString(colorStr)
+        end
+
+        if initialColor then
+          table.insert(initialStates, {
+            id       = el_id,
+            property = property,
+            color    = initialColor
+          })
+        end
+      end
     end
   end
 
-  -- get the current color / textColor
+  function co_fadeOutXml()
+    local timeStep = 0.05
+    local timeElapsed = 0
+    while timeElapsed < time do
+      local currentAlpha = 1 - timeElapsed / time
 
-  -- adjust the alpha channel
+      for _, state in ipairs(initialStates) do
+        local newColor = state.color:copy()
+        newColor:setAt("a", newColor.a * currentAlpha)
+        targetUi.setAttribute(state.id, state.property, colorToHex(newColor))
+      end
 
-  -- set the new color
+      CoroutineLib.yieldSeconds(timeStep)
+      timeElapsed = timeElapsed + timeStep
+    end
 
-  -- repeat this part until time has passed
+    --targetUi.setAttribute(id, "active", false)
+    log("Done")
+  end
 
+  CoroutineLib.start(co_fadeOutXml)
+end
+
+function colorToHex(c)
+  local r = math.floor(c.r * 255 + 0.5)
+  local g = math.floor(c.g * 255 + 0.5)
+  local b = math.floor(c.b * 255 + 0.5)
+  local a = math.floor(c.a * 255 + 0.5)
+  return string.format("#%02X%02X%02X%02X", r, g, b, a)
+end
+
+--- Converts a hex color string to a TTS Color table.
+---@param hex string The hex color string (e.g., "#RRGGBB" or "#RRGGBBAA").
+---@return tts__Color: A Color table {r, g, b, a} with values from 0-1, or nil if invalid.
+function hexToColor(hex)
+  -- Return nil if input is not a string
+  if type(hex) ~= "string" then return nil end
+
+  -- Remove '#' from the beginning of the string
+  local hexStr = hex:gsub("#", "")
+
+  -- Default to full alpha (FF) if not provided (i.e., a 6-digit hex)
+  if #hexStr == 6 then
+    hexStr = hexStr .. "FF"
+  end
+
+  -- If the string isn't 8 characters now, it's invalid
+  if #hexStr ~= 8 then
+    return nil
+  end
+
+  -- Convert hex pairs to decimal (0-255) and normalize to 0-1
+  local r = tonumber(hexStr:sub(1, 2), 16) / 255
+  local g = tonumber(hexStr:sub(3, 4), 16) / 255
+  local b = tonumber(hexStr:sub(5, 6), 16) / 255
+  local a = tonumber(hexStr:sub(7, 8), 16) / 255
+
+  return Color({ r = r, g = g, b = b, a = a })
 end
 
 -- Recursively collects an element and all its children into a flat list
