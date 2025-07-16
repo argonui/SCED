@@ -4,6 +4,7 @@ require("core/Constants")
 require("Global/i18n")
 require("Global/i18nData")
 local BlessCurseManagerApi        = require("chaosbag/BlessCurseManagerApi")
+local ColorLib                    = require("util/ColorLib")
 local CoroutineLib                = require("util/CoroutineLib")
 local GUIDReferenceApi            = require("core/GUIDReferenceApi")
 local MathLib                     = require("util/MathLib")
@@ -1819,7 +1820,7 @@ function fadeOutXml(id, owner, time)
       if colorStr then
         local initialColor
         if colorStr:sub(1, 1) == "#" then
-          initialColor = hexToColor(colorStr)
+          initialColor = ColorLib.hexToColor(colorStr)
         else
           initialColor = Color.fromString(colorStr)
         end
@@ -1844,7 +1845,7 @@ function fadeOutXml(id, owner, time)
       for _, state in ipairs(initialStates) do
         local newColor = state.color:copy()
         newColor:setAt("a", newColor.a * currentAlpha)
-        targetUi.setAttribute(state.id, state.property, colorToHex(newColor))
+        targetUi.setAttribute(state.id, state.property, ColorLib.colorToHex(newColor))
       end
 
       CoroutineLib.yieldSeconds(timeStep)
@@ -1863,46 +1864,11 @@ function fadeOutXml(id, owner, time)
 
     -- restore original colors
     for _, state in ipairs(initialStates) do
-      targetUi.setAttribute(state.id, state.property, colorToHex(state.color))
+      targetUi.setAttribute(state.id, state.property, ColorLib.colorToHex(state.color))
     end
   end
 
   CoroutineLib.start(co_fadeOutXml)
-end
-
-function colorToHex(c)
-  local r = math.floor(c.r * 255 + 0.5)
-  local g = math.floor(c.g * 255 + 0.5)
-  local b = math.floor(c.b * 255 + 0.5)
-  local a = math.floor(c.a * 255 + 0.5)
-  return string.format("#%02X%02X%02X%02X", r, g, b, a)
-end
-
---- Converts a hex color string to a TTS Color table.
----@param hex string The hex color string (e.g., "#RRGGBB" or "#RRGGBBAA").
----@return tts__Color: A Color table {r, g, b, a} with values from 0-1, or nil if invalid.
-function hexToColor(hex)
-  -- Return nil if input is not a string
-  if type(hex) ~= "string" then return nil end
-
-  -- Remove '#' from the beginning of the string
-  local hexStr = hex:gsub("#", "")
-
-  -- Default to full alpha (FF) if not provided (i.e., a 6-digit hex)
-  if #hexStr == 6 then
-    hexStr = hexStr .. "FF"
-  end
-
-  -- If the string isn't 8 characters now, it's invalid
-  if #hexStr ~= 8 then return nil end
-
-  -- Convert hex pairs to decimal (0-255) and normalize to 0-1
-  local r = tonumber(hexStr:sub(1, 2), 16) / 255
-  local g = tonumber(hexStr:sub(3, 4), 16) / 255
-  local b = tonumber(hexStr:sub(5, 6), 16) / 255
-  local a = tonumber(hexStr:sub(7, 8), 16) / 255
-
-  return Color({ r = r, g = g, b = b, a = a })
 end
 
 -- Recursively collects an element and all its children into a flat list
@@ -2982,7 +2948,7 @@ function updateOptionPanelState()
     elseif DROPDOWN_DATA[id] and type(optionValue) == "string" then
       UI.setAttribute(id, "value", getDropdownOptionIndex(id, optionValue) - 1)
     elseif id == "playAreaConnectionColor" then
-      UI.setAttribute(id, "color", "#" .. Color.new(optionValue):toHex())
+      UI.setAttribute(id, "color", ColorLib.colorToHex(Color(optionValue)))
     elseif (type(optionValue) == "boolean" and optionValue)
         or (type(optionValue) == "string" and optionValue)
         or (type(optionValue) == "table" and #optionValue ~= 0) then
@@ -3037,7 +3003,7 @@ function applyOptionPanelChange(id, state)
     -- option: Play area connection color
   elseif id == "playAreaConnectionColor" then
     PlayAreaApi.setConnectionColor(state)
-    UI.setAttribute(id, "color", "#" .. Color.new(state):toHex())
+    UI.setAttribute(id, "color", ColorLib.colorToHex(Color(state)))
 
     -- option: Play area snap tags
   elseif id == "playAreaSnapTags" then
