@@ -1797,7 +1797,7 @@ end
 
 function fadeOutXml(id, owner, time)
   -- A list of all UI attributes that will be looked for and modified
-  local FADEABLE_COLOR_ATTRIBUTES = { "color", "textColor", "outlineColor", "imageColor" }
+  local FADEABLE_COLOR_ATTRIBUTES = { "color", "colors", "textColor", "outline" }
 
   local targetUi = UI
   if owner then
@@ -1816,24 +1816,33 @@ function fadeOutXml(id, owner, time)
 
       -- Loop through the list of possible color attributes
       for _, property in ipairs(FADEABLE_COLOR_ATTRIBUTES) do
-        local colorStr = targetUi.getAttribute(elementId, property)
-        if colorStr then
-          -- A color attribute was found, so parse it
+        local originalColorStr = targetUi.getAttribute(elementId, property)
+        if originalColorStr then
+          local colorToParse = originalColorStr
+          local colorSuffix = nil
+
+          -- Check for the "|" separator
+          local splitIndex = originalColorStr:find("|")
+          if splitIndex then
+            colorToParse = originalColorStr:sub(1, splitIndex - 1)
+            colorSuffix = originalColorStr:sub(splitIndex)
+          end
+
+          -- A color attribute was found, so parse the first part
           local initialColor
-          if colorStr:sub(1, 1) == "#" then
-            initialColor = ColorLib.hexToColor(colorStr)
+          if colorToParse:sub(1, 1) == "#" then
+            initialColor = ColorLib.hexToColor(colorToParse)
           else
-            initialColor = Color.fromString(colorStr)
+            initialColor = Color.fromString(colorToParse)
           end
 
           if initialColor then
-            -- Create an entry for this ID if it doesn't exist yet
             initialStates[elementId] = initialStates[elementId] or {}
 
-            -- Add this found color property to the element's list
             table.insert(initialStates[elementId], {
               property = property,
-              color    = initialColor
+              color    = initialColor,
+              suffix   = colorSuffix -- Store the suffix (will be nil if none)
             })
           end
         end
