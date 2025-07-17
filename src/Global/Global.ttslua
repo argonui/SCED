@@ -182,6 +182,9 @@ function onLoad(savedData)
     onObjectSpawn(obj)
   end
 
+  -- potentially remove the tour if the player's preset contains that option
+  maybeRemoveTourStarter()
+
   getModVersion()
   updateHandVisibility()
   TokenManager.initialize()
@@ -3057,9 +3060,33 @@ function applyOptionPanelChange(id, state)
   elseif id == "showDisplacementTool" then
     spawnOrRemoveHelper(state, "Displacement Tool", { -68, 1.53, 57 })
 
+    -- shortcut: Remove the tour
+  elseif id == "skipTour" then
+    if state then removeTourStarter() end
+
     -- this will only be called by the "loadOptionPanelState" function
   elseif id == "tableSetup" then
     updateTableSetup(state, nil)
+  end
+end
+
+function removeTourStarter()
+  local tourStarter = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "TourStarter")
+  if tourStarter then
+    tourStarter.destruct()
+  end
+end
+
+function maybeRemoveTourStarter()
+  for _, player in ipairs(Player.getPlayers()) do
+    if player.host then
+      local steamName = string.gsub(player.steam_name, "%s+", "")
+      local options = OPTION_PRESETS[steamName]
+      if options and options.skipTour then
+        removeTourStarter()
+      end
+      return
+    end
   end
 end
 
