@@ -2,6 +2,7 @@ require("core/Constants")
 local AllCardsBagApi              = require("playercards/AllCardsBagApi")
 local ChaosBagApi                 = require("chaosbag/ChaosBagApi")
 local ColorLib                    = require("util/ColorLib")
+local CoroutineLib                = require("util/CoroutineLib")
 local DeckLib                     = require("util/DeckLib")
 local GlobalApi                   = require("Global/GlobalApi")
 local GUIDReferenceApi            = require("core/GUIDReferenceApi")
@@ -553,7 +554,7 @@ function drawCardsWithReshuffle(numCards)
 
     if harbinger then
       printToColor("The Harbinger is on top of your deck, not drawing cards", messageColor)
-      return 1
+      return
     end
 
     -- draw the top card if possible
@@ -564,7 +565,7 @@ function drawCardsWithReshuffle(numCards)
       numCards = numCards - 1
       if numCards == 0 then
         flipTopCardFromDeck()
-        return 1
+        return
       end
     end
 
@@ -582,15 +583,15 @@ function drawCardsWithReshuffle(numCards)
       if topCardDetected then
         flipTopCardFromDeck()
       end
-      return 1
+      return
     end
 
     -- draw the full deck, form a new deck and draw the remaining cards
     drawCards(deckAreaObjects.draw, deckSize)
     if deckAreaObjects.discard ~= nil then
-      coWaitFrames(deckSize * 2)
+      CoroutineLib.yieldFrames(deckSize * 2)
       shuffleDiscardIntoDeck()
-      coWaitSeconds(1)
+      CoroutineLib.yieldSeconds(1)
 
       local shuffledObjects = getDeckAreaObjects()
       drawCards(shuffledObjects.draw, numCards - deckSize)
@@ -599,10 +600,9 @@ function drawCardsWithReshuffle(numCards)
       end
       printToColor("Take 1 horror (drawing card from empty deck)", messageColor)
     end
-    return 1
   end
 
-  startLuaCoroutine(self, "drawCardsCoroutine")
+  CoroutineLib.start(drawCardsCoroutine)
 end
 
 function isHarbinger(notes)
@@ -2029,18 +2029,3 @@ end
 function getActiveInvestigatorData() return activeInvestigatorData end
 
 function setActiveInvestigatorData(newData) activeInvestigatorData = newData end
-
--- pauses the current coroutine for 'frameCount' frames
-function coWaitFrames(frameCount)
-  for k = 1, frameCount do
-    coroutine.yield(0)
-  end
-end
-
--- pauses the current coroutine for 'seconds' seconds
-function coWaitSeconds(seconds)
-  local startTime = os.clock()
-  while os.clock() - startTime < seconds do
-    coroutine.yield(0)
-  end
-end
