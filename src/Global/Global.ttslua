@@ -4,6 +4,7 @@ require("core/Constants")
 require("Global/i18n")
 require("Global/i18nData")
 local BlessCurseManagerApi        = require("chaosbag/BlessCurseManagerApi")
+local ColorLib                    = require("util/ColorLib")
 local CoroutineLib                = require("util/CoroutineLib")
 local GUIDReferenceApi            = require("core/GUIDReferenceApi")
 local MathLib                     = require("util/MathLib")
@@ -1790,6 +1791,114 @@ function changeWindowVisibilityForColor(color, windowId, overrideState, owner)
   return visible
 end
 
+-- Stops the currently ongoing fadeout
+function stopFadeOutXml()
+  stopFadeOut = true
+end
+
+-- Fades out an XML element and its children
+---@param params table Table with the following parameters:
+--- id string ID of the XML element
+--- owner? tts__Object Object that owns the XML (or nil if Global)
+--- time? number Time in seconds for the fade-out (defaults to 2)
+function fadeOutXml(params)
+  stopFadeOut = nil
+
+  -- A list of all UI attributes that will be looked for and modified
+  local FADEABLE_COLOR_ATTRIBUTES = { "color", "colors", "textColor", "outline" }
+
+  local targetUi = UI
+  if params.owner then
+    targetUi = params.owner.UI
+  end
+
+  local xmlElement = getXmlTableElementById(targetUi.getXmlTable(), params.id)
+  if not xmlElement then return end
+  local elementsToFade = getAllChildElements(xmlElement)
+
+  -- Store the initial state of each element. The key is the element ID.
+  local initialStates = {}
+  for _, element in ipairs(elementsToFade) do
+    if element.attributes and element.attributes.id then
+      local elementId = element.attributes.id
+
+      -- Loop through the list of possible color attributes
+      for _, property in ipairs(FADEABLE_COLOR_ATTRIBUTES) do
+        local originalColorStr = targetUi.getAttribute(elementId, property)
+        if originalColorStr then
+          local colorToParse = originalColorStr
+          local colorSuffix = nil
+
+          -- Check for the "|" separator
+          local splitIndex = originalColorStr:find("|")
+          if splitIndex then
+            colorToParse = originalColorStr:sub(1, splitIndex - 1)
+            colorSuffix = originalColorStr:sub(splitIndex)
+          end
+
+          -- A color attribute was found, so parse the first part
+          local initialColor
+          if colorToParse:sub(1, 1) == "#" then
+            initialColor = ColorLib.hexToColor(colorToParse)
+          else
+            initialColor = Color.fromString(colorToParse)
+          end
+
+          if initialColor then
+            initialStates[elementId] = initialStates[elementId] or {}
+
+            table.insert(initialStates[elementId], {
+              property = property,
+              color    = initialColor,
+              suffix   = colorSuffix -- Store the suffix (will be nil if none)
+            })
+          end
+        end
+      end
+    end
+  end
+
+  function co_fadeOutXml()
+    local time = params.time or 2
+    local timeStep = 0.05
+    local timeElapsed = 0
+    while timeElapsed < time do
+      local currentAlpha = 1 - timeElapsed / time
+
+      -- Loop through the IDs in our state table
+      for elementId, properties in pairs(initialStates) do
+        -- Loop through each color property found for that ID
+        for _, state in ipairs(properties) do
+          local newColor = state.color:copy()
+          newColor:setAt("a", newColor.a * currentAlpha)
+          targetUi.setAttribute(elementId, state.property, ColorLib.colorToHex(newColor))
+        end
+      end
+
+      CoroutineLib.yieldSeconds(timeStep)
+      timeElapsed = timeElapsed + timeStep
+
+      -- early exit
+      if stopFadeOut then
+        timeElapsed = time
+        stopFadeOut = nil
+      end
+    end
+
+    targetUi.setAttribute(params.id, "active", false)
+    CoroutineLib.yieldFrames()
+
+    -- Restore original colors
+    for elementId, properties in pairs(initialStates) do
+      for _, state in ipairs(properties) do
+        targetUi.setAttribute(elementId, state.property, ColorLib.colorToHex(state.color))
+      end
+    end
+  end
+
+  CoroutineLib.start(co_fadeOutXml)
+end
+
 -- updates the preview window
 function updatePreviewWindow()
   local item = library[contentToShow][currentListItem]
@@ -2384,6 +2493,25 @@ function getXmlTableElementById(ui, id)
   return nil
 end
 
+-- Recursively collects an element and all its children into a flat list
+---@param xmlElement table The starting XML element table
+---@param elementList? table An optional table to add elements to
+---@return table: A flat list of the element and all its children
+function getAllChildElements(xmlElement, elementList)
+  elementList = elementList or {}
+  if xmlElement == nil then return elementList end
+
+  table.insert(elementList, xmlElement)
+
+  if xmlElement.children then
+    for _, child in ipairs(xmlElement.children) do
+      getAllChildElements(child, elementList)
+    end
+  end
+
+  return elementList
+end
+
 ---------------------------------------------------------
 -- Option Panel related functionality
 ---------------------------------------------------------
@@ -2441,7 +2569,8 @@ function onDropdownChange(player, selectedIndex, id)
     TokenArrangerApi.layout()
 
     if valueToStore ~= "No Odds" and not tokenArrangerWarningShown then
-      broadcastToAll("Odds calculation is unreliable when using tokens that draw other tokens (bless or curse for example).", "Yellow")
+      broadcastToAll(
+        "Odds calculation is unreliable when using tokens that draw other tokens (bless or curse for example).", "Yellow")
       tokenArrangerWarningShown = true
     end
   end
@@ -2847,7 +2976,7 @@ function updateOptionPanelState()
     elseif DROPDOWN_DATA[id] and type(optionValue) == "string" then
       UI.setAttribute(id, "value", getDropdownOptionIndex(id, optionValue) - 1)
     elseif id == "playAreaConnectionColor" then
-      UI.setAttribute(id, "color", "#" .. Color.new(optionValue):toHex())
+      UI.setAttribute(id, "color", ColorLib.colorToHex(Color(optionValue)))
     elseif (type(optionValue) == "boolean" and optionValue)
         or (type(optionValue) == "string" and optionValue)
         or (type(optionValue) == "table" and #optionValue ~= 0) then
@@ -2902,7 +3031,7 @@ function applyOptionPanelChange(id, state)
     -- option: Play area connection color
   elseif id == "playAreaConnectionColor" then
     PlayAreaApi.setConnectionColor(state)
-    UI.setAttribute(id, "color", "#" .. Color.new(state):toHex())
+    UI.setAttribute(id, "color", ColorLib.colorToHex(Color(state)))
 
     -- option: Play area snap tags
   elseif id == "playAreaSnapTags" then
