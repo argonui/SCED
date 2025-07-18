@@ -175,12 +175,14 @@ function onObjectSpawn(obj)
   if indexCount == 0 then return end
   if obj.hasTag("Replaced") then return end
 
-  if obj.type == "Deck" then
+  if obj.type == "Card" then
+    handleSpawnedCard(obj)
+  elseif obj.type == "Deck" then
     handleSpawnedDeck(obj)
   elseif obj.type == "Bag" then
     handleSpawnedBag(obj)
   else
-    handleSpawnedItem(obj)
+    handleSpawnedObject(obj)
   end
 end
 
@@ -210,38 +212,51 @@ function handleSpawnedDeck(deck)
   end, 1)
 end
 
-function handleSpawnedItem(item)
-  -- check if the item has metadata
-  local md = JSON.decode(item.getGMNotes()) or {}
+function handleSpawnedCard(card)
+  -- check if the card has metadata
+  local md = JSON.decode(card.getGMNotes()) or {}
   if not md.id then return end
 
   -- check if it's in the index
-  local itemData
-  if item.type == "Card" then
-    itemData = getCardById({ id = md.id })
-  else
-    itemData = getObjectById({ id = md.id })
-  end
-  if itemData == nil then return end
+  local cardData = getCardById({ id = md.id })
+  if cardData == nil then return end
 
     Wait.time(function()
-    if item ~= nil then
-      local objData = item.getData()
-      if updateOriginalItemData(objData, itemData.data) then
-        local pos = item.getPosition()
-        local rot = item.getRotation()
-        local itemList = { { data = objData, metadata = md } }
-        item.destruct()
-        if item.type == "Card" then
-          Spawner.spawnCards(itemList, pos, rot, false)
-        else
-          spawnObjectData({
-            data = objData,
-            position = pos,
-            rotation = rot,
-            callback_function = nil
-          })
-        end
+    if card ~= nil then
+      local objData = card.getData()
+      if updateOriginalItemData(objData, cardData.data) then
+        local pos = card.getPosition()
+        local rot = card.getRotation()
+        local cardList = { { data = objData, metadata = md } }
+        card.destruct()
+        Spawner.spawnCards(cardList, pos, rot, false)
+      end
+    end
+  end, 1)
+end
+
+function handleSpawnedObject(object)
+  -- check if the object has metadata
+  local md = JSON.decode(object.getGMNotes()) or {}
+  if not md.id then return end
+
+  -- check if it's in the index
+  local objectData = getObjectById({ id = md.id })
+  if objectData == nil then return end
+
+  Wait.time(function()
+    if object ~= nil then
+      local objData = object.getData()
+      if updateOriginalItemData(objData, objectData.data) then
+        local pos = object.getPosition()
+        local rot = object.getRotation()
+        object.destruct()
+        spawnObjectData({
+          data = objData,
+          position = pos,
+          rotation = rot,
+          callback_function = nil
+        })
       end
     end
   end, 1)
@@ -321,16 +336,39 @@ function updateOriginalItemData(originalData, replaceData)
     if tag == "Replaced" then return false end
   end
 
-  originalData["CardID"]       = replaceData["CardID"]
-  originalData["CustomDeck"]   = replaceData["CustomDeck"]
-  originalData["Name"]         = replaceData["Name"]
-  originalData["Nickname"]     = replaceData["Nickname"] or originalData["Nickname"]
-  originalData["Description"]  = replaceData["Description"] or originalData["Description"]
-  originalData["CustomPDF"]    = replaceData["CustomPDF"] or originalData["CustomPDF"]
-  originalData["CustomImage"]  = replaceData["CustomImage"] or originalData["CustomImage"]
-  originalData["LuaScript"]    = replaceData["LuaScript"] or originalData["LuaScript"]
+  if replaceData["CardID"] and replaceData["CardID"] ~= "" then
+    originalData["CardID"] = replaceData["CardID"]
+  end
 
-  originalData["Tags"]         = originalData["Tags"] or replaceData["Tags"] or {}
+  if replaceData["CustomDeck"] and replaceData["CustomDeck"] ~= "" then
+    originalData["CustomDeck"] = replaceData["CustomDeck"]
+  end
+
+  if replaceData["Name"] and replaceData["Name"] ~= "" then
+    originalData["Name"] = replaceData["Name"]
+  end
+
+  if replaceData["Nickname"] and replaceData["Nickname"] ~= "" then
+    originalData["Nickname"] = replaceData["Nickname"]
+  end
+
+  if replaceData["Description"] and replaceData["Description"] ~= "" then
+    originalData["Description"] = replaceData["Description"]
+  end
+
+  if replaceData["CustomPDF"] and replaceData["CustomPDF"] ~= "" then
+    originalData["CustomPDF"] = replaceData["CustomPDF"]
+  end
+
+  if replaceData["CustomImage"] and replaceData["CustomImage"] ~= "" then
+    originalData["CustomImage"] = replaceData["CustomImage"]
+  end
+
+  if replaceData["LuaScript"] and replaceData["LuaScript"] ~= "" then
+    originalData["LuaScript"] = replaceData["LuaScript"]
+  end
+
+  originalData["Tags"] = originalData["Tags"] or replaceData["Tags"] or {}
   table.insert(originalData["Tags"], "Replaced")
 
   processCard(originalData)
