@@ -1,10 +1,22 @@
 require("core/Constants")
 require("playercards/PlayerCardSpawner")
-local CoroutineLib = require("util/CoroutineLib")
+local CoroutineLib       = require("util/CoroutineLib")
 
-local cardIdIndex  = {}
-local objectIdIndex = {}
-local indexingDone = false
+local cardIdIndex        = {}
+local objectIdIndex      = {}
+local indexingDone       = false
+
+local REPLACEMENT_FIELDS = {
+  "CardID",
+  "CustomDeck",
+  "Name",
+  "Nickname",
+  "Description",
+  "CustomPDF",
+  "CustomImage",
+  "LuaScript",
+  "LuaScriptState"
+}
 
 function onLoad()
   self.addContextMenuItem("Rebuild Index", rebuildIndex)
@@ -19,15 +31,14 @@ function rebuildIndex()
 end
 
 function startIndexBuild()
-  indexingDone = false
-  cardIdIndex  = {}
+  indexingDone  = false
+  cardIdIndex   = {}
   objectIdIndex = {}
   CoroutineLib.start(buildIndex)
 end
 
 function buildIndex()
   itemCount = 0
-  indexCount = 0
 
   -- index contents
   local selfData = self.getData()
@@ -106,7 +117,6 @@ function addCardToIndex(cardData)
       cardIdIndex[cardId] = { data = cardData, metadata = { id = cardId } }
     end
   end
-  indexCount = indexCount + 1
 end
 
 function addObjectToIndex(objectData)
@@ -119,7 +129,6 @@ function addObjectToIndex(objectData)
   if objectMetadata then
     objectIdIndex[objectMetadata.id] = { data = objectData, metadata = objectMetadata }
   end
-  indexCount = indexCount + 1
 end
 
 function parseObjectMetadata(objectData)
@@ -172,9 +181,13 @@ end
 
 -- attempt to replace cards / decks
 function onObjectSpawn(obj)
-  if indexCount == 0 then return end
+  -- early exit if indices are empty
+  if next(cardIdIndex) == nil and next(objectIdIndex) == nil then return end
+
+  -- don't replace already replaced objects
   if obj.hasTag("Replaced") then return end
 
+  -- handle object depending on type
   if obj.type == "Card" then
     handleSpawnedCard(obj)
   elseif obj.type == "Deck" then
@@ -221,7 +234,7 @@ function handleSpawnedCard(card)
   local cardData = getCardById({ id = md.id })
   if cardData == nil then return end
 
-    Wait.time(function()
+  Wait.time(function()
     if card ~= nil then
       local objData = card.getData()
       if updateOriginalItemData(objData, cardData.data) then
@@ -336,42 +349,19 @@ function updateOriginalItemData(originalData, replaceData)
     if tag == "Replaced" then return false end
   end
 
-  if replaceData["CardID"] and replaceData["CardID"] ~= "" then
-    originalData["CardID"] = replaceData["CardID"]
-  end
-
-  if replaceData["CustomDeck"] and replaceData["CustomDeck"] ~= "" then
-    originalData["CustomDeck"] = replaceData["CustomDeck"]
-  end
-
-  if replaceData["Name"] and replaceData["Name"] ~= "" then
-    originalData["Name"] = replaceData["Name"]
-  end
-
-  if replaceData["Nickname"] and replaceData["Nickname"] ~= "" then
-    originalData["Nickname"] = replaceData["Nickname"]
-  end
-
-  if replaceData["Description"] and replaceData["Description"] ~= "" then
-    originalData["Description"] = replaceData["Description"]
-  end
-
-  if replaceData["CustomPDF"] and replaceData["CustomPDF"] ~= "" then
-    originalData["CustomPDF"] = replaceData["CustomPDF"]
-  end
-
-  if replaceData["CustomImage"] and replaceData["CustomImage"] ~= "" then
-    originalData["CustomImage"] = replaceData["CustomImage"]
-  end
-
-  if replaceData["LuaScript"] and replaceData["LuaScript"] ~= "" then
-    originalData["LuaScript"] = replaceData["LuaScript"]
+  -- handle data fields
+  for _, dataKey in ipairs(REPLACEMENT_FIELDS) do
+    if replaceData[dataKey] and replaceData[dataKey] ~= "" then
+      originalData[dataKey] = replaceData[dataKey]
+    end
   end
 
   originalData["Tags"] = originalData["Tags"] or replaceData["Tags"] or {}
   table.insert(originalData["Tags"], "Replaced")
 
-  processCard(originalData)
+  if originalData["Name"] == "Card" or originalData["Name"] == "CardCustom" then
+    return processCard(originalData)
+  end
   return true
 end
 
