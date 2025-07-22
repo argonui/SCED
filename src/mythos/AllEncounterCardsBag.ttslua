@@ -2,6 +2,7 @@ require("core/Constants")
 require("playercards/PlayerCardSpawner")
 
 local cardIdIndex  = {}
+local objectIdIndex = {}
 local indexingDone = false
 
 function onLoad()
@@ -19,11 +20,12 @@ end
 function startIndexBuild()
   indexingDone = false
   cardIdIndex  = {}
+  objectIdIndex = {}
   startLuaCoroutine(self, "buildIndex")
 end
 
 function buildIndex()
-  cardCount = 0
+  itemCount = 0
   indexCount = 0
 
   -- index contents
@@ -70,29 +72,25 @@ function processContainedObjects(containedObjects, customDeck)
           end
         end
       end
-
       addCardToIndex(objData)
-      cardCount = cardCount + 1
-      if cardCount > 19 then
-        cardCount = 0
-        coroutine.yield(0)
-      end
+      itemCount = itemCount + 1
+    elseif objData.GMNotes and objData.GMNotes ~= "" then
+      addObjectToIndex(objData)
+      itemCount = itemCount + 1
+    end
+
+    if itemCount > 19 then
+      itemCount = 0
+      coroutine.yield(0)
     end
   end
 end
 
 function addCardToIndex(cardData)
-  local status, cardMetadata
+  local cardMetadata
 
   if cardData.GMNotes and cardData.GMNotes ~= "" then
-    -- using the more efficient 'json.parse()' to speed this process up
-    status, cardMetadata = pcall(function() return json.parse(cardData.GMNotes) end)
-
-    -- if an error happens, fallback to the regular parser
-    if status ~= true or cardMetadata == nil then
-      log("Fast parser failed for " .. cardData.Nickname .. ", using old parser instead.")
-      cardMetadata = JSON.decode(cardData.GMNotes)
-    end
+    cardMetadata = parseObjectMetadata(cardData)
   end
 
   if cardMetadata then
@@ -111,6 +109,32 @@ function addCardToIndex(cardData)
   indexCount = indexCount + 1
 end
 
+function addObjectToIndex(objectData)
+  local objectMetadata
+
+  if objectData.GMNotes and objectData.GMNotes ~= "" then
+    objectMetadata = parseObjectMetadata(objectData)
+  end
+
+  if objectMetadata then
+    objectIdIndex[objectMetadata.id] = { data = objectData, metadata = objectMetadata }
+  end
+  indexCount = indexCount + 1
+end
+
+function parseObjectMetadata(objectData)
+  -- using the more efficient 'json.parse()' to speed this process up
+  local status, objectMetadata = pcall(function() return json.parse(objectData.GMNotes) end)
+
+  -- if an error happens, fallback to the regular parser
+  if status ~= true or objectMetadata == nil then
+    log("Fast parser failed for " .. objectData.Nickname .. ", using old parser instead.")
+    objectMetadata = JSON.decode(objectData.GMNotes)
+  end
+
+  return objectMetadata
+end
+
 function isIndexReady()
   if not indexingDone then
     broadcastToAll("Still loading cards, please try again in a few seconds", { 0.9, 0.2, 0.2 })
@@ -121,6 +145,11 @@ end
 function getCardById(params)
   if not isIndexReady() then return {} end
   return cardIdIndex[params.id]
+end
+
+function getObjectById(params)
+  if not isIndexReady() then return {} end
+  return objectIdIndex[params.id]
 end
 
 function onObjectEnterContainer(container)
@@ -152,6 +181,8 @@ function onObjectSpawn(obj)
     handleSpawnedDeck(obj)
   elseif obj.type == "Bag" then
     handleSpawnedBag(obj)
+  else
+    handleSpawnedObject(obj)
   end
 end
 
@@ -190,15 +221,42 @@ function handleSpawnedCard(card)
   local cardData = getCardById({ id = md.id })
   if cardData == nil then return end
 
-  Wait.time(function()
+    Wait.time(function()
     if card ~= nil then
       local objData = card.getData()
-      if updateOriginalCardData(objData, cardData.data) then
+      if updateOriginalItemData(objData, cardData.data) then
         local pos = card.getPosition()
         local rot = card.getRotation()
         local cardList = { { data = objData, metadata = md } }
         card.destruct()
         Spawner.spawnCards(cardList, pos, rot, false)
+      end
+    end
+  end, 1)
+end
+
+function handleSpawnedObject(object)
+  -- check if the object has metadata
+  local md = JSON.decode(object.getGMNotes()) or {}
+  if not md.id then return end
+
+  -- check if it's in the index
+  local objectData = getObjectById({ id = md.id })
+  if objectData == nil then return end
+
+  Wait.time(function()
+    if object ~= nil then
+      local objData = object.getData()
+      if updateOriginalItemData(objData, objectData.data) then
+        local pos = object.getPosition()
+        local rot = object.getRotation()
+        object.destruct()
+        spawnObjectData({
+          data = objData,
+          position = pos,
+          rotation = rot,
+          callback_function = nil
+        })
       end
     end
   end, 1)
@@ -216,7 +274,7 @@ function updateBagData(bagData)
       if md.id then
         local cardData = getCardById({ id = md.id })
         if cardData then
-          if updateOriginalCardData(objData, cardData.data) then
+          if updateOriginalItemData(objData, cardData.data) then
             changedSomething = true
           end
         end
@@ -242,7 +300,7 @@ function updateDeckData(deckData)
       local cardData = getCardById({ id = md.id })
       if cardData then
         local originalId = objData["CardID"]
-        local state = updateOriginalCardData(objData, cardData.data)
+        local state = updateOriginalItemData(objData, cardData.data)
         if state then
           changedSomething                   = true
 
@@ -273,16 +331,44 @@ function updateDeckData(deckData)
   return false
 end
 
-function updateOriginalCardData(originalData, replaceData)
+function updateOriginalItemData(originalData, replaceData)
   for _, tag in ipairs(originalData["Tags"] or {}) do
     if tag == "Replaced" then return false end
   end
 
-  originalData["CardID"]     = replaceData["CardID"]
-  originalData["CustomDeck"] = replaceData["CustomDeck"]
-  originalData["Name"]       = replaceData["Name"]
-  originalData["Nickname"]   = replaceData["Nickname"] or originalData["Nickname"]
-  originalData["Tags"]       = originalData["Tags"] or replaceData["Tags"] or {}
+  if replaceData["CardID"] and replaceData["CardID"] ~= "" then
+    originalData["CardID"] = replaceData["CardID"]
+  end
+
+  if replaceData["CustomDeck"] and replaceData["CustomDeck"] ~= "" then
+    originalData["CustomDeck"] = replaceData["CustomDeck"]
+  end
+
+  if replaceData["Name"] and replaceData["Name"] ~= "" then
+    originalData["Name"] = replaceData["Name"]
+  end
+
+  if replaceData["Nickname"] and replaceData["Nickname"] ~= "" then
+    originalData["Nickname"] = replaceData["Nickname"]
+  end
+
+  if replaceData["Description"] and replaceData["Description"] ~= "" then
+    originalData["Description"] = replaceData["Description"]
+  end
+
+  if replaceData["CustomPDF"] and replaceData["CustomPDF"] ~= "" then
+    originalData["CustomPDF"] = replaceData["CustomPDF"]
+  end
+
+  if replaceData["CustomImage"] and replaceData["CustomImage"] ~= "" then
+    originalData["CustomImage"] = replaceData["CustomImage"]
+  end
+
+  if replaceData["LuaScript"] and replaceData["LuaScript"] ~= "" then
+    originalData["LuaScript"] = replaceData["LuaScript"]
+  end
+
+  originalData["Tags"] = originalData["Tags"] or replaceData["Tags"] or {}
   table.insert(originalData["Tags"], "Replaced")
 
   processCard(originalData)
