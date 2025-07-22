@@ -17,20 +17,24 @@ do
   -- Sets up the ArkhamDb interface. Should be called from the parent object on load.
   ArkhamDb.initialize = function()
     configuration = internal.getConfiguration()
-    Request.start({ configuration.ArkhamDB_api_uri, configuration.taboo }, function(status)
+    Request.start(configuration.taboo_api_uri, function(status)
       local json = JSON.decode(internal.fixUtf16String(status.text))
-      for _, taboo in pairs(json) do
-        local cards = {}
+      if json.data and json.data.taboo_set then
+        for _, taboo in ipairs(json.data.taboo_set) do
+          local cards = {}
 
-        for _, card in pairs(JSON.decode(taboo.cards)) do
-          cards[card.code] = true
+          for _, card in ipairs(taboo.cards) do
+            cards[card.code] = true
+          end
+
+          tabooList[taboo.id] = {
+            date  = taboo.date,
+            name  = taboo.name,
+            cards = cards
+          }
         end
-
-        tabooList[taboo.id] = {
-          date = taboo.date_start,
-          cards = cards
-        }
       end
+      log(tabooList[9])
       return true, nil
     end)
   end
@@ -61,6 +65,8 @@ do
     if (checkCard ~= nil and checkCard.data == nil) then
       return false, "Indexing not complete"
     end
+
+    configuration = configuration or internal.getConfiguration()
 
     local deckUri = {
       configuration.ArkhamDB_api_uri,
