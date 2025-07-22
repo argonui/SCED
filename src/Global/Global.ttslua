@@ -999,54 +999,47 @@ end
 
 -- splash drawn chaos token
 function tokenSplash(tokenName)
-  local numSeconds = 2
-  local id = "token-" .. namesToIds[tokenName]
-  local MODIFIER_TOKENS_NAMES = {
-    ["Skull"]        = true,
-    ["Cultist"]      = true,
-    ["Elder Sign"]   = true,
-    ["Tablet"]       = true,
-    ["Elder Thing"]  = true,
-    ["Custom Token"] = true
-  }
-  local tokenData = MythosAreaApi.returnTokenData()
-  if waitIds["hideChaosSplash"] then
-    Wait.stop(waitIds["hideChaosSplash"])
-    waitIds["hideChaosSplash"] = nil
+  stopFadeOutXml()
+
+  local screenTime = 2
+
+  -- reset old modifier / description
+  local modifierAttributes = { active = false, text = "" }
+  local descriptionAttributes = { active = false, text = "" }
+
+  -- determine if modifier should be shown
+  local modifier = TokenArrangerApi.getCurrentModifier(tokenName)
+  if modifier and modifier < 100 then
+    local modifierText = "( "
+    if modifier > 0 then
+      modifierText = modifierText .. "+"
+    end
+    modifierText = modifierText .. modifier .. " )"
+    modifierAttributes = { active = true, text = modifierText }
   end
 
+  -- determine if scenario card reference data should be shown
+  local tokenData = MythosAreaApi.returnTokenData()
+  if tokenData then
+    if tokenData.tokenData[tokenName] then
+      local tokenDescription = tokenData.tokenData[tokenName].description
+      if tokenDescription then
+        descriptionAttributes = { active = true, text = tokenDescription }
+        screenTime = 2.5
+      end
+    end
+  end
+
+  -- update the XML
   Wait.time(function()
-    UI.setAttribute("token-splash-image", "image", id)
-    UI.show('chaos_token')
-    -- determine if modifier should be shown
-    if MODIFIER_TOKENS_NAMES[tokenName] then
-      local modifier = TokenArrangerApi.getCurrentModifier(tokenName)
-      if modifier < 100 then
-        local modifierText = "( "
-        if modifier > 0 then
-          modifierText = modifierText .. "+"
-        end
-        UI.setValue("chaos_modifier_text", modifierText .. modifier .. " )")
-        UI.show('token_modifier')
-      end
-    end
-    -- determine if scenario card reference data should be shown
-    if tokenData then
-      if tokenData.tokenData[tokenName] then
-        local tokenDescription = tokenData.tokenData[tokenName].description
-        if tokenDescription then
-          UI.setValue("chaos_splash_text", tokenDescription)
-          UI.show('token_description')
-          numSeconds = 2.5
-        end
-      end
-    end
-    waitIds["hideTokenSplash"] = Wait.time(function()
-      UI.hide('chaos_token')
-      UI.hide('token_description')
-      UI.hide('token_modifier')
-    end, numSeconds)
-  end, 0.75)
+    UI.setAttributes("CTS_modifier", modifierAttributes)
+    UI.setAttribute("CTS_image", "image", "token-" .. namesToIds[tokenName])
+    UI.setAttributes("CTS_description", descriptionAttributes)
+    UI.setAttribute("CTS_main", "active", true)
+  end, 0.05)
+
+  -- fade it out after a delay
+  Wait.time(function() fadeOutXml({ id = "CTS_main", time = 2 }) end, screenTime)
 end
 
 function luckyPenny(_, tokenGUID)
@@ -1825,9 +1818,14 @@ function fadeOutXml(params)
     if element.attributes and element.attributes.id then
       local elementId = element.attributes.id
 
+      -- Special handling for image elements without color attribute
+      if element.tag == "Image" and element.attributes.color == nil then
+        element.attributes.color = "#FFFFFF"
+      end
+
       -- Loop through the list of possible color attributes
       for _, property in ipairs(FADEABLE_COLOR_ATTRIBUTES) do
-        local originalColorStr = targetUi.getAttribute(elementId, property)
+        local originalColorStr = element.attributes[property]
         if originalColorStr then
           local colorToParse = originalColorStr
           local colorSuffix = nil
@@ -1863,7 +1861,7 @@ function fadeOutXml(params)
 
   function co_fadeOutXml()
     local time = params.time or 2
-    local timeStep = 0.05
+    local timeStep = 0.02
     local timeElapsed = 0
     while timeElapsed < time do
       local currentAlpha = 1 - timeElapsed / time
