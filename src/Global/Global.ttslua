@@ -999,16 +999,28 @@ end
 
 -- splash drawn chaos token
 function tokenSplash(tokenName)
-  stopFadeOutXml()
+  stopXmlFade()
 
-  local screenTime = 2
+  if waitIds["hideChaosSplash"] then
+    Wait.stop(waitIds["hideChaosSplash"])
+    waitIds["hideChaosSplash"] = nil
+  end
+
+  if waitIds["updateChaosSplash"] then
+    Wait.stop(waitIds["updateChaosSplash"])
+    waitIds["updateChaosSplash"] = nil
+    UI.setAttribute("CTS_image", "color", "#FFFFFFFF")
+  end
+
+  local fadeTime              = 1
+  local screenTime            = 1
 
   -- reset old modifier / description
-  local modifierAttributes = { active = false, text = "" }
+  local modifierAttributes    = { active = false, text = "" }
   local descriptionAttributes = { active = false, text = "" }
 
   -- determine if modifier should be shown
-  local modifier = TokenArrangerApi.getCurrentModifier(tokenName)
+  local modifier              = TokenArrangerApi.getCurrentModifier(tokenName)
   if modifier and modifier < 100 then
     local modifierText = "( "
     if modifier > 0 then
@@ -1025,21 +1037,25 @@ function tokenSplash(tokenName)
       local tokenDescription = tokenData.tokenData[tokenName].description
       if tokenDescription then
         descriptionAttributes = { active = true, text = tokenDescription }
-        screenTime = 2.5
+        screenTime = 1.5
       end
     end
   end
 
   -- update the XML
-  Wait.time(function()
+  waitIds["updateChaosSplash"] = Wait.frames(function()
     UI.setAttributes("CTS_modifier", modifierAttributes)
-    UI.setAttribute("CTS_image", "image", "token-" .. namesToIds[tokenName])
+    UI.setAttributes("CTS_image", { color = "#FFFFFFFF", image = "token-" .. namesToIds[tokenName] })
     UI.setAttributes("CTS_description", descriptionAttributes)
-    UI.setAttribute("CTS_main", "active", true)
-  end, 0.05)
 
-  -- fade it out after a delay
-  Wait.time(function() fadeOutXml({ id = "CTS_main", time = 2 }) end, screenTime)
+    -- fade it in after changes have been applied
+    fadeXml({ id = "CTS_main", direction = "in", time = fadeTime })
+
+    -- fade it out after a delay
+    waitIds["hideChaosSplash"] = Wait.time(function()
+      fadeXml({ id = "CTS_main", direction = "out", time = fadeTime })
+    end, fadeTime + screenTime)
+  end, 5)
 end
 
 function luckyPenny(_, tokenGUID)
@@ -1051,23 +1067,24 @@ function luckyPenny(_, tokenGUID)
   else
     blurseToken.memo = "Curse"
   end
+
   local pos = blurseToken.getPosition() + Vector(1.35, 0.1, 0)
   local id = blurseToken.memo:lower()
   local url = ID_URL_MAP[id].url or ""
 
   if url ~= "" then
     spawnObject({
-      type = 'Custom_Tile',
-      position = pos,
-      scale = { 0.5, 1.0, 0.5 },
-      rotation = Vector(0, 270, 0),
+      type              = 'Custom_Tile',
+      position          = pos,
+      scale             = { 0.5, 1.0, 0.5 },
+      rotation          = Vector(0, 270, 0),
       callback_function = function(obj)
         blurseToken.UI.setXml("")
         blurseToken.addAttachment(obj)
       end
     }).setCustomObject({
-      type = 2,
-      image = url,
+      type      = 2,
+      image     = url,
       thickness = 0.1
     })
   end
@@ -1788,39 +1805,37 @@ function changeWindowVisibilityForColor(color, windowId, overrideState, owner)
 end
 
 -- Stops the currently ongoing fadeout
-function stopFadeOutXml()
-  stopFadeOut = true
+function stopXmlFade()
+  stopFade = true
 end
 
--- Fades out an XML element and its children
+-- Custom fade function for XML elements
 ---@param params table Table with the following parameters:
 --- id string ID of the XML element
+--- direction "in" | "out" The direction of the fade
 --- owner? tts__Object Object that owns the XML (or nil if Global)
---- time? number Time in seconds for the fade-out (defaults to 2)
-function fadeOutXml(params)
-  stopFadeOut = nil
+--- time? number Time in seconds for the fade (defaults to 2)
+function fadeXml(params)
+  stopFade = nil -- A global value to allow stopping the animation
 
-  -- A list of all UI attributes that will be looked for and modified
-  local FADEABLE_COLOR_ATTRIBUTES = { "color", "colors", "textColor", "outline" }
-
-  local targetUi = UI
-  if params.owner then
-    targetUi = params.owner.UI
-  end
-
+  local targetUi = params.owner and params.owner.UI or UI
   local xmlElement = getXmlTableElementById(targetUi.getXmlTable(), params.id)
   if not xmlElement then return end
-  local elementsToFade = getAllChildElements(xmlElement)
 
-  -- Store the initial state of each element. The key is the element ID.
+  local elementsToFade = getAllChildElements(xmlElement)
   local initialStates = {}
+
+  --- A list of all UI attributes that will be looked for and modified
+  local FADEABLE_COLOR_ATTRIBUTES = { "color", "colors", "textColor", "outline" }
+
+  -- Store the initial state of each element's color properties
   for _, element in ipairs(elementsToFade) do
     if element.attributes and element.attributes.id then
       local elementId = element.attributes.id
 
-      -- Special handling for image elements without color attribute
-      if element.tag == "Image" and element.attributes.color == nil then
-        element.attributes.color = "#FFFFFF"
+      -- Special handling for image elements without a color attribute
+      if element.tag == "Image" and not element.attributes.color then
+        element.attributes.color = "#FFFFFFFF" -- Default to opaque white
       end
 
       -- Loop through the list of possible color attributes
@@ -1859,48 +1874,70 @@ function fadeOutXml(params)
     end
   end
 
-  function co_fadeOutXml()
+  -- Set the initial state before the animation begins
+  if params.direction == "in" then
+    -- For fading in, make the element active but fully transparent first
+    targetUi.setAttribute(params.id, "active", true)
+    for elementId, properties in pairs(initialStates) do
+      for _, state in ipairs(properties) do
+        local transparentColor = state.color:copy()
+        transparentColor:setAt("a", 0)
+
+        local colorStr = ColorLib.colorToHex(transparentColor) .. (state.suffix or "")
+        targetUi.setAttribute(elementId, state.property, colorStr)
+      end
+    end
+  end
+
+  -- Start the animation coroutine
+  CoroutineLib.start(function()
     local time = params.time or 2
     local timeStep = 0.02
     local timeElapsed = 0
-    while timeElapsed < time do
-      local currentAlpha = 1 - timeElapsed / time
 
-      -- Loop through the IDs in our state table
+    while timeElapsed < time do
+      -- Early exit condition
+      if stopFade then
+        stopFade = nil
+        break
+      end
+
+      local progress = timeElapsed / time
+      -- Fading in: alpha goes from 0 to 1. Fading out: alpha goes from 1 to 0.
+      local currentAlphaFactor = (params.direction == "in") and progress or (1 - progress)
+
       for elementId, properties in pairs(initialStates) do
         -- Loop through each color property found for that ID
         for _, state in ipairs(properties) do
           local newColor = state.color:copy()
-          newColor:setAt("a", newColor.a * currentAlpha)
-          targetUi.setAttribute(elementId, state.property, ColorLib.colorToHex(newColor))
+          newColor:setAt("a", newColor.a * currentAlphaFactor)
+
+          -- Re-append suffix if it existed
+          local newColorStr = ColorLib.colorToHex(newColor) .. (state.suffix or "")
+          targetUi.setAttribute(elementId, state.property, newColorStr)
         end
       end
 
       CoroutineLib.yieldSeconds(timeStep)
       timeElapsed = timeElapsed + timeStep
-
-      -- early exit
-      if stopFadeOut then
-        timeElapsed = time
-        stopFadeOut = nil
-      end
     end
 
-    targetUi.setAttribute(params.id, "active", false)
-    CoroutineLib.yieldFrames()
+    -- Set the final state after the animation
+    if params.direction == "out" then
+      targetUi.setAttribute(params.id, "active", false)
+    end
 
-    -- Restore original colors
+    -- Restore original colors to ensure final state and reset for next use
     for elementId, properties in pairs(initialStates) do
       for _, state in ipairs(properties) do
-        targetUi.setAttribute(elementId, state.property, ColorLib.colorToHex(state.color))
+        local originalColorStr = ColorLib.colorToHex(state.color) .. (state.suffix or "")
+        targetUi.setAttribute(elementId, state.property, originalColorStr)
       end
     end
-  end
-
-  CoroutineLib.start(co_fadeOutXml)
+  end)
 end
 
--- updates the preview window
+-- updates the contents of the preview for items in the download window
 function updatePreviewWindow()
   local item = library[contentToShow][currentListItem]
   local tempImage =
