@@ -1,5 +1,6 @@
 local BlessCurseManagerApi = require("chaosbag/BlessCurseManagerApi")
 local ChaosBagApi          = require("chaosbag/ChaosBagApi")
+local CoroutineLib         = require("util/CoroutineLib")
 local TokenArrangerApi     = require("tokens/TokenArrangerApi")
 
 sealedTokens               = {}
@@ -56,24 +57,24 @@ function sealAllTokens(playerColor)
     return
   end
 
-  function coinside()
-    ChaosBagApi.releaseAllSealedTokens(playerColor, "Bless", true)
-    coWaitFrames(5)
-    ChaosBagApi.releaseAllSealedTokens(playerColor, "Elder Sign", true)
-    coWaitFrames(5)
+  CoroutineLib.start(sealAllTokensCoroutine, playerColor)
+end
 
-    for i = 1, 10 do
-      sealToken("Bless")
-      coWaitFrames(1)
-    end
+function sealAllTokensCoroutine(playerColor)
+  ChaosBagApi.releaseAllSealedTokens(playerColor, "Bless", true)
+  CoroutineLib.yieldFrames(5)
 
-    sealToken("Elder Sign")
-    coWaitFrames(1)
-    BlessCurseManagerApi.broadcastStatus()
-    return 1
+  ChaosBagApi.releaseAllSealedTokens(playerColor, "Elder Sign", true)
+  CoroutineLib.yieldFrames(5)
+
+  for i = 1, 10 do
+    sealToken("Bless")
+    CoroutineLib.yieldFrames()
   end
 
-  startLuaCoroutine(self, "coinside")
+  sealToken("Elder Sign")
+  CoroutineLib.yieldFrames()
+  BlessCurseManagerApi.broadcastStatus()
 end
 
 -- seals the named token on this card
@@ -201,11 +202,4 @@ function updateStackSize()
       }
     }
   })
-end
-
--- pauses the current coroutine for 'frameCount' frames
-function coWaitFrames(frameCount)
-  for k = 1, frameCount do
-    coroutine.yield(0)
-  end
 end
