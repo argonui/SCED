@@ -1097,6 +1097,9 @@ function trackChaosToken(tokenName, matColor, subtract)
     -- initialize table
     tokenDrawingStats[key]               = tokenDrawingStats[key] or {}
 
+    -- initialize per-player table for last drawn
+    lastDrawnTokens[key]                 = lastDrawnTokens[key] or {}
+
     -- update stats
     tokenDrawingStats[key][readableName] = (tokenDrawingStats[key][readableName] or 0) + modifier
   end
@@ -1108,9 +1111,18 @@ function trackChaosToken(tokenName, matColor, subtract)
 
   -- add to list of last drawn tokens (if not subtracting)
   if not subtract then
-    table.insert(lastDrawnTokens, { tokenName = tokenName, matColor = matColor })
-    if #lastDrawnTokens > 5 then
-      table.remove(lastDrawnTokens, 1)
+    table.insert(lastDrawnTokens["Overall"], { tokenName = tokenName, matColor = matColor })
+
+    -- insert last drawn to per-player table
+    table.insert(lastDrawnTokens[matColor], { tokenName = tokenName, matColor = matColor })
+
+    if #lastDrawnTokens["Overall"] > 5 then
+      table.remove(lastDrawnTokens["Overall"], 1)
+    end
+
+    -- last 5 check for per-player
+    if #lastDrawnTokens[matColor] > 5 then
+      table.remove(lastDrawnTokens[matColor], 1)
     end
   end
 end
@@ -1180,6 +1192,9 @@ function handleStatTrackerClick(player, clickType, _)
         end
 
         printToAll('Total: ' .. tostring(totalCount))
+
+        -- also print last five personal chaos tokens
+        printLastFiveChaosTokens(playerColor)
       end
     end
   end
@@ -1192,21 +1207,7 @@ function handleStatTrackerClick(player, clickType, _)
     printToAll("------------------------------")
 
     -- maybe print history for last 5 token draws
-    if #lastDrawnTokens > 0 then
-      local tokenStr = ""
-      for _, data in ipairs(lastDrawnTokens) do
-        local handColor = PlayermatApi.getPlayerColor(data.matColor) or data.matColor
-        local tokenName = data.tokenName
-        if handColor ~= nil then
-          tokenName = "[" .. Color.fromString(handColor):toHex() .. "]" .. tokenName .. "[-]"
-        end
-        tokenStr = tokenStr .. tokenName .. ", "
-      end
-
-      -- remove last delimiter
-      tokenStr = string.sub(tokenStr, 1, -3)
-      printToAll("Last 5 (old to new): " .. tokenStr)
-    end
+    printLastFiveChaosTokens("Overall")
 
     -- print the player with the most auto-fails / elder signs
     if mostAutoFails == mostElderSigns then
@@ -1217,6 +1218,25 @@ function handleStatTrackerClick(player, clickType, _)
     end
   else
     printToAll("No tokens have been drawn yet.", "Yellow")
+  end
+end
+
+-- helper function to print last five chaos tokens. Use "Overall" for global key
+function printLastFiveChaosTokens(playerColor)
+  if #lastDrawnTokens[playerColor] > 0 then
+    local tokenStr = ""
+    for _, data in ipairs(lastDrawnTokens[playerColor]) do
+      local handColor = PlayermatApi.getPlayerColor(data.matColor) or data.matColor
+      local tokenName = data.tokenName
+      if handColor ~= nil then
+        tokenName = "[" .. Color.fromString(handColor):toHex() .. "]" .. tokenName .. "[-]"
+      end
+      tokenStr = tokenStr .. tokenName .. ", "
+    end
+
+    -- remove last delimiter
+    tokenStr = string.sub(tokenStr, 1, -3)
+    printToAll("Last 5 (old to new): " .. tokenStr)
   end
 end
 
@@ -1231,7 +1251,7 @@ function resetChaosTokenStatTracker(player)
   player.showConfirmDialog("Are you sure you want to reset the Chaos Token stats?",
     function()
       printToAll("Chaos Token stat tracker has been reset.")
-      lastDrawnTokens = {}
+      lastDrawnTokens = { ["Overall"] = {} }
       tokenDrawingStats = { ["Overall"] = {} }
     end
   )
