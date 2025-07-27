@@ -699,6 +699,7 @@ function returnChaosTokens()
   end
   chaosTokens = {}
   isTokenXMLActive = false
+  tokenSplash(nil, true)
 end
 
 -- returns a single chaos token to the bag and calls respective functions
@@ -907,102 +908,111 @@ function drawChaosToken(params)
 
   chaosTokensLastMatGUID = matGUID
 
-  -- if we have left clicked and have no tokens OR if we have right clicked
-  if params.drawAdditional or #chaosTokens == 0 then
-    local chaosBag = findChaosBag()
-    if #chaosBag.getObjects() == 0 then return end
-    chaosBag.shuffle()
+  -- left-click while tokens are already drawn
+  if not params.drawAdditional and #chaosTokens ~= 0 then
+    returnChaosTokens()
+    return
+  end
 
-    -- add the token to the list, compute new position based on list length
-    local tokenOffset = Vector(-1.55 + 0.17 * #chaosTokens, 0.25, -0.58)
+  -- draw an additional chaos token
+  local chaosBag = findChaosBag()
+  if #chaosBag.getObjects() == 0 then return end
+  chaosBag.shuffle()
 
-    -- slightly rotate subsequent chaos tokens
-    local tokenRotZ = 0
-    if #chaosTokens > 0 then
-      tokenRotZ = 354.5
+  -- add the token to the list, compute new position based on list length
+  local tokenOffset = Vector(-1.55 + 0.17 * #chaosTokens, 0.25, -0.58)
+
+  -- slightly rotate subsequent chaos tokens
+  local tokenRotZ = 0
+  if #chaosTokens > 0 then
+    tokenRotZ = 354.5
+  end
+
+  local takeParameters = params.takeParameters or {}
+  takeParameters.position = takeParameters.position or params.mat.positionToWorld(tokenOffset)
+  takeParameters.rotation = takeParameters.rotation or params.mat.getRotation():setAt("z", tokenRotZ)
+
+  local token
+  if params.guidToBeResolved then
+    -- resolve a sealed token from a card
+    token = getObjectFromGUID(params.guidToBeResolved)
+    token.setPositionSmooth(takeParameters.position)
+    TokenArrangerApi.layout()
+
+    local tokenName = token.getName()
+    if tokenName == "Bless" or tokenName == "Curse" then
+      BlessCurseManagerApi.releasedToken(tokenName, token.getGUID())
     end
-
-    local takeParameters = params.takeParameters or {}
-    takeParameters.position = takeParameters.position or params.mat.positionToWorld(tokenOffset)
-    takeParameters.rotation = takeParameters.rotation or params.mat.getRotation():setAt("z", tokenRotZ)
-
-    local token
-    if params.guidToBeResolved then
-      -- resolve a sealed token from a card
-      token = getObjectFromGUID(params.guidToBeResolved)
-      token.setPositionSmooth(takeParameters.position)
-      TokenArrangerApi.layout()
-
-      local tokenName = token.getName()
-      if tokenName == "Bless" or tokenName == "Curse" then
-        BlessCurseManagerApi.releasedToken(tokenName, token.getGUID())
-      end
-    else
-      -- take a token from the bag, either specified or random
-      if params.tokenType then
-        for i, lookedForToken in ipairs(chaosBag.getObjects()) do
-          if lookedForToken.nickname == params.tokenType then
-            takeParameters.index = i - 1
-          end
+  else
+    -- take a token from the bag, either specified or random
+    if params.tokenType then
+      for i, lookedForToken in ipairs(chaosBag.getObjects()) do
+        if lookedForToken.nickname == params.tokenType then
+          takeParameters.index = i - 1
         end
       end
-      token = chaosBag.takeObject(takeParameters)
     end
+    token = chaosBag.takeObject(takeParameters)
+  end
 
-    -- get data for token description
-    local name = token.getName()
+  -- get data for token description
+  local name = token.getName()
 
-    if name == "Bless" or name == "Curse" then
-      local isLuckyPennyEnabled = params.mat.getVar("luckyPennyEnabled")
-      if isLuckyPennyEnabled then
-        token.UI.setXmlTable({
-          {
-            tag = "Panel",
-            attributes = {
-              height   = 275,
-              width    = 275,
-              scale    = "0.4 0.4 1",
-              rotation = "0 0 180",
-              position = "0 0 -15",
-              color    = "rgba(0,0,0,0.7)"
-            },
-            children = {
-              {
-                tag = "Text",
-                attributes = {
-                  font     = "font_arkhamicons",
-                  onClick  = "Global/luckyPenny(" .. token.getGUID() .. ")",
-                  text     = "zy",
-                  color    = "White",
-                  fontSize = "125"
-                }
+  if name == "Bless" or name == "Curse" then
+    local isLuckyPennyEnabled = params.mat.getVar("luckyPennyEnabled")
+    if isLuckyPennyEnabled then
+      token.UI.setXmlTable({
+        {
+          tag = "Panel",
+          attributes = {
+            height   = 275,
+            width    = 275,
+            scale    = "0.4 0.4 1",
+            rotation = "0 0 180",
+            position = "0 0 -15",
+            color    = "rgba(0,0,0,0.7)"
+          },
+          children = {
+            {
+              tag = "Text",
+              attributes = {
+                font     = "font_arkhamicons",
+                onClick  = "Global/luckyPenny(" .. token.getGUID() .. ")",
+                text     = "zy",
+                color    = "White",
+                fontSize = "125"
               }
             }
           }
-        })
-      end
+        }
+      })
     end
-
-    local tokenData = MythosAreaApi.returnTokenData().tokenData or {}
-    local specificData = tokenData[name] or {}
-    token.setDescription(specificData.description or "")
-    trackChaosToken(name, params.mat.getMemo())
-    if optionPanel['showTokenSplash'] then
-      tokenSplash(name)
-    end
-
-    if not params.takeParameters then
-      table.insert(chaosTokens, token)
-    end
-    return token
-  else
-    returnChaosTokens()
   end
+
+  local tokenData = MythosAreaApi.returnTokenData().tokenData or {}
+  local specificData = tokenData[name] or {}
+  token.setDescription(specificData.description or "")
+  trackChaosToken(name, params.mat.getMemo())
+  tokenSplash(name)
+
+  if not params.takeParameters then
+    table.insert(chaosTokens, token)
+  end
+  return token
 end
 
 -- splash drawn chaos token
-function tokenSplash(tokenName)
-  stopXmlFade()
+---@param tokenName? string Name of the chaos token (or nil if just hiding)
+---@param hide? boolean If true, while force hide the token
+function tokenSplash(tokenName, hide)
+  if not optionPanel['showTokenSplash'] then return end
+
+  local initialDelay = 0.5
+  local fadeTime     = 2
+  local screenTime   = 1
+
+  -- keep current state when hiding
+  stopXmlFade(hide)
 
   if waitIds["hideChaosSplash"] then
     Wait.stop(waitIds["hideChaosSplash"])
@@ -1019,9 +1029,13 @@ function tokenSplash(tokenName)
     waitIds["updateChaosSplash"] = nil
   end
 
-  local initialDelay          = 0.5
-  local fadeTime              = 2
-  local screenTime            = 1
+  -- quick fade-out
+  if hide then
+    waitIds["hideChaosSplash"] = Wait.time(function()
+      fadeXml({ id = "CTS_main", direction = "out", time = fadeTime / 3 })
+    end, 0.02)
+    return
+  end
 
   -- reset old modifier / description
   local modifierAttributes    = { active = false, text = "" }
@@ -1033,7 +1047,7 @@ function tokenSplash(tokenName)
   UI.setAttribute("CTS_description", "active", false)
 
   -- determine if modifier should be shown
-  local modifier              = TokenArrangerApi.getCurrentModifier(tokenName)
+  local modifier = TokenArrangerApi.getCurrentModifier(tokenName)
   if modifier and math.abs(modifier) < 100 then
     local modifierText = "( "
     if modifier > 0 then
@@ -1840,7 +1854,8 @@ function changeWindowVisibilityForColor(color, windowId, overrideState, owner)
 end
 
 -- Stops the currently ongoing fadeout
-function stopXmlFade()
+function stopXmlFade(keepCurrent)
+  keepCurrentFade = keepCurrent
   stopFade = true
 end
 
@@ -1934,6 +1949,11 @@ function fadeXml(params)
       -- Early exit condition
       if stopFade then
         stopFade = nil
+
+        if keepCurrentFade then
+          keepCurrentFade = nil
+          return
+        end
         break
       end
 
