@@ -1,0 +1,88 @@
+require("playercards/CardsWithHelper")
+local BlessCurseManagerApi = require("chaosbag/BlessCurseManagerApi")
+local MathLib              = require("util/MathLib")
+local PlayermatApi         = require("playermat/PlayermatApi")
+
+-- intentionally global
+hasXML                     = true
+isHelperEnabled            = false
+local updated, loopId, tokensToAdd
+
+function updateSave()
+  self.script_state = JSON.encode({
+    isHelperEnabled = isHelperEnabled,
+    loopId = loopId
+  })
+end
+
+function onLoad(savedData)
+  if savedData and savedData ~= "" then
+    local loadedData = JSON.decode(savedData)
+    isHelperEnabled = loadedData.isHelperEnabled
+    loopId = loadedData.loopId
+  end
+  if isHelperEnabled then updateDisplay() end
+  local md = JSON.decode(self.getGMNotes()) or {}
+  tokensToAdd = (md.id == "07018") and 1 or 2
+end
+
+function shutOff()
+  if loopId then
+    Wait.stop(loopId)
+    loopId = nil
+  end
+end
+
+function initialize()
+  maybeUpdateButtonState()
+  loopId = Wait.time(maybeUpdateButtonState, 1, -1)
+end
+
+function triggerAbility(player)
+  if not updated then return end
+  updated = false
+
+  for i = 1, tokensToAdd do
+    BlessCurseManagerApi.addToken("Bless", player.color)
+  end
+
+  -- exhaust card
+  local matColor = PlayermatApi.getMatColorByPosition(self.getPosition())
+  self.setRotationSmooth(PlayermatApi.getExhaustRotation(matColor, true), nil, true)
+
+  setUiState(false)
+end
+
+function isExhausted()
+  if self.isSmoothMoving() then return true end
+
+  local matColor        = PlayermatApi.getMatColorByPosition(self.getPosition())
+  local exhaustRotation = PlayermatApi.getExhaustRotation(matColor, true)
+  return MathLib.round(self.getRotation().y) == MathLib.round(exhaustRotation.y)
+end
+
+-- count tokens in the bag and show appropriate buttons
+function maybeUpdateButtonState()
+  local state = false
+
+  if not isExhausted() then
+    local numInBag = BlessCurseManagerApi.getBlessCurseInBag()
+    state = numInBag.Bless < 10
+  end
+
+  setUiState(state)
+  updated = true
+end
+
+function setUiState(state)
+  self.UI.show(state and "Bless" or "inactiveBless")
+  self.UI.hide(not state and "Bless" or "inactiveBless")
+end
+
+function errorMessage()
+  if isExhausted() then
+    broadcastToAll(self.getName() .. " isn't ready.", "Red")
+  else
+    broadcastToAll("There are already 10 Bless tokens in the chaos bag.", "Red")
+  end
+end
