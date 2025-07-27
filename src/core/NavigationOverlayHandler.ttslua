@@ -69,6 +69,7 @@ local visibility       = {}
 local claims           = {}
 local pitch            = {}
 local distance         = {}
+local matColorList     = { "White", "Orange", "Green", "Red" }
 
 ---------------------------------------------------------
 -- save/load functionality
@@ -243,7 +244,7 @@ end
 ---------------------------------------------------------
 
 -- handles all button clicks
-function buttonClicked(player, _, id)
+function buttonClicked(player, clickType, id)
   local index = tonumber(id:sub(6))
 
   if index == 19 then
@@ -253,7 +254,8 @@ function buttonClicked(player, _, id)
   elseif index == 21 then
     toggleSettings(player)
   else
-    loadCamera(player, index)
+    local isRightClick = (clickType == "-2")
+    loadCamera(player, index, nil, isRightClick)
   end
 end
 
@@ -307,11 +309,11 @@ end
 ---@param player tts__Player Player whose camera should be moved
 ---@param index? number Index of the camera view to load
 ---@param matColor? string Color of the playermat to swap to
-function loadCamera(player, index, matColor)
+---@param skipZoom? boolean True if player's camera 0 should be loaded instead of zooming to mat
+function loadCamera(player, index, matColor, skipZoom)
   -- need at least one of these parameters
   if not index and not matColor then return end
 
-  local matColorList = { "White", "Orange", "Green", "Red" }
   local lookHere
 
   -- dynamic view of the play area
@@ -322,7 +324,7 @@ function loadCamera(player, index, matColor)
 
     lookHere = {
       position = { bounds.middleX, 1.55, bounds.middleZ },
-      yaw = 90,
+      yaw      = 90,
       distance = 0.8 * math.max(bounds.diffX, bounds.diffZ) + 7
     }
     -- dynamic view of the clicked play mat
@@ -353,6 +355,9 @@ function loadCamera(player, index, matColor)
       copyVisibility({ startColor = player.color, targetColor = newPlayerColor })
       player.changeColor(newPlayerColor)
       player = Player[newPlayerColor]
+
+      -- end here if zoom should be skipped
+      if skipZoom then return end
     end
 
     -- search on the playermat for objects
@@ -360,7 +365,7 @@ function loadCamera(player, index, matColor)
 
     lookHere = {
       position = { bounds.middleX, 0, bounds.middleZ },
-      yaw = PlayermatApi.returnRotation(matColor).y + 180,
+      yaw      = PlayermatApi.returnRotation(matColor).y + 180,
       distance = 0.42 * math.max(bounds.diffX, bounds.diffZ) + 7
     }
   end
@@ -449,7 +454,6 @@ function updateSettingsUI(playerColor)
   UI.setAttribute("NO_sliderDistance", "value", distance[playerColor] or 100)
 
   -- update the claims
-  local matColorList = { "White", "Orange", "Green", "Red" }
   for _, matColor in pairs(matColorList) do
     UI.setAttribute("claim" .. matColor, "isOn", claims[playerColor][matColor] or false)
   end
