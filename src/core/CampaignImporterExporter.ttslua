@@ -1,4 +1,5 @@
 local ChaosBagApi          = require("chaosbag/ChaosBagApi")
+local CoroutineLib         = require("util/CoroutineLib")
 local DeckImporterApi      = require("arkhamdb/DeckImporterApi")
 local GlobalApi            = require("Global/GlobalApi")
 local GUIDReferenceApi     = require("core/GUIDReferenceApi")
@@ -20,7 +21,8 @@ local saveTokenData        = {
     scaleY = 2,
     scaleZ = 2
   },
-  Description = "SCED Importer Token\n\nSave me (Right-Click: Save as object)! Then you can import me on any fresh game to apply the saved settings / campaign state.",
+  Description =
+  "SCED Importer Token\n\nSave me (Right-Click: Save as object)! Then you can import me on any fresh game to apply the saved settings / campaign state.",
   Tags = { "ImporterToken" },
   CustomMesh = {
     MeshURL = "https://steamusercontent-a.akamaihd.net/ugc/943949966265929204/A38BB5D72419E6298385556D931877C0A1A55C17/",
@@ -44,13 +46,13 @@ function onLoad()
   self.createButton({
     click_function = "onClick_export",
     function_owner = self,
-    label = "Export",
-    tooltip = "Create a campaign save token!",
-    position = { x = -1, y = 0.21, z = 0 },
-    font_size = 400,
-    width = 1400,
-    height = 600,
-    scale = { 0.5, 1, 0.5 }
+    label          = "Export",
+    tooltip        = "Create a campaign save token!",
+    position       = { x = -1, y = 0.21, z = 0 },
+    font_size      = 400,
+    width          = 1400,
+    height         = 600,
+    scale          = { 0.5, 1, 0.5 }
   })
 end
 
@@ -72,16 +74,19 @@ end
 
 function onCollisionEnter(info)
   if info.collision_object.hasTag("ImporterToken") then
-    coin = info.collision_object
-    startLuaCoroutine(self, "importFromToken")
+    CoroutineLib.start(importFromToken, info.collision_object)
   end
+end
+
+function onClick_export(_, playerColor)
+  CoroutineLib.start(exportToToken, playerColor)
 end
 
 ---------------------------------------------------------
 -- main import functionality
 ---------------------------------------------------------
 
-function importFromToken()
+function importFromToken(coin)
   broadcastToAll("Import initiated")
   local importData = JSON.decode(coin.getGMNotes())
 
@@ -98,7 +103,7 @@ function importFromToken()
   -- trigger the place function of the memory bag
   if campaignBox and campaignBox.type == "Bag" and #campaignBox.getObjects() > 0 then
     campaignBox.call("buttonClick_place")
-    coWaitFrames(5)
+    CoroutineLib.yieldFrames(5)
   end
 
   -- spawn stored campaign log and additional player card bag
@@ -143,7 +148,7 @@ function importFromToken()
     end
 
     spawnObjectData(spawnData)
-    coWaitFrames(5)
+    CoroutineLib.yieldFrames(5)
   end
 
   -- update chaos bag
@@ -171,7 +176,7 @@ function importFromToken()
 
   if importData["options"] then
     GlobalApi.loadOptionPanelState(importData["options"])
-    coWaitFrames(5)
+    CoroutineLib.yieldFrames(5)
   end
 
   -- destroy Tour Starter token
@@ -183,7 +188,7 @@ function importFromToken()
   -- restore PlayArea image and player count
   if importData["playarea"] then
     PlayAreaApi.updateSurface(importData["playarea"])
-    coWaitFrames(5)
+    CoroutineLib.yieldFrames(5)
   end
 
   if importData["clueCount"] then
@@ -226,16 +231,10 @@ function importFromToken()
 
   coin.destruct()
   broadcastToAll("Import completed!", "Green")
-  return 1
-end
-
-function onClick_export(_, clickedByColor)
-  playerColor = clickedByColor
-  startLuaCoroutine(self, "exportToToken")
 end
 
 -- creates a campaign token with save data encoded into GM Notes based on the current state of the table
-function exportToToken()
+function exportToToken(playerColor)
   broadcastToAll("Export initiated")
 
   local dataToSave = {}
@@ -259,7 +258,7 @@ function exportToToken()
   end
 
   ChaosBagApi.releaseAllSealedTokens(playerColor)
-  coWaitFrames(5)
+  CoroutineLib.yieldFrames(5)
 
   -- main data collection
   dataToSave.bag                 = ChaosBagApi.getChaosBagState()
@@ -346,19 +345,11 @@ function exportToToken()
 
   spawnObjectData({ data = saveTokenData })
   broadcastToAll("Export completed! Save coin object to import on a different save.", "Green")
-  return 1
 end
 
 ---------------------------------------------------------
 -- helper functions
 ---------------------------------------------------------
-
--- pauses the current coroutine for 'frameCount' frames
-function coWaitFrames(frameCount)
-  for k = 1, frameCount do
-    coroutine.yield(0)
-  end
-end
 
 function findUniqueObjectWithTag(tag)
   local objects = getObjectsWithTag(tag)

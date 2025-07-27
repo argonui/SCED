@@ -589,7 +589,9 @@ function onObjectDrop(playerColor, obj)
   if obj.hasTag("Investigator") then
     updateActionTrackerRows()
     updateActionTrackerWidth()
+
   elseif obj.hasTag("Minicard") then
+    -- sync the mini card with an investigator below
     for _, card in ipairs(SearchLib.belowPosition(obj.getPosition(), "isCard")) do
       local md = JSON.decode(card.getGMNotes()) or {}
       if md.type == "Investigator" and (md.id or md.TtsZoopGuid) then
@@ -600,6 +602,7 @@ function onObjectDrop(playerColor, obj)
         printToColor("Updated minicard ID to match investigator", playerColor, "Green")
       end
     end
+
   elseif obj.getMemo() == "dynamic" then
     -- handle dynamic tokens being dropped
     local searchResult = SearchLib.belowPosition(obj.getPosition(), "isCard")
@@ -832,9 +835,9 @@ function returnAndRedraw(_, tokenGUID)
   end
 
   chaosTokens[indexOfReturnedToken] = drawChaosToken({
-    mat = mat,
+    mat            = mat,
     drawAdditional = true,
-    tokenType = redrawData.drawSpecificToken, -- currently only used for Nkosi Mabati
+    tokenType      = redrawData.drawSpecificToken, -- currently only used for Nkosi Mabati
     takeParameters = takeParameters
   })
 
@@ -956,21 +959,21 @@ function drawChaosToken(params)
           {
             tag = "Panel",
             attributes = {
-              height = 275,
-              width = 275,
-              scale = "0.4 0.4 1",
+              height   = 275,
+              width    = 275,
+              scale    = "0.4 0.4 1",
               rotation = "0 0 180",
               position = "0 0 -15",
-              color = "rgba(0,0,0,0.7)"
+              color    = "rgba(0,0,0,0.7)"
             },
             children = {
               {
                 tag = "Text",
                 attributes = {
-                  font = "font_arkhamicons",
-                  onClick = "Global/luckyPenny(" .. token.getGUID() .. ")",
-                  text = "zy",
-                  color = "White",
+                  font     = "font_arkhamicons",
+                  onClick  = "Global/luckyPenny(" .. token.getGUID() .. ")",
+                  text     = "zy",
+                  color    = "White",
                   fontSize = "125"
                 }
               }
@@ -1116,6 +1119,9 @@ function trackChaosToken(tokenName, matColor, subtract)
     -- initialize table
     tokenDrawingStats[key]               = tokenDrawingStats[key] or {}
 
+    -- initialize per-player table for last drawn
+    lastDrawnTokens[key]                 = lastDrawnTokens[key] or {}
+
     -- update stats
     tokenDrawingStats[key][readableName] = (tokenDrawingStats[key][readableName] or 0) + modifier
   end
@@ -1127,9 +1133,18 @@ function trackChaosToken(tokenName, matColor, subtract)
 
   -- add to list of last drawn tokens (if not subtracting)
   if not subtract then
-    table.insert(lastDrawnTokens, { tokenName = tokenName, matColor = matColor })
-    if #lastDrawnTokens > 5 then
-      table.remove(lastDrawnTokens, 1)
+    table.insert(lastDrawnTokens["Overall"], { tokenName = tokenName, matColor = matColor })
+
+    -- insert last drawn to per-player table
+    table.insert(lastDrawnTokens[matColor], { tokenName = tokenName, matColor = matColor })
+
+    if #lastDrawnTokens["Overall"] > 5 then
+      table.remove(lastDrawnTokens["Overall"], 1)
+    end
+
+    -- last 5 check for per-player
+    if #lastDrawnTokens[matColor] > 5 then
+      table.remove(lastDrawnTokens[matColor], 1)
     end
   end
 end
@@ -1199,6 +1214,9 @@ function handleStatTrackerClick(player, clickType, _)
         end
 
         printToAll('Total: ' .. tostring(totalCount))
+
+        -- also print last five personal chaos tokens
+        printLastFiveChaosTokens(playerColor)
       end
     end
   end
@@ -1211,21 +1229,7 @@ function handleStatTrackerClick(player, clickType, _)
     printToAll("------------------------------")
 
     -- maybe print history for last 5 token draws
-    if #lastDrawnTokens > 0 then
-      local tokenStr = ""
-      for _, data in ipairs(lastDrawnTokens) do
-        local handColor = PlayermatApi.getPlayerColor(data.matColor) or data.matColor
-        local tokenName = data.tokenName
-        if handColor ~= nil then
-          tokenName = "[" .. Color.fromString(handColor):toHex() .. "]" .. tokenName .. "[-]"
-        end
-        tokenStr = tokenStr .. tokenName .. ", "
-      end
-
-      -- remove last delimiter
-      tokenStr = string.sub(tokenStr, 1, -3)
-      printToAll("Last 5 (old to new): " .. tokenStr)
-    end
+    printLastFiveChaosTokens("Overall")
 
     -- print the player with the most auto-fails / elder signs
     if mostAutoFails == mostElderSigns then
@@ -1236,6 +1240,25 @@ function handleStatTrackerClick(player, clickType, _)
     end
   else
     printToAll("No tokens have been drawn yet.", "Yellow")
+  end
+end
+
+-- helper function to print last five chaos tokens. Use "Overall" for global key
+function printLastFiveChaosTokens(playerColor)
+  if #lastDrawnTokens[playerColor] > 0 then
+    local tokenStr = ""
+    for _, data in ipairs(lastDrawnTokens[playerColor]) do
+      local handColor = PlayermatApi.getPlayerColor(data.matColor) or data.matColor
+      local tokenName = data.tokenName
+      if handColor ~= nil then
+        tokenName = "[" .. Color.fromString(handColor):toHex() .. "]" .. tokenName .. "[-]"
+      end
+      tokenStr = tokenStr .. tokenName .. ", "
+    end
+
+    -- remove last delimiter
+    tokenStr = string.sub(tokenStr, 1, -3)
+    printToAll("Last 5 (old to new): " .. tokenStr)
   end
 end
 
@@ -1250,7 +1273,7 @@ function resetChaosTokenStatTracker(player)
   player.showConfirmDialog("Are you sure you want to reset the Chaos Token stats?",
     function()
       printToAll("Chaos Token stat tracker has been reset.")
-      lastDrawnTokens = {}
+      lastDrawnTokens = { ["Overall"] = {} }
       tokenDrawingStats = { ["Overall"] = {} }
     end
   )
@@ -2803,7 +2826,7 @@ function spawnPlayermat(matColor, transformData)
     end
   end
 
-  function spawnCoro()
+  function spawnPlayermatCoroutine()
     -- handle mat spawning first
     updateTransformData(spawnData.Playermat, transformData.position, transformData.rotation)
 
@@ -2815,13 +2838,13 @@ function spawnPlayermat(matColor, transformData)
 
     -- spawn the mat
     local playermat = spawnObjectData({ data = spawnData.Playermat })
-    coWaitFrames(5)
+    CoroutineLib.yieldFrames(5)
     GUIDReferenceApi.editIndex(matColor, "Playermat", playermat.getGUID())
 
     -- spawn objects
     spawnPlayermatObjects(matColor, playermat, transformData, spawnData)
 
-    coWaitFrames(5)
+    CoroutineLib.yieldFrames(5)
 
     -- ensure playermat has correct references
     playermat.call("getOwnedObjects")
@@ -2829,10 +2852,9 @@ function spawnPlayermat(matColor, transformData)
     -- update the action tracker
     updateActionTrackerRows()
     updateActionTrackerWidth()
-    return 1
   end
 
-  startLuaCoroutine(Global, "spawnCoro")
+  CoroutineLib.start(spawnPlayermatCoroutine)
 end
 
 function updateTransformData(data, position, rotation)
@@ -2888,13 +2910,13 @@ function updateTableSetup(newSetupName, oldSetupName)
   -- update playercount
   PlayAreaApi.setInvestigatorCount(tableSetupData.playerCount)
 
-  function tableSetupCoro()
+  function tableSetupCoroutine()
     -- if the current layout does not have a shared bag area, remove it
     if not tableSetupData.sharedBagArea then
       removeSharedBagArea()
     end
 
-    coWaitFrames(2)
+    CoroutineLib.yieldFrames(2)
 
     -- playermat preparation
     for _, matColor in ipairs(MAT_COLORS) do
@@ -2905,7 +2927,7 @@ function updateTableSetup(newSetupName, oldSetupName)
         -- remove unnecessary playermats (do this first to avoid unwanted collisions / interactions)
         removePlayermat(matColor)
       end
-      coWaitFrames(2)
+      CoroutineLib.yieldFrames(2)
     end
 
     -- mythos objects preparation
@@ -2915,7 +2937,7 @@ function updateTableSetup(newSetupName, oldSetupName)
         local mainObject = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", objectName)
         if mainObject then
           moveObjectWithObjectsOnTop(mainObject, nil, nil, Vector(0, 3, 0))
-          coWaitFrames(2)
+          CoroutineLib.yieldFrames(2)
         end
       end
     end
@@ -2935,18 +2957,18 @@ function updateTableSetup(newSetupName, oldSetupName)
             end
           end
 
-          coWaitFrames(5)
+          CoroutineLib.yieldFrames(5)
 
           PlayermatApi.moveAndRotate(matColor, transformData.position, transformData.rotation.y)
 
-          coWaitFrames(5)
+          CoroutineLib.yieldFrames(5)
 
           -- spawn missing objects
           spawnPlayermatObjects(matColor, playermat, transformData, spawnData)
         else
           spawnPlayermat(matColor, transformData)
         end
-        coWaitFrames(5)
+        CoroutineLib.yieldFrames(5)
       end
     end
 
@@ -2957,7 +2979,7 @@ function updateTableSetup(newSetupName, oldSetupName)
         local mainObject = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", objectName)
         if mainObject then
           moveObjectWithObjectsOnTop(mainObject, transformData.position, transformData.rotation.y)
-          coWaitFrames(2)
+          CoroutineLib.yieldFrames(2)
           if objectName == "TokenArranger" then
             TokenArrangerApi.deleteCopiedTokens()
           end
@@ -2969,11 +2991,9 @@ function updateTableSetup(newSetupName, oldSetupName)
     if tableSetupData.sharedBagArea and (oldSetupName == nil or not TABLE_SETUP_DATA[oldSetupName].sharedBagArea) then
       spawnSharedBagArea()
     end
-
-    return 1
   end
 
-  startLuaCoroutine(Global, "tableSetupCoro")
+  CoroutineLib.start(tableSetupCoroutine)
 end
 
 function moveObjectWithObjectsOnTop(mainObject, position, rotationY, positionOffset)
@@ -3892,7 +3912,7 @@ function TokenManager.replenishTokens(card, useInfo)
   local clickableResourceCounter = nil
   local foundTokens = 0
 
-  -- we're only searching 80% of the cards area to avoid matching tokens on other cards
+  -- we're only searching 80% of the card's area to avoid matching tokens on other cards
   -- (except for clues, since these are on locations and they should never be this close)
   local maybeDeleteThese = {}
   if useInfo.token == "clue" then
@@ -3952,7 +3972,8 @@ function TokenManager.replenishTokens(card, useInfo)
       card       = card,
       tokenType  = useInfo.token,
       tokenCount = newCount,
-      subType    = useInfo.type
+      subType    = useInfo.type,
+      matColor   = GUIDReferenceApi.getOwnerOfObject(card)
     })
   end
 end
@@ -3963,7 +3984,7 @@ function TokenManager.addUseToCard(params)
   local useType = params.useType
   local additionalCount = params.additionalCount or 1
 
-  -- only allow 1 trigger per 5 frame for the same card
+  -- only allow 1 trigger per 5 frames for the same card
   if lastCard == card then return false end
   lastCard = card
   Wait.frames(function() lastCard = nil end, 5)
@@ -4423,12 +4444,6 @@ function removeTokensFromObject(params)
         trash.putObject(obj)
       end
     end
-  end
-end
-
-function coWaitFrames(frameCount)
-  for k = 1, frameCount do
-    coroutine.yield(0)
   end
 end
 
