@@ -589,7 +589,6 @@ function onObjectDrop(playerColor, obj)
   if obj.hasTag("Investigator") then
     updateActionTrackerRows()
     updateActionTrackerWidth()
-
   elseif obj.hasTag("Minicard") then
     -- sync the mini card with an investigator below
     for _, card in ipairs(SearchLib.belowPosition(obj.getPosition(), "isCard")) do
@@ -602,7 +601,6 @@ function onObjectDrop(playerColor, obj)
         printToColor("Updated minicard ID to match investigator", playerColor, "Green")
       end
     end
-
   elseif obj.getMemo() == "dynamic" then
     -- handle dynamic tokens being dropped
     local searchResult = SearchLib.belowPosition(obj.getPosition(), "isCard")
@@ -699,7 +697,7 @@ function returnChaosTokens()
   end
   chaosTokens = {}
   isTokenXMLActive = false
-  tokenSplash(nil, true)
+  tokenSplash(true)
 end
 
 -- returns a single chaos token to the bag and calls respective functions
@@ -745,6 +743,7 @@ function activeRedrawEffect(params)
   -- determine if only some tokens are able to be returned to the bag
   local matchingTokensInPlay = {}
   for _, token in ipairs(chaosTokens) do
+    local tokenName
     if token.memo ~= nil then
       tokenName = token.memo
     else
@@ -993,7 +992,7 @@ function drawChaosToken(params)
   local specificData = tokenData[name] or {}
   token.setDescription(specificData.description or "")
   trackChaosToken(name, params.mat.getMemo())
-  tokenSplash(name)
+  Wait.frames(tokenSplash, 5)
 
   if not params.takeParameters then
     table.insert(chaosTokens, token)
@@ -1001,18 +1000,14 @@ function drawChaosToken(params)
   return token
 end
 
--- splash drawn chaos token
----@param tokenName? string Name of the chaos token (or nil if just hiding)
----@param hide? boolean If true, will force hide the token
-function tokenSplash(tokenName, hide)
+-- splash drawn chaos token(s)
+---@param hide? boolean If true, will force hide the token (with a quick fade-out)
+function tokenSplash(hide)
   if not optionPanel['showTokenSplash'] then return end
 
   local initialDelay = 0.5
   local fadeTime     = 2
   local screenTime   = 1
-
-  -- keep current state when hiding
-  stopXmlFade(hide)
 
   if waitIds["hideChaosSplash"] then
     Wait.stop(waitIds["hideChaosSplash"])
@@ -1029,6 +1024,9 @@ function tokenSplash(tokenName, hide)
     waitIds["updateChaosSplash"] = nil
   end
 
+  -- keep current state when hiding
+  stopXmlFade(hide)
+
   -- quick fade-out
   if hide then
     waitIds["hideChaosSplash"] = Wait.time(function()
@@ -1037,14 +1035,33 @@ function tokenSplash(tokenName, hide)
     return
   end
 
+  -- get the last 5 (or less) tokens
+  local tokenNames = {}
+  for i = #chaosTokens, 1, -1 do
+    local token = chaosTokens[i]
+    if token ~= nil then
+      table.insert(tokenNames, token.getName())
+
+      -- stop if there are already 5 tokens found
+      if #tokenNames == 5 then break end
+    end
+  end
+
+  local tokenName = tokenNames[1]
+
   -- reset old modifier / description
   local modifierAttributes    = { active = false, text = "" }
   local descriptionAttributes = { active = false, text = "" }
 
-  UI.setAttribute("CTS_main", "active", false)
+  --UI.setAttribute("CTS_main", "active", false)
   UI.setAttribute("CTS_modifier", "active", false)
-  UI.setAttribute("CTS_image", "color", "#FFFFFFFF")
   UI.setAttribute("CTS_description", "active", false)
+
+  -- calculate container width
+  local imageWidth     = 200
+  local imageSpacing   = 20
+  local containerWidth = imageWidth * #tokenNames + imageSpacing * (#tokenNames - 1)
+  UI.setAttribute("CTS_image_container", "width", containerWidth)
 
   -- determine if modifier should be shown
   local modifier = TokenArrangerApi.getCurrentModifier(tokenName)
@@ -1076,7 +1093,24 @@ function tokenSplash(tokenName, hide)
   -- update the XML
   waitIds["updateChaosSplash"] = Wait.frames(function()
     UI.setAttributes("CTS_modifier", modifierAttributes)
-    UI.setAttributes("CTS_image", { color = "#FFFFFFFF", image = "token-" .. namesToIds[tokenName] })
+
+    for i = 1, 5 do
+      local imageAttributes = { active = false }
+
+      -- reset color if there is just one token
+      if #tokenNames == 1 then
+        imageAttributes.color  = "#FFFFFFFF"
+      end
+
+      -- set active and image
+      if i <= #tokenNames then
+        imageAttributes.active = true
+        imageAttributes.image  = "token-" .. namesToIds[tokenNames[i]]
+      end
+
+      UI.setAttributes("CTS_image" .. i, imageAttributes)
+    end
+
     UI.setAttributes("CTS_description", descriptionAttributes)
 
     -- fade it in after changes have been applied
