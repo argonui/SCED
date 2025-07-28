@@ -1005,7 +1005,7 @@ end
 function tokenSplash(hide)
   if not optionPanel['showTokenSplash'] then return end
 
-  local initialDelay = 0.5
+  local initialDelay = 0.25
   local fadeTime     = 1
   local screenTime   = 1
 
@@ -1047,68 +1047,68 @@ function tokenSplash(hide)
     end
   end
 
-  local tokenName = tokenNames[1]
-
-  -- reset old modifier / description
-  local modifierAttributes    = { active = false, text = "" }
-  local descriptionAttributes = { active = false, text = "" }
-
   UI.setAttribute("CTS_main", "active", false)
   UI.setAttribute("CTS_modifier", "active", false)
   UI.setAttribute("CTS_description", "active", false)
 
   -- calculate container width
-  local imageWidth     = 200
-  local imageSpacing   = 20
-  local containerWidth = imageWidth * #tokenNames + imageSpacing * (#tokenNames - 1)
+  local elementWidth   = 200
+  local elementSpacing = 20
+  local containerWidth = elementWidth * #tokenNames + elementSpacing * (#tokenNames - 1)
   UI.setAttribute("CTS_image_container", "width", containerWidth)
-
-  -- determine if modifier should be shown
-  local modifier = TokenArrangerApi.getCurrentModifier(tokenName)
-  if modifier and math.abs(modifier) < 100 then
-    local modifierText = "( "
-    if modifier > 0 then
-      modifierText = modifierText .. "+"
-    end
-    modifierText = modifierText .. modifier .. " )"
-
-    -- make sure the color is reset too
-    modifierAttributes = { active = true, text = modifierText, color = "#FFFFFFFF" }
-  end
-
-  -- determine if scenario card reference data should be shown
-  local tokenData = MythosAreaApi.returnTokenData()
-  if tokenData then
-    if tokenData.tokenData[tokenName] then
-      local tokenDescription = tokenData.tokenData[tokenName].description
-      if tokenDescription then
-        screenTime = 1.5 -- more time due to text
-
-        -- make sure the color is reset too
-        descriptionAttributes = { active = true, text = tokenDescription, color = "#FFFFFFFF" }
-      end
-    end
-  end
+  UI.setAttribute("CTS_modifier_container", "width", containerWidth)
 
   -- update the XML
   waitIds["updateChaosSplash"] = Wait.frames(function()
-    UI.setAttributes("CTS_modifier", modifierAttributes)
-
     for i = 1, 5 do
-      local imageAttributes = { active = false }
+      local tokenName          = tokenNames[i]
+      local imageAttributes    = { active = false }
+      local modifierAttributes = { active = false, text = "" }
 
       -- reset color if there is just one token
       if #tokenNames == 1 then
-        imageAttributes.color  = "#FFFFFFFF"
+        imageAttributes.color = "#FFFFFFFF"
       end
 
-      -- set active and image
-      if i <= #tokenNames then
-        imageAttributes.active = true
-        imageAttributes.image  = "token-" .. namesToIds[tokenNames[i]]
+      -- update visible tokens
+      if tokenName then
+        imageAttributes.active    = true
+        imageAttributes.image     = "token-" .. namesToIds[tokenNames[i]]
+        modifierAttributes.active = true
+
+        -- determine if modifier should be shown
+        local modifier = TokenArrangerApi.getCurrentModifier(tokenName)
+        if modifier and math.abs(modifier) < 100 then
+          local modifierText = "( "
+          if modifier > 0 then
+            modifierText = modifierText .. "+"
+          end
+          modifierText = modifierText .. modifier .. " )"
+
+          -- make sure the color is reset too
+          modifierAttributes.text  = modifierText
+          modifierAttributes.color = "#FFFFFFFF"
+        end
       end
 
+      -- apply changes
       UI.setAttributes("CTS_image" .. i, imageAttributes)
+      UI.setAttributes("CTS_modifier" .. i, modifierAttributes)
+    end
+
+    -- determine if scenario card reference data should be shown
+    local descriptionAttributes = { active = false, text = "" }
+    local tokenData = MythosAreaApi.returnTokenData()
+    if tokenData then
+      if tokenData.tokenData[tokenNames[1]] then
+        local tokenDescription = tokenData.tokenData[tokenNames[1]].description
+        if tokenDescription then
+          screenTime = 1.5 -- more time due to text
+
+          -- make sure the color is reset too
+          descriptionAttributes = { active = true, text = tokenDescription, color = "#FFFFFFFF" }
+        end
+      end
     end
 
     UI.setAttributes("CTS_description", descriptionAttributes)
