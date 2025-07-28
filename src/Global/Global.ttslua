@@ -699,6 +699,7 @@ function returnChaosTokens()
   end
   chaosTokens = {}
   isTokenXMLActive = false
+  tokenSplash(nil, true)
 end
 
 -- returns a single chaos token to the bag and calls respective functions
@@ -907,149 +908,183 @@ function drawChaosToken(params)
 
   chaosTokensLastMatGUID = matGUID
 
-  -- if we have left clicked and have no tokens OR if we have right clicked
-  if params.drawAdditional or #chaosTokens == 0 then
-    local chaosBag = findChaosBag()
-    if #chaosBag.getObjects() == 0 then return end
-    chaosBag.shuffle()
+  -- left-click while tokens are already drawn
+  if not params.drawAdditional and #chaosTokens ~= 0 then
+    returnChaosTokens()
+    return
+  end
 
-    -- add the token to the list, compute new position based on list length
-    local tokenOffset = Vector(-1.55 + 0.17 * #chaosTokens, 0.25, -0.58)
+  -- draw an additional chaos token
+  local chaosBag = findChaosBag()
+  if #chaosBag.getObjects() == 0 then return end
+  chaosBag.shuffle()
 
-    -- slightly rotate subsequent chaos tokens
-    local tokenRotZ = 0
-    if #chaosTokens > 0 then
-      tokenRotZ = 354.5
+  -- add the token to the list, compute new position based on list length
+  local tokenOffset = Vector(-1.55 + 0.17 * #chaosTokens, 0.25, -0.58)
+
+  -- slightly rotate subsequent chaos tokens
+  local tokenRotZ = 0
+  if #chaosTokens > 0 then
+    tokenRotZ = 354.5
+  end
+
+  local takeParameters = params.takeParameters or {}
+  takeParameters.position = takeParameters.position or params.mat.positionToWorld(tokenOffset)
+  takeParameters.rotation = takeParameters.rotation or params.mat.getRotation():setAt("z", tokenRotZ)
+
+  local token
+  if params.guidToBeResolved then
+    -- resolve a sealed token from a card
+    token = getObjectFromGUID(params.guidToBeResolved)
+    token.setPositionSmooth(takeParameters.position)
+    TokenArrangerApi.layout()
+
+    local tokenName = token.getName()
+    if tokenName == "Bless" or tokenName == "Curse" then
+      BlessCurseManagerApi.releasedToken(tokenName, token.getGUID())
     end
-
-    local takeParameters = params.takeParameters or {}
-    takeParameters.position = takeParameters.position or params.mat.positionToWorld(tokenOffset)
-    takeParameters.rotation = takeParameters.rotation or params.mat.getRotation():setAt("z", tokenRotZ)
-
-    local token
-    if params.guidToBeResolved then
-      -- resolve a sealed token from a card
-      token = getObjectFromGUID(params.guidToBeResolved)
-      token.setPositionSmooth(takeParameters.position)
-      TokenArrangerApi.layout()
-
-      local tokenName = token.getName()
-      if tokenName == "Bless" or tokenName == "Curse" then
-        BlessCurseManagerApi.releasedToken(tokenName, token.getGUID())
-      end
-    else
-      -- take a token from the bag, either specified or random
-      if params.tokenType then
-        for i, lookedForToken in ipairs(chaosBag.getObjects()) do
-          if lookedForToken.nickname == params.tokenType then
-            takeParameters.index = i - 1
-          end
+  else
+    -- take a token from the bag, either specified or random
+    if params.tokenType then
+      for i, lookedForToken in ipairs(chaosBag.getObjects()) do
+        if lookedForToken.nickname == params.tokenType then
+          takeParameters.index = i - 1
         end
       end
-      token = chaosBag.takeObject(takeParameters)
     end
+    token = chaosBag.takeObject(takeParameters)
+  end
 
-    -- get data for token description
-    local name = token.getName()
+  -- get data for token description
+  local name = token.getName()
 
-    if name == "Bless" or name == "Curse" then
-      local isLuckyPennyEnabled = params.mat.getVar("luckyPennyEnabled")
-      if isLuckyPennyEnabled then
-        token.UI.setXmlTable({
-          {
-            tag = "Panel",
-            attributes = {
-              height   = 275,
-              width    = 275,
-              scale    = "0.4 0.4 1",
-              rotation = "0 0 180",
-              position = "0 0 -15",
-              color    = "rgba(0,0,0,0.7)"
-            },
-            children = {
-              {
-                tag = "Text",
-                attributes = {
-                  font     = "font_arkhamicons",
-                  onClick  = "Global/luckyPenny(" .. token.getGUID() .. ")",
-                  text     = "zy",
-                  color    = "White",
-                  fontSize = "125"
-                }
+  if name == "Bless" or name == "Curse" then
+    local isLuckyPennyEnabled = params.mat.getVar("luckyPennyEnabled")
+    if isLuckyPennyEnabled then
+      token.UI.setXmlTable({
+        {
+          tag = "Panel",
+          attributes = {
+            height   = 275,
+            width    = 275,
+            scale    = "0.4 0.4 1",
+            rotation = "0 0 180",
+            position = "0 0 -15",
+            color    = "rgba(0,0,0,0.7)"
+          },
+          children = {
+            {
+              tag = "Text",
+              attributes = {
+                font     = "font_arkhamicons",
+                onClick  = "Global/luckyPenny(" .. token.getGUID() .. ")",
+                text     = "zy",
+                color    = "White",
+                fontSize = "125"
               }
             }
           }
-        })
-      end
+        }
+      })
     end
-
-    local tokenData = MythosAreaApi.returnTokenData().tokenData or {}
-    local specificData = tokenData[name] or {}
-    token.setDescription(specificData.description or "")
-    trackChaosToken(name, params.mat.getMemo())
-    if optionPanel['showTokenSplash'] then
-      tokenSplash(name)
-    end
-
-    if not params.takeParameters then
-      table.insert(chaosTokens, token)
-    end
-    return token
-  else
-    returnChaosTokens()
   end
+
+  local tokenData = MythosAreaApi.returnTokenData().tokenData or {}
+  local specificData = tokenData[name] or {}
+  token.setDescription(specificData.description or "")
+  trackChaosToken(name, params.mat.getMemo())
+  tokenSplash(name)
+
+  if not params.takeParameters then
+    table.insert(chaosTokens, token)
+  end
+  return token
 end
 
 -- splash drawn chaos token
-function tokenSplash(tokenName)
-  local numSeconds = 2
-  local id = "token-" .. namesToIds[tokenName]
-  local MODIFIER_TOKENS_NAMES = {
-    ["Skull"]        = true,
-    ["Cultist"]      = true,
-    ["Elder Sign"]   = true,
-    ["Tablet"]       = true,
-    ["Elder Thing"]  = true,
-    ["Custom Token"] = true
-  }
-  local tokenData = MythosAreaApi.returnTokenData()
+---@param tokenName? string Name of the chaos token (or nil if just hiding)
+---@param hide? boolean If true, while force hide the token
+function tokenSplash(tokenName, hide)
+  if not optionPanel['showTokenSplash'] then return end
+
+  local initialDelay = 0.5
+  local fadeTime     = 2
+  local screenTime   = 1
+
+  -- keep current state when hiding
+  stopXmlFade(hide)
+
   if waitIds["hideChaosSplash"] then
     Wait.stop(waitIds["hideChaosSplash"])
     waitIds["hideChaosSplash"] = nil
   end
 
-  Wait.time(function()
-    UI.setAttribute("token-splash-image", "image", id)
-    UI.show('chaos_token')
-    -- determine if modifier should be shown
-    if MODIFIER_TOKENS_NAMES[tokenName] then
-      local modifier = TokenArrangerApi.getCurrentModifier(tokenName)
-      if modifier < 100 then
-        local modifierText = "( "
-        if modifier > 0 then
-          modifierText = modifierText .. "+"
-        end
-        UI.setValue("chaos_modifier_text", modifierText .. modifier .. " )")
-        UI.show('token_modifier')
+  if waitIds["showChaosSplash"] then
+    Wait.stop(waitIds["showChaosSplash"])
+    waitIds["showChaosSplash"] = nil
+  end
+
+  if waitIds["updateChaosSplash"] then
+    Wait.stop(waitIds["updateChaosSplash"])
+    waitIds["updateChaosSplash"] = nil
+  end
+
+  -- quick fade-out
+  if hide then
+    waitIds["hideChaosSplash"] = Wait.time(function()
+      fadeXml({ id = "CTS_main", direction = "out", time = fadeTime / 3 })
+    end, 0.02)
+    return
+  end
+
+  -- reset old modifier / description
+  local modifierAttributes    = { active = false, text = "" }
+  local descriptionAttributes = { active = false, text = "" }
+
+  UI.setAttribute("CTS_main", "active", false)
+  UI.setAttribute("CTS_modifier", "active", false)
+  UI.setAttribute("CTS_image", "color", "#FFFFFFFF")
+  UI.setAttribute("CTS_description", "active", false)
+
+  -- determine if modifier should be shown
+  local modifier = TokenArrangerApi.getCurrentModifier(tokenName)
+  if modifier and math.abs(modifier) < 100 then
+    local modifierText = "( "
+    if modifier > 0 then
+      modifierText = modifierText .. "+"
+    end
+    modifierText = modifierText .. modifier .. " )"
+    modifierAttributes = { active = true, text = modifierText }
+  end
+
+  -- determine if scenario card reference data should be shown
+  local tokenData = MythosAreaApi.returnTokenData()
+  if tokenData then
+    if tokenData.tokenData[tokenName] then
+      local tokenDescription = tokenData.tokenData[tokenName].description
+      if tokenDescription then
+        descriptionAttributes = { active = true, text = tokenDescription }
+        screenTime = 1.5 -- more time due to text
       end
     end
-    -- determine if scenario card reference data should be shown
-    if tokenData then
-      if tokenData.tokenData[tokenName] then
-        local tokenDescription = tokenData.tokenData[tokenName].description
-        if tokenDescription then
-          UI.setValue("chaos_splash_text", tokenDescription)
-          UI.show('token_description')
-          numSeconds = 2.5
-        end
-      end
-    end
-    waitIds["hideTokenSplash"] = Wait.time(function()
-      UI.hide('chaos_token')
-      UI.hide('token_description')
-      UI.hide('token_modifier')
-    end, numSeconds)
-  end, 0.75)
+  end
+
+  -- update the XML
+  waitIds["updateChaosSplash"] = Wait.frames(function()
+    UI.setAttributes("CTS_modifier", modifierAttributes)
+    UI.setAttributes("CTS_image", { color = "#FFFFFFFF", image = "token-" .. namesToIds[tokenName] })
+    UI.setAttributes("CTS_description", descriptionAttributes)
+
+    -- fade it in after changes have been applied
+    waitIds["showChaosSplash"] = Wait.time(function()
+      fadeXml({ id = "CTS_main", direction = "in", time = fadeTime })
+    end, initialDelay)
+
+    -- fade it out after a delay
+    waitIds["hideChaosSplash"] = Wait.time(function()
+      fadeXml({ id = "CTS_main", direction = "out", time = fadeTime })
+    end, initialDelay + fadeTime + screenTime)
+  end, 5)
 end
 
 function luckyPenny(_, tokenGUID)
@@ -1061,23 +1096,24 @@ function luckyPenny(_, tokenGUID)
   else
     blurseToken.memo = "Curse"
   end
+
   local pos = blurseToken.getPosition() + Vector(1.35, 0.1, 0)
   local id = blurseToken.memo:lower()
   local url = ID_URL_MAP[id].url or ""
 
   if url ~= "" then
     spawnObject({
-      type = 'Custom_Tile',
-      position = pos,
-      scale = { 0.5, 1.0, 0.5 },
-      rotation = Vector(0, 270, 0),
+      type              = 'Custom_Tile',
+      position          = pos,
+      scale             = { 0.5, 1.0, 0.5 },
+      rotation          = Vector(0, 270, 0),
       callback_function = function(obj)
         blurseToken.UI.setXml("")
         blurseToken.addAttachment(obj)
       end
     }).setCustomObject({
-      type = 2,
-      image = url,
+      type      = 2,
+      image     = url,
       thickness = 0.1
     })
   end
@@ -1818,39 +1854,43 @@ function changeWindowVisibilityForColor(color, windowId, overrideState, owner)
 end
 
 -- Stops the currently ongoing fadeout
-function stopFadeOutXml()
-  stopFadeOut = true
+function stopXmlFade(keepCurrent)
+  keepCurrentFade = keepCurrent
+  stopFade = true
 end
 
--- Fades out an XML element and its children
+-- Custom fade function for XML elements
 ---@param params table Table with the following parameters:
 --- id string ID of the XML element
+--- direction "in" | "out" The direction of the fade
 --- owner? tts__Object Object that owns the XML (or nil if Global)
---- time? number Time in seconds for the fade-out (defaults to 2)
-function fadeOutXml(params)
-  stopFadeOut = nil
+--- time? number Time in seconds for the fade (defaults to 2)
+function fadeXml(params)
+  stopFade = nil -- A global value to allow stopping the animation
 
-  -- A list of all UI attributes that will be looked for and modified
-  local FADEABLE_COLOR_ATTRIBUTES = { "color", "colors", "textColor", "outline" }
-
-  local targetUi = UI
-  if params.owner then
-    targetUi = params.owner.UI
-  end
-
+  local targetUi = params.owner and params.owner.UI or UI
   local xmlElement = getXmlTableElementById(targetUi.getXmlTable(), params.id)
   if not xmlElement then return end
-  local elementsToFade = getAllChildElements(xmlElement)
 
-  -- Store the initial state of each element. The key is the element ID.
+  local elementsToFade = getAllChildElements(xmlElement)
   local initialStates = {}
+
+  --- A list of all UI attributes that will be looked for and modified
+  local FADEABLE_COLOR_ATTRIBUTES = { "color", "colors", "textColor", "outline" }
+
+  -- Store the initial state of each element's color properties
   for _, element in ipairs(elementsToFade) do
     if element.attributes and element.attributes.id then
       local elementId = element.attributes.id
 
+      -- Special handling for image/text elements without a color attribute
+      if (element.tag == "Image" or element.tag == "Text") and not element.attributes.color then
+        element.attributes.color = "#FFFFFFFF" -- Default to opaque white
+      end
+
       -- Loop through the list of possible color attributes
       for _, property in ipairs(FADEABLE_COLOR_ATTRIBUTES) do
-        local originalColorStr = targetUi.getAttribute(elementId, property)
+        local originalColorStr = element.attributes[property]
         if originalColorStr then
           local colorToParse = originalColorStr
           local colorSuffix = nil
@@ -1884,48 +1924,75 @@ function fadeOutXml(params)
     end
   end
 
-  function co_fadeOutXml()
-    local time = params.time or 2
-    local timeStep = 0.05
-    local timeElapsed = 0
-    while timeElapsed < time do
-      local currentAlpha = 1 - timeElapsed / time
+  -- Set the initial state before the animation begins
+  if params.direction == "in" then
+    -- For fading in, make the element active but fully transparent first
+    targetUi.setAttribute(params.id, "active", true)
+    for elementId, properties in pairs(initialStates) do
+      for _, state in ipairs(properties) do
+        local transparentColor = state.color:copy()
+        transparentColor:setAt("a", 0)
 
-      -- Loop through the IDs in our state table
+        local colorStr = ColorLib.colorToHex(transparentColor) .. (state.suffix or "")
+        targetUi.setAttribute(elementId, state.property, colorStr)
+      end
+    end
+  end
+
+  -- Start the animation coroutine
+  CoroutineLib.start(function()
+    local time = params.time or 2
+    local timeStep = 0.015
+    local timeElapsed = 0
+
+    while timeElapsed < time do
+      -- Early exit condition
+      if stopFade then
+        stopFade = nil
+
+        if keepCurrentFade then
+          keepCurrentFade = nil
+          return
+        end
+        break
+      end
+
+      local progress = timeElapsed / time
+      -- Fading in: alpha goes from 0 to 1. Fading out: alpha goes from 1 to 0.
+      local currentAlphaFactor = (params.direction == "in") and progress or (1 - progress)
+
       for elementId, properties in pairs(initialStates) do
         -- Loop through each color property found for that ID
         for _, state in ipairs(properties) do
           local newColor = state.color:copy()
-          newColor:setAt("a", newColor.a * currentAlpha)
-          targetUi.setAttribute(elementId, state.property, ColorLib.colorToHex(newColor))
+          newColor:setAt("a", newColor.a * currentAlphaFactor)
+
+          -- Re-append suffix if it existed
+          local newColorStr = ColorLib.colorToHex(newColor) .. (state.suffix or "")
+          targetUi.setAttribute(elementId, state.property, newColorStr)
         end
       end
 
       CoroutineLib.yieldSeconds(timeStep)
       timeElapsed = timeElapsed + timeStep
-
-      -- early exit
-      if stopFadeOut then
-        timeElapsed = time
-        stopFadeOut = nil
-      end
     end
 
-    targetUi.setAttribute(params.id, "active", false)
-    CoroutineLib.yieldFrames()
+    -- Set the final state after the animation
+    if params.direction == "out" then
+      targetUi.setAttribute(params.id, "active", false)
+    end
 
-    -- Restore original colors
+    -- Restore original colors to ensure final state and reset for next use
     for elementId, properties in pairs(initialStates) do
       for _, state in ipairs(properties) do
-        targetUi.setAttribute(elementId, state.property, ColorLib.colorToHex(state.color))
+        local originalColorStr = ColorLib.colorToHex(state.color) .. (state.suffix or "")
+        targetUi.setAttribute(elementId, state.property, originalColorStr)
       end
     end
-  end
-
-  CoroutineLib.start(co_fadeOutXml)
+  end)
 end
 
--- updates the preview window
+-- updates the contents of the preview for items in the download window
 function updatePreviewWindow()
   local item = library[contentToShow][currentListItem]
   local tempImage =
