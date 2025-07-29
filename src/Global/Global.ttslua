@@ -589,7 +589,6 @@ function onObjectDrop(playerColor, obj)
   if obj.hasTag("Investigator") then
     updateActionTrackerRows()
     updateActionTrackerWidth()
-
   elseif obj.hasTag("Minicard") then
     -- sync the mini card with an investigator below
     for _, card in ipairs(SearchLib.belowPosition(obj.getPosition(), "isCard")) do
@@ -602,7 +601,6 @@ function onObjectDrop(playerColor, obj)
         printToColor("Updated minicard ID to match investigator", playerColor, "Green")
       end
     end
-
   elseif obj.getMemo() == "dynamic" then
     -- handle dynamic tokens being dropped
     local searchResult = SearchLib.belowPosition(obj.getPosition(), "isCard")
@@ -699,7 +697,7 @@ function returnChaosTokens()
   end
   chaosTokens = {}
   isTokenXMLActive = false
-  tokenSplash(nil, true)
+  tokenSplash(true)
 end
 
 -- returns a single chaos token to the bag and calls respective functions
@@ -745,6 +743,7 @@ function activeRedrawEffect(params)
   -- determine if only some tokens are able to be returned to the bag
   local matchingTokensInPlay = {}
   for _, token in ipairs(chaosTokens) do
+    local tokenName
     if token.memo ~= nil then
       tokenName = token.memo
     else
@@ -993,7 +992,11 @@ function drawChaosToken(params)
   local specificData = tokenData[name] or {}
   token.setDescription(specificData.description or "")
   trackChaosToken(name, params.mat.getMemo())
-  tokenSplash(name)
+
+  if waitIds["startTokenSplash"] then
+    Wait.stop(waitIds["startTokenSplash"])
+  end
+  waitIds["startTokenSplash"] = Wait.frames(tokenSplash, 5)
 
   if not params.takeParameters then
     table.insert(chaosTokens, token)
@@ -1001,18 +1004,14 @@ function drawChaosToken(params)
   return token
 end
 
--- splash drawn chaos token
----@param tokenName? string Name of the chaos token (or nil if just hiding)
----@param hide? boolean If true, while force hide the token
-function tokenSplash(tokenName, hide)
+-- splash drawn chaos token(s)
+---@param hide? boolean If true, will force hide the token (with a quick fade-out)
+function tokenSplash(hide)
   if not optionPanel['showTokenSplash'] then return end
 
-  local initialDelay = 0.5
-  local fadeTime     = 2
+  local initialDelay = 0.25
+  local fadeTime     = 1
   local screenTime   = 1
-
-  -- keep current state when hiding
-  stopXmlFade(hide)
 
   if waitIds["hideChaosSplash"] then
     Wait.stop(waitIds["hideChaosSplash"])
@@ -1029,6 +1028,9 @@ function tokenSplash(tokenName, hide)
     waitIds["updateChaosSplash"] = nil
   end
 
+  -- keep current state when hiding
+  stopXmlFade(hide)
+
   -- quick fade-out
   if hide then
     waitIds["hideChaosSplash"] = Wait.time(function()
@@ -1037,42 +1039,94 @@ function tokenSplash(tokenName, hide)
     return
   end
 
-  -- reset old modifier / description
-  local modifierAttributes    = { active = false, text = "" }
-  local descriptionAttributes = { active = false, text = "" }
+  -- get the last 5 (or less) tokens
+  local tokenNames = {}
+  for i = #chaosTokens, 1, -1 do
+    local token = chaosTokens[i]
+    if token ~= nil then
+      table.insert(tokenNames, token.getName())
+
+      -- stop if there are already 5 tokens found
+      if #tokenNames == 5 then break end
+    end
+  end
 
   UI.setAttribute("CTS_main", "active", false)
   UI.setAttribute("CTS_modifier", "active", false)
-  UI.setAttribute("CTS_image", "color", "#FFFFFFFF")
   UI.setAttribute("CTS_description", "active", false)
 
-  -- determine if modifier should be shown
-  local modifier = TokenArrangerApi.getCurrentModifier(tokenName)
-  if modifier and math.abs(modifier) < 100 then
-    local modifierText = "( "
-    if modifier > 0 then
-      modifierText = modifierText .. "+"
-    end
-    modifierText = modifierText .. modifier .. " )"
-    modifierAttributes = { active = true, text = modifierText }
-  end
+  -- calculate container width
+  local elementWidth   = 200
+  local elementSpacing = 20
+  local containerWidth = elementWidth * #tokenNames + elementSpacing * (#tokenNames - 1)
+  UI.setAttribute("CTS_image_container", "width", containerWidth)
 
-  -- determine if scenario card reference data should be shown
-  local tokenData = MythosAreaApi.returnTokenData()
-  if tokenData then
-    if tokenData.tokenData[tokenName] then
-      local tokenDescription = tokenData.tokenData[tokenName].description
-      if tokenDescription then
-        descriptionAttributes = { active = true, text = tokenDescription }
-        screenTime = 1.5 -- more time due to text
-      end
-    end
-  end
+  local leftEdgePositionX = -containerWidth / 2
 
   -- update the XML
   waitIds["updateChaosSplash"] = Wait.frames(function()
-    UI.setAttributes("CTS_modifier", modifierAttributes)
-    UI.setAttributes("CTS_image", { color = "#FFFFFFFF", image = "token-" .. namesToIds[tokenName] })
+    for i = 1, 5 do
+      local tokenName          = tokenNames[i]
+      local imageAttributes    = { active = false }
+      local modifierAttributes = { active = false, text = "" }
+
+      -- reset color if there is just one token
+      if #tokenNames == 1 then
+        imageAttributes.color = "#FFFFFFFF"
+      end
+
+      -- update visible tokens
+      if tokenName then
+        imageAttributes.active    = true
+        imageAttributes.image     = "token-" .. namesToIds[tokenNames[i]]
+        modifierAttributes.active = true
+
+        -- determine if modifier should be shown
+        local modifier            = TokenArrangerApi.getCurrentModifier(tokenName)
+        if modifier and math.abs(modifier) < 100 then
+          local modifierText = "( "
+          if modifier > 0 then
+            modifierText = modifierText .. "+"
+          end
+          modifierText                = modifierText .. modifier .. " )"
+          modifierAttributes.text     = modifierText
+
+          -- make sure the color is reset too
+          modifierAttributes.color    = "#FFFFFFFF"
+
+          -- calculate position
+          local currentElementLeftX   = leftEdgePositionX + ((i - 1) * (elementWidth + elementSpacing))
+
+          -- add half of the element's width for the center position
+          modifierAttributes.position = currentElementLeftX + (elementWidth / 2) .. " 420 0"
+        end
+      end
+
+      -- apply changes
+      UI.setAttributes("CTS_image" .. i, imageAttributes)
+      UI.setAttributes("CTS_modifier" .. i, modifierAttributes)
+    end
+
+    -- determine if scenario card reference data should be shown
+    local descriptionAttributes = { active = false, text = "" }
+    local tokenData = MythosAreaApi.returnTokenData()
+    if tokenData then
+      if tokenData.tokenData[tokenNames[1]] then
+        local tokenDescription = tokenData.tokenData[tokenNames[1]].description
+        if tokenDescription then
+          screenTime                     = 1.5 -- more time due to text
+
+          -- update the attributes
+          descriptionAttributes.active   = true
+          descriptionAttributes.text     = tokenDescription
+          descriptionAttributes.position = (elementWidth - containerWidth) / 2 .. " 130 0"
+
+          -- make sure the color is reset too
+          descriptionAttributes.color    = "#FFFFFFFF"
+        end
+      end
+    end
+
     UI.setAttributes("CTS_description", descriptionAttributes)
 
     -- fade it in after changes have been applied
