@@ -1,11 +1,11 @@
-local chaosBagApi          = require("chaosbag/ChaosBagApi")
-local deckImporterApi      = require("arkhamdb/DeckImporterApi")
-local globalApi            = require("Global/GlobalApi")
-local guidReferenceApi     = require("core/GUIDReferenceApi")
-local navigationOverlayApi = require("core/NavigationOverlayApi")
-local playAreaApi          = require("playarea/PlayAreaApi")
-local playermatApi         = require("playermat/PlayermatApi")
-local tokenArrangerApi     = require("tokens/TokenArrangerApi")
+local ChaosBagApi          = require("chaosbag/ChaosBagApi")
+local CoroutineLib         = require("util/CoroutineLib")
+local DeckImporterApi      = require("arkhamdb/DeckImporterApi")
+local GlobalApi            = require("Global/GlobalApi")
+local GUIDReferenceApi     = require("core/GUIDReferenceApi")
+local NavigationOverlayApi = require("core/NavigationOverlayApi")
+local PlayAreaApi          = require("playarea/PlayAreaApi")
+local PlayermatApi         = require("playermat/PlayermatApi")
 
 -- base data for token creation
 local saveTokenData        = {
@@ -21,7 +21,8 @@ local saveTokenData        = {
     scaleY = 2,
     scaleZ = 2
   },
-  Description = "SCED Importer Token\n\nSave me (Right-Click: Save as object)! Then you can import me on any fresh game to apply the saved settings / campaign state.",
+  Description =
+  "SCED Importer Token\n\nSave me (Right-Click: Save as object)! Then you can import me on any fresh game to apply the saved settings / campaign state.",
   Tags = { "ImporterToken" },
   CustomMesh = {
     MeshURL = "https://steamusercontent-a.akamaihd.net/ugc/943949966265929204/A38BB5D72419E6298385556D931877C0A1A55C17/",
@@ -45,13 +46,13 @@ function onLoad()
   self.createButton({
     click_function = "onClick_export",
     function_owner = self,
-    label = "Export",
-    tooltip = "Create a campaign save token!",
-    position = { x = -1, y = 0.21, z = 0 },
-    font_size = 400,
-    width = 1400,
-    height = 600,
-    scale = { 0.5, 1, 0.5 }
+    label          = "Export",
+    tooltip        = "Create a campaign save token!",
+    position       = { x = -1, y = 0.21, z = 0 },
+    font_size      = 400,
+    width          = 1400,
+    height         = 600,
+    scale          = { 0.5, 1, 0.5 }
   })
 end
 
@@ -73,16 +74,19 @@ end
 
 function onCollisionEnter(info)
   if info.collision_object.hasTag("ImporterToken") then
-    coin = info.collision_object
-    startLuaCoroutine(self, "importFromToken")
+    CoroutineLib.start(importFromToken, info.collision_object)
   end
+end
+
+function onClick_export(_, playerColor)
+  CoroutineLib.start(exportToToken, playerColor)
 end
 
 ---------------------------------------------------------
 -- main import functionality
 ---------------------------------------------------------
 
-function importFromToken()
+function importFromToken(coin)
   broadcastToAll("Import initiated")
   local importData = JSON.decode(coin.getGMNotes())
 
@@ -99,7 +103,7 @@ function importFromToken()
   -- trigger the place function of the memory bag
   if campaignBox and campaignBox.type == "Bag" and #campaignBox.getObjects() > 0 then
     campaignBox.call("buttonClick_place")
-    coWaitFrames(5)
+    CoroutineLib.yieldFrames(5)
   end
 
   -- spawn stored campaign log and additional player card bag
@@ -109,7 +113,7 @@ function importFromToken()
 
     -- maybe restore position of item and destroy duplicate
     if objData.Nickname == "Additional Player Cards" then
-      local additionalIndex = guidReferenceApi.getObjectByOwnerAndType("Mythos", "AdditionalPlayerCardsBag")
+      local additionalIndex = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "AdditionalPlayerCardsBag")
       if additionalIndex then
         objData.GUID = additionalIndex.getGUID()
         spawnData.position = additionalIndex.getPosition()
@@ -144,12 +148,12 @@ function importFromToken()
     end
 
     spawnObjectData(spawnData)
-    coWaitFrames(5)
+    CoroutineLib.yieldFrames(5)
   end
 
   -- update chaos bag
   if importData["bag"] then
-    chaosBagApi.setChaosBagState(importData["bag"])
+    ChaosBagApi.setChaosBagState(importData["bag"])
   end
 
   -- update playermat damage/horror counters
@@ -159,7 +163,7 @@ function importFromToken()
 
   -- populate deck IDs on Deck Importer
   if importData["decks"] then
-    deckImporterApi.setUiState(importData["decks"])
+    DeckImporterApi.setUiState(importData["decks"])
   end
 
   -- maybe set campaign guide page (unless it was on the first page)
@@ -171,36 +175,36 @@ function importFromToken()
   end
 
   if importData["options"] then
-    globalApi.loadOptionPanelState(importData["options"])
-    coWaitFrames(5)
+    GlobalApi.loadOptionPanelState(importData["options"])
+    CoroutineLib.yieldFrames(5)
   end
 
   -- destroy Tour Starter token
-  local tourStarter = guidReferenceApi.getObjectByOwnerAndType("Mythos", "TourStarter")
+  local tourStarter = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "TourStarter")
   if tourStarter then
     tourStarter.destruct()
   end
 
   -- restore PlayArea image and player count
   if importData["playarea"] then
-    playAreaApi.updateSurface(importData["playarea"])
-    coWaitFrames(5)
+    PlayAreaApi.updateSurface(importData["playarea"])
+    CoroutineLib.yieldFrames(5)
   end
 
   if importData["clueCount"] then
-    playAreaApi.setInvestigatorCount(importData["clueCount"])
+    PlayAreaApi.setInvestigatorCount(importData["clueCount"])
   end
 
   -- restore playermat slots
   if importData["slotData"] then
     for matColor, slotData in pairs(importData["slotData"]) do
-      playermatApi.loadSlotData(matColor, slotData)
+      PlayermatApi.loadSlotData(matColor, slotData)
     end
   end
 
   -- restore Clean Up Helper state
   if importData["CleanUpHelperState"] then
-    local cleanUpHelper = guidReferenceApi.getObjectByOwnerAndType("Mythos", "CleanUpHelper")
+    local cleanUpHelper = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "CleanUpHelper")
     if cleanUpHelper ~= nil then
       cleanUpHelper.call("loadData", importData["CleanUpHelperState"])
     end
@@ -208,7 +212,7 @@ function importFromToken()
 
   -- restore Navigation Overlay state
   if importData["NavigationOverlayState"] then
-    navigationOverlayApi.loadData(importData["NavigationOverlayState"])
+    NavigationOverlayApi.loadData(importData["NavigationOverlayState"])
   end
 
   -- maybe remove Phase Tracker
@@ -220,23 +224,17 @@ function importFromToken()
 
   -- enable Token Removers
   if importData["enableTokenRemover"] then
-    for _, obj in pairs(guidReferenceApi.getObjectsByType("TokenRemover")) do
+    for _, obj in pairs(GUIDReferenceApi.getObjectsByType("TokenRemover")) do
       obj.call("enable")
     end
   end
 
   coin.destruct()
   broadcastToAll("Import completed!", "Green")
-  return 1
-end
-
-function onClick_export(_, clickedByColor)
-  playerColor = clickedByColor
-  startLuaCoroutine(self, "exportToToken")
 end
 
 -- creates a campaign token with save data encoded into GM Notes based on the current state of the table
-function exportToToken()
+function exportToToken(playerColor)
   broadcastToAll("Export initiated")
 
   local dataToSave = {}
@@ -259,15 +257,15 @@ function exportToToken()
     dataToSave.box = campaignBox.getGUID()
   end
 
-  chaosBagApi.releaseAllSealedTokens(playerColor)
-  coWaitFrames(5)
+  ChaosBagApi.releaseAllSealedTokens(playerColor)
+  CoroutineLib.yieldFrames(5)
 
   -- main data collection
-  dataToSave.bag                 = chaosBagApi.getChaosBagState()
-  dataToSave.decks               = deckImporterApi.getUiState()
-  dataToSave.clueCount           = playAreaApi.getInvestigatorCount()
-  dataToSave.playarea            = playAreaApi.getSurface()
-  dataToSave.options             = globalApi.getOptionPanelState()
+  dataToSave.bag                 = ChaosBagApi.getChaosBagState()
+  dataToSave.decks               = DeckImporterApi.getUiState()
+  dataToSave.clueCount           = PlayAreaApi.getInvestigatorCount()
+  dataToSave.playarea            = PlayAreaApi.getSurface()
+  dataToSave.options             = GlobalApi.getOptionPanelState()
 
   -- need to reset the contained objects to support multiple exports
   saveTokenData.ContainedObjects = {}
@@ -301,7 +299,7 @@ function exportToToken()
   end
 
   -- store the additional index if there are any cards in it
-  local additionalIndex = guidReferenceApi.getObjectByOwnerAndType("Mythos", "AdditionalPlayerCardsBag")
+  local additionalIndex = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "AdditionalPlayerCardsBag")
   if additionalIndex and #additionalIndex.getObjects() > 0 then
     local indexData = additionalIndex.getData()
     indexData.Locked = false
@@ -310,19 +308,19 @@ function exportToToken()
 
   -- get the slot symbol data for each playermat (use GUIDReferenceApi to only get this for existing playermats)
   dataToSave.slotData = {}
-  for matColor, _ in pairs(guidReferenceApi.getObjectsByType("Playermat")) do
-    local slotData = playermatApi.getSlotData(matColor)
+  for matColor, _ in pairs(GUIDReferenceApi.getObjectsByType("Playermat")) do
+    local slotData = PlayermatApi.getSlotData(matColor)
     dataToSave.slotData[matColor] = slotData
   end
 
   -- get Clean Up Helper settings
-  local cleanUpHelper = guidReferenceApi.getObjectByOwnerAndType("Mythos", "CleanUpHelper")
+  local cleanUpHelper = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "CleanUpHelper")
   if cleanUpHelper ~= nil then
     dataToSave.CleanUpHelperState = cleanUpHelper.call("getSaveData", {})
   end
 
   -- get Navigation Overlay settings
-  dataToSave.NavigationOverlayState = navigationOverlayApi.getSaveData()
+  dataToSave.NavigationOverlayState = NavigationOverlayApi.getSaveData()
 
   -- check if Phase Tracker exists
   local objectList = getObjectsWithTag("LinkedPhaseTracker")
@@ -331,7 +329,7 @@ function exportToToken()
   end
 
   -- check if Token Removers are enabled
-  for _, obj in pairs(guidReferenceApi.getObjectsByType("TokenRemover")) do
+  for _, obj in pairs(GUIDReferenceApi.getObjectsByType("TokenRemover")) do
     if obj.getVar("state") == true then
       dataToSave.enableTokenRemover = true
       break
@@ -347,19 +345,11 @@ function exportToToken()
 
   spawnObjectData({ data = saveTokenData })
   broadcastToAll("Export completed! Save coin object to import on a different save.", "Green")
-  return 1
 end
 
 ---------------------------------------------------------
 -- helper functions
 ---------------------------------------------------------
-
--- pauses the current coroutine for 'frameCount' frames
-function coWaitFrames(frameCount)
-  for k = 1, frameCount do
-    coroutine.yield(0)
-  end
-end
 
 function findUniqueObjectWithTag(tag)
   local objects = getObjectsWithTag(tag)
@@ -376,7 +366,7 @@ end
 
 function setTrauma(trauma)
   for i, matColor in ipairs({ "White", "Orange", "Green", "Red" }) do
-    playermatApi.updateCounter(matColor, "DamageCounter", trauma[i])
-    playermatApi.updateCounter(matColor, "HorrorCounter", trauma[i + 4])
+    PlayermatApi.updateCounter(matColor, "DamageCounter", trauma[i])
+    PlayermatApi.updateCounter(matColor, "HorrorCounter", trauma[i + 4])
   end
 end

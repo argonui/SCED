@@ -4,6 +4,7 @@ require("core/Constants")
 require("Global/i18n")
 require("Global/i18nData")
 local BlessCurseManagerApi        = require("chaosbag/BlessCurseManagerApi")
+local ColorLib                    = require("util/ColorLib")
 local CoroutineLib                = require("util/CoroutineLib")
 local GUIDReferenceApi            = require("core/GUIDReferenceApi")
 local MathLib                     = require("util/MathLib")
@@ -181,18 +182,22 @@ function onLoad(savedData)
     onObjectSpawn(obj)
   end
 
+  -- potentially remove the tour if the player's preset contains that option
+  maybeRemoveTourStarter()
+
   getModVersion()
   updateHandVisibility()
   TokenManager.initialize()
 
   -- these things update the Global XML and thus need to happen with delays
-  Wait.time(updateBlurseVisibility, 0.2)
-  Wait.time(createActionTrackerUI, 0.4)
-  Wait.time(NavigationOverlayApi.createXmlButtons, 0.6)
-  Wait.time(NavigationOverlayApi.updateVisibility, 0.8)
-  Wait.time(PlayAreaApi.updatePlayAreaGallery, 1.0) -- also selects the first item after 0.1s
-  Wait.time(i18n.updateGlobalUiLanguage, 1.2)
-  Wait.time(initializeLibrary, 1.4)                 -- also simulates a click on the first item after 0.1s
+  Wait.time(updateBlurseVisibility, getXmlDelay())
+  Wait.time(createActionTrackerUI, getXmlDelay())
+  Wait.time(NavigationOverlayApi.createXmlButtons, getXmlDelay())
+  Wait.time(NavigationOverlayApi.updateVisibility, getXmlDelay())
+  Wait.time(PlayAreaApi.updatePlayAreaGallery, getXmlDelay()) -- also selects the first item after 0.1s
+  Wait.time(i18n.updateGlobalUiLanguage, getXmlDelay())
+  Wait.time(initializeLibrary, getXmlDelay())                 -- also simulates a click on the first item after 0.1s
+  Wait.time(function() printToAll("XML UI initialized.", "Green") end, getXmlDelay())
 
   -- add a button and context menu to the chaos token stat tracker
   local statTracker = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "StatTracker")
@@ -201,11 +206,11 @@ function onLoad(savedData)
       {
         tag = "Button",
         attributes = {
-          onClick = "Global/handleStatTrackerClick",
+          onClick  = "Global/handleStatTrackerClick",
           position = "0 0 -11",
-          width = "135",
-          height = "135",
-          color = "#00000000"
+          width    = "135",
+          height   = "135",
+          color    = "#00000000"
         }
       }
     })
@@ -224,6 +229,11 @@ end
 -- provides a random seed (from 1 to 999) to be used by "linked" objects like the action tokens
 function getRandomSeed()
   return math.random(999)
+end
+
+function getXmlDelay()
+  xmlDelay = (xmlDelay or 0) + 0.2
+  return xmlDelay
 end
 
 -- Event hook for any object search. When chaos tokens are manipulated while the chaos bag
@@ -247,10 +257,9 @@ function onObjectSearchEnd(object, playerColor)
   Player[playerColor].clearSelectedObjects()
 end
 
--- Pass object enter container events to the PlayArea to clear vector lines from dragged cards.
--- This requires the try method as cards won't exist any more after they enter a deck, so the lines
--- can't be cleared.
 function tryObjectEnterContainer(container, object)
+  if object == nil or container == nil then return true end
+
   -- stop mini cards from forming decks
   if object.hasTag("Minicard") and container.hasTag("Minicard") then
     return false
@@ -262,6 +271,8 @@ function tryObjectEnterContainer(container, object)
     return flip1 == flip2
   end
 
+  -- Pass object enter container events to the PlayArea to clear vector lines from dragged cards.
+  -- This requires the try method as cards won't exist any more after they enter a deck.
   PlayAreaApi.tryObjectEnterContainer(container, object)
   return true
 end
@@ -578,7 +589,9 @@ function onObjectDrop(playerColor, obj)
   if obj.hasTag("Investigator") then
     updateActionTrackerRows()
     updateActionTrackerWidth()
+
   elseif obj.hasTag("Minicard") then
+    -- sync the mini card with an investigator below
     for _, card in ipairs(SearchLib.belowPosition(obj.getPosition(), "isCard")) do
       local md = JSON.decode(card.getGMNotes()) or {}
       if md.type == "Investigator" and (md.id or md.TtsZoopGuid) then
@@ -589,6 +602,7 @@ function onObjectDrop(playerColor, obj)
         printToColor("Updated minicard ID to match investigator", playerColor, "Green")
       end
     end
+
   elseif obj.getMemo() == "dynamic" then
     -- handle dynamic tokens being dropped
     local searchResult = SearchLib.belowPosition(obj.getPosition(), "isCard")
@@ -685,6 +699,7 @@ function returnChaosTokens()
   end
   chaosTokens = {}
   isTokenXMLActive = false
+  tokenSplash(nil, true)
 end
 
 -- returns a single chaos token to the bag and calls respective functions
@@ -821,9 +836,9 @@ function returnAndRedraw(_, tokenGUID)
   end
 
   chaosTokens[indexOfReturnedToken] = drawChaosToken({
-    mat = mat,
+    mat            = mat,
     drawAdditional = true,
-    tokenType = redrawData.drawSpecificToken, -- currently only used for Nkosi Mabati
+    tokenType      = redrawData.drawSpecificToken, -- currently only used for Nkosi Mabati
     takeParameters = takeParameters
   })
 
@@ -893,149 +908,183 @@ function drawChaosToken(params)
 
   chaosTokensLastMatGUID = matGUID
 
-  -- if we have left clicked and have no tokens OR if we have right clicked
-  if params.drawAdditional or #chaosTokens == 0 then
-    local chaosBag = findChaosBag()
-    if #chaosBag.getObjects() == 0 then return end
-    chaosBag.shuffle()
+  -- left-click while tokens are already drawn
+  if not params.drawAdditional and #chaosTokens ~= 0 then
+    returnChaosTokens()
+    return
+  end
 
-    -- add the token to the list, compute new position based on list length
-    local tokenOffset = Vector(-1.55 + 0.17 * #chaosTokens, 0.25, -0.58)
+  -- draw an additional chaos token
+  local chaosBag = findChaosBag()
+  if #chaosBag.getObjects() == 0 then return end
+  chaosBag.shuffle()
 
-    -- slightly rotate subsequent chaos tokens
-    local tokenRotZ = 0
-    if #chaosTokens > 0 then
-      tokenRotZ = 354.5
+  -- add the token to the list, compute new position based on list length
+  local tokenOffset = Vector(-1.55 + 0.17 * #chaosTokens, 0.25, -0.58)
+
+  -- slightly rotate subsequent chaos tokens
+  local tokenRotZ = 0
+  if #chaosTokens > 0 then
+    tokenRotZ = 354.5
+  end
+
+  local takeParameters = params.takeParameters or {}
+  takeParameters.position = takeParameters.position or params.mat.positionToWorld(tokenOffset)
+  takeParameters.rotation = takeParameters.rotation or params.mat.getRotation():setAt("z", tokenRotZ)
+
+  local token
+  if params.guidToBeResolved then
+    -- resolve a sealed token from a card
+    token = getObjectFromGUID(params.guidToBeResolved)
+    token.setPositionSmooth(takeParameters.position)
+    TokenArrangerApi.layout()
+
+    local tokenName = token.getName()
+    if tokenName == "Bless" or tokenName == "Curse" then
+      BlessCurseManagerApi.releasedToken(tokenName, token.getGUID())
     end
-
-    local takeParameters = params.takeParameters or {}
-    takeParameters.position = takeParameters.position or params.mat.positionToWorld(tokenOffset)
-    takeParameters.rotation = takeParameters.rotation or params.mat.getRotation():setAt("z", tokenRotZ)
-
-    local token
-    if params.guidToBeResolved then
-      -- resolve a sealed token from a card
-      token = getObjectFromGUID(params.guidToBeResolved)
-      token.setPositionSmooth(takeParameters.position)
-      TokenArrangerApi.layout()
-
-      local tokenName = token.getName()
-      if tokenName == "Bless" or tokenName == "Curse" then
-        BlessCurseManagerApi.releasedToken(tokenName, token.getGUID())
-      end
-    else
-      -- take a token from the bag, either specified or random
-      if params.tokenType then
-        for i, lookedForToken in ipairs(chaosBag.getObjects()) do
-          if lookedForToken.nickname == params.tokenType then
-            takeParameters.index = i - 1
-          end
+  else
+    -- take a token from the bag, either specified or random
+    if params.tokenType then
+      for i, lookedForToken in ipairs(chaosBag.getObjects()) do
+        if lookedForToken.nickname == params.tokenType then
+          takeParameters.index = i - 1
         end
       end
-      token = chaosBag.takeObject(takeParameters)
     end
+    token = chaosBag.takeObject(takeParameters)
+  end
 
-    -- get data for token description
-    local name = token.getName()
+  -- get data for token description
+  local name = token.getName()
 
-    if name == "Bless" or name == "Curse" then
-      local isLuckyPennyEnabled = params.mat.getVar("luckyPennyEnabled")
-      if isLuckyPennyEnabled then
-        token.UI.setXmlTable({
-          {
-            tag = "Panel",
-            attributes = {
-              height = 275,
-              width = 275,
-              scale = "0.4 0.4 1",
-              rotation = "0 0 180",
-              position = "0 0 -15",
-              color = "rgba(0,0,0,0.7)"
-            },
-            children = {
-              {
-                tag = "Text",
-                attributes = {
-                  font = "font_arkhamicons",
-                  onClick = "Global/luckyPenny(" .. token.getGUID() .. ")",
-                  text = "zy",
-                  color = "White",
-                  fontSize = "125"
-                }
+  if name == "Bless" or name == "Curse" then
+    local isLuckyPennyEnabled = params.mat.getVar("luckyPennyEnabled")
+    if isLuckyPennyEnabled then
+      token.UI.setXmlTable({
+        {
+          tag = "Panel",
+          attributes = {
+            height   = 275,
+            width    = 275,
+            scale    = "0.4 0.4 1",
+            rotation = "0 0 180",
+            position = "0 0 -15",
+            color    = "rgba(0,0,0,0.7)"
+          },
+          children = {
+            {
+              tag = "Text",
+              attributes = {
+                font     = "font_arkhamicons",
+                onClick  = "Global/luckyPenny(" .. token.getGUID() .. ")",
+                text     = "zy",
+                color    = "White",
+                fontSize = "125"
               }
             }
           }
-        })
-      end
+        }
+      })
     end
-
-    local tokenData = MythosAreaApi.returnTokenData().tokenData or {}
-    local specificData = tokenData[name] or {}
-    token.setDescription(specificData.description or "")
-    trackChaosToken(name, params.mat.getMemo())
-    if optionPanel['showTokenSplash'] then
-      tokenSplash(name)
-    end
-
-    if not params.takeParameters then
-      table.insert(chaosTokens, token)
-    end
-    return token
-  else
-    returnChaosTokens()
   end
+
+  local tokenData = MythosAreaApi.returnTokenData().tokenData or {}
+  local specificData = tokenData[name] or {}
+  token.setDescription(specificData.description or "")
+  trackChaosToken(name, params.mat.getMemo())
+  tokenSplash(name)
+
+  if not params.takeParameters then
+    table.insert(chaosTokens, token)
+  end
+  return token
 end
 
 -- splash drawn chaos token
-function tokenSplash(tokenName)
-  local numSeconds = 2
-  local id = "token-" .. namesToIds[tokenName]
-  local MODIFIER_TOKENS_NAMES = {
-    ["Skull"]        = true,
-    ["Cultist"]      = true,
-    ["Elder Sign"]   = true,
-    ["Tablet"]       = true,
-    ["Elder Thing"]  = true,
-    ["Custom Token"] = true
-  }
-  local tokenData = MythosAreaApi.returnTokenData()
+---@param tokenName? string Name of the chaos token (or nil if just hiding)
+---@param hide? boolean If true, while force hide the token
+function tokenSplash(tokenName, hide)
+  if not optionPanel['showTokenSplash'] then return end
+
+  local initialDelay = 0.5
+  local fadeTime     = 2
+  local screenTime   = 1
+
+  -- keep current state when hiding
+  stopXmlFade(hide)
+
   if waitIds["hideChaosSplash"] then
     Wait.stop(waitIds["hideChaosSplash"])
     waitIds["hideChaosSplash"] = nil
   end
 
-  Wait.time(function()
-    UI.setAttribute("token-splash-image", "image", id)
-    UI.show('chaos_token')
-    -- determine if modifier should be shown
-    if MODIFIER_TOKENS_NAMES[tokenName] then
-      local modifier = TokenArrangerApi.getCurrentModifier(tokenName)
-      if modifier < 100 then
-        local modifierText = "( "
-        if modifier > 0 then
-          modifierText = modifierText .. "+"
-        end
-        UI.setValue("chaos_modifier_text", modifierText .. modifier .. " )")
-        UI.show('token_modifier')
+  if waitIds["showChaosSplash"] then
+    Wait.stop(waitIds["showChaosSplash"])
+    waitIds["showChaosSplash"] = nil
+  end
+
+  if waitIds["updateChaosSplash"] then
+    Wait.stop(waitIds["updateChaosSplash"])
+    waitIds["updateChaosSplash"] = nil
+  end
+
+  -- quick fade-out
+  if hide then
+    waitIds["hideChaosSplash"] = Wait.time(function()
+      fadeXml({ id = "CTS_main", direction = "out", time = fadeTime / 3 })
+    end, 0.02)
+    return
+  end
+
+  -- reset old modifier / description
+  local modifierAttributes    = { active = false, text = "" }
+  local descriptionAttributes = { active = false, text = "" }
+
+  UI.setAttribute("CTS_main", "active", false)
+  UI.setAttribute("CTS_modifier", "active", false)
+  UI.setAttribute("CTS_image", "color", "#FFFFFFFF")
+  UI.setAttribute("CTS_description", "active", false)
+
+  -- determine if modifier should be shown
+  local modifier = TokenArrangerApi.getCurrentModifier(tokenName)
+  if modifier and math.abs(modifier) < 100 then
+    local modifierText = "( "
+    if modifier > 0 then
+      modifierText = modifierText .. "+"
+    end
+    modifierText = modifierText .. modifier .. " )"
+    modifierAttributes = { active = true, text = modifierText }
+  end
+
+  -- determine if scenario card reference data should be shown
+  local tokenData = MythosAreaApi.returnTokenData()
+  if tokenData then
+    if tokenData.tokenData[tokenName] then
+      local tokenDescription = tokenData.tokenData[tokenName].description
+      if tokenDescription then
+        descriptionAttributes = { active = true, text = tokenDescription }
+        screenTime = 1.5 -- more time due to text
       end
     end
-    -- determine if scenario card reference data should be shown
-    if tokenData then
-      if tokenData.tokenData[tokenName] then
-        local tokenDescription = tokenData.tokenData[tokenName].description
-        if tokenDescription then
-          UI.setValue("chaos_splash_text", tokenDescription)
-          UI.show('token_description')
-          numSeconds = 2.5
-        end
-      end
-    end
-    waitIds["hideTokenSplash"] = Wait.time(function()
-      UI.hide('chaos_token')
-      UI.hide('token_description')
-      UI.hide('token_modifier')
-    end, numSeconds)
-  end, 0.75)
+  end
+
+  -- update the XML
+  waitIds["updateChaosSplash"] = Wait.frames(function()
+    UI.setAttributes("CTS_modifier", modifierAttributes)
+    UI.setAttributes("CTS_image", { color = "#FFFFFFFF", image = "token-" .. namesToIds[tokenName] })
+    UI.setAttributes("CTS_description", descriptionAttributes)
+
+    -- fade it in after changes have been applied
+    waitIds["showChaosSplash"] = Wait.time(function()
+      fadeXml({ id = "CTS_main", direction = "in", time = fadeTime })
+    end, initialDelay)
+
+    -- fade it out after a delay
+    waitIds["hideChaosSplash"] = Wait.time(function()
+      fadeXml({ id = "CTS_main", direction = "out", time = fadeTime })
+    end, initialDelay + fadeTime + screenTime)
+  end, 5)
 end
 
 function luckyPenny(_, tokenGUID)
@@ -1047,23 +1096,24 @@ function luckyPenny(_, tokenGUID)
   else
     blurseToken.memo = "Curse"
   end
+
   local pos = blurseToken.getPosition() + Vector(1.35, 0.1, 0)
   local id = blurseToken.memo:lower()
   local url = ID_URL_MAP[id].url or ""
 
   if url ~= "" then
     spawnObject({
-      type = 'Custom_Tile',
-      position = pos,
-      scale = { 0.5, 1.0, 0.5 },
-      rotation = Vector(0, 270, 0),
+      type              = 'Custom_Tile',
+      position          = pos,
+      scale             = { 0.5, 1.0, 0.5 },
+      rotation          = Vector(0, 270, 0),
       callback_function = function(obj)
         blurseToken.UI.setXml("")
         blurseToken.addAttachment(obj)
       end
     }).setCustomObject({
-      type = 2,
-      image = url,
+      type      = 2,
+      image     = url,
       thickness = 0.1
     })
   end
@@ -1083,6 +1133,9 @@ function trackChaosToken(tokenName, matColor, subtract)
     -- initialize table
     tokenDrawingStats[key]               = tokenDrawingStats[key] or {}
 
+    -- initialize per-player table for last drawn
+    lastDrawnTokens[key]                 = lastDrawnTokens[key] or {}
+
     -- update stats
     tokenDrawingStats[key][readableName] = (tokenDrawingStats[key][readableName] or 0) + modifier
   end
@@ -1094,9 +1147,18 @@ function trackChaosToken(tokenName, matColor, subtract)
 
   -- add to list of last drawn tokens (if not subtracting)
   if not subtract then
-    table.insert(lastDrawnTokens, { tokenName = tokenName, matColor = matColor })
-    if #lastDrawnTokens > 5 then
-      table.remove(lastDrawnTokens, 1)
+    table.insert(lastDrawnTokens["Overall"], { tokenName = tokenName, matColor = matColor })
+
+    -- insert last drawn to per-player table
+    table.insert(lastDrawnTokens[matColor], { tokenName = tokenName, matColor = matColor })
+
+    if #lastDrawnTokens["Overall"] > 5 then
+      table.remove(lastDrawnTokens["Overall"], 1)
+    end
+
+    -- last 5 check for per-player
+    if #lastDrawnTokens[matColor] > 5 then
+      table.remove(lastDrawnTokens[matColor], 1)
     end
   end
 end
@@ -1166,6 +1228,9 @@ function handleStatTrackerClick(player, clickType, _)
         end
 
         printToAll('Total: ' .. tostring(totalCount))
+
+        -- also print last five personal chaos tokens
+        printLastFiveChaosTokens(playerColor)
       end
     end
   end
@@ -1178,21 +1243,7 @@ function handleStatTrackerClick(player, clickType, _)
     printToAll("------------------------------")
 
     -- maybe print history for last 5 token draws
-    if #lastDrawnTokens > 0 then
-      local tokenStr = ""
-      for _, data in ipairs(lastDrawnTokens) do
-        local handColor = PlayermatApi.getPlayerColor(data.matColor) or data.matColor
-        local tokenName = data.tokenName
-        if handColor ~= nil then
-          tokenName = "[" .. Color.fromString(handColor):toHex() .. "]" .. tokenName .. "[-]"
-        end
-        tokenStr = tokenStr .. tokenName .. ", "
-      end
-
-      -- remove last delimiter
-      tokenStr = string.sub(tokenStr, 1, -3)
-      printToAll("Last 5 (old to new): " .. tokenStr)
-    end
+    printLastFiveChaosTokens("Overall")
 
     -- print the player with the most auto-fails / elder signs
     if mostAutoFails == mostElderSigns then
@@ -1203,6 +1254,25 @@ function handleStatTrackerClick(player, clickType, _)
     end
   else
     printToAll("No tokens have been drawn yet.", "Yellow")
+  end
+end
+
+-- helper function to print last five chaos tokens. Use "Overall" for global key
+function printLastFiveChaosTokens(playerColor)
+  if #lastDrawnTokens[playerColor] > 0 then
+    local tokenStr = ""
+    for _, data in ipairs(lastDrawnTokens[playerColor]) do
+      local handColor = PlayermatApi.getPlayerColor(data.matColor) or data.matColor
+      local tokenName = data.tokenName
+      if handColor ~= nil then
+        tokenName = "[" .. Color.fromString(handColor):toHex() .. "]" .. tokenName .. "[-]"
+      end
+      tokenStr = tokenStr .. tokenName .. ", "
+    end
+
+    -- remove last delimiter
+    tokenStr = string.sub(tokenStr, 1, -3)
+    printToAll("Last 5 (old to new): " .. tokenStr)
   end
 end
 
@@ -1217,7 +1287,7 @@ function resetChaosTokenStatTracker(player)
   player.showConfirmDialog("Are you sure you want to reset the Chaos Token stats?",
     function()
       printToAll("Chaos Token stat tracker has been reset.")
-      lastDrawnTokens = {}
+      lastDrawnTokens = { ["Overall"] = {} }
       tokenDrawingStats = { ["Overall"] = {} }
     end
   )
@@ -1783,7 +1853,146 @@ function changeWindowVisibilityForColor(color, windowId, overrideState, owner)
   return visible
 end
 
--- updates the preview window
+-- Stops the currently ongoing fadeout
+function stopXmlFade(keepCurrent)
+  keepCurrentFade = keepCurrent
+  stopFade = true
+end
+
+-- Custom fade function for XML elements
+---@param params table Table with the following parameters:
+--- id string ID of the XML element
+--- direction "in" | "out" The direction of the fade
+--- owner? tts__Object Object that owns the XML (or nil if Global)
+--- time? number Time in seconds for the fade (defaults to 2)
+function fadeXml(params)
+  stopFade = nil -- A global value to allow stopping the animation
+
+  local targetUi = params.owner and params.owner.UI or UI
+  local xmlElement = getXmlTableElementById(targetUi.getXmlTable(), params.id)
+  if not xmlElement then return end
+
+  local elementsToFade = getAllChildElements(xmlElement)
+  local initialStates = {}
+
+  --- A list of all UI attributes that will be looked for and modified
+  local FADEABLE_COLOR_ATTRIBUTES = { "color", "colors", "textColor", "outline" }
+
+  -- Store the initial state of each element's color properties
+  for _, element in ipairs(elementsToFade) do
+    if element.attributes and element.attributes.id then
+      local elementId = element.attributes.id
+
+      -- Special handling for image/text elements without a color attribute
+      if (element.tag == "Image" or element.tag == "Text") and not element.attributes.color then
+        element.attributes.color = "#FFFFFFFF" -- Default to opaque white
+      end
+
+      -- Loop through the list of possible color attributes
+      for _, property in ipairs(FADEABLE_COLOR_ATTRIBUTES) do
+        local originalColorStr = element.attributes[property]
+        if originalColorStr then
+          local colorToParse = originalColorStr
+          local colorSuffix = nil
+
+          -- Check for the "|" separator
+          local splitIndex = originalColorStr:find("|")
+          if splitIndex then
+            colorToParse = originalColorStr:sub(1, splitIndex - 1)
+            colorSuffix = originalColorStr:sub(splitIndex)
+          end
+
+          -- A color attribute was found, so parse the first part
+          local initialColor
+          if colorToParse:sub(1, 1) == "#" then
+            initialColor = ColorLib.hexToColor(colorToParse)
+          else
+            initialColor = Color.fromString(colorToParse)
+          end
+
+          if initialColor then
+            initialStates[elementId] = initialStates[elementId] or {}
+
+            table.insert(initialStates[elementId], {
+              property = property,
+              color    = initialColor,
+              suffix   = colorSuffix -- Store the suffix (will be nil if none)
+            })
+          end
+        end
+      end
+    end
+  end
+
+  -- Set the initial state before the animation begins
+  if params.direction == "in" then
+    -- For fading in, make the element active but fully transparent first
+    targetUi.setAttribute(params.id, "active", true)
+    for elementId, properties in pairs(initialStates) do
+      for _, state in ipairs(properties) do
+        local transparentColor = state.color:copy()
+        transparentColor:setAt("a", 0)
+
+        local colorStr = ColorLib.colorToHex(transparentColor) .. (state.suffix or "")
+        targetUi.setAttribute(elementId, state.property, colorStr)
+      end
+    end
+  end
+
+  -- Start the animation coroutine
+  CoroutineLib.start(function()
+    local time = params.time or 2
+    local timeStep = 0.015
+    local timeElapsed = 0
+
+    while timeElapsed < time do
+      -- Early exit condition
+      if stopFade then
+        stopFade = nil
+
+        if keepCurrentFade then
+          keepCurrentFade = nil
+          return
+        end
+        break
+      end
+
+      local progress = timeElapsed / time
+      -- Fading in: alpha goes from 0 to 1. Fading out: alpha goes from 1 to 0.
+      local currentAlphaFactor = (params.direction == "in") and progress or (1 - progress)
+
+      for elementId, properties in pairs(initialStates) do
+        -- Loop through each color property found for that ID
+        for _, state in ipairs(properties) do
+          local newColor = state.color:copy()
+          newColor:setAt("a", newColor.a * currentAlphaFactor)
+
+          -- Re-append suffix if it existed
+          local newColorStr = ColorLib.colorToHex(newColor) .. (state.suffix or "")
+          targetUi.setAttribute(elementId, state.property, newColorStr)
+        end
+      end
+
+      CoroutineLib.yieldSeconds(timeStep)
+      timeElapsed = timeElapsed + timeStep
+    end
+
+    -- Set the final state after the animation
+    if params.direction == "out" then
+      targetUi.setAttribute(params.id, "active", false)
+    end
+
+    -- Restore original colors to ensure final state and reset for next use
+    for elementId, properties in pairs(initialStates) do
+      for _, state in ipairs(properties) do
+        local originalColorStr = ColorLib.colorToHex(state.color) .. (state.suffix or "")
+        targetUi.setAttribute(elementId, state.property, originalColorStr)
+      end
+    end
+  end)
+end
+
+-- updates the contents of the preview for items in the download window
 function updatePreviewWindow()
   local item = library[contentToShow][currentListItem]
   local tempImage =
@@ -1890,7 +2099,7 @@ function updateDownloadItemList(skipAuthorUpdate)
   if not library then return end
 
   -- addition of list items according to library file
-  local globalXml = UI.getXmlTable()
+  local globalXml = Global.UI.getXmlTable() or {}
   local contentList = getXmlTableElementById(globalXml, 'contentList')
 
   -- reset the list of authors unless skipping
@@ -2035,7 +2244,7 @@ function createActionTrackerUI()
     table.insert(actionTrackerXml.children, playerRow)
   end
 
-  local xml = UI.getXmlTable()
+  local xml = Global.UI.getXmlTable() or {}
   table.insert(xml, actionTrackerXml)
   updateGlobalXml(xml)
   Wait.frames(updateActionTrackerWidth, 3)
@@ -2377,6 +2586,25 @@ function getXmlTableElementById(ui, id)
   return nil
 end
 
+-- Recursively collects an element and all its children into a flat list
+---@param xmlElement table The starting XML element table
+---@param elementList? table An optional table to add elements to
+---@return table: A flat list of the element and all its children
+function getAllChildElements(xmlElement, elementList)
+  elementList = elementList or {}
+  if xmlElement == nil then return elementList end
+
+  table.insert(elementList, xmlElement)
+
+  if xmlElement.children then
+    for _, child in ipairs(xmlElement.children) do
+      getAllChildElements(child, elementList)
+    end
+  end
+
+  return elementList
+end
+
 ---------------------------------------------------------
 -- Option Panel related functionality
 ---------------------------------------------------------
@@ -2435,7 +2663,7 @@ function onDropdownChange(player, selectedIndex, id)
 
     if valueToStore ~= "No Odds" and not tokenArrangerWarningShown then
       broadcastToAll(
-      "Odds calculation is unreliable when using tokens that draw other tokens (bless or curse for example).", "Yellow")
+        "Odds calculation is unreliable when using tokens that draw other tokens (bless or curse for example).", "Yellow")
       tokenArrangerWarningShown = true
     end
   end
@@ -2478,14 +2706,14 @@ end
 -- removes a playermat and all related objects from play
 ---@param matColor string Color of the playermat to remove
 function removePlayermat(matColor)
+  local matObjects = GUIDReferenceApi.getObjectsByOwner(matColor)
+  if not matObjects.Playermat then return end
+
   -- if there's a seated player, move them to grey
   local handColor = PlayermatApi.getPlayerColor(matColor)
   if Player[handColor].seated then
     Player[handColor].changeColor("Grey")
   end
-
-  local matObjects = GUIDReferenceApi.getObjectsByOwner(matColor)
-  if not matObjects.Playermat then return end
 
   -- remove objects on mat
   local objectsToRemove = PlayermatApi.searchAroundPlayermat(matColor, "isInteractable")
@@ -2618,7 +2846,7 @@ function spawnPlayermat(matColor, transformData)
     end
   end
 
-  function spawnCoro()
+  function spawnPlayermatCoroutine()
     -- handle mat spawning first
     updateTransformData(spawnData.Playermat, transformData.position, transformData.rotation)
 
@@ -2630,13 +2858,13 @@ function spawnPlayermat(matColor, transformData)
 
     -- spawn the mat
     local playermat = spawnObjectData({ data = spawnData.Playermat })
-    coWaitFrames(5)
+    CoroutineLib.yieldFrames(5)
     GUIDReferenceApi.editIndex(matColor, "Playermat", playermat.getGUID())
 
     -- spawn objects
     spawnPlayermatObjects(matColor, playermat, transformData, spawnData)
 
-    coWaitFrames(5)
+    CoroutineLib.yieldFrames(5)
 
     -- ensure playermat has correct references
     playermat.call("getOwnedObjects")
@@ -2644,10 +2872,9 @@ function spawnPlayermat(matColor, transformData)
     -- update the action tracker
     updateActionTrackerRows()
     updateActionTrackerWidth()
-    return 1
   end
 
-  startLuaCoroutine(Global, "spawnCoro")
+  CoroutineLib.start(spawnPlayermatCoroutine)
 end
 
 function updateTransformData(data, position, rotation)
@@ -2703,13 +2930,13 @@ function updateTableSetup(newSetupName, oldSetupName)
   -- update playercount
   PlayAreaApi.setInvestigatorCount(tableSetupData.playerCount)
 
-  function tableSetupCoro()
+  function tableSetupCoroutine()
     -- if the current layout does not have a shared bag area, remove it
     if not tableSetupData.sharedBagArea then
       removeSharedBagArea()
     end
 
-    coWaitFrames(2)
+    CoroutineLib.yieldFrames(2)
 
     -- playermat preparation
     for _, matColor in ipairs(MAT_COLORS) do
@@ -2720,7 +2947,7 @@ function updateTableSetup(newSetupName, oldSetupName)
         -- remove unnecessary playermats (do this first to avoid unwanted collisions / interactions)
         removePlayermat(matColor)
       end
-      coWaitFrames(2)
+      CoroutineLib.yieldFrames(2)
     end
 
     -- mythos objects preparation
@@ -2730,7 +2957,7 @@ function updateTableSetup(newSetupName, oldSetupName)
         local mainObject = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", objectName)
         if mainObject then
           moveObjectWithObjectsOnTop(mainObject, nil, nil, Vector(0, 3, 0))
-          coWaitFrames(2)
+          CoroutineLib.yieldFrames(2)
         end
       end
     end
@@ -2750,18 +2977,18 @@ function updateTableSetup(newSetupName, oldSetupName)
             end
           end
 
-          coWaitFrames(5)
+          CoroutineLib.yieldFrames(5)
 
           PlayermatApi.moveAndRotate(matColor, transformData.position, transformData.rotation.y)
 
-          coWaitFrames(5)
+          CoroutineLib.yieldFrames(5)
 
           -- spawn missing objects
           spawnPlayermatObjects(matColor, playermat, transformData, spawnData)
         else
           spawnPlayermat(matColor, transformData)
         end
-        coWaitFrames(5)
+        CoroutineLib.yieldFrames(5)
       end
     end
 
@@ -2772,7 +2999,7 @@ function updateTableSetup(newSetupName, oldSetupName)
         local mainObject = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", objectName)
         if mainObject then
           moveObjectWithObjectsOnTop(mainObject, transformData.position, transformData.rotation.y)
-          coWaitFrames(2)
+          CoroutineLib.yieldFrames(2)
           if objectName == "TokenArranger" then
             TokenArrangerApi.deleteCopiedTokens()
           end
@@ -2781,14 +3008,12 @@ function updateTableSetup(newSetupName, oldSetupName)
     end
 
     -- if the new layout introduces a shared bag area, spawn it
-    if tableSetupData.sharedBagArea and not TABLE_SETUP_DATA[oldSetupName].sharedBagArea then
+    if tableSetupData.sharedBagArea and (oldSetupName == nil or not TABLE_SETUP_DATA[oldSetupName].sharedBagArea) then
       spawnSharedBagArea()
     end
-
-    return 1
   end
 
-  startLuaCoroutine(Global, "tableSetupCoro")
+  CoroutineLib.start(tableSetupCoroutine)
 end
 
 function moveObjectWithObjectsOnTop(mainObject, position, rotationY, positionOffset)
@@ -2841,7 +3066,7 @@ function updateOptionPanelState()
     elseif DROPDOWN_DATA[id] and type(optionValue) == "string" then
       UI.setAttribute(id, "value", getDropdownOptionIndex(id, optionValue) - 1)
     elseif id == "playAreaConnectionColor" then
-      UI.setAttribute(id, "color", "#" .. Color.new(optionValue):toHex())
+      UI.setAttribute(id, "color", ColorLib.colorToHex(Color(optionValue)))
     elseif (type(optionValue) == "boolean" and optionValue)
         or (type(optionValue) == "string" and optionValue)
         or (type(optionValue) == "table" and #optionValue ~= 0) then
@@ -2872,7 +3097,9 @@ function applyOptionPanelChange(id, state)
 
     -- option: Clickable clue counters
   elseif id == "useClueClickers" then
-    PlayermatApi.clickableClues(state, "All")
+    -- a bit hacky, but we're using the delay to control whether the counter is spawned / removed before or after
+    Wait.frames(function() spawnOrRemoveHelperForPlayermats("Clickable Clue Counter", state) end, state and 0 or 20)
+    Wait.frames(function() PlayermatApi.clickableClues(state, "All") end, 10)
 
     -- option: Enable card helpers
   elseif id == "enableCardHelpers" then
@@ -2894,7 +3121,7 @@ function applyOptionPanelChange(id, state)
     -- option: Play area connection color
   elseif id == "playAreaConnectionColor" then
     PlayAreaApi.setConnectionColor(state)
-    UI.setAttribute(id, "color", "#" .. Color.new(state):toHex())
+    UI.setAttribute(id, "color", ColorLib.colorToHex(Color(state)))
 
     -- option: Play area snap tags
   elseif id == "playAreaSnapTags" then
@@ -2920,9 +3147,33 @@ function applyOptionPanelChange(id, state)
   elseif id == "showDisplacementTool" then
     spawnOrRemoveHelper(state, "Displacement Tool", { -68, 1.53, 57 })
 
+    -- shortcut: Remove the tour
+  elseif id == "skipTour" then
+    if state then removeTourStarter() end
+
     -- this will only be called by the "loadOptionPanelState" function
   elseif id == "tableSetup" then
     updateTableSetup(state, nil)
+  end
+end
+
+function removeTourStarter()
+  local tourStarter = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "TourStarter")
+  if tourStarter then
+    tourStarter.destruct()
+  end
+end
+
+function maybeRemoveTourStarter()
+  for _, player in ipairs(Player.getPlayers()) do
+    if player.host then
+      local steamName = string.gsub(player.steam_name, "%s+", "")
+      local options = OPTION_PRESETS[steamName]
+      if options and options.skipTour then
+        removeTourStarter()
+      end
+      return
+    end
   end
 end
 
@@ -2951,17 +3202,20 @@ end
 ---@param owner? string Owner of the object (defaults to "Mythos")
 ---@return string|nil GUID GUID of the spawnedObj (or nil if object was removed)
 function spawnOrRemoveHelper(state, name, position, rotation, owner)
+  local spawnedGUID
   if state then
     local pingPlayer = Player.getPlayers()[1]
     if pingPlayer.color ~= "Grey" then
       pingPlayer.pingTable(position)
     end
-    local spawnedGUID = spawnHelperObject(name, position, rotation).getGUID()
-    local cleanName = name:gsub("%s+", "")
-    GUIDReferenceApi.editIndex(owner or "Mythos", cleanName, spawnedGUID)
+    spawnedGUID = spawnHelperObject(name, position, rotation).getGUID()
   else
     removeHelperObject(name)
   end
+
+  -- update the index (it's intended that 'spawnedGUID' is nil when removing the object)
+  local cleanName = name:gsub("%s+", "")
+  GUIDReferenceApi.editIndex(owner or "Mythos", cleanName, spawnedGUID)
 end
 
 -- copies the specified tool (by name) from the option panel source bag
@@ -3587,7 +3841,7 @@ function TokenManager.spawnTokensFromUses(params)
   local spawnReactionToken = params.spawnReactionToken
   local matColor           = params.matColor
 
-  local uses = TokenManager.getUses(card)
+  local uses               = TokenManager.getUses(card)
   if uses == nil then return end
 
   card.resting = true
@@ -3678,7 +3932,7 @@ function TokenManager.replenishTokens(card, useInfo)
   local clickableResourceCounter = nil
   local foundTokens = 0
 
-  -- we're only searching 80% of the cards area to avoid matching tokens on other cards
+  -- we're only searching 80% of the card's area to avoid matching tokens on other cards
   -- (except for clues, since these are on locations and they should never be this close)
   local maybeDeleteThese = {}
   if useInfo.token == "clue" then
@@ -3738,7 +3992,8 @@ function TokenManager.replenishTokens(card, useInfo)
       card       = card,
       tokenType  = useInfo.token,
       tokenCount = newCount,
-      subType    = useInfo.type
+      subType    = useInfo.type,
+      matColor   = GUIDReferenceApi.getOwnerOfObject(card)
     })
   end
 end
@@ -3749,7 +4004,7 @@ function TokenManager.addUseToCard(params)
   local useType = params.useType
   local additionalCount = params.additionalCount or 1
 
-  -- only allow 1 trigger per 5 frame for the same card
+  -- only allow 1 trigger per 5 frames for the same card
   if lastCard == card then return false end
   lastCard = card
   Wait.frames(function() lastCard = nil end, 5)
@@ -4209,12 +4464,6 @@ function removeTokensFromObject(params)
         trash.putObject(obj)
       end
     end
-  end
-end
-
-function coWaitFrames(frameCount)
-  for k = 1, frameCount do
-    coroutine.yield(0)
   end
 end
 

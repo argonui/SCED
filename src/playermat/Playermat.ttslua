@@ -1,6 +1,8 @@
 require("core/Constants")
 local AllCardsBagApi              = require("playercards/AllCardsBagApi")
 local ChaosBagApi                 = require("chaosbag/ChaosBagApi")
+local ColorLib                    = require("util/ColorLib")
+local CoroutineLib                = require("util/CoroutineLib")
 local DeckLib                     = require("util/DeckLib")
 local GlobalApi                   = require("Global/GlobalApi")
 local GUIDReferenceApi            = require("core/GUIDReferenceApi")
@@ -269,11 +271,12 @@ end
 
 -- finds all objects on the playermat and associated set aside zone.
 function searchAroundSelf(filter)
-  local scale  = self.getScale()
-  local bounds = self.getBoundsNormalized()
+  local scale             = self.getScale()
+  local bounds            = self.getBoundsNormalized()
 
-  -- Increase the width to cover the set aside zone
-  local size = Vector(bounds.size.x + SEARCH_AROUND_SELF_X_BUFFER, 2, bounds.size.z + SEARCH_AROUND_SELF_Z_BUFFER)
+  -- Increase the width to cover the set aside zone (height needs to account for cards "below" the playermat)
+  local size              = Vector(bounds.size.x + SEARCH_AROUND_SELF_X_BUFFER, 3,
+    bounds.size.z + SEARCH_AROUND_SELF_Z_BUFFER)
 
   -- 'setAsideDirection' accounts for the set aside zone being on the left or right,
   -- depending on the table position of the playermat
@@ -281,13 +284,13 @@ function searchAroundSelf(filter)
 
   -- Since the cast is centered on the position, shift left or right to keep
   -- the non-set aside edge of the cast at the edge of the playermat
-  local localCenter = self.positionToLocal(bounds.center)
-  localCenter.x = localCenter.x + setAsideDirection * SEARCH_AROUND_SELF_X_BUFFER / 2 / scale.x
-  localCenter.z = localCenter.z - SEARCH_AROUND_SELF_Z_BUFFER / 2 / scale.z
+  local localCenter       = self.positionToLocal(bounds.center)
+  localCenter.x           = localCenter.x + setAsideDirection * SEARCH_AROUND_SELF_X_BUFFER / 2 / scale.x
+  localCenter.z           = localCenter.z - SEARCH_AROUND_SELF_Z_BUFFER / 2 / scale.z
 
   -- Perform the search
-  local pos = self.positionToWorld(localCenter) + Vector(0, 1, 0)
-  local rot = self.getRotation()
+  local pos               = self.positionToWorld(localCenter) + Vector(0, 1, 0)
+  local rot               = self.getRotation()
   return SearchLib.inArea(pos, rot, size, filter)
 end
 
@@ -503,7 +506,7 @@ function doUpkeep(_, clickedByColor, isRightClick)
         -- add some time if there are any cards to discard
         local k = 0
         if #cardsToDiscard > 0 then
-          k = 0.8 + (#cardsToDiscard * 0.1)
+          k = 0.8 + (#cardsToDiscard * 0.2)
         end
         Wait.time(function() drawCardsWithReshuffle(cardsToDraw) end, k)
       end
@@ -551,7 +554,7 @@ function drawCardsWithReshuffle(numCards)
 
     if harbinger then
       printToColor("The Harbinger is on top of your deck, not drawing cards", messageColor)
-      return 1
+      return
     end
 
     -- draw the top card if possible
@@ -562,7 +565,7 @@ function drawCardsWithReshuffle(numCards)
       numCards = numCards - 1
       if numCards == 0 then
         flipTopCardFromDeck()
-        return 1
+        return
       end
     end
 
@@ -580,15 +583,15 @@ function drawCardsWithReshuffle(numCards)
       if topCardDetected then
         flipTopCardFromDeck()
       end
-      return 1
+      return
     end
 
     -- draw the full deck, form a new deck and draw the remaining cards
     drawCards(deckAreaObjects.draw, deckSize)
     if deckAreaObjects.discard ~= nil then
-      coWaitFrames(30)
+      CoroutineLib.yieldFrames(30 + deckSize)
       shuffleDiscardIntoDeck()
-      coWaitSeconds(1 * 0.35)
+      CoroutineLib.yieldSeconds(1)
 
       local shuffledObjects = getDeckAreaObjects()
       drawCards(shuffledObjects.draw, numCards - deckSize)
@@ -597,10 +600,9 @@ function drawCardsWithReshuffle(numCards)
       end
       printToColor("Take 1 horror (drawing card from empty deck)", messageColor)
     end
-    return 1
   end
 
-  startLuaCoroutine(self, "drawCardsCoroutine")
+  CoroutineLib.start(drawCardsCoroutine)
 end
 
 function isHarbinger(notes)
@@ -614,11 +616,11 @@ function getDeckAreaObjects()
   local deckAreaObjects = {}
 
   -- perform the search for cards / decks
-  local pos          = self.positionToWorld(DECK_DISCARD_AREA.center)
-  local rot          = self.getRotation()
-  local size         = DECK_DISCARD_AREA.size * self.getScale()
-  local filter       = "isCardOrDeck"
-  local searchResult = SearchLib.inArea(pos, rot, size, filter)
+  local pos             = self.positionToWorld(DECK_DISCARD_AREA.center)
+  local rot             = self.getRotation()
+  local size            = DECK_DISCARD_AREA.size * self.getScale()
+  local filter          = "isCardOrDeck"
+  local searchResult    = SearchLib.inArea(pos, rot, size, filter)
 
   -- detect deck / discard and topcard
   for _, object in ipairs(searchResult) do
@@ -839,13 +841,13 @@ function createXML()
   local shuffleDiscardXML = {
     tag = "Button",
     attributes = {
-      id = "shuffleDiscardButton",
-      onClick = "shuffleDiscardIntoDeck",
-      width = "7",
-      height = "7",
+      id       = "shuffleDiscardButton",
+      onClick  = "shuffleDiscardIntoDeck",
+      width    = "7",
+      height   = "7",
       position = "-182 30.5 -11",
       rotation = "0 0 180",
-      image = "shuffle"
+      image    = "shuffle"
     }
   }
   table.insert(xml, shuffleDiscardXML)
@@ -1049,7 +1051,7 @@ function createXML()
         subTable.attributes.colors  = "#FFFFFF|#dfdfdf"
       elseif optionData.type == "button" then
         -- create a regular button
-        local baseColor = Color.new(0.228, 0.249, 0.773)
+        local baseColor = Color(0.228, 0.249, 0.773)
 
         -- use the hand color for the selection button
         if optionData.id == "handColorSelect" then
@@ -1059,7 +1061,7 @@ function createXML()
         subTable.tag                = "Button"
         subTable.attributes.image   = "option_button"
         subTable.attributes.onClick = "onClick_" .. optionData.id
-        subTable.attributes.colors  = getColorBlockForXmlButton(baseColor)
+        subTable.attributes.colors  = ColorLib.getXmlColorBlock(baseColor, 0.75, 1.33)
       elseif optionData.type == "input" then
         -- create an inputfield
         subTable.tag                            = "InputField"
@@ -1078,17 +1080,17 @@ function createXML()
         subTable.attributes.value          = 6
       elseif optionData.type == "dropdown" then
         -- create a dropdown menu
-        subTable.tag                          = "Dropdown"
-        subTable.attributes.id                = optionData.id
-        subTable.attributes.onValueChanged    = "onDropdownChange(selectedIndex)"
-        subTable.attributes.value             = getDropdownOptionIndex(optionData.id, optionPanelData[optionData.id]) - 1
-        subTable.attributes.raycastTarget     = "true"
-        subTable.attributes.dropdownHeight    = 250 * math.min(#optionData.options, 3)
-        subTable.attributes.itemHeight        = 70
-        subTable.attributes.fontSize          = 60
-        subTable.attributes.font              = fontName
-        subTable.attributes.width             = subTable.attributes.width * 2
-        subTable.attributes.children          = {}
+        subTable.tag                       = "Dropdown"
+        subTable.attributes.id             = optionData.id
+        subTable.attributes.onValueChanged = "onDropdownChange(selectedIndex)"
+        subTable.attributes.value          = getDropdownOptionIndex(optionData.id, optionPanelData[optionData.id]) - 1
+        subTable.attributes.raycastTarget  = "true"
+        subTable.attributes.dropdownHeight = 250 * math.min(#optionData.options, 3)
+        subTable.attributes.itemHeight     = 70
+        subTable.attributes.fontSize       = 60
+        subTable.attributes.font           = fontName
+        subTable.attributes.width          = subTable.attributes.width * 2
+        subTable.attributes.children       = {}
 
         -- add options
         for dropdownOptionId, option in ipairs(optionData.options) do
@@ -1128,7 +1130,7 @@ function onClick_textureSelect(player)
   for texture, _ in pairs(nameToTexture) do
     table.insert(textureList, texture)
   end
-  player.showOptionsDialog("Select a texture:", textureList, _, updateTexture)
+  player.showOptionsDialog("Select a texture:", textureList, nil, updateTexture)
 end
 
 -- show the triggering player a dialog to select a new hand color for this mat
@@ -1167,21 +1169,10 @@ function onClick_handColorSelect(player)
     playerColor = newColor
 
     -- update the color of the option button
-    self.UI.setAttribute("handColorSelect", "colors", getColorBlockForXmlButton(Color[playerColor]))
+    local colorBlock = ColorLib.getXmlColorBlock(Color[playerColor], 0.75, 1.33)
+    self.UI.setAttribute("handColorSelect", "colors", colorBlock)
     updateSave()
   end)
-end
-
--- generates a color block for the xml option buttons
-function getColorBlockForXmlButton(baseColor)
-  local darkColor = multiplyColor(baseColor, 0.75)
-  local lightColor = multiplyColor(baseColor, 1.33)
-  return "#" .. baseColor:toHex() .. "|#" .. darkColor:toHex() .. "|#" .. lightColor:toHex()
-end
-
--- multiplies a color by a value
-function multiplyColor(col, mult)
-  return Color.new(col.r * mult, col.g * mult, col.b * mult)
 end
 
 -- instruct Global to update this mat's hand visibility
@@ -1567,7 +1558,9 @@ function maybeUpdateActiveInvestigator(card, md)
     md.combatIcons,
     md.agilityIcons
   })
-  updateTexture()
+
+  -- small delay to allow other objects to finish colliding
+  Wait.time(updateTexture, 0.3)
 
   newInvestigatorCallback(md.id)
 
@@ -1847,12 +1840,10 @@ end
 -- shows / hides a clickable clue counter for this playermat and sets the correct amount of clues
 ---@param showCounter boolean Whether the clickable clue counter should be visible
 function clickableClues(showCounter)
-  local clickerPos = ownedObjects.ClickableClueCounter.getPosition()
-  local currentCount = 0
+  -- update object references
+  getOwnedObjects()
 
-  -- move clue counters
-  local modY = showCounter and 0.525 or -0.525
-  ownedObjects.ClickableClueCounter.setPosition(clickerPos + Vector(0, modY, 0))
+  local currentCount = 0
 
   if showCounter then
     -- get current clue count
@@ -1869,9 +1860,10 @@ function clickableClues(showCounter)
 
     -- spawn clues
     local pos = self.positionToWorld({ x = -1.12, y = 0.05, z = 0.7 })
+    local rot = self.getRotation()
     for i = 1, currentCount do
       pos.y = pos.y + 0.045 * i
-      TokenManagerApi.spawnToken(pos, "clue", self.getRotation())
+      TokenManagerApi.spawnToken(pos, "clue", rot)
     end
   end
 end
@@ -1887,7 +1879,9 @@ end
 -- removes all clues (moving tokens to the trash and setting counters to 0)
 function removeClues()
   searchForClueDoom(true)
-  ownedObjects.ClickableClueCounter.call("updateVal", 0)
+  if ownedObjects.ClickableClueCounter then
+    ownedObjects.ClickableClueCounter.call("updateVal", 0)
+  end
 end
 
 -- reports the clue count
@@ -1935,17 +1929,20 @@ function searchForClueDoom(removeClues)
 
   -- update clue counter button
   if ownedObjects.ClueCounter then
-    ownedObjects.ClueCounter.clearButtons()
-    ownedObjects.ClueCounter.createButton({
-      label          = clueCount,
-      click_function = "none",
-      function_owner = self,
-      position       = { 0, 0.1, 0 },
-      height         = 0,
-      width          = 0,
-      font_color     = { 0, 0, 0 },
-      font_size      = 2000
-    })
+    if ownedObjects.ClueCounter.getButtons() == nil then
+      ownedObjects.ClueCounter.createButton({
+        label          = clueCount,
+        click_function = "none",
+        function_owner = self,
+        position       = { 0, 0.1, 0 },
+        height         = 0,
+        width          = 0,
+        font_color     = { 0, 0, 0 },
+        font_size      = 2000
+      })
+    else
+      ownedObjects.ClueCounter.editButton({ index = 0, label = clueCount })
+    end
   end
 end
 
@@ -2032,18 +2029,3 @@ end
 function getActiveInvestigatorData() return activeInvestigatorData end
 
 function setActiveInvestigatorData(newData) activeInvestigatorData = newData end
-
--- pauses the current coroutine for 'frameCount' frames
-function coWaitFrames(frameCount)
-  for k = 1, frameCount do
-    coroutine.yield(0)
-  end
-end
-
--- pauses the current coroutine for 'seconds' seconds
-function coWaitSeconds(seconds)
-  local startTime = os.clock()
-  while os.clock() - startTime < seconds do
-    coroutine.yield(0)
-  end
-end
