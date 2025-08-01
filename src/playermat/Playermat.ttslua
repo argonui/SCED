@@ -115,15 +115,15 @@ local tokenSpawnPos               = {
 -- used for the buttons on the right side of the playermat
 -- starts off with the data for the "Upkeep" button and will then be changed
 local buttonParameters            = {
-  label = "Upkeep",
+  label          = "Upkeep",
   click_function = "doUpkeep",
-  tooltip = "Right-click to skip resource gain and card draw",
+  tooltip        = "Right-click to skip resource gain and card draw",
   function_owner = self,
-  position = { x = 1.82, y = 0.15, z = -0.45 },
-  scale = { 0.12, 0.12, 0.12 },
-  width = 1000,
-  height = 280,
-  font_size = 180
+  position       = { x = 1.82, y = 0.15, z = -0.45 },
+  scale          = { 0.12, 0.12, 0.12 },
+  width          = 1000,
+  height         = 280,
+  font_size      = 180
 }
 
 -- table of texture URLs
@@ -304,6 +304,83 @@ function updateMessageColor(clickedByColor)
   else
     messageColor = Player.getPlayers()[1].color
   end
+end
+
+function moveAndRotateSelf(params)
+  local position = params.position
+  local rotationY = params.rotationY
+  local positionOffset = params.positionOffset
+
+  -- get current transform data
+  local currentMatPos = self.getPosition()
+  local currentMatRotY = self.getRotation().y
+
+  -- use current values if undefined
+  position = position or currentMatPos
+  rotationY = rotationY or currentMatRotY
+
+  if positionOffset then
+    position = Vector(position) + Vector(positionOffset)
+  end
+
+  local movedObjects = {}
+  local function moveAndRotateObject(obj)
+    local relativePos = obj.getPosition() - currentMatPos
+    obj.setPosition(position + relativePos:rotateOver("y", rotationY - currentMatRotY))
+
+    if obj.type == "Hand" then
+      obj.setRotation({ 0, rotationY + 180, 0 })
+    else
+      local objRot = obj.getRotation()
+      local relativeRotY = objRot.y - currentMatRotY
+      obj.setRotation({ objRot.x, rotationY + relativeRotY, objRot.z })
+    end
+
+    movedObjects[obj.getGUID()] = true
+  end
+
+  -- get objects on the mat
+  for _, obj in ipairs(SearchLib.onObject(self, "isInteractable")) do
+    if not movedObjects[obj.getGUID()] then
+      -- make sure object isn't owned by another mat
+      local owner = GUIDReferenceApi.getOwnerOfObject(obj)
+      if owner == "Mythos" or owner == matColor then
+        moveAndRotateObject(obj)
+      end
+    end
+  end
+
+  -- move owned objects (including the mat)
+  for _, obj in pairs(GUIDReferenceApi.getObjectsByOwner(matColor)) do
+    if not movedObjects[obj.getGUID()] then
+      moveAndRotateObject(obj)
+    end
+  end
+
+  -- make sure the Token Remover Zone is updated
+  local TokenRemover = GUIDReferenceApi.getObjectByOwnerAndType(matColor, "TokenRemover")
+  if TokenRemover ~= nil then
+    TokenRemover.call("updateZone")
+  end
+end
+
+-- Returns a table with spawn data (position and rotation) for a helper object
+---@param helperName string Name of the helper object
+function getHelperSpawnData(helperName)
+  local localPositionTable = {
+    ["Clickable Clue Counter"] = Vector(-1.013, 0.09, 0.692),
+    ["Hand Helper"]            = Vector(-0.055, 0.03, -1.132),
+    ["Search Assistant"]       = Vector(-0.340, 0.03, -1.132)
+  }
+  local localRotationTable = {
+    ["Clickable Clue Counter"] = Vector(0, 10, 0),
+    ["Hand Helper"]            = Vector(0, 0, 0),
+    ["Search Assistant"]       = Vector(0, 0, 0)
+  }
+
+  local pos = self.positionToWorld(localPositionTable[helperName])
+  local rot = self.getRotation() + localRotationTable[helperName]
+  return { position = pos, rotation = rot }
 end
 
 ---------------------------------------------------------
@@ -1223,7 +1300,12 @@ function applyOptionPanelChange(id, state, clickType)
 end
 
 -- updates the XML for the slot symbols based on the slotData table
-function updateSlotSymbols()
+function updateSlotSymbols(newSlotData)
+  if newSlotData then
+    slotData = newSlotData
+    updateSave()
+  end
+
   for slotId, slotName in ipairs(slotData) do
     -- update the symbol
     self.UI.setAttributes("slot" .. slotId, {

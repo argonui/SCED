@@ -1,89 +1,4 @@
---[[ Library for cards that seal tokens
-This file is used to add sealing option to cards' context menu.
-NOTE: all cards are allowed to release a single token to enable Hallow and A Watchful Peace,
-and to release all sealed tokens to allow for cards that might leave play with sealed tokens on them.
-Valid options (set before requiring this file):
-
-MAX_SEALED          --@type: number (maximum number of tokens allowable by the card to be sealed)
-  - required for all cards
-  - if MAX_SEALED is more than 1, then an XML label is created for the topmost token indicating the number of sealed tokens
-  - gives an error if user tries to seal additional tokens on the card
-  - example usage: "The Chthonian Stone"
-    > MAX_SEALED = 1
-
-UPDATE_ON_HOVER     --@type: boolean
-  - automatically updates the context menu options when the card is hovered
-  - the "Read Bag" function reads the content of the chaos bag to update the context menu
-  - example usage: "Unrelenting" (to only display valid tokens)
-
-KEEP_OPEN           --@type: boolean
-- meant for cards that seal single tokens multiple times (one by one)
-- makes the context menu stay open after selecting an option
-- example usage: "Unrelenting"
-
-SHOW_MULTI_RELEASE  --@type: number (maximum amount of tokens to release at once)
-  - enables an entry in the context menu
-  - this entry allows releasing of multiple tokens at once, to the maximum number
-  - does not fail if there are fewer than the maximum sealed
-  - example usage: "Nephthys" (to release up to 3 bless tokens at once)
-
-SHOW_MULTI_RETURN   --@type: number (amount of tokens to return to pool at once)
-  - enables an entry in the context menu
-  - this entry allows returning tokens to the token pool
-  - fails if not enough tokens are sealed
-  - example usage: "Nephthys" (to return 3 bless tokens at once)
-
-SHOW_RETURN_ALL   --@boolean:
-  - enables an entry in the context menu
-  - this entry allows returning all sealed tokens to the token pool
-  - example usage: "Radiant Smite" (to return whatever number of bless tokens that are sealed at once)
-
-SHOW_MULTI_SEAL     --@type: number (amount of tokens to seal at once)
-  - enables an entry in the context menu
-  - this entry allows sealing of multiple tokens at once
-  - example usage: "Holy Spear" (to seal two bless tokens at once)
-
-VALID_TOKENS        --@type: table ([tokenName] = true)
-  - this table defines which tokens should be abled to be sealed
-  - needs to be defined for each card -> even if empty
-  - example usage: "The Chthonian Stone"
-    > VALID_TOKENS = {
-    >   ["Skull"]       = true,
-    >   ["Cultist"]     = true,
-    >   ["Tablet"]      = true,
-    >   ["Elder Thing"] = true,
-    > }
-
-INVALID_TOKENS      --@type: table ([tokenName] = true)
-  - this table defines which tokens are invalid for sealing
-  - only needs to be defined if needed
-  - usually combined with empty "VALID_TOKENS" table
-  - example usage: "Protective Incantation" (not allowed to seal Auto-fail)
-
-----------------------------------------------------------
-Example 1: Crystalline Elder Sign
-This card can only seal the "+1" or "Elder Sign" token,
-it does not need specific options for multi-sealing or releasing.
-Thus it should be implemented like this:
-  > VALID_TOKENS = {
-  >   ["+1"] = true,
-  >   ["Elder Sign"] = true
-  > }
-  > MAX_SEALED = 1
-  > require...
-----------------------------------------------------------
-Example 2: Holy Spear
-This card features the following abilities (just listing the relevant parts):
-- releasing a single bless token
-- sealing two bless tokens
-Thus it should be implemented like this:
-  > VALID_TOKENS = {
-  >   ["Bless"] = true
-  > }
-  > SHOW_MULTI_SEAL = 2
-  > MAX_SEALED = 10
-  > require...
-----------------------------------------------------------]]
+-- Library for cards that seal tokens (see separate markdown file for documentation)
 
 local BlessCurseManagerApi = require("chaosbag/BlessCurseManagerApi")
 local ChaosBagApi          = require("chaosbag/ChaosBagApi")
@@ -114,7 +29,6 @@ function updateSave()
 end
 
 function onLoad(savedData)
-  -- if MAX_SEALED is not set, default to 99
   MAX_SEALED = MAX_SEALED or 99
 
   -- verify sealed tokens
@@ -131,7 +45,6 @@ function onLoad(savedData)
   self.addTag("CardThatSeals")
 end
 
--- builds the context menu
 function generateContextMenu()
   self.addContextMenuItem("Release one token", releaseOneToken)
 
@@ -497,28 +410,26 @@ function updateStackSize()
     fontsize = 360
   end
 
-  topToken.UI.setXmlTable({
-    {
-      tag = "Panel",
+  topToken.UI.setXmlTable({ {
+    tag = "Panel",
+    attributes = {
+      height   = 380,
+      width    = 380,
+      rotation = "0 0 180",
+      scale    = "0.2 0.2 1",
+      position = "0 0 -12",
+      color    = tokenColor[topToken.getName()] or "#77674DE6"
+    },
+    children = {
+      tag = "Text",
       attributes = {
-        height = 380,
-        width = 380,
-        rotation = "0 0 180",
-        scale = "0.2 0.2 1",
-        position = "0 0 -12",
-        color = tokenColor[topToken.getName()] or "#77674DE6"
-      },
-      children = {
-        tag = "Text",
-        attributes = {
-          fontSize = fontsize,
-          font = "font_teutonic-arkham",
-          color = "#ffffff",
-          outline = "#000000",
-          outlineSize = "8 -8",
-          text = "x" .. #sealedTokens
-        }
+        fontSize    = fontsize,
+        font        = "font_teutonic-arkham",
+        color       = "#ffffff",
+        outline     = "#000000",
+        outlineSize = "8 -8",
+        text        = "x" .. #sealedTokens
       }
     }
-  })
+  } })
 end
