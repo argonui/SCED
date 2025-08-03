@@ -806,6 +806,91 @@ function activeRedrawEffect(params)
   end
 end
 
+function sealTokenFromPlay(params)
+  sealTokenData = params
+  log(sealTokenData)
+  triggeringCardGUID = sealTokenData.triggeringCardGUID
+
+  if isTokenXMLActive == true then
+    broadcastToAll("Clear already active buttons first, then try again", "Red")
+    return
+  end
+
+  if #chaosTokens == 0 then
+    broadcastToAll("No tokens found in play area", "Red")
+    return
+  end
+
+  -- nil handling
+  sealTokenData.validTokens = sealTokenData.validTokens or {}
+  sealTokenData.invalidTokens = sealTokenData.invalidTokens or {}
+
+  -- determine if only some tokens are able to be returned to the bag
+  local matchingTokensInPlay = {}
+  for _, token in ipairs(chaosTokens) do
+    local tokenName
+    if token.memo ~= nil then
+      tokenName = token.memo
+    else
+      tokenName = getReadableTokenName(token.getName())
+    end
+
+    -- allow valid tokens or not invalid tokens, also allow any token if both lists empty
+    if (sealTokenData.validTokens[tokenName] ~= nil and isTableEmpty(sealTokenData.invalidTokens)) or
+        (isTableEmpty(sealTokenData.validTokens) and not sealTokenData.invalidTokens[tokenName]) or
+        (isTableEmpty(sealTokenData.validTokens) and isTableEmpty(sealTokenData.invalidTokens)) then
+      table.insert(matchingTokensInPlay, token)
+    end
+  end
+
+  -- proceed according to number of matching tokens
+  if #matchingTokensInPlay == 0 then
+    broadcastToAll("No eligible token found in play area", "Red")
+  elseif #matchingTokensInPlay == 1 then
+    returnAndSeal(_, matchingTokensInPlay[1].getGUID())
+  else
+    -- draw XML to allow choosing the token to return to bag
+    isTokenXMLActive = true
+    for _, token in ipairs(matchingTokensInPlay) do
+      token.UI.setXmlTable({
+        {
+          tag = "VerticalLayout",
+          attributes = {
+            height = 275,
+            width = 275,
+            padding = "0 0 20 25",
+            scale = "0.4 0.4 1",
+            rotation = "0 0 180",
+            position = "0 0 -15",
+            color = "rgba(0,0,0,0.7)",
+            onClick = "Global/returnAndSeal(" .. token.getGUID() .. ")",
+          },
+          children = {
+            {
+              tag = "Text",
+              attributes = {
+                fontSize = "100",
+                font = "font_teutonic-arkham",
+                color = "#ffffff",
+                text = "Seal"
+              }
+            },
+            {
+              tag = "Text",
+              attributes = {
+                fontSize = "125",
+                font = "font_arkhamicons",
+                color = "#ffffff",
+                text = "u"
+              }
+            }
+          }
+        }
+      })
+    end
+  end
+end
+
 -- returns a chaos token to the chaos bag and redraws another
 function returnAndRedraw(_, tokenGUID)
   local returnedToken = getObjectFromGUID(tokenGUID)
@@ -855,6 +940,28 @@ function returnAndRedraw(_, tokenGUID)
 
   -- return a reference to the freshly drawn token
   return chaosTokens[indexOfReturnedToken]
+end
+
+-- returns a chaos token to the chaos bag and seals it
+function returnAndSeal(playerColor, tokenGUID)
+  local returnedToken = getObjectFromGUID(tokenGUID)
+  local tokenName = returnedToken.getName()
+
+  local params = { token = returnedToken, fromBag = true }
+  returnChaosTokenToBag(params)
+
+  -- remove XML from tokens in play
+  isTokenXMLActive = false
+  for _, token in ipairs(chaosTokens) do
+    token.UI.setXml("")
+  end
+
+ -- tell the original card/object to seal the token
+ log(sealTokenData.triggeringCardGUID)
+  local triggeringCard = getObjectFromGUID(sealTokenData.triggeringCardGUID)
+  triggeringCard.call("sealToken", tokenName)
+
+  sealTokenData = {}
 end
 
 -- Checks to see if the chaos bag can be manipulated. If a player is searching the bag when tokens
