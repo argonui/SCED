@@ -15,7 +15,8 @@ local REPLACEMENT_FIELDS = {
   "CustomPDF",
   "CustomImage",
   "LuaScript",
-  "LuaScriptState"
+  "LuaScriptState",
+  "CustomMesh"
 }
 
 function onLoad()
@@ -62,6 +63,8 @@ end
 function processContainedObjects(containedObjects, customDeck)
   for _, objData in ipairs(containedObjects) do
     if objData.ContainedObjects then
+      addObjectToIndex(objData)
+      itemCount = itemCount + 1
       -- recursively process nested containers
       processContainedObjects(objData.ContainedObjects, objData.CustomDeck)
     elseif objData.Name == "Card" or objData.Name == "CardCustom" then
@@ -126,7 +129,7 @@ function addObjectToIndex(objectData)
     objectMetadata = parseObjectMetadata(objectData)
   end
 
-  if objectMetadata then
+  if objectMetadata and objectMetadata.id then
     objectIdIndex[objectMetadata.id] = { data = objectData, metadata = objectMetadata }
   end
 end
@@ -202,12 +205,12 @@ end
 function handleSpawnedBag(bag)
   Wait.time(function()
     if bag ~= nil then
-      bag.addTag("Replaced")
       local objData = bag.getData()
       if updateBagData(objData) then
         bag.destruct()
         spawnObjectData({ data = objData })
       end
+      bag.addTag("Replaced")
     end
   end, 1)
 end
@@ -277,6 +280,18 @@ end
 
 function updateBagData(bagData)
   local changedSomething = false
+
+  -- check if the bag has metadata
+  local bagMd = JSON.decode(bagData.GMNotes) or {}
+
+  -- replace fields if bag is in the index
+  local objectIndexData = getObjectById({ id = bagMd.id })
+  if objectIndexData ~= nil then
+    if updateOriginalItemData(bagData, objectIndexData.data) then
+      changedSomething = true
+    end
+  end
+
   for _, objData in ipairs(bagData.ContainedObjects or {}) do
     if objData.Name == "Bag" or objData.Name == "Custom_Model_Bag" then
       if updateBagData(objData) then
