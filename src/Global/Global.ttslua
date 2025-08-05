@@ -764,11 +764,6 @@ function activeRedrawEffect(params)
   elseif #matchingTokensInPlay == 1 then
     returnAndRedraw(_, matchingTokensInPlay[1].getGUID())
   else
-    createTokenLabel(matchingTokensInPlay, "Global/returnAndRedraw", "Redraw")
-  end
-end
-
-function createTokenLabel(matchingTokensInPlay, onClick, label)
   -- draw XML to allow choosing the token to return to bag
   isTokenXMLActive = true
   for _, token in ipairs(matchingTokensInPlay) do
@@ -783,7 +778,7 @@ function createTokenLabel(matchingTokensInPlay, onClick, label)
           rotation = "0 0 180",
           position = "0 0 -15",
           color = "rgba(0,0,0,0.7)",
-          onClick = onClick .."(" .. token.getGUID() .. ")",
+            onClick = "Global/returnAndRedraw(" .. token.getGUID() .. ")",
         },
         children = {
           {
@@ -792,7 +787,7 @@ function createTokenLabel(matchingTokensInPlay, onClick, label)
               fontSize = "100",
               font = "font_teutonic-arkham",
               color = "#ffffff",
-              text = label
+                text = "Redraw"
             }
           },
           {
@@ -809,51 +804,6 @@ function createTokenLabel(matchingTokensInPlay, onClick, label)
     })
   end
 end
-
-function sealTokenFromPlay(params)
-  sealTokenData = params
-  triggeringCardGUID = sealTokenData.triggeringCardGUID -- sets up global variable for later function
-
-  if isTokenXMLActive == true then
-    broadcastToAll("Clear already active buttons first, then try again", "Red")
-    return
-  end
-
-  if #chaosTokens == 0 then
-    broadcastToAll("No tokens found in play area", "Red")
-    return
-  end
-
-  -- nil handling
-  sealTokenData.validTokens = sealTokenData.validTokens or {}
-  sealTokenData.invalidTokens = sealTokenData.invalidTokens or {}
-
-  -- determine if only some tokens are able to be sealed
-  local matchingTokensInPlay = {}
-  for _, token in ipairs(chaosTokens) do
-    local tokenName
-    if token.memo ~= nil then
-      tokenName = token.memo
-    else
-      tokenName = getReadableTokenName(token.getName())
-    end
-
-    -- allow valid tokens or not invalid tokens, also allow any token if both lists empty
-    if (sealTokenData.validTokens[tokenName] ~= nil and isTableEmpty(sealTokenData.invalidTokens)) or
-        (isTableEmpty(sealTokenData.validTokens) and not sealTokenData.invalidTokens[tokenName]) or
-        (isTableEmpty(sealTokenData.validTokens) and isTableEmpty(sealTokenData.invalidTokens)) then
-      table.insert(matchingTokensInPlay, token)
-    end
-  end
-
-  -- proceed according to number of matching tokens
-  if #matchingTokensInPlay == 0 then
-    broadcastToAll("No eligible token found in play area", "Red")
-  elseif #matchingTokensInPlay == 1 then
-    returnAndSeal(_, matchingTokensInPlay[1].getGUID())
-  else
-    createTokenLabel(matchingTokensInPlay, "Global/returnAndSeal", "Seal")
-  end
 end
 
 -- returns a chaos token to the chaos bag and redraws another
@@ -905,44 +855,6 @@ function returnAndRedraw(_, tokenGUID)
 
   -- return a reference to the freshly drawn token
   return chaosTokens[indexOfReturnedToken]
-end
-
--- returns a chaos token to the chaos bag and seals it
-function returnAndSeal(_, tokenGUID)
-  local returnedToken = getObjectFromGUID(tokenGUID)
-  local tokenName = returnedToken.getName()
-  local indexOfReturnedToken = getTokenIndex(returnedToken)
-
-  local params = { token = returnedToken, fromBag = true }
-  returnChaosTokenToBag(params)
-  table.remove(chaosTokens, indexOfReturnedToken)
-  -- shift existing tokens to fill the gap, compute new position based on list length
-  if #chaosTokens > 0 then
-    local matColor = PlayermatApi.getMatColorByPosition(chaosTokens[1].getPosition())
-    mat = GUIDReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
-    for i = 1, #chaosTokens do
-      local yPos = chaosTokens[i].getPosition() -- avoids slight visual hitch
-      chaosTokens[i].setPositionSmooth(getChaosTokenPosition(mat, i-1):setAt("y", yPos.y))
-    end
-  end
-
-  -- remove XML from tokens in play
-  isTokenXMLActive = false
-  for _, token in ipairs(chaosTokens) do
-    token.UI.setXml("")
-  end
-
- -- tell the original card/object to seal the token
-  local triggeringCard = getObjectFromGUID(sealTokenData.triggeringCardGUID)
-  triggeringCard.call("sealTokenWrapper", { tokenName = tokenName, playerColor = sealTokenData.playerColor })
-
-  sealTokenData = {}
-end
-
--- helper function to determine the position of a chaos token on a playermat
-function getChaosTokenPosition(mat, number)
-  local tokenOffset = Vector(-1.55 + 0.17 * number, 0.25, -0.58)
-  return mat.positionToWorld(tokenOffset)
 end
 
 -- Checks to see if the chaos bag can be manipulated. If a player is searching the bag when tokens
@@ -1006,6 +918,9 @@ function drawChaosToken(params)
   if #chaosBag.getObjects() == 0 then return end
   chaosBag.shuffle()
 
+  -- add the token to the list, compute new position based on list length
+  local tokenOffset = Vector(-1.55 + 0.17 * #chaosTokens, 0.25, -0.58)
+
   -- slightly rotate subsequent chaos tokens
   local tokenRotZ = 0
   if #chaosTokens > 0 then
@@ -1013,7 +928,7 @@ function drawChaosToken(params)
   end
 
   local takeParameters = params.takeParameters or {}
-  takeParameters.position = takeParameters.position or getChaosTokenPosition(params.mat, #chaosTokens)
+  takeParameters.position = takeParameters.position or params.mat.positionToWorld(tokenOffset)
   takeParameters.rotation = takeParameters.rotation or params.mat.getRotation():setAt("z", tokenRotZ)
 
   local token
