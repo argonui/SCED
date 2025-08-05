@@ -723,8 +723,8 @@ function getTokenIndex(token)
 end
 
 -- starts a redraw effect and displays buttons for a choice if needed
-function activeRedrawEffect(params)
-  redrawData = params
+function removeTokenFromPlay(params)
+  removeTokenData = params
 
   if isTokenXMLActive == true then
     broadcastToAll("Clear already active buttons first, then try again", "Red")
@@ -736,9 +736,19 @@ function activeRedrawEffect(params)
     return
   end
 
+  local functionName
+  local tokenLabel
+  if removeTokenData.type == "redraw" then
+    functionName = "returnAndRedraw"
+    tokenLabel = "Redraw"
+  else
+    functionName = "returnAndSeal"
+    tokenLabel = "Seal"
+  end
+
   -- nil handling
-  redrawData.validTokens = redrawData.validTokens or {}
-  redrawData.invalidTokens = redrawData.invalidTokens or {}
+  removeTokenData.validTokens = removeTokenData.validTokens or {}
+  removeTokenData.invalidTokens = removeTokenData.invalidTokens or {}
 
   -- determine if only some tokens are able to be returned to the bag
   local matchingTokensInPlay = {}
@@ -752,9 +762,9 @@ function activeRedrawEffect(params)
     end
 
     -- allow valid tokens or not invalid tokens, also allow any token if both lists empty
-    if (redrawData.validTokens[tokenName] ~= nil and isTableEmpty(redrawData.invalidTokens)) or
-        (isTableEmpty(redrawData.validTokens) and not redrawData.invalidTokens[tokenName]) or
-        (isTableEmpty(redrawData.validTokens) and isTableEmpty(redrawData.invalidTokens)) then
+    if (removeTokenData.validTokens[tokenName] ~= nil and isTableEmpty(removeTokenData.invalidTokens)) or
+        (isTableEmpty(removeTokenData.validTokens) and not removeTokenData.invalidTokens[tokenName]) or
+        (isTableEmpty(removeTokenData.validTokens) and isTableEmpty(removeTokenData.invalidTokens)) then
       table.insert(matchingTokensInPlay, token)
       if MathLib.roundAngleToMultiple(token.getRotation().z, 90) == 180 then
         table.insert(matchingCanceledTokens, token)
@@ -768,61 +778,9 @@ function activeRedrawEffect(params)
   elseif #matchingTokensInPlay == #matchingCanceledTokens then
     broadcastToAll("All matching tokens are already cancelled / ignored and thus not available for this effect.", "Red")
   elseif #matchingTokensInPlay == 1 then
-    returnAndRedraw(_, matchingTokensInPlay[1].getGUID())
+    _G[functionName](_, matchingTokensInPlay[1].getGUID())
   else
-    createTokenLabel(matchingTokensInPlay, "Global/returnAndRedraw", "Redraw")
-  end
-end
-
-function sealTokenFromPlay(params)
-  sealTokenData = params
-  triggeringCardGUID = sealTokenData.triggeringCardGUID -- sets up global variable for later function
-
-  if isTokenXMLActive == true then
-    broadcastToAll("Clear already active buttons first, then try again", "Red")
-    return
-  end
-
-  if #chaosTokens == 0 then
-    broadcastToAll("No tokens found in play area", "Red")
-    return
-  end
-
-  -- nil handling
-  sealTokenData.validTokens = sealTokenData.validTokens or {}
-  sealTokenData.invalidTokens = sealTokenData.invalidTokens or {}
-
-  -- determine if only some tokens are able to be sealed
-  local matchingTokensInPlay = {}
-  local matchingCanceledTokens = {}
-  for _, token in ipairs(chaosTokens) do
-    local tokenName
-    if token.memo ~= nil then
-      tokenName = token.memo
-    else
-      tokenName = getReadableTokenName(token.getName())
-    end
-
-    -- allow valid tokens or not invalid tokens, also allow any token if both lists empty
-    if (sealTokenData.validTokens[tokenName] ~= nil and isTableEmpty(sealTokenData.invalidTokens)) or
-        (isTableEmpty(sealTokenData.validTokens) and not sealTokenData.invalidTokens[tokenName]) or
-        (isTableEmpty(sealTokenData.validTokens) and isTableEmpty(sealTokenData.invalidTokens)) then
-      table.insert(matchingTokensInPlay, token)
-      if MathLib.roundAngleToMultiple(token.getRotation().z, 90) == 180 then
-        table.insert(matchingCanceledTokens, token)
-      end
-    end
-  end
-
-  -- proceed according to number of matching tokens
-  if #matchingTokensInPlay == 0 then
-    broadcastToAll("No eligible token found in play area", "Red")
-  elseif #matchingTokensInPlay == #matchingCanceledTokens then
-    broadcastToAll("All matching tokens are already cancelled / ignored and thus not available for this effect.", "Red")
-  elseif #matchingTokensInPlay == 1 then
-    returnAndSeal(_, matchingTokensInPlay[1].getGUID())
-  else
-    createTokenLabel(matchingTokensInPlay, "Global/returnAndSeal", "Seal")
+    createTokenLabel(matchingTokensInPlay, functionName, tokenLabel)
   end
 end
 
@@ -841,7 +799,7 @@ function createTokenLabel(matchingTokensInPlay, onClick, label)
           rotation = "0 0 180",
           position = "0 0 -15",
           color = "rgba(0,0,0,0.7)",
-          onClick = onClick .."(" .. token.getGUID() .. ")",
+          onClick = "Global/" .. onClick .."(" .. token.getGUID() .. ")",
         },
         children = {
           {
@@ -899,12 +857,12 @@ function returnAndRedraw(_, tokenGUID)
   chaosTokens[indexOfReturnedToken] = drawChaosToken({
     mat            = mat,
     drawAdditional = true,
-    tokenType      = redrawData.drawSpecificToken, -- currently only used for Nkosi Mabati
+    tokenType      = removeTokenData.drawSpecificToken, -- currently only used for Nkosi Mabati
     takeParameters = takeParameters
   })
 
   -- remove these tokens from the bag
-  if redrawData.returnToPool then
+  if removeTokenData.returnToPool then
     -- let the bless/curse manager handle these
     if tokenName == "Bless" or tokenName == "Curse" then
       BlessCurseManagerApi.removeToken(tokenName)
@@ -913,7 +871,7 @@ function returnAndRedraw(_, tokenGUID)
     end
   end
 
-  redrawData = {}
+  removeTokenData = {}
   -- return a reference to the freshly drawn token
   return chaosTokens[indexOfReturnedToken]
 end
@@ -944,10 +902,9 @@ function returnAndSeal(_, tokenGUID)
   end
 
  -- tell the original card/object to seal the token
-  local triggeringCard = getObjectFromGUID(sealTokenData.triggeringCardGUID)
-  triggeringCard.call("sealTokenWrapper", { tokenName = tokenName, playerColor = sealTokenData.playerColor })
-
-  sealTokenData = {}
+  local triggeringCard = getObjectFromGUID(removeTokenData.triggeringCardGUID)
+  triggeringCard.call("sealTokenWrapper", { tokenName = tokenName, playerColor = removeTokenData.playerColor })
+  removeTokenData = {}
 end
 
 -- helper function to determine the position of a chaos token on a playermat
