@@ -945,9 +945,20 @@ end
 function returnAndSeal(_, tokenGUID)
   local returnedToken = getObjectFromGUID(tokenGUID)
   local tokenName = returnedToken.getName()
+  local indexOfReturnedToken = getTokenIndex(returnedToken)
 
   local params = { token = returnedToken, fromBag = true }
   returnChaosTokenToBag(params)
+  table.remove(chaosTokens, indexOfReturnedToken)
+  -- shift existing tokens to fill the gap, compute new position based on list length
+  if #chaosTokens > 0 then
+    local matColor = PlayermatApi.getMatColorByPosition(chaosTokens[1].getPosition())
+    mat = GUIDReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
+    for i = 1, #chaosTokens do
+      local yPos = chaosTokens[i].getPosition() -- avoids slight visual hitch
+      chaosTokens[i].setPositionSmooth(getChaosTokenPosition(mat, i-1):setAt("y", yPos.y))
+    end
+  end
 
   -- remove XML from tokens in play
   isTokenXMLActive = false
@@ -960,6 +971,12 @@ function returnAndSeal(_, tokenGUID)
   triggeringCard.call("sealTokenWrapper", { tokenName = tokenName, playerColor = sealTokenData.playerColor })
 
   sealTokenData = {}
+end
+
+-- helper function to determine the position of a chaos token on a playermat
+function getChaosTokenPosition(mat, number)
+  local tokenOffset = Vector(-1.55 + 0.17 * number, 0.25, -0.58)
+  return mat.positionToWorld(tokenOffset)
 end
 
 -- Checks to see if the chaos bag can be manipulated. If a player is searching the bag when tokens
@@ -1023,9 +1040,6 @@ function drawChaosToken(params)
   if #chaosBag.getObjects() == 0 then return end
   chaosBag.shuffle()
 
-  -- add the token to the list, compute new position based on list length
-  local tokenOffset = Vector(-1.55 + 0.17 * #chaosTokens, 0.25, -0.58)
-
   -- slightly rotate subsequent chaos tokens
   local tokenRotZ = 0
   if #chaosTokens > 0 then
@@ -1033,7 +1047,7 @@ function drawChaosToken(params)
   end
 
   local takeParameters = params.takeParameters or {}
-  takeParameters.position = takeParameters.position or params.mat.positionToWorld(tokenOffset)
+  takeParameters.position = takeParameters.position or getChaosTokenPosition(params.mat, #chaosTokens)
   takeParameters.rotation = takeParameters.rotation or params.mat.getRotation():setAt("z", tokenRotZ)
 
   local token
