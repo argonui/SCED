@@ -14,6 +14,7 @@ local PlayAreaApi                 = require("playarea/PlayAreaApi")
 local PlayermatApi                = require("playermat/PlayermatApi")
 local SearchLib                   = require("util/SearchLib")
 local SoundCubeApi                = require("core/SoundCubeApi")
+local TableLib                    = require("util/TableLib")
 local TokenArrangerApi            = require("tokens/TokenArrangerApi")
 local TokenChecker                = require("tokens/TokenChecker")
 local TokenSpawnTrackerApi        = require("tokens/TokenSpawnTrackerApi")
@@ -2192,7 +2193,8 @@ function updateDownloadItemList(skipAuthorUpdate)
 
   -- populate the author dropdown with options unless skipping
   if not skipAuthorUpdate then
-    authorList = removeDuplicatesAndSort(authorList)
+    authorList = TableLib.removeDuplicates(authorList)
+    table.sort(authorList)
 
     local authorDropdown = getXmlTableElementById(globalXml, 'DW_authorDropdown')
     authorDropdown.children = { { tag = "Option", value = i18n.getStrById("DW_all_authors") } }
@@ -3815,7 +3817,7 @@ function TokenManager.spawnToken(params)
     loadTokenType = "clueDoom"
   end
 
-  local tokenTemplate = deepCopy(tokenTemplates[loadTokenType])
+  local tokenTemplate = TableLib.copy(tokenTemplates[loadTokenType])
   if tokenTemplate == nil then
     error("Unknown token type '" .. loadTokenType .. "'")
     return
@@ -3833,7 +3835,6 @@ function TokenManager.spawnToken(params)
   if addTag then
     spawnData.data["Tags"] = spawnData.data["Tags"] or {}
     table.insert(spawnData.data["Tags"], addTag)
-    spawnData.data["Tags"] = removeDuplicatesAndSort(spawnData.data["Tags"])
   end
 
   -- get rotation for the token
@@ -4137,7 +4138,7 @@ end
 -- gets the data for a specific resource token state
 function TokenManager.getTemplateForState(subTypeStateId)
   -- create a copy of the resource token (to not modify the source)
-  local template = deepCopy(tokenTemplates["resource"])
+  local template = TableLib.copy(tokenTemplates["resource"])
   local subTypeData = template["States"][subTypeStateId]
 
   -- add states to data
@@ -4235,36 +4236,6 @@ function getColoredName(playerColor)
 
   -- add bb-code
   return "[" .. Color.fromString(playerColor):toHex() .. "]" .. displayName .. "[-]"
-end
-
--- creates a deep copy of a table
-function deepCopy(data)
-  if type(data) ~= "table" then return data end
-  local copiedList = {}
-  for key, value in pairs(data) do
-    if type(value) == "table" then
-      copiedList[key] = deepCopy(value)
-    else
-      copiedList[key] = value
-    end
-  end
-  return copiedList
-end
-
-function removeDuplicatesAndSort(t)
-  local seen = {}
-  local result = {}
-
-  for _, value in ipairs(t) do
-    if not seen[value] then
-      seen[value] = true
-      table.insert(result, value)
-    end
-  end
-
-  table.sort(result)
-
-  return result
 end
 
 -- constructs the mini id for a given investigator id
