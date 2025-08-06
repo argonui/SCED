@@ -724,8 +724,8 @@ function getTokenIndex(token)
 end
 
 -- starts a redraw effect and displays buttons for a choice if needed
-function activeRedrawEffect(params)
-  redrawData = params
+function removeTokenFromPlay(params)
+  removeTokenData = params
 
   if isTokenXMLActive == true then
     broadcastToAll("Clear already active buttons first, then try again", "Red")
@@ -737,12 +737,23 @@ function activeRedrawEffect(params)
     return
   end
 
+  local functionName
+  local tokenLabel
+  if removeTokenData.type == "redraw" then
+    functionName = "returnAndRedraw"
+    tokenLabel = "Redraw"
+  else
+    functionName = "returnAndSeal"
+    tokenLabel = "Seal"
+  end
+
   -- nil handling
-  redrawData.validTokens = redrawData.validTokens or {}
-  redrawData.invalidTokens = redrawData.invalidTokens or {}
+  removeTokenData.validTokens = removeTokenData.validTokens or {}
+  removeTokenData.invalidTokens = removeTokenData.invalidTokens or {}
 
   -- determine if only some tokens are able to be returned to the bag
   local matchingTokensInPlay = {}
+  local matchingCanceledTokens = {}
   for _, token in ipairs(chaosTokens) do
     local tokenName
     if token.memo ~= nil then
@@ -752,58 +763,67 @@ function activeRedrawEffect(params)
     end
 
     -- allow valid tokens or not invalid tokens, also allow any token if both lists empty
-    if (redrawData.validTokens[tokenName] ~= nil and isTableEmpty(redrawData.invalidTokens)) or
-        (isTableEmpty(redrawData.validTokens) and not redrawData.invalidTokens[tokenName]) or
-        (isTableEmpty(redrawData.validTokens) and isTableEmpty(redrawData.invalidTokens)) then
+    if (removeTokenData.validTokens[tokenName] ~= nil and isTableEmpty(removeTokenData.invalidTokens)) or
+        (isTableEmpty(removeTokenData.validTokens) and not removeTokenData.invalidTokens[tokenName]) or
+        (isTableEmpty(removeTokenData.validTokens) and isTableEmpty(removeTokenData.invalidTokens)) then
       table.insert(matchingTokensInPlay, token)
+      if MathLib.roundAngleToMultiple(token.getRotation().z, 90) == 180 then
+        table.insert(matchingCanceledTokens, token)
+      end
     end
   end
 
   -- proceed according to number of matching tokens
   if #matchingTokensInPlay == 0 then
     broadcastToAll("No eligible token found in play area", "Red")
+  elseif #matchingTokensInPlay == #matchingCanceledTokens then
+    broadcastToAll("All matching tokens are already cancelled / ignored and thus not available for this effect.", "Red")
   elseif #matchingTokensInPlay == 1 then
-    returnAndRedraw(_, matchingTokensInPlay[1].getGUID())
+    _G[functionName](_, matchingTokensInPlay[1].getGUID())
   else
-    -- draw XML to allow choosing the token to return to bag
-    isTokenXMLActive = true
-    for _, token in ipairs(matchingTokensInPlay) do
-      token.UI.setXmlTable({
-        {
-          tag = "VerticalLayout",
-          attributes = {
-            height = 275,
-            width = 275,
-            padding = "0 0 20 25",
-            scale = "0.4 0.4 1",
-            rotation = "0 0 180",
-            position = "0 0 -15",
-            color = "rgba(0,0,0,0.7)",
-            onClick = "Global/returnAndRedraw(" .. token.getGUID() .. ")",
+    createTokenLabel(matchingTokensInPlay, functionName, tokenLabel)
+  end
+end
+
+function createTokenLabel(matchingTokensInPlay, onClick, label)
+  -- draw XML to allow choosing the token to return to bag
+  isTokenXMLActive = true
+  for _, token in ipairs(matchingTokensInPlay) do
+    token.UI.setXmlTable({
+      {
+        tag = "VerticalLayout",
+        attributes = {
+          height = 275,
+          width = 275,
+          padding = "0 0 20 25",
+          scale = "0.4 0.4 1",
+          rotation = "0 0 180",
+          position = "0 0 -15",
+          color = "rgba(0,0,0,0.7)",
+          onClick = "Global/" .. onClick .."(" .. token.getGUID() .. ")",
+        },
+        children = {
+          {
+            tag = "Text",
+            attributes = {
+              fontSize = "100",
+              font = "font_teutonic-arkham",
+              color = "#ffffff",
+              text = label
+            }
           },
-          children = {
-            {
-              tag = "Text",
-              attributes = {
-                fontSize = "100",
-                font = "font_teutonic-arkham",
-                color = "#ffffff",
-                text = "Redraw"
-              }
-            },
-            {
-              tag = "Text",
-              attributes = {
-                fontSize = "125",
-                font = "font_arkhamicons",
-                color = "#ffffff",
-                text = "u"
-              }
+          {
+            tag = "Text",
+            attributes = {
+              fontSize = "125",
+              font = "font_arkhamicons",
+              color = "#ffffff",
+              text = "u"
             }
           }
         }
-      })
-    end
+      }
+    })
   end
 end
 
@@ -838,12 +858,12 @@ function returnAndRedraw(_, tokenGUID)
   chaosTokens[indexOfReturnedToken] = drawChaosToken({
     mat            = mat,
     drawAdditional = true,
-    tokenType      = redrawData.drawSpecificToken, -- currently only used for Nkosi Mabati
+    tokenType      = removeTokenData.drawSpecificToken, -- currently only used for Nkosi Mabati
     takeParameters = takeParameters
   })
 
   -- remove these tokens from the bag
-  if redrawData.returnToPool then
+  if removeTokenData.returnToPool then
     -- let the bless/curse manager handle these
     if tokenName == "Bless" or tokenName == "Curse" then
       BlessCurseManagerApi.removeToken(tokenName)
@@ -852,10 +872,46 @@ function returnAndRedraw(_, tokenGUID)
     end
   end
 
-  redrawData = {}
-
+  removeTokenData = {}
   -- return a reference to the freshly drawn token
   return chaosTokens[indexOfReturnedToken]
+end
+
+-- returns a chaos token to the chaos bag and seals it
+function returnAndSeal(_, tokenGUID)
+  local returnedToken = getObjectFromGUID(tokenGUID)
+  local tokenName = returnedToken.getName()
+  local indexOfReturnedToken = getTokenIndex(returnedToken)
+
+  local params = { token = returnedToken, fromBag = true }
+  returnChaosTokenToBag(params)
+  table.remove(chaosTokens, indexOfReturnedToken)
+  -- shift existing tokens to fill the gap, compute new position based on list length
+  if #chaosTokens > 0 then
+    local matColor = PlayermatApi.getMatColorByPosition(chaosTokens[1].getPosition())
+    mat = GUIDReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
+    for i = 1, #chaosTokens do
+      local yPos = chaosTokens[i].getPosition() -- avoids slight visual hitch
+      chaosTokens[i].setPositionSmooth(getChaosTokenPosition(mat, i-1):setAt("y", yPos.y))
+    end
+  end
+
+  -- remove XML from tokens in play
+  isTokenXMLActive = false
+  for _, token in ipairs(chaosTokens) do
+    token.UI.setXml("")
+  end
+
+ -- tell the original card/object to seal the token
+  local triggeringCard = getObjectFromGUID(removeTokenData.triggeringCardGUID)
+  triggeringCard.call("sealTokenWrapper", { tokenName = tokenName, playerColor = removeTokenData.playerColor })
+  removeTokenData = {}
+end
+
+-- helper function to determine the position of a chaos token on a playermat
+function getChaosTokenPosition(mat, number)
+  local tokenOffset = Vector(-1.55 + 0.17 * number, 0.25, -0.58)
+  return mat.positionToWorld(tokenOffset)
 end
 
 -- Checks to see if the chaos bag can be manipulated. If a player is searching the bag when tokens
@@ -919,9 +975,6 @@ function drawChaosToken(params)
   if #chaosBag.getObjects() == 0 then return end
   chaosBag.shuffle()
 
-  -- add the token to the list, compute new position based on list length
-  local tokenOffset = Vector(-1.55 + 0.17 * #chaosTokens, 0.25, -0.58)
-
   -- slightly rotate subsequent chaos tokens
   local tokenRotZ = 0
   if #chaosTokens > 0 then
@@ -929,7 +982,7 @@ function drawChaosToken(params)
   end
 
   local takeParameters = params.takeParameters or {}
-  takeParameters.position = takeParameters.position or params.mat.positionToWorld(tokenOffset)
+  takeParameters.position = takeParameters.position or getChaosTokenPosition(params.mat, #chaosTokens)
   takeParameters.rotation = takeParameters.rotation or params.mat.getRotation():setAt("z", tokenRotZ)
 
   local token
@@ -3644,7 +3697,7 @@ function shouldSpawnResourceCounter(params)
   if tokenType ~= "resource" then return false end
 
   local matSetting = "Global"
-  if matColor then
+  if matColor and matColor ~= "Mythos" then
     matSetting = PlayermatApi.getResourceCounterOption(matColor)
   end
 
@@ -3704,15 +3757,11 @@ function TokenManager.spawnMultipleTokens(params)
   if tokenCount < 1 then return end
 
   -- attempt to get matColor dynamically
-  if not matColor then
-    local owner = GUIDReferenceApi.getOwnerOfObject(params.card)
-    if owner ~= "Mythos" then
-      matColor = owner
-    end
-  end
+  matColor = matColor or GUIDReferenceApi.getOwnerOfObject(params.card)
+  if not matColor or matColor == "Mythos" then matColor = nil end
 
   -- make sure tokens spawn correctly on rotated cards respective to the mat below
-  local referenceRotationY = 270
+  local referenceRotationY = card.getRotation().y
   if matColor then
     referenceRotationY = PlayermatApi.returnRotation(matColor).y
   end

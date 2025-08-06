@@ -25,16 +25,23 @@ local tokenColor           = {
 
 function updateSave()
   updateStackSize()
-  self.script_state = JSON.encode(sealedTokens)
+  local saveData = {}
+
+  -- allow the parent script to save data
+  if getSaveData then
+    saveData = getSaveData()
+  end
+  saveData.sealedTokens = sealedTokens
+  self.script_state = JSON.encode(saveData)
 end
 
 function onLoad(savedData)
   MAX_SEALED = MAX_SEALED or 99
 
-  -- verify sealed tokens
-  for _, guid in ipairs(JSON.decode(savedData) or {}) do
-    local token = getObjectFromGUID(guid)
-    if token ~= nil then
+  -- verify GUIDs of sealed tokens
+  local loadedData = JSON.decode(savedData) or {}
+  for _, guid in ipairs(loadedData.sealedTokens or {}) do
+    if getObjectFromGUID(guid) ~= nil then
       table.insert(sealedTokens, guid)
     end
   end
@@ -44,7 +51,8 @@ function onLoad(savedData)
   updateStackSize()
   self.addTag("CardThatSeals")
 
-  if onLoad2 then onLoad2() end
+  -- allow the parent script to load data
+  if onLoad2 then onLoad2(loadedData) end
 end
 
 function generateContextMenu()
@@ -127,6 +135,10 @@ function readBag()
   end
 end
 
+function getSealedTokens()
+  return sealedTokens
+end
+
 function resetSealedTokens()
   sealedTokens = {}
   updateSave()
@@ -147,37 +159,42 @@ function sealToken(name, playerColor)
     printToColor("Cannot seal any more tokens on this card", playerColor, "Red")
     return
   end
+
   if not ChaosBagApi.canTouchChaosTokens() then return end
+
   local chaosbag = ChaosBagApi.findChaosBag()
   for i, obj in ipairs(chaosbag.getObjects()) do
     if obj.name == name then
       return chaosbag.takeObject({
-        position = self.getPosition() + Vector(0, 0.5 + 0.1 * #sealedTokens, 0),
-        rotation = self.getRotation(),
-        index = i - 1,
-        smooth = false,
-        callback_function = function(token)
-          local guid = token.getGUID()
-          table.insert(sealedTokens, guid)
-          TokenArrangerApi.layout()
-          if name == "Bless" or name == "Curse" then
-            BlessCurseManagerApi.sealedToken(name, guid)
-          end
-          -- destroy XML on just covered token
-          if #sealedTokens > 1 then
-            local coveredToken = getObjectFromGUID(sealedTokens[#sealedTokens - 1])
-            if coveredToken ~= nil then
-              coveredToken.UI.setXml("")
-            else
-              table.remove(sealedTokens, #sealedTokens - 1)
-            end
-          end
-          updateSave()
-        end
+        position          = self.getPosition() + Vector(0, 0.5 + 0.1 * #sealedTokens, 0),
+        rotation          = self.getRotation(),
+        index             = i - 1,
+        smooth            = false,
+        callback_function = tokenSealingCallback
       })
     end
   end
   printToColor(name .. " token not found in chaos bag", playerColor)
+end
+
+function tokenSealingCallback(token)
+  local guid = token.getGUID()
+  local name = token.getName()
+  table.insert(sealedTokens, guid)
+  TokenArrangerApi.layout()
+  if name == "Bless" or name == "Curse" then
+    BlessCurseManagerApi.sealedToken(name, guid)
+  end
+  -- destroy XML on just covered token
+  if #sealedTokens > 1 then
+    local coveredToken = getObjectFromGUID(sealedTokens[#sealedTokens - 1])
+    if coveredToken ~= nil then
+      coveredToken.UI.setXml("")
+    else
+      table.remove(sealedTokens, #sealedTokens - 1)
+    end
+  end
+  updateSave()
 end
 
 -- release the last sealed token
@@ -406,12 +423,6 @@ function updateStackSize()
   local topToken = getObjectFromGUID(sealedTokens[#sealedTokens])
   if topToken == nil then return end
 
-  -- handling for two-digit numbers
-  local fontsize = 380
-  if #sealedTokens > 9 then
-    fontsize = 360
-  end
-
   topToken.UI.setXmlTable({ {
     tag = "Panel",
     attributes = {
@@ -425,7 +436,7 @@ function updateStackSize()
     children = {
       tag = "Text",
       attributes = {
-        fontSize    = fontsize,
+        fontSize    = #sealedTokens > 9 and 360 or 380, -- handling for two-digit numbers
         font        = "font_teutonic-arkham",
         color       = "#ffffff",
         outline     = "#000000",
