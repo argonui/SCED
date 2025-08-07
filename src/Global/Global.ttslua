@@ -800,7 +800,7 @@ function createTokenLabel(matchingTokensInPlay, onClick, label)
           rotation = "0 0 180",
           position = "0 0 -15",
           color = "rgba(0,0,0,0.7)",
-          onClick = "Global/" .. onClick .."(" .. token.getGUID() .. ")",
+          onClick = "Global/" .. onClick .. "(" .. token.getGUID() .. ")",
         },
         children = {
           {
@@ -892,7 +892,7 @@ function returnAndSeal(_, tokenGUID)
     mat = GUIDReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
     for i = 1, #chaosTokens do
       local yPos = chaosTokens[i].getPosition() -- avoids slight visual hitch
-      chaosTokens[i].setPositionSmooth(getChaosTokenPosition(mat, i-1):setAt("y", yPos.y))
+      chaosTokens[i].setPositionSmooth(getChaosTokenPosition(mat, i - 1):setAt("y", yPos.y))
     end
   end
 
@@ -902,7 +902,7 @@ function returnAndSeal(_, tokenGUID)
     token.UI.setXml("")
   end
 
- -- tell the original card/object to seal the token
+  -- tell the original card/object to seal the token
   local triggeringCard = getObjectFromGUID(removeTokenData.triggeringCardGUID)
   triggeringCard.call("sealTokenWrapper", { tokenName = tokenName, playerColor = removeTokenData.playerColor })
   removeTokenData = {}
@@ -1140,10 +1140,21 @@ function tokenSplash(matColor)
         imageAttributes.color = "#FFFFFFFF"
       end
 
-      -- update visible tokens
+      -- update visible tokens (special handling for custom tokens)
       if tokenName then
+        if namesToIds[tokenName] then
+          imageAttributes.image = "token-" .. namesToIds[tokenName]
+        else
+          local tokenObject = getObjectByName(tokenName)
+          if tokenObject ~= nil then
+            imageAttributes.image = tokenObject.getCustomObject().image
+          else
+            -- basic placeholder for custom tokens
+            imageAttributes.image = "token-custom"
+          end
+        end
+
         imageAttributes.active    = true
-        imageAttributes.image     = "token-" .. namesToIds[tokenNames[i]]
         modifierAttributes.active = true
 
         -- determine if modifier should be shown
@@ -1204,6 +1215,15 @@ function tokenSplash(matColor)
       fadeXml({ id = "CTS_main", direction = "out", time = fadeTime })
     end, initialDelay + fadeTime + screenTime)
   end, 5)
+end
+
+function getObjectByName(name)
+  for _, obj in ipairs(getObjects()) do
+    if obj.getName() == name then
+      return obj
+    end
+  end
+  return nil
 end
 
 -- Works out who needs to see the token splash screen
