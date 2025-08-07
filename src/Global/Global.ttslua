@@ -699,7 +699,7 @@ function returnChaosTokens()
   end
   chaosTokens = {}
   isTokenXMLActive = false
-  tokenSplash(true)
+  tokenSplash()
 end
 
 -- returns a single chaos token to the bag and calls respective functions
@@ -801,7 +801,7 @@ function createTokenLabel(matchingTokensInPlay, onClick, label)
           rotation = "0 0 180",
           position = "0 0 -15",
           color = "rgba(0,0,0,0.7)",
-          onClick = "Global/" .. onClick .."(" .. token.getGUID() .. ")",
+          onClick = "Global/" .. onClick .. "(" .. token.getGUID() .. ")",
         },
         children = {
           {
@@ -893,7 +893,7 @@ function returnAndSeal(_, tokenGUID)
     mat = GUIDReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
     for i = 1, #chaosTokens do
       local yPos = chaosTokens[i].getPosition() -- avoids slight visual hitch
-      chaosTokens[i].setPositionSmooth(getChaosTokenPosition(mat, i-1):setAt("y", yPos.y))
+      chaosTokens[i].setPositionSmooth(getChaosTokenPosition(mat, i - 1):setAt("y", yPos.y))
     end
   end
 
@@ -903,7 +903,7 @@ function returnAndSeal(_, tokenGUID)
     token.UI.setXml("")
   end
 
- -- tell the original card/object to seal the token
+  -- tell the original card/object to seal the token
   local triggeringCard = getObjectFromGUID(removeTokenData.triggeringCardGUID)
   triggeringCard.call("sealTokenWrapper", { tokenName = tokenName, playerColor = removeTokenData.playerColor })
   removeTokenData = {}
@@ -1046,12 +1046,14 @@ function drawChaosToken(params)
   local tokenData = MythosAreaApi.returnTokenData().tokenData or {}
   local specificData = tokenData[name] or {}
   token.setDescription(specificData.description or "")
-  trackChaosToken(name, params.mat.getMemo())
+
+  local matColor = params.mat.getMemo()
+  trackChaosToken(name, matColor)
 
   if waitIds["startTokenSplash"] then
     Wait.stop(waitIds["startTokenSplash"])
   end
-  waitIds["startTokenSplash"] = Wait.frames(tokenSplash, 5)
+  waitIds["startTokenSplash"] = Wait.frames(function() tokenSplash(matColor) end, 5)
 
   if not params.takeParameters then
     table.insert(chaosTokens, token)
@@ -1060,9 +1062,18 @@ function drawChaosToken(params)
 end
 
 -- splash drawn chaos token(s)
----@param hide? boolean If true, will force hide the token (with a quick fade-out)
-function tokenSplash(hide)
-  if not optionPanel['showTokenSplash'] then return end
+---@param matColor? string Color of the mat that is drawing (nil to hide the splash screen)
+function tokenSplash(matColor)
+  if matColor == nil then
+    -- Check if it is already hidden
+    local active = UI.getAttribute("CTS_main", "active")
+    if active == false or active == "false" or active == "False" then return end
+  else
+    -- Work out the visibility from the settings
+    local visibility = getTokenSplashVisibility(matColor)
+    if not visibility == "" then return end
+    UI.setAttribute("CTS_main", "visibility", visibility)
+  end
 
   local initialDelay = 0.25
   local fadeTime     = 1
@@ -1084,10 +1095,10 @@ function tokenSplash(hide)
   end
 
   -- keep current state when hiding
-  stopXmlFade(hide)
+  stopXmlFade(matColor == nil)
 
   -- quick fade-out
-  if hide then
+  if matColor == nil then
     waitIds["hideChaosSplash"] = Wait.time(function()
       fadeXml({ id = "CTS_main", direction = "out", time = fadeTime / 3 })
     end, 0.02)
@@ -1130,10 +1141,21 @@ function tokenSplash(hide)
         imageAttributes.color = "#FFFFFFFF"
       end
 
-      -- update visible tokens
+      -- update visible tokens (special handling for custom tokens)
       if tokenName then
+        if namesToIds[tokenName] then
+          imageAttributes.image = "token-" .. namesToIds[tokenName]
+        else
+          local tokenObject = getObjectByName(tokenName)
+          if tokenObject ~= nil then
+            imageAttributes.image = tokenObject.getCustomObject().image
+          else
+            -- basic placeholder for custom tokens
+            imageAttributes.image = "token-custom"
+          end
+        end
+
         imageAttributes.active    = true
-        imageAttributes.image     = "token-" .. namesToIds[tokenNames[i]]
         modifierAttributes.active = true
 
         -- determine if modifier should be shown
@@ -1194,6 +1216,42 @@ function tokenSplash(hide)
       fadeXml({ id = "CTS_main", direction = "out", time = fadeTime })
     end, initialDelay + fadeTime + screenTime)
   end, 5)
+end
+
+function getObjectByName(name)
+  for _, obj in ipairs(getObjects()) do
+    if obj.getName() == name then
+      return obj
+    end
+  end
+  return nil
+end
+
+-- Works out who needs to see the token splash screen
+function getTokenSplashVisibility(drawingMatColor)
+  local viewers = {}
+
+  for matColor, _ in pairs(GUIDReferenceApi.getObjectsByType("Playermat")) do
+    local playerColor = PlayermatApi.getPlayerColor(matColor)
+    local personalSetting = PlayermatApi.getTokenSplashOption(matColor)
+
+    if personalSetting == "Global" then
+      viewers[playerColor] = optionPanel["showTokenSplash"]
+    elseif personalSetting == "Enabled" then
+      viewers[playerColor] = true
+    elseif personalSetting == "Disabled" then
+      viewers[playerColor] = false
+    elseif personalSetting == "Own" then
+      viewers[playerColor] = (drawingMatColor == matColor)
+    elseif personalSetting == "Others" then
+      viewers[playerColor] = (drawingMatColor ~= matColor)
+    end
+  end
+
+  viewers["Black"] = optionPanel["showTokenSplash"]
+  viewers["Grey"]  = optionPanel["showTokenSplash"]
+
+  return table.concat(TableLib.getKeys(viewers, true), "|")
 end
 
 function luckyPenny(_, tokenGUID)
