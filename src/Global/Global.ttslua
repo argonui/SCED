@@ -522,6 +522,18 @@ function onPlayerAction(player, action, targets)
   end
 end
 
+function onPlayerConnect(player)
+  -- fix wrong camera for clients
+  if not player.host then
+    player.lookAt({
+      position = Vector(-22.26, -2.5, 5.26),
+      pitch    = 64.34,
+      yaw      = 90,
+      distance = 104
+    })
+  end
+end
+
 function onPlayerChangeColor()
   Wait.frames(function()
     -- updates the displayed names in the action tracker
@@ -1504,25 +1516,24 @@ end
 function setChaosBagState(tokenList)
   if not canTouchChaosTokens() then return end
 
-  local chaosBag = findChaosBag()
-  local chaosBagData = chaosBag.getData()
-  local reserveData = getObjectFromGUID("106418").getData()
-  local tokenCache = {}
-  local containedObjects = {}
+  local chaosBag                = findChaosBag()
+  local chaosBagData            = chaosBag.getData()
+  local reserve                 = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "ChaosBagReserve")
+  local tokenCache              = {}
+  chaosBagData.ContainedObjects = {}
 
   -- create a temporary copy of the data for each chaos token
-  for _, objData in ipairs(reserveData.ContainedObjects) do
+  for _, objData in ipairs(reserve.getData().ContainedObjects) do
     tokenCache[objData.Nickname] = objData
   end
 
   -- iterate over tokenlist and insert specified tokens into new table
   for _, tokenId in ipairs(tokenList) do
     local tokenName = ID_URL_MAP[tokenId].name
-    table.insert(containedObjects, tokenCache[tokenName])
+    table.insert(chaosBagData.ContainedObjects, tokenCache[tokenName])
   end
 
-  -- overwrite chaos bag content and respawn it
-  chaosBagData.ContainedObjects = containedObjects
+  -- respawn chaos bag with changes
   chaosBag.destruct()
   spawnObjectData({ data = chaosBagData })
 
@@ -1544,25 +1555,47 @@ end
 function spawnChaosToken(id)
   if not canTouchChaosTokens() then return end
 
-  id = id:lower()
   local chaosBag = findChaosBag()
-  local url = ID_URL_MAP[id].url or ""
+  if not chaosBag then return end
 
-  if url ~= "" then
-    return spawnObject({
-      type = 'Custom_Tile',
-      position = { 0.49, 3, 0 },
-      scale = { 0.81, 1.0, 0.81 },
-      rotation = Vector(0, 270, 0),
-      callback_function = function(obj)
-        obj.setName(ID_URL_MAP[id].name)
-        chaosBag.putObject(obj)
+  id = id:lower()
+  local idData = ID_URL_MAP[id]
+
+  if idData then
+    local chaosBagPosition = chaosBag.getPosition()
+    local chaosBagRotation = chaosBag.getRotation()
+
+    -- lock chaos bag so it doesn't move
+    chaosBag.setLock(true)
+
+    local tokenData = {
+      ColorDiffuse     = { b = 1, g = 1, r = 1 },
+      CustomImage      = {
+        CustomTile = { Stretch = true, Thickness = 0.1, Type = 2 },
+        ImageURL   = ID_URL_MAP[id].url
+      },
+      Hands            = false,
+      HideWhenFaceDown = false,
+      Name             = "Custom_Tile",
+      Nickname         = ID_URL_MAP[id].name,
+      Transform        = {
+        posX   = chaosBagPosition.x,
+        posY   = chaosBagPosition.y + 0.4, -- spawn directly inside chaos bag
+        posZ   = chaosBagPosition.z,
+        rotX   = 0,
+        rotY   = chaosBagRotation.y,
+        rotZ   = 0,
+        scaleX = 0.81,
+        scaleY = 1,
+        scaleZ = 0.81
+      }
+    }
+    return spawnObjectData({
+      data = tokenData,
+      callback_function = function()
+        chaosBag.setLock(false)
         TokenArrangerApi.layout()
       end
-    }).setCustomObject({
-      type = 2,
-      image = url,
-      thickness = 0.1
     })
   end
 end
@@ -1830,27 +1863,27 @@ function onClick_spawnPlaceholder(player)
   local spawnPos = { -39.5, 2, -87 }
 
   local meshTable = {
-    big = "https://steamusercontent-a.akamaihd.net/ugc/62583916778515295/AFB8F257CE1E4973F4C06160A2E156C147AEE1E3/",
+    big   = "https://steamusercontent-a.akamaihd.net/ugc/62583916778515295/AFB8F257CE1E4973F4C06160A2E156C147AEE1E3/",
     small = "https://steamusercontent-a.akamaihd.net/ugc/62583916778515333/9F0BE0C211BE3BD1725B4B855F5D3C9C0D020394/",
-    wide = "https://steamusercontent-a.akamaihd.net/ugc/2278324073260846176/33EFCAF30567F8756F665BE5A2A6502E9C61C7F7/"
+    wide  = "https://steamusercontent-a.akamaihd.net/ugc/2278324073260846176/33EFCAF30567F8756F665BE5A2A6502E9C61C7F7/"
   }
 
   local scaleTable = {
-    big = { 1.00, 0.14, 1.00 },
+    big   = { 1.00, 0.14, 1.00 },
     small = { 2.21, 0.46, 2.42 },
-    wide = { 2.00, 0.11, 1.69 }
+    wide  = { 2.00, 0.11, 1.69 }
   }
 
   local placeholder = spawnObject({
-    type = "Custom_Model",
+    type     = "Custom_Model",
     position = spawnPos,
     rotation = Vector(0, 270, 0),
-    scale = scaleTable[item.boxsize],
+    scale    = scaleTable[item.boxsize],
   })
 
   placeholder.setCustomObject({
-    mesh = meshTable[item.boxsize],
-    diffuse = item.boxart,
+    mesh     = meshTable[item.boxsize],
+    diffuse  = item.boxart,
     material = 3
   })
 
