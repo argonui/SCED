@@ -1,0 +1,128 @@
+require("playercards/CardsWithHelper")
+local GUIDReferenceApi = require("core/GUIDReferenceApi")
+local PlayermatApi     = require("playermat/PlayermatApi")
+local TableLib         = require("util/TableLib")
+
+-- intentionally global
+hasXML                 = true
+isHelperEnabled        = false
+
+function updateSave()
+  self.script_state = JSON.encode({ isHelperEnabled = isHelperEnabled })
+end
+
+function onLoad(savedData)
+  if savedData and savedData ~= "" then
+    local loadedData = JSON.decode(savedData)
+    isHelperEnabled = loadedData.isHelperEnabled
+  end
+  self.addTag("CardWithHelper")
+  generateXml()
+end
+
+function generateXml()
+  local xml = {}
+
+  local mainPanel = {
+    tag        = "Panel",
+    attributes = { id = "Helper", active = isHelperEnabled },
+    children   = {}
+  }
+
+  local buttonXml = {
+    tag = "Button",
+    attributes = {
+      color        = "#C0C0C080",
+      height       = 550,
+      width        = 1200,
+      rotation     = "0 0 180",
+      scale        = "0.1 0.1 1",
+      position     = "0 -25 -40",
+      ignoreLayout = true,
+      padding      = "50 50 50 50",
+      onClick      = "transform",
+      text         = "Transform",
+      textColor    = "Black",
+      font         = "font_teutonic-arkham",
+      fontSize     = 200
+    }
+  }
+
+  table.insert(mainPanel.children, buttonXml)
+
+  local reverseButtonXml = TableLib.copy(buttonXml)
+  reverseButtonXml.attributes.position = "0 -25 40"
+  reverseButtonXml.attributes.rotation = "0 180 180"
+  table.insert(mainPanel.children, reverseButtonXml)
+
+  table.insert(xml, mainPanel)
+  self.UI.setXmlTable(xml)
+end
+
+function transform(player)
+  local matColor = PlayermatApi.getMatColorByPosition(self.getPosition())
+
+  -- look for current investigator
+  local invCards = PlayermatApi.getUsedInvestigatorCards()
+  local currentCard = invCards[matColor]
+  if not currentCard then
+    broadcastToColor("Can't find current investigator card.", player.color, "Red")
+    return
+  end
+
+  -- look for other investigator
+  local otherCard
+  for _, card in ipairs(PlayermatApi.searchAroundPlayermat(matColor, "isCard")) do
+    if card.hasTag("Investigator") and card ~= currentCard then
+      otherCard = card
+      break
+    end
+  end
+  if not otherCard then
+    broadcastToColor("Can't find other investigator card.", player.color, "Red")
+    return
+  end
+
+  -- get current stat line
+  local skillTracker = GUIDReferenceApi.getObjectByOwnerAndType(matColor, "InvestigatorSkillTracker")
+  if not skillTracker then
+    broadcastToColor("Can't find skill tracker.", player.color, "Red")
+    return
+  end
+
+  -- calculate static boosts
+  local currentStats = skillTracker.getTable("stats")
+
+  local currentMd    = JSON.decode(currentCard.getGMNotes()) or {}
+  local currentDiff  = {}
+
+  for i, skill in ipairs({ "willpower", "intellect", "combat", "agility" }) do
+    currentDiff[i] = currentStats[i] - (currentMd[skill .. "Icons"] or 0)
+  end
+
+  -- calculate new stat line
+  local otherMd  = JSON.decode(otherCard.getGMNotes()) or {}
+  local newStats = {}
+  for i, skill in ipairs({ "willpower", "intellect", "combat", "agility" }) do
+    newStats[i] = currentDiff[i] + (otherMd[skill .. "Icons"] or 0)
+  end
+  Wait.time(function() skillTracker.call("updateStats", newStats) end, 0.25)
+
+  -- instruct mat to not touch regular action tokens
+  PlayermatApi.activateTransformEffect(matColor)
+
+  -- swap both cards in place
+  local currentPos = currentCard.getPosition() + Vector(0, 0.03, 0)
+  local currentRot = currentCard.getRotation()
+
+  local otherPos   = otherCard.getPosition()
+  local otherRot   = otherCard.getRotation()
+
+  currentCard.setPosition(otherPos)
+  currentCard.setRotation(otherRot)
+
+  otherCard.setPosition(currentPos)
+  otherCard.setRotation(currentRot)
+
+  self.flip()
+end
