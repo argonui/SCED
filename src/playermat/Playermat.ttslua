@@ -46,6 +46,12 @@ local AVAILABLE_OPTIONS           = {
       type  = "toggle"
     },
     {
+      id      = "showTokenSplash",
+      title   = "Show token splash screen",
+      type    = "dropdown",
+      options = { "Global", "Enabled", "Own Tokens", "Others' Tokens", "Disabled " }
+    },
+    {
       id    = "exhaustRotation",
       title = "Specify Exhaust Rotation",
       type  = "input"
@@ -1174,7 +1180,7 @@ function createXML()
           table.insert(subTable.children, {
             tag        = "Option",
             value      = option,
-            attributes = { id = "PM_option_dropdown_" .. dropdownOptionId }
+            attributes = { id = "PM_option_" .. optionData.id .. "_dropdown_".. dropdownOptionId }
           })
         end
       end
@@ -1411,6 +1417,10 @@ end
 
 function getResourceCounterOption()
   return optionPanelData["useResourceCounters"]
+end
+
+function getTokenSplashOption()
+  return optionPanelData["showTokenSplash"]
 end
 
 function getExhaustRotation(convertToGlobal)
@@ -1656,23 +1666,30 @@ function maybeUpdateActiveInvestigator(card, md)
     card.setScale({ 0.8214, 1, 0.8214 })
   end
 
-  -- remove old action tokens
+  -- remove old action tokens (only the smaller ones if 'dontChangeActionTokens' is true)
   for _, obj in ipairs(searchAroundSelf("isUniversalToken")) do
-    obj.destruct()
+    if not dontChangeActionTokens or obj.getScale().x < 0.4 then
+      obj.destruct()
+    end
   end
 
-  -- spawn three regular action tokens
-  spawnActionTokens()
+  if not dontChangeActionTokens then
+    -- spawn three regular action tokens
+    spawnActionTokens()
+  end
+
+  dontChangeActionTokens = false
+
 
   -- spawn additional token (maybe specific for investigator)
   if md.extraToken and md.extraToken ~= "None" then
-    local tokenType = "universalActionAbility"
-    local rotation = self.getRotation()
-    local callbackName = "updateUniversalActionAbilityToken"
+    local tokenType      = "universalActionAbility"
+    local rotation       = self.getRotation()
+    local callbackName   = "updateUniversalActionAbilityToken"
     local callbackParams = { class = activeInvestigatorData.class, symbol = activeInvestigatorData.class }
 
     -- spawn tokens (split string by "|")
-    local count = { action = 0, ability = 0 }
+    local count          = { action = 0, ability = 0 }
     for str in string.gmatch(md.extraToken, "([^|]+)") do
       local type = "action"
       if str == "FreeTrigger" or str == "Reaction" or string.contains(str, "Ability") then
@@ -1693,9 +1710,9 @@ function maybeUpdateActiveInvestigator(card, md)
 end
 
 function spawnActionTokens()
-  local tokenType = "universalActionAbility"
-  local rotation = self.getRotation()
-  local callbackName = "updateUniversalActionAbilityToken"
+  local tokenType      = "universalActionAbility"
+  local rotation       = self.getRotation()
+  local callbackName   = "updateUniversalActionAbilityToken"
   local callbackParams = { class = activeInvestigatorData.class, symbol = activeInvestigatorData.class }
 
   for i = 1, 3 do
@@ -1860,6 +1877,10 @@ function resetSkillTracker()
   else
     printToAll("Skill tracker for " .. matColor .. " playermat could not be found.", "Yellow")
   end
+end
+
+function activateTransformEffect()
+  dontChangeActionTokens = true
 end
 
 ---------------------------------------------------------
