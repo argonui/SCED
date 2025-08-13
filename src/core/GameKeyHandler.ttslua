@@ -24,126 +24,6 @@ function onLoad()
   createHotkeys()
 end
 
--- Table that defines hotkeys, options:
---- label Title of the hotkey
---- callback The function that gets called when the hotkey is triggered
---- (if nil, the label in camelCase will be used to find the function)
---- condition The function that should return true if this hotkey should be added
---- needsDouble Boolean that controls whether this hotkey needs a double-click
-HOTKEYS = {
-  { label = "Add doom to agenda" },
-  { label = "Add Bless/Curse context menu" },
-  { label = "Discard object" },
-  { label = "Discard top card" },
-  { label = "Display Bless/Curse status" },
-  { label = "Get bottom card from deck" },
-  { label = "Move card to Victory Display" },
-  { label = "Place card into threat area" },
-  { label = "Remove a use" },
-  { label = "Reshuffle encounter deck",         callback = MythosAreaApi.reshuffleEncounterDeck },
-  { label = "Set virtual color for next Hotkey" },
-  { label = "Switch seat clockwise" },
-  { label = "Switch seat counter-clockwise" },
-  { label = "Take clue from location" },
-  {
-    label = "Take clue from location (White)",
-    callback = function(_, o) takeClueAsColor("White", o) end,
-    condition = function() return doesMatExist("White") end
-  },
-  {
-    label = "Take clue from location (Orange)",
-    callback = function(_, o) takeClueAsColor("Orange", o) end,
-    condition = function() return doesMatExist("Orange") end
-  },
-  {
-    label = "Take clue from location (Green)",
-    callback = function(_, o) takeClueAsColor("Green", o) end,
-    condition = function() return doesMatExist("Green") end
-  },
-  {
-    label = "Take clue from location (Red)",
-    callback = function(_, o) takeClueAsColor("Red", o) end,
-    condition = function() return doesMatExist("Red") end
-  },
-  { label = "Upkeep",          callback = triggerUpkeep },
-  { label = "View Mythos Area" },
-  { label = "View Playermat" },
-}
-
--- Adds hotkeys based on the data in HOTKEYS
-function createHotkeys()
-  for _, hk in ipairs(HOTKEYS) do
-    -- Either there is no condition or it needs to be a function that returns true
-    if not hk.condition or hk.condition() then
-      addHotkey(hk.label, function(playerColor, object, pointerPosition)
-        hotkeyHandler(playerColor, object, pointerPosition, hk.label)
-      end)
-    end
-  end
-end
-
--- General function to handle all hotkey executions
-function hotkeyHandler(playerColor, object, pointerPosition, hotkeyName)
-  -- Find the hotkey data from the HOTKEYS table
-  local hotkeyData
-  for _, hk in ipairs(HOTKEYS) do
-    if hk.label == hotkeyName then
-      hotkeyData = hk
-      break
-    end
-  end
-  if not hotkeyData then return end
-
-  local callback = hotkeyData.callback or _G[toCamelCase(hotkeyData.label)]
-  if not callback then return end
-
-  if not hotkeyData.needsDouble then
-    -- Hotkey doesn't need a double click, so just call the callback
-    callback(playerColor, object, pointerPosition)
-    return
-  end
-
-  local currentTime = Time.time
-  local timeTableKey = playerColor .. "_" .. hotkeyName
-  local lastPressTime = hotkeyTimers[timeTableKey]
-
-  if lastPressTime and (currentTime - lastPressTime) <= DOUBLE_CLICK_DELAY then
-    -- This is a double click
-    callback(playerColor, object, pointerPosition)
-    hotkeyTimers[timeTableKey] = nil
-  else
-    -- This is the first click, store the time and wait for a second click
-    hotkeyTimers[timeTableKey] = currentTime
-
-    -- Info for user if not double-clicked
-    Wait.time(function()
-      if hotkeyTimers[timeTableKey] then
-        broadcastToColor("'" .. hotkeyName .. "' requires a double-click.", playerColor, "Orange")
-      end
-    end, DOUBLE_CLICK_DELAY)
-  end
-end
-
-function toCamelCase(str)
-  -- Remove special characters and replace spaces, underscores, and hyphens with a space
-  local newStr = str:gsub("[^%w%s%-]", "")
-  newStr = newStr:gsub("[_%-]", " ")
-  newStr = newStr:lower()
-
-  -- Capitalize the first letter of each word
-  newStr = newStr:gsub("(%a)(%w*)", function(first, rest) return first:upper() .. rest end)
-
-  -- Remove all spaces
-  newStr = newStr:gsub(" ", "")
-
-  -- Convert the first letter of the whole string back to lowercase
-  local firstChar = newStr:sub(1, 1)
-  local restOfStr = newStr:sub(2)
-  newStr = firstChar:lower() .. restOfStr
-
-  return newStr
-end
-
 function doesMatExist(matColor)
   local mat = GUIDReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
   return mat ~= nil
@@ -787,4 +667,127 @@ function getFirstSeatedPlayer()
   for _, color in ipairs(getSeatedPlayers()) do
     return color
   end
+end
+
+-- MARK: Hotkey creation
+-- this section is at the end of the file to make sure the callback functions exist at this point
+
+-- Table that defines hotkeys, options:
+--- label Title of the hotkey
+--- callback The function that gets called when the hotkey is triggered
+--- (if nil, the label in camelCase will be used to find the function)
+--- condition The function that should return true if this hotkey should be added
+--- needsDouble Boolean that controls whether this hotkey needs a double-click
+HOTKEYS = {
+  { label = "Add doom to agenda" },
+  { label = "Add Bless/Curse context menu" },
+  { label = "Discard object" },
+  { label = "Discard top card" },
+  { label = "Display Bless/Curse status" },
+  { label = "Get bottom card from deck" },
+  { label = "Move card to Victory Display" },
+  { label = "Place card into threat area" },
+  { label = "Remove a use" },
+  { label = "Reshuffle encounter deck",         callback = MythosAreaApi.reshuffleEncounterDeck },
+  { label = "Set virtual color for next Hotkey" },
+  { label = "Switch seat clockwise" },
+  { label = "Switch seat counter-clockwise" },
+  { label = "Take clue from location" },
+  {
+    label = "Take clue from location (White)",
+    callback = function(_, o) takeClueAsColor("White", o) end,
+    condition = function() return doesMatExist("White") end
+  },
+  {
+    label = "Take clue from location (Orange)",
+    callback = function(_, o) takeClueAsColor("Orange", o) end,
+    condition = function() return doesMatExist("Orange") end
+  },
+  {
+    label = "Take clue from location (Green)",
+    callback = function(_, o) takeClueAsColor("Green", o) end,
+    condition = function() return doesMatExist("Green") end
+  },
+  {
+    label = "Take clue from location (Red)",
+    callback = function(_, o) takeClueAsColor("Red", o) end,
+    condition = function() return doesMatExist("Red") end
+  },
+  { label = "Upkeep",          callback = triggerUpkeep },
+  { label = "View Mythos Area" },
+  { label = "View Playermat" },
+}
+
+-- Adds hotkeys based on the data in HOTKEYS
+function createHotkeys()
+  for _, hk in ipairs(HOTKEYS) do
+    -- Either there is no condition or it needs to be a function that returns true
+    if not hk.condition or hk.condition() then
+      addHotkey(hk.label, function(playerColor, object, pointerPosition)
+        hotkeyHandler(playerColor, object, pointerPosition, hk.label)
+      end)
+    end
+  end
+end
+
+-- General function to handle all hotkey executions
+function hotkeyHandler(playerColor, object, pointerPosition, hotkeyName)
+  -- Find the hotkey data from the HOTKEYS table
+  local hotkeyData
+  for _, hk in ipairs(HOTKEYS) do
+    if hk.label == hotkeyName then
+      hotkeyData = hk
+      break
+    end
+  end
+  if not hotkeyData then return end
+
+  local callback = hotkeyData.callback or _G[toCamelCase(hotkeyData.label)]
+  if not callback then return end
+
+  if not hotkeyData.needsDouble then
+    -- Hotkey doesn't need a double click, so just call the callback
+    callback(playerColor, object, pointerPosition)
+    return
+  end
+
+  local currentTime = Time.time
+  local timeTableKey = playerColor .. "_" .. hotkeyName
+  local lastPressTime = hotkeyTimers[timeTableKey]
+
+  if lastPressTime and (currentTime - lastPressTime) <= DOUBLE_CLICK_DELAY then
+    -- This is a double click
+    callback(playerColor, object, pointerPosition)
+    hotkeyTimers[timeTableKey] = nil
+  else
+    -- This is the first click, store the time and wait for a second click
+    hotkeyTimers[timeTableKey] = currentTime
+
+    -- Info for user if not double-clicked
+    Wait.time(function()
+      if hotkeyTimers[timeTableKey] then
+        broadcastToColor("'" .. hotkeyName .. "' requires a double-click.", playerColor, "Orange")
+      end
+    end, DOUBLE_CLICK_DELAY)
+  end
+end
+
+function toCamelCase(str)
+  -- Remove special characters and replace spaces, underscores, and hyphens with a space
+  local newStr = str:gsub("[^%w%s%-]", "")
+  newStr = newStr:gsub("[_%-]", " ")
+  newStr = newStr:lower()
+
+  -- Capitalize the first letter of each word
+  newStr = newStr:gsub("(%a)(%w*)", function(first, rest) return first:upper() .. rest end)
+
+  -- Remove all spaces
+  newStr = newStr:gsub(" ", "")
+
+  -- Convert the first letter of the whole string back to lowercase
+  local firstChar = newStr:sub(1, 1)
+  local restOfStr = newStr:sub(2)
+  newStr = firstChar:lower() .. restOfStr
+
+  return newStr
 end
