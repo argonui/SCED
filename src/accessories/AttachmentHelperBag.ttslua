@@ -1,0 +1,46 @@
+function onLoad()
+  -- search all existing tagged cards and add context menu
+  local allObjects = getAllObjects()
+  for _, obj in ipairs(allObjects) do
+    if obj.hasTag("CardWithAttachmentHelper") then
+      local cardGUID = obj.guid
+      obj.addContextMenuItem("Spawn Helper", function() spawnAttachmentHelper(cardGUID) end)
+    end
+  end
+end
+
+function onObjectSpawn(obj)
+  if obj.hasTag("CardWithAttachmentHelper") then
+    local cardGUID = obj.guid
+    obj.addContextMenuItem("Spawn Helper", function() spawnAttachmentHelper(cardGUID) end)
+  end
+end
+
+function spawnAttachmentHelper(cardGUID)
+  local card = getObjectFromGUID(cardGUID)
+  if card.hasTag("Investigator") then
+    position = card.positionToWorld(Vector(0.18, 0, -0.7)) -- slightly to the left of the investigator card
+    rotation = card.getRotation() + Vector(0, 90, 0)
+  else
+    position = card.getPosition() -- on top of the card and centered
+    rotation = card.getRotation()
+  end
+  local md = JSON.decode(card.getGMNotes())
+  local cardId = md.id
+  local objs = getObjectsWithTag("AttachmentHelperBag")
+  if #objs > 0 then
+    objs[1].takeObject({
+      position = position:setAt("y", 1.8),
+      rotation = rotation,
+      smooth = false,
+      callback_function = function(helper)
+        helper.setScale({ 0.57, 0.65, 0.57 })
+        Wait.frames(function()
+          helper.call("loadDataFromMetadata", { md = { id = cardId } })
+        end, 3)
+       end
+    })
+  else
+    broadcastToAll("Attachment Helper Bag can't be found!", "Red")
+  end
+end
