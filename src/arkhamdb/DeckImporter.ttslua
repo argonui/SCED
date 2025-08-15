@@ -6,7 +6,7 @@ local GlobalApi                 = require("Global/GlobalApi")
 local GUIDReferenceApi          = require("core/GUIDReferenceApi")
 local PlayermatApi              = require("playermat/PlayermatApi")
 local TableLib                  = require("util/TableLib")
-local zones                     = require("playermat/Zones")
+local Zones                     = require("playermat/Zones")
 
 local matsWithInvestigator      = {}
 local startsInPlayCount         = 0
@@ -355,24 +355,42 @@ function loadCards(slots, investigatorId, bondedList, deckMeta, playerColor, loa
   if GlobalApi.getOptionPanelState()["showAttachmentHelper"] then
     local objs = getObjectsWithTag("AttachmentHelperBag")
     if #objs > 0 then
-      local helperRot = zones.getDefaultCardRotation(playerColor, "Blank1")
+      local helperRot = Zones.getDefaultCardRotation(playerColor, "Blank1")
       for cardId, reservedSlot in pairs(cardsWithAttachments) do
         if type(reservedSlot) == "number" and reservedSlot < 6 then
           local helper = objs[1].takeObject({
-            position = zones.getZonePosition(playerColor, "Blank" .. (reservedSlot + 1)):setAt("y", 1.8),
+            position = Zones.getZonePosition(playerColor, "Blank" .. (reservedSlot + 1)):setAt("y", 1.8),
             rotation = helperRot,
             smooth = false
           })
           Wait.frames(function() helper.call("loadDataFromMetadata", { md = { id = cardId } }) end, 3)
         end
       end
+
+      -- Spawn attachment helpers appropriately sized on top of investigator cards with the tag
+      local invCard = AllCardsBagApi.getCardById(investigatorId)
+      if invCard and TableLib.contains(invCard.data.Tags, "CardWithAttachmentHelper") then
+        Wait.time(function ()
+          objs[1].takeObject({
+            position = PlayermatApi.transformLocalPosition(Vector( -1.051, 0.11 , 0.034 ):setAt("y", 1.8), playerColor),
+            rotation = Zones.getDefaultCardRotation(playerColor, "Blank1"),
+            smooth = false,
+            callback_function = function(helper)
+              helper.setScale({ 0.57, 0.65, 0.57 })
+              Wait.frames(function()
+                helper.call("loadDataFromMetadata", { md = { id = investigatorId } })
+              end, 3)
+            end
+          })
+        end, 1)
+      end
     end
   end
 
   -- Spawn the list for each zone
   for zone, zoneCards in pairs(zoneDecks) do
-    local deckPos = zones.getZonePosition(playerColor, zone):setAt("y", 3)
-    local deckRot = zones.getDefaultCardRotation(playerColor, zone)
+    local deckPos = Zones.getZonePosition(playerColor, zone):setAt("y", 3)
+    local deckRot = Zones.getDefaultCardRotation(playerColor, zone)
     local callback = nil
 
     -- if this is a zone with attachments, spawn cards facedown and add additional delay
