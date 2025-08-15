@@ -363,11 +363,12 @@ function loadCards(slots, investigatorId, bondedList, deckMeta, playerColor, loa
     if #objs > 0 then
       local helperRot = Zones.getDefaultCardRotation(playerColor, "Blank1")
       for cardId, reservedSlot in pairs(cardsWithAttachments) do
-        if type(reservedSlot) == "number" and reservedSlot < 6 then
+        -- only spawn Attachment Helper if the actual card is supposed to be import too
+        if type(reservedSlot) == "number" and reservedSlot < 6 and zoneDecks["Blank" .. reservedSlot] then
           local helper = objs[1].takeObject({
             position = Zones.getZonePosition(playerColor, "Blank" .. (reservedSlot + 1)):setAt("y", 1.8),
             rotation = helperRot,
-            smooth = false
+            smooth   = false
           })
           Wait.frames(function() helper.call("loadDataFromMetadata", { md = { id = cardId } }) end, 3)
         end
@@ -375,19 +376,15 @@ function loadCards(slots, investigatorId, bondedList, deckMeta, playerColor, loa
 
       -- Spawn attachment helpers appropriately sized on top of investigator cards with the tag
       local invCard = AllCardsBagApi.getCardById(investigatorId)
-      if invCard and TableLib.contains(invCard.data.Tags, "CardWithAttachmentHelper") then
+      if invCard and TableLib.contains(invCard.data.Tags, "CardWithAttachmentHelper") and zoneDecks["Investigator"] then
         Wait.time(function()
-          objs[1].takeObject({
-            position = PlayermatApi.transformLocalPosition(Vector(-1.051, 0.11, 0.034):setAt("y", 1.8), playerColor),
+          local helper = objs[1].takeObject({
+            position = PlayermatApi.transformLocalPosition(Vector(-1.051, 0.11, 0.034), playerColor):setAt("y", 1.8),
             rotation = Zones.getDefaultCardRotation(playerColor, "Blank1"),
-            smooth = false,
-            callback_function = function(helper)
-              helper.setScale({ 0.57, 0.65, 0.57 })
-              Wait.frames(function()
-                helper.call("loadDataFromMetadata", { md = { id = investigatorId } })
-              end, 3)
-            end
+            smooth   = false
           })
+          helper.setScale({ 0.57, 0.65, 0.57 })
+          Wait.frames(function() helper.call("loadDataFromMetadata", { md = { id = investigatorId } }) end, 3)
         end, 1)
       end
     end
