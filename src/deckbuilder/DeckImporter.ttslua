@@ -1,12 +1,12 @@
 require("playercards/PlayerCardSpawner")
 
 local AllCardsBagApi            = require("playercards/AllCardsBagApi")
-local ArkhamDb                  = require("arkhamdb/ArkhamDb")
 local GlobalApi                 = require("Global/GlobalApi")
 local GUIDReferenceApi          = require("core/GUIDReferenceApi")
 local PlayermatApi              = require("playermat/PlayermatApi")
 local TableLib                  = require("util/TableLib")
-local zones                     = require("playermat/Zones")
+local WebInterface              = require("deckbuilder/WebInterface")
+local Zones                     = require("playermat/Zones")
 
 local matsWithInvestigator      = {}
 local startsInPlayCount         = 0
@@ -37,7 +37,7 @@ local standalone                = false
 
 function onLoad(script_state)
   initializeUi(JSON.decode(script_state))
-  ArkhamDb.initialize()
+  WebInterface.initialize()
 end
 
 function onSave() return JSON.encode(getUiState()) end
@@ -96,7 +96,8 @@ function makeOptionToggles()
 
   -- public / private deck
   cParams.click_function = "publishedPrivateChanged"
-  cParams.tooltip = "Published or private deck?\n\nPLEASE USE A PRIVATE DECK IF JUST FOR TTS TO AVOID FLOODING ARKHAMDB PUBLISHED DECK LISTS!\n\nMake sure to enable deck sharing in your account settings.\n\nKeep this on 'Private' for arkham.build."
+  cParams.tooltip =
+  "Published or private deck?\n\nPLEASE USE A PRIVATE DECK IF JUST FOR TTS TO AVOID FLOODING ARKHAMDB PUBLISHED DECK LISTS!\n\nMake sure to enable deck sharing in your account settings.\n\nKeep this on 'Private' for arkham.build."
   cParams.label = PRIVATE_TOGGLE_LABELS[privateDeck]
   self.createButton(cParams)
 
@@ -110,7 +111,8 @@ function makeOptionToggles()
   -- standalone mode?
   cParams.click_function = "standaloneChanged"
   cParams.position.z = 0.081
-  cParams.tooltip = "Are you playing standalone mode? Enabling this will make all 'Campaign Only' weaknesses ineligible when determining the random basic weakness(es)."
+  cParams.tooltip =
+  "Are you playing standalone mode? Enabling this will make all 'Campaign Only' weaknesses ineligible when determining the random basic weakness(es)."
   cParams.label = STANDALONE_TOGGLE_LABELS[standalone]
   self.createButton(cParams)
 end
@@ -123,7 +125,8 @@ function makeDeckIdFields()
   iParams.width = INPUT_FIELD_WIDTH
   iParams.height = INPUT_FIELD_HEIGHT
   iParams.font_size = 320
-  iParams.tooltip = "Deck ID from ArkhamDB URL of the deck\nPublished URL: 'https://ArkhamDb.com/decklist/view/101/knowledge-overwhelming-solo-deck-1.0' = '101'\nPrivate URL: 'https://ArkhamDb.com/deck/view/102' = '102'\n\nAlso supports the deck ID from shared decks from arkham.build!"
+  iParams.tooltip =
+  "Deck ID from ArkhamDB URL of the deck\nPublished URL: 'https://WebInterface.com/decklist/view/101/knowledge-overwhelming-solo-deck-1.0' = '101'\nPrivate URL: 'https://WebInterface.com/deck/view/102' = '102'\n\nAlso supports the deck ID from shared decks from arkham.build!"
   iParams.alignment = 3 -- Center
   iParams.color = FIELD_COLOR
   iParams.font_color = { 0, 0, 0 }
@@ -169,8 +172,11 @@ end
 
 -- Event handlers for deck ID change
 function redDeckChanged(_, _, inputValue) redDeckId = inputValue end
+
 function orangeDeckChanged(_, _, inputValue) orangeDeckId = inputValue end
+
 function whiteDeckChanged(_, _, inputValue) whiteDeckId = inputValue end
+
 function greenDeckChanged(_, _, inputValue) greenDeckId = inputValue end
 
 -- Event handlers for toggle buttons
@@ -253,7 +259,7 @@ end
 
 function buildDeck(playerColor, deckId)
   local uiState = getUiState()
-  ArkhamDb.getDecklist(
+  WebInterface.getDecklist(
     playerColor,
     deckId,
     uiState.privateDeck,
@@ -264,7 +270,7 @@ end
 
 -- Process the slot list, which defines the card Ids and counts of cards to load. Spawn those cards
 -- at the appropriate zones and report an error to the user if any could not be loaded.
--- This is a callback function which handles the results of ArkhamDb.getDecklist()
+-- This is a callback function which handles the results of WebInterface.getDecklist()
 ---@param slots table Key-Value table of cardId:count
 ---@param investigatorId string ArkhamDB ID (code) for this deck's investigator.
 --     Investigator cards should already be added to the slots list if they should be spawned,
@@ -355,24 +361,39 @@ function loadCards(slots, investigatorId, bondedList, deckMeta, playerColor, loa
   if GlobalApi.getOptionPanelState()["showAttachmentHelper"] then
     local objs = getObjectsWithTag("AttachmentHelperBag")
     if #objs > 0 then
-      local helperRot = zones.getDefaultCardRotation(playerColor, "Blank1")
+      local helperRot = Zones.getDefaultCardRotation(playerColor, "Blank1")
       for cardId, reservedSlot in pairs(cardsWithAttachments) do
-        if type(reservedSlot) == "number" and reservedSlot < 6 then
+        -- only spawn Attachment Helper if the actual card is supposed to be import too
+        if type(reservedSlot) == "number" and reservedSlot < 6 and zoneDecks["Blank" .. reservedSlot] then
           local helper = objs[1].takeObject({
-            position = zones.getZonePosition(playerColor, "Blank" .. (reservedSlot + 1)):setAt("y", 1.8),
+            position = Zones.getZonePosition(playerColor, "Blank" .. (reservedSlot + 1)):setAt("y", 1.8),
             rotation = helperRot,
-            smooth = false
+            smooth   = false
           })
           Wait.frames(function() helper.call("loadDataFromMetadata", { md = { id = cardId } }) end, 3)
         end
+      end
+
+      -- Spawn attachment helpers appropriately sized on top of investigator cards with the tag
+      local invCard = AllCardsBagApi.getCardById(investigatorId)
+      if invCard and TableLib.contains(invCard.data.Tags, "CardWithAttachmentHelper") and zoneDecks["Investigator"] then
+        Wait.time(function()
+          local helper = objs[1].takeObject({
+            position = PlayermatApi.transformLocalPosition(Vector(-1.051, 0.11, 0.034), playerColor):setAt("y", 1.8),
+            rotation = Zones.getDefaultCardRotation(playerColor, "Blank1"),
+            smooth   = false
+          })
+          helper.setScale({ 0.57, 0.65, 0.57 })
+          Wait.frames(function() helper.call("loadDataFromMetadata", { md = { id = investigatorId } }) end, 3)
+        end, 1)
       end
     end
   end
 
   -- Spawn the list for each zone
   for zone, zoneCards in pairs(zoneDecks) do
-    local deckPos = zones.getZonePosition(playerColor, zone):setAt("y", 3)
-    local deckRot = zones.getDefaultCardRotation(playerColor, zone)
+    local deckPos = Zones.getZonePosition(playerColor, zone):setAt("y", 3)
+    local deckRot = Zones.getDefaultCardRotation(playerColor, zone)
     local callback = nil
 
     -- if this is a zone with attachments, spawn cards facedown and add additional delay
@@ -407,7 +428,7 @@ function loadCards(slots, investigatorId, bondedList, deckMeta, playerColor, loa
   for cardId, remainingCount in pairs(slots) do
     if remainingCount > 0 then
       hadError = true
-      ArkhamDb.logCardNotFound(cardId, playerColor)
+      WebInterface.logCardNotFound(cardId, playerColor)
     end
   end
 
@@ -417,9 +438,9 @@ function loadCards(slots, investigatorId, bondedList, deckMeta, playerColor, loa
 end
 
 function getStartingResourceModifier(cardId)
-  if cardId == "02037" then -- Indebted
-    return - 2
-  elseif cardId == "05278" then -- Another Day, Another Dollar
+  if cardId == "02037" then      -- Indebted
+    return -2
+  elseif cardId == "05278" then  -- Another Day, Another Dollar
     return 2
   elseif cardId == "11756b" then -- completed Good Money
     return 5
@@ -687,11 +708,11 @@ function handleSpiritDeck(investigatorId, cardsToSpawn, deckMeta, playerColor)
   else
     for i, card in ipairs(cardsToSpawn) do
       if card.metadata.id == "90053" or (
-          card.metadata.type == "Asset"
-          and card.metadata.traits ~= nil
-          and string.match(card.metadata.traits, "Ally")
-          and card.metadata.level ~= nil
-          and card.metadata.level < 3) then
+            card.metadata.type == "Asset"
+            and card.metadata.traits ~= nil
+            and string.match(card.metadata.traits, "Ally")
+            and card.metadata.level ~= nil
+            and card.metadata.level < 3) then
         table.insert(spiritList, i)
       end
     end
@@ -702,9 +723,13 @@ function handleSpiritDeck(investigatorId, cardsToSpawn, deckMeta, playerColor)
   end
 
   if #spiritList < 10 then
-    printToAll("Jim's spirit deck must have 9 Ally assets but the deck only has " .. (#spiritList - 1) .. " Ally assets.", playerColor)
+    printToAll(
+      "Jim's spirit deck must have 9 Ally assets but the deck only has " .. (#spiritList - 1) .. " Ally assets.",
+      playerColor)
   elseif #spiritList > 11 then
-    printToAll("Moved all " .. (#spiritList - 1) .. " Ally assets to the spirit deck, reduce it to 10 (including Vengeful Shade).", playerColor)
+    printToAll(
+      "Moved all " .. (#spiritList - 1) .. " Ally assets to the spirit deck, reduce it to 10 (including Vengeful Shade).",
+      playerColor)
   else
     printToAll("Built Jim's spirit deck", playerColor)
   end
@@ -744,7 +769,8 @@ function handleUnderworldMarket(cardsToSpawn, deckMeta, playerColor)
   end
 
   if count < 10 then
-    printToAll("Only " .. count .. " Illicit cards in your deck, you can't trigger Underworld Market's ability.", playerColor)
+    printToAll("Only " .. count .. " Illicit cards in your deck, you can't trigger Underworld Market's ability.",
+      playerColor)
   elseif count > 10 then
     printToAll("Moved all " .. count .. " Illicit cards to the Market deck, reduce it to 10", playerColor)
   else
@@ -828,13 +854,13 @@ end
 function handlePeteSignatureAssets(investigatorId, cardList)
   if investigatorId == "02005" or investigatorId == "02005-pb" then -- regular Pete's front
     for _, card in ipairs(cardList) do
-      if card.metadata.id == "02014" then -- Duke
+      if card.metadata.id == "02014" then                           -- Duke
         card.zone = startsInPlayTracker()
       end
     end
   elseif investigatorId == "02005-p" or investigatorId == "02005-pf" then -- parallel Pete's front
     for _, card in ipairs(cardList) do
-      if card.metadata.id == "90047" then -- Pete's Guitar
+      if card.metadata.id == "90047" then                                 -- Pete's Guitar
         card.zone = startsInPlayTracker()
       end
     end
