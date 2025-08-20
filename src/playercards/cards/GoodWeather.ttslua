@@ -1,20 +1,32 @@
 require("playercards/CardsWithHelper")
-local TableLib     = require("util/TableLib")
+local TableLib        = require("util/TableLib")
 
 -- intentionally global
-hasXML             = true
-isHelperEnabled    = false
-local SKILL_LIST   = {
-  willpower = "f",
-  intellect = "g",
-  combat    = "h",
-  agility   = "i"
+hasXML                = true
+isHelperEnabled       = false
+
+local SKILL_LIST      = {
+  willpower = { text = "f", textColor = "#0B3F6C" },
+  intellect = { text = "g", textColor = "#56244A" },
+  combat    = { text = "h", textColor = "#6B2615" },
+  agility   = { text = "i", textColor = "#03553B" }
 }
-local BUTTON_COLOR = {
-  active   = "#bbbbbb80",
-  inactive = "#33333380"
+local BUTTON_COLOR    = {
+  active   = "#F5F5F5D0",
+  inactive = "#4D4D4DA0",
+  disabled = "#FFFFFF00"
 }
+local TEXT_COLOR      = {
+  inactive = "#D3D3D3A0",
+  disabled = "#FFFFFF00"
+}
+local hoveringPlayers = {}
 local selectedSkill
+
+function onDestroy()
+  selectedSkill = nil
+  updateSave()
+end
 
 function updateSave()
   self.script_state = JSON.encode({
@@ -36,7 +48,6 @@ function onLoad(savedData)
 end
 
 function shutOff()
-  selectedSkill = nil
   maybeUpdateButtonState()
 end
 
@@ -52,30 +63,31 @@ function generateXml()
       id              = "Helper",
       active          = isHelperEnabled,
       rotation        = "0 0 180",
+      scale           = "0.175 0.175 1",
       childAlignment  = "MiddleCenter",
       constraint      = "FixedColumnCount",
       constraintCount = 2,
-      position        = "0 -50 -40",
-      cellSize        = "70 70",
-      spacing         = "10 10"
+      position        = "0 -60 -40",
+      width           = 350 * 2 + 55,
+      height          = 350 * 2 + 55,
+      cellSize        = "350 350",
+      spacing         = "55 55"
     }
   }
 
   local buttonXml = {
     tag = "Button",
     attributes = {
-      color     = BUTTON_COLOR.inactive,
-      onClick   = "skillClick",
-      textColor = "Black",
-      font      = "font_arkhamicons",
-      fontSize  = 65
+      onClick  = "skillClick",
+      font     = "font_arkhamicons",
+      fontSize = 315
     }
   }
 
-  for skill, text in pairs(SKILL_LIST) do
+  for skill, data in pairs(SKILL_LIST) do
     local skillXml           = TableLib.copy(buttonXml)
     skillXml.attributes.id   = skill
-    skillXml.attributes.text = text
+    skillXml.attributes.text = data.text
     table.insert(gridXml.children, skillXml)
   end
 
@@ -83,17 +95,44 @@ function generateXml()
 end
 
 function skillClick(_, _, elementId)
-  selectedSkill = elementId
+  if selectedSkill == elementId then
+    selectedSkill = nil
+  else
+    selectedSkill = elementId
+  end
+  updateSave()
   maybeUpdateButtonState()
 end
 
+function isSomeoneHovering()
+  for _, state in pairs(hoveringPlayers) do
+    if state then return true end
+  end
+  return false
+end
+
 function maybeUpdateButtonState()
-  for skill, _ in pairs(SKILL_LIST) do
-    local buttonColor = BUTTON_COLOR.inactive
+  local someoneHovers = isSomeoneHovering()
+
+  for skill, data in pairs(SKILL_LIST) do
+    local attributes = { color = BUTTON_COLOR.inactive, textColor = TEXT_COLOR.inactive }
+
     if skill == selectedSkill then
-      buttonColor = BUTTON_COLOR.active
+      attributes.color     = BUTTON_COLOR.active
+      attributes.textColor = data.textColor
+    elseif not someoneHovers then
+      attributes.color     = BUTTON_COLOR.disabled
+      attributes.textColor = TEXT_COLOR.disabled
     end
 
-    self.UI.setAttribute(skill, "color", buttonColor)
+    self.UI.setAttributes(skill, attributes)
   end
+end
+
+function onObjectHover(playerColor, object)
+  hoveringPlayers[playerColor] = object == self
+  if waitId then
+    Wait.stop(waitId)
+  end
+  waitId = Wait.time(maybeUpdateButtonState, (object == self) and 0.001 or 0.2)
 end
