@@ -11,10 +11,8 @@ local MathLib                     = require("util/MathLib")
 local MythosAreaApi               = require("mythos/MythosAreaApi")
 local NavigationOverlayApi        = require("core/NavigationOverlayApi")
 local SearchLib                   = require("util/SearchLib")
-local TokenChecker                = require("tokens/TokenChecker")
 local TokenManagerApi             = require("tokens/TokenManagerApi")
 local TokenSpawnTrackerApi        = require("tokens/TokenSpawnTrackerApi")
-local VictoryDisplayApi           = require("mythos/VictoryDisplayApi")
 local zones                       = require("playermat/Zones")
 
 -- option panel data
@@ -393,72 +391,43 @@ end
 -- Discard buttons (threat area)
 ---------------------------------------------------------
 
--- handles discarding for a list of objects
----@param objList table List of objects to discard
-function discardListOfObjects(objList)
-  for _, obj in ipairs(objList) do
-    if obj.type == "Card" or obj.type == "Deck" then
-      if obj.hasTag("CardThatSeals") then
-        local func = obj.getVar("resetSealedTokens")
-        if func ~= nil then obj.call("resetSealedTokens") end
-      end
-      if obj.hasTag("PlayerCard") then
-        DeckLib.placeOrMergeIntoDeck(obj, returnGlobalDiscardPosition(), self.getRotation())
-      else
-        local discardPos = MythosAreaApi.getEncounterDiscardPosition()
-        local discardRot = MythosAreaApi.getEncounterDiscardRotation()
-        DeckLib.placeOrMergeIntoDeck(obj, discardPos, discardRot)
-      end
-    elseif TokenChecker.isChaosToken(obj) then
-      -- put chaos tokens back into bag (e.g. Unrelenting)
-      ChaosBagApi.returnChaosTokenToBag(obj, false)
-    elseif not obj.getLock() and not obj.hasTag("DontDiscard") and obj.interactable == true then
-      -- don't touch locked objects (like the table etc.) or specific objects (like key tokens)
-      if obj.getMemo() == "clueDoom" then
-        VictoryDisplayApi.update()
-      end
-      ownedObjects.Trash.putObject(obj)
-    end
-  end
-end
-
 -- build a discard button to discard from searchPosition
 ---@param id number Index of the discard button (from left to right, must be unique)
 function makeDiscardButton(id)
-  local xValue = DISCARD_BUTTON_X_START + (id - 1) * DISCARD_BUTTON_X_OFFSET
-  local position = Vector(xValue, 0.1, -0.94)
+  local xValue         = DISCARD_BUTTON_X_START + (id - 1) * DISCARD_BUTTON_X_OFFSET
+  local position       = Vector(xValue, 0.1, -0.94)
   local searchPosition = Vector(-position[1], 1, position[3] + 0.32)
-  local handlerName = 'handler' .. id
+  local handlerName    = 'handler' .. id
   self.setVar(handlerName, function()
     local cardSizeSearch = Vector(2, 2, 3.2)
     local globalSearchPosition = self.positionToWorld(searchPosition)
     local searchResult = SearchLib.inArea(globalSearchPosition, self.getRotation(), cardSizeSearch)
-    return discardListOfObjects(searchResult)
+    return GlobalApi.discardObjects(searchResult, matColor)
   end)
   self.createButton({
-    label = "Discard",
+    label          = "Discard",
     click_function = handlerName,
     function_owner = self,
-    position = position,
-    scale = { 0.12, 0.12, 0.12 },
-    width = 900,
-    height = 350,
-    font_size = 210
+    position       = position,
+    scale          = { 0.12, 0.12, 0.12 },
+    width          = 900,
+    height         = 350,
+    font_size      = 210
   })
 end
 
 -- build a hybrid button to discard from searchPosition or move a card/deck to empty threat area on right click
 function makeDrawAreaButton()
   self.createButton({
-    label = "Discard / ➜",
+    label          = "Discard / ➜",
     click_function = "discardOrMove",
-    tooltip = "Right-click to move to threat area",
+    tooltip        = "Right-click to move to threat area",
     function_owner = self,
-    position = { -1.365, 0.1, -0.94 },
-    scale = { 0.12, 0.12, 0.12 },
-    width = 1190,
-    height = 350,
-    font_size = 207
+    position       = { -1.365, 0.1, -0.94 },
+    scale          = { 0.12, 0.12, 0.12 },
+    width          = 1190,
+    height         = 350,
+    font_size      = 207
   })
 end
 
@@ -481,7 +450,7 @@ function discardOrMove(_, playerColor, isRightClick)
       end
     end
   else
-    return discardListOfObjects(searchResult)
+    return GlobalApi.discardObjects(searchResult, matColor)
   end
 end
 
@@ -506,7 +475,7 @@ function doUpkeep(_, clickedByColor, isRightClick)
   local rot = self.getRotation()
   for _, obj in ipairs(searchAroundSelf()) do
     if obj.hasTag("Temporary") then
-      discardListOfObjects({ obj })
+      GlobalApi.discardObjects(obj, matColor)
     elseif obj.hasTag("UniversalToken") and obj.is_face_down then
       obj.flip()
     end
@@ -1180,7 +1149,7 @@ function createXML()
           table.insert(subTable.children, {
             tag        = "Option",
             value      = option,
-            attributes = { id = "PM_option_" .. optionData.id .. "_dropdown_".. dropdownOptionId }
+            attributes = { id = "PM_option_" .. optionData.id .. "_dropdown_" .. dropdownOptionId }
           })
         end
       end
