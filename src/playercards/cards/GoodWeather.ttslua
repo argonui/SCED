@@ -1,0 +1,99 @@
+require("playercards/CardsWithHelper")
+local TableLib     = require("util/TableLib")
+
+-- intentionally global
+hasXML             = true
+isHelperEnabled    = false
+local SKILL_LIST   = {
+  willpower = "f",
+  intellect = "g",
+  combat    = "h",
+  agility   = "i"
+}
+local BUTTON_COLOR = {
+  active   = "#bbbbbb80",
+  inactive = "#33333380"
+}
+local selectedSkill
+
+function updateSave()
+  self.script_state = JSON.encode({
+    isHelperEnabled = isHelperEnabled,
+    selectedSkill   = selectedSkill
+  })
+end
+
+function onLoad(savedData)
+  if savedData and savedData ~= "" then
+    local loadedData = JSON.decode(savedData)
+    isHelperEnabled  = loadedData.isHelperEnabled
+    selectedSkill    = loadedData.selectedSkill
+  end
+
+  generateXml()
+
+  if isHelperEnabled then updateDisplay() end
+end
+
+function shutOff()
+  selectedSkill = nil
+  maybeUpdateButtonState()
+end
+
+function initialize()
+  maybeUpdateButtonState()
+end
+
+function generateXml()
+  local gridXml = {
+    tag        = "GridLayout",
+    children   = {},
+    attributes = {
+      id              = "Helper",
+      active          = isHelperEnabled,
+      rotation        = "0 0 180",
+      childAlignment  = "MiddleCenter",
+      constraint      = "FixedColumnCount",
+      constraintCount = 2,
+      position        = "0 -50 -40",
+      cellSize        = "70 70",
+      spacing         = "10 10"
+    }
+  }
+
+  local buttonXml = {
+    tag = "Button",
+    attributes = {
+      color     = BUTTON_COLOR.inactive,
+      onClick   = "skillClick",
+      textColor = "Black",
+      font      = "font_arkhamicons",
+      fontSize  = 65
+    }
+  }
+
+  for skill, text in pairs(SKILL_LIST) do
+    local skillXml           = TableLib.copy(buttonXml)
+    skillXml.attributes.id   = skill
+    skillXml.attributes.text = text
+    table.insert(gridXml.children, skillXml)
+  end
+
+  self.UI.setXmlTable({ gridXml })
+end
+
+function skillClick(_, _, elementId)
+  selectedSkill = elementId
+  maybeUpdateButtonState()
+end
+
+function maybeUpdateButtonState()
+  for skill, _ in pairs(SKILL_LIST) do
+    local buttonColor = BUTTON_COLOR.inactive
+    if skill == selectedSkill then
+      buttonColor = BUTTON_COLOR.active
+    end
+
+    self.UI.setAttribute(skill, "color", buttonColor)
+  end
+end
