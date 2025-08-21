@@ -1,4 +1,7 @@
+-- This is used for cards like Good Weather, Making Preparations and Whispers of Hypnos
+
 require("playercards/CardsWithHelper")
+
 local TableLib        = require("util/TableLib")
 
 -- intentionally global
@@ -21,17 +24,18 @@ local TEXT_COLOR      = {
   disabled = "#FFFFFF00"
 }
 local hoveringPlayers = {}
-local selectedSkill
+local maxActive       = 1
+local selectedSkills  = {}
 
 function onDestroy()
-  selectedSkill = nil
+  selectedSkills = {}
   updateSave()
 end
 
 function updateSave()
   self.script_state = JSON.encode({
     isHelperEnabled = isHelperEnabled,
-    selectedSkill   = selectedSkill
+    selectedSkills  = selectedSkills
   })
 end
 
@@ -39,7 +43,12 @@ function onLoad(savedData)
   if savedData and savedData ~= "" then
     local loadedData = JSON.decode(savedData)
     isHelperEnabled  = loadedData.isHelperEnabled
-    selectedSkill    = loadedData.selectedSkill
+    selectedSkills   = loadedData.selectedSkills
+  end
+
+  local md = JSON.decode(self.getGMNotes()) or {}
+  if md.id == "09106" then
+    maxActive = 2
   end
 
   generateXml()
@@ -94,11 +103,26 @@ function generateXml()
   self.UI.setXmlTable({ gridXml })
 end
 
-function skillClick(_, _, elementId)
-  if selectedSkill == elementId then
-    selectedSkill = nil
+function skillClick(player, _, elementId)
+  if selectedSkills[elementId] then
+    selectedSkills[elementId] = false
   else
-    selectedSkill = elementId
+    if maxActive == 1 then
+      selectedSkills = { [elementId] = true}
+    else
+      local currentlyActive = 0
+      for _, state in pairs(selectedSkills) do
+        if state then
+          currentlyActive = currentlyActive + 1
+        end
+      end
+
+      if currentlyActive == maxActive then
+        printToColor("You are not allowed to choose more than " .. maxActive .. " skills.", player.color)
+        return
+      end
+      selectedSkills[elementId] = true
+    end
   end
   updateSave()
   maybeUpdateButtonState()
@@ -117,7 +141,7 @@ function maybeUpdateButtonState()
   for skill, data in pairs(SKILL_LIST) do
     local attributes = { color = BUTTON_COLOR.inactive, textColor = TEXT_COLOR.inactive }
 
-    if skill == selectedSkill then
+    if selectedSkills[skill] then
       attributes.color     = BUTTON_COLOR.active
       attributes.textColor = data.textColor
     elseif not someoneHovers then
