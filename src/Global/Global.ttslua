@@ -6,6 +6,7 @@ require("Global/i18nData")
 local BlessCurseManagerApi        = require("chaosbag/BlessCurseManagerApi")
 local ColorLib                    = require("util/ColorLib")
 local CoroutineLib                = require("util/CoroutineLib")
+local DeckLib                     = require("util/DeckLib")
 local GUIDReferenceApi            = require("core/GUIDReferenceApi")
 local MathLib                     = require("util/MathLib")
 local MythosAreaApi               = require("mythos/MythosAreaApi")
@@ -4423,6 +4424,59 @@ end
 ---------------------------------------------------------
 -- Utility functions
 ---------------------------------------------------------
+
+-- handles discarding for a list of objects
+---@param params table Parameters:
+--- objectList table|tts__Object List of objects to discard (or a single object)
+--- owner string Owner of the objects (determines trash can)
+function discardObjects(params)
+  local objectList = params.objectList
+
+  if objectList == nil then return end
+  if type(objectList) ~= "table" then
+    objectList = { objectList }
+  end
+
+  local owner = params.owner or "Mythos"
+
+  local trash = GUIDReferenceApi.getObjectByOwnerAndType(owner, "Trash")
+  if trash == nil then return end
+
+  for _, obj in ipairs(objectList) do
+    if obj.hasTag("TrashMe") then
+        trash.putObject(obj)
+    -- don't touch locked objects (like the table etc.) or specific objects (like key tokens)
+    elseif not obj.getLock() and not obj.hasTag("DontDiscard") and obj.interactable == true then
+      if obj.type == "Card" or obj.type == "Deck" then
+        -- reset cards that seal tokens
+        if obj.hasTag("CardThatSeals") then
+          local func = obj.getVar("resetSealedTokens")
+          if func ~= nil then obj.call("resetSealedTokens") end
+        end
+
+        -- discard cards to respective discard pile
+        local discardPos, discardRot
+        if owner ~= "Mythos" and obj.hasTag("PlayerCard") then
+          discardPos = PlayermatApi.getDiscardPosition(owner)
+          discardRot = PlayermatApi.returnRotation(owner)
+        else
+          discardPos = MythosAreaApi.getEncounterDiscardPosition()
+          discardRot = MythosAreaApi.getEncounterDiscardRotation()
+        end
+
+        DeckLib.placeOrMergeIntoDeck(obj, discardPos, discardRot)
+      elseif TokenChecker.isChaosToken(obj) then
+        -- put chaos tokens back into bag (e.g. Unrelenting)
+        returnChaosTokenToBag( { token = obj, fromBag = false })
+      else
+        if obj.getMemo() == "clueDoom" then
+          VictoryDisplayApi.update()
+        end
+        trash.putObject(obj)
+      end
+    end
+  end
+end
 
 -- converts a string to boolean (because TTS is very inconsistent with these in XML)
 function convertStringToBoolean(str)
