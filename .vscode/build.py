@@ -3,11 +3,10 @@ import os
 import shutil
 import subprocess
 import time
-import datetime  # Import the datetime module
+import datetime
 
 
 def get_current_git_branch():
-    """Returns the name of the current Git branch."""
     try:
         branch = (
             subprocess.check_output(
@@ -22,7 +21,6 @@ def get_current_git_branch():
 
 
 def get_output_folder():
-    # Define the path for the pre-compiled binary
     if os.name == "nt":  # Windows
         return os.path.join(
             os.environ["USERPROFILE"],
