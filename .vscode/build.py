@@ -2,6 +2,8 @@ import argparse
 import os
 import shutil
 import subprocess
+import time
+import datetime  # Import the datetime module
 
 
 def get_current_git_branch():
@@ -56,6 +58,10 @@ def get_base_command():
 
 
 def main():
+    # Start the timer and get the current time
+    start_time = time.time()
+    start_time_formatted = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
     parser = argparse.ArgumentParser(description="VS Code build script for ArkhamSCE")
     parser.add_argument(
         "--action",
@@ -79,7 +85,12 @@ def main():
     full_cmd = cmd + mod_dir_arg + mod_file_arg + reverse_arg
 
     # Execute the core command
-    print(f"Executing command: {' '.join(full_cmd)}")
+    branch = get_current_git_branch()
+
+    print(f"{start_time_formatted}")
+    print(f"branch: {branch}")
+    print(f"action: {args.action}")
+    print(f"{' '.join(full_cmd)}")
 
     if using_go:
         subprocess.run(full_cmd, check=True, cwd="C:\\git\\TTSModManager")
@@ -89,11 +100,14 @@ def main():
     # Handle dynamic file copying if the action is 'build'
     if args.action == "build":
         source_file = "ArkhamSCE.png"
-        branch = get_current_git_branch()
         if branch and branch != "main":
             source_file = "ArkhamSCE_dev.png"
 
         shutil.copy(source_file, os.path.join(output_folder, "ArkhamSCE.png"))
+
+    # Calculate and print the elapsed time
+    elapsed_time = time.time() - start_time
+    print(f"Execution took {elapsed_time:.2f} seconds.")
 
 
 if __name__ == "__main__":
