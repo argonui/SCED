@@ -17,7 +17,7 @@ local TokenSpawnTrackerApi      = require("tokens/TokenSpawnTrackerApi")
 -- objects with this tag will be ignored
 local IGNORE_TAG                = "CleanUpHelper_ignore"
 
-local COLORS
+local matColorList              = {}
 local valuesForDamageHorror     = {}
 local loadingFailedBefore       = false
 local optionsVisible            = false
@@ -132,9 +132,9 @@ function cleanUp(_, color)
   printToAll("Resetting counters...", "White")
 
   -- dynamically get mat colors
-  COLORS = {}
+  matColorList = {}
   for matColor, _ in pairs(GUIDReferenceApi.getObjectsByType("Playermat")) do
-    table.insert(COLORS, matColor)
+    table.insert(matColorList, matColor)
   end
 
   getScenarioName()
@@ -175,9 +175,9 @@ function updateCounters()
   PlayermatApi.updateCounter("All", "ClickableClueCounter", 0)
   PlayermatApi.resetSkillTracker("All")
 
-  for i, color in ipairs(COLORS) do
-    PlayermatApi.updateCounter(color, "DamageCounter", valuesForDamageHorror.Damage[i])
-    PlayermatApi.updateCounter(color, "HorrorCounter", valuesForDamageHorror.Horror[i])
+  for i, matColor in ipairs(matColorList) do
+    PlayermatApi.updateCounter(matColor, "DamageCounter", valuesForDamageHorror.Damage[i])
+    PlayermatApi.updateCounter(matColor, "HorrorCounter", valuesForDamageHorror.Horror[i])
   end
 end
 
@@ -275,7 +275,7 @@ function returnMiniCards()
   end
 
   -- move mini cards
-  for _, matColor in ipairs(COLORS) do
+  for _, matColor in ipairs(matColorList) do
     local data = PlayermatApi.getActiveInvestigatorData(matColor)
     if miniCardIndex[data.miniId] then
       local pos = PlayermatApi.transformLocalPosition(Vector(-1.36, 0, -0.625), matColor)
@@ -287,7 +287,7 @@ end
 -- discard all hand objects
 function discardHands()
   if not getOptionValue() then return end
-  for _, color in ipairs(COLORS) do
+  for _, color in ipairs(matColorList) do
     local trash = GUIDReferenceApi.getObjectByOwnerAndType(color, "Trash")
     if trash then
       local hand = Player[PlayermatApi.getPlayerColor(color)].getHandObjects()
@@ -354,20 +354,20 @@ function tidyPlayerMatCoroutine()
   local tekeliliHelper = getTekeliliHelper()
 
   if getOptionValue() then
-    for _, color in ipairs(COLORS) do
-      local trash = GUIDReferenceApi.getObjectByOwnerAndType(color, "Trash")
+    for _, matColor in ipairs(matColorList) do
+      local trash = GUIDReferenceApi.getObjectByOwnerAndType(matColor, "Trash")
       if trash == nil then
-        printToAll("Trashcan for " .. color .. " playermat could not be found! Skipping this playermat.", "Yellow")
+        printToAll("Trashcan for " .. matColor .. " playermat could not be found! Skipping this playermat.", "Yellow")
       else
         CoroutineLib.yieldFrames(20)
 
         -- maybe store tekelili cards
         if tekeliliHelper then
-          tekeliliHelper.call("storeTekelili", color)
+          tekeliliHelper.call("storeTekelili", matColor)
         end
 
         -- parse playermat objects
-        for _, obj in ipairs(PlayermatApi.searchAroundPlayermat(color)) do
+        for _, obj in ipairs(PlayermatApi.searchAroundPlayermat(matColor)) do
           maybeTrashObject(obj, trash)
         end
 
@@ -375,10 +375,10 @@ function tidyPlayerMatCoroutine()
 
         -- maybe respawn tekelili cards
         if tekeliliHelper then
-          tekeliliHelper.call("spawnStoredTekelili", color)
+          tekeliliHelper.call("spawnStoredTekelili", matColor)
         end
       end
-      Global.call("updateActionTrackerName", color)
+      Global.call("updateActionTrackerName", matColor)
     end
 
     -- reset "activeInvestigatorId" and "...class"
@@ -391,8 +391,8 @@ function tidyPlayerMatCoroutine()
     PlayermatApi.spawnActionTokens("All")
   else
     -- perform a "pseudo" upkeep for cards on playermats
-    for _, color in ipairs(COLORS) do
-      for _, obj in ipairs(PlayermatApi.searchAroundPlayermat(color)) do
+    for _, matColor in ipairs(matColorList) do
+      for _, obj in ipairs(PlayermatApi.searchAroundPlayermat(matColor)) do
         if obj.hasTag("DoInUpkeep") and not obj.is_face_down then
           obj.call("doInUpkeep")
         end
