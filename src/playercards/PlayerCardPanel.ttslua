@@ -571,10 +571,10 @@ function buildInvestigatorSpawnSpec(investigatorName, investigatorData, position
   local sigPos = Vector(position):add(investigatorSignatureOffset)
   local spawns = buildCommonSpawnSpec(investigatorName, investigatorData, position)
   table.insert(spawns, {
-    name = investigatorName .. "signatures",
-    cards = investigatorData.signatures,
+    name      = investigatorName .. "signatures",
+    cards     = investigatorData.signatures,
     globalPos = self.positionToWorld(sigPos),
-    rotation = FACE_UP_ROTATION
+    rotation  = FACE_UP_ROTATION
   })
   return spawns
 end
@@ -585,36 +585,36 @@ end
 ---@param investigatorName string Name of the investigator, matching a key in InvestigatorPanelData
 ---@param investigatorData table Spawn definition for the investigator, retrieved from INVESTIGATORS
 ---@param position tts__Vector Where to spawn the minicard; investigagor cards will be placed below
----@param oneCardOnly? boolean If true, will spawn only the first card in the investigator card
----    and minicard lists. Otherwise, spawn them all in a deck
-function buildCommonSpawnSpec(investigatorName, investigatorData, position, oneCardOnly)
+---@param index? number If true, will spawn only that card from the investigator card
+---    and minicard lists. Otherwise, spawn them all in a deck.
+function buildCommonSpawnSpec(investigatorName, investigatorData, position, index)
   local cardPos = Vector(position):add(investigatorCardOffset)
   return {
     {
-      name = investigatorName .. "minicards",
-      cards = oneCardOnly and { investigatorData.minicards[1] } or investigatorData.minicards,
+      name      = investigatorName .. "minicards",
+      cards     = index and { investigatorData.minicards[index] } or investigatorData.minicards,
       globalPos = self.positionToWorld(position),
-      rotation = FACE_UP_ROTATION
+      rotation  = FACE_UP_ROTATION
     },
     {
-      name = investigatorName .. "cards",
-      cards = oneCardOnly and { investigatorData.cards[1] } or investigatorData.cards,
+      name      = investigatorName .. "cards",
+      cards     = index and { investigatorData.cards[index] } or investigatorData.cards,
       globalPos = self.positionToWorld(cardPos),
-      rotation = FACE_UP_ROTATION
+      rotation  = FACE_UP_ROTATION
     }
   }
 end
 
 -- Spawns all starter decks (single minicard and investigator card, plus the starter deck) for
 -- investigators in the given group.
----@param groupName string Name of the group to spawn, matching a key in InvestigatorPanelData
-function spawnStarters(groupName)
+---@param class string Name of the group to spawn, matching a key in InvestigatorPanelData
+function spawnStarters(class)
   local col = 1
   local row = 1
-  local investigatorCount = #INVESTIGATOR_GROUPS[groupName]
+  local investigatorCount = #INVESTIGATOR_GROUPS[class]
   local position = getInvestigatorRowStartPos(investigatorCount, row)
-  for _, investigatorName in ipairs(INVESTIGATOR_GROUPS[groupName]) do
-    spawnStarterDeck(investigatorName, INVESTIGATORS[investigatorName], position)
+  for _, investigatorName in ipairs(INVESTIGATOR_GROUPS[class]) do
+    spawnStarterDeck(investigatorName, INVESTIGATORS[investigatorName], position, class)
     position:add(investigatorPositionShiftCol)
     col = col + 1
     if col > INVESTIGATOR_MAX_COLS then
@@ -625,15 +625,32 @@ function spawnStarters(groupName)
   end
 end
 
--- Spawns the defined starter deck for the given investigator's.
----@param investigatorName string Name of the investigator, matching a key in InvestigatorPanelData
-function spawnStarterDeck(investigatorName, investigatorData, position)
-  if not investigatorData.starterDeck then return end
-  for _, spawnSpec in ipairs(buildCommonSpawnSpec(investigatorName, investigatorData, position, true)) do
+-- Spawns the defined starter deck for the given investigator
+function spawnStarterDeck(investigatorName, investigatorData, position, class)
+  -- determine investigator ID (in case there are multiple, take the first that matches class to handle Agatha)
+  local index, starterDeck
+
+  for i, id in ipairs(investigatorData.cards) do
+    local card = AllCardsBagApi.getCardById(id)
+    if card and card.metadata and card.metadata.class and card.metadata.class == class then
+      index = i
+      starterDeck = card.metadata.starterDeck
+      break
+    end
+  end
+
+  if not index then return end
+
+  for _, spawnSpec in ipairs(buildCommonSpawnSpec(investigatorName, investigatorData, position, index)) do
     SpawnBag.spawn(spawnSpec)
   end
+
   local deckPos = Vector(position):add(investigatorSignatureOffset)
-  WebInterface.getDecklist("None", investigatorData.starterDeck, true, false, false, function(slots)
+
+  -- early exit if this investigator does not have a starter deck
+  if not starterDeck then return end
+
+  WebInterface.getDecklist("None", starterDeck, true, false, false, function(slots)
     local cardIdList = {}
     for id, count in pairs(slots) do
       for i = 1, count do
