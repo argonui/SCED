@@ -19,6 +19,42 @@ def get_current_git_branch():
         return None
 
 
+def get_output_folder():
+    # Define the path for the pre-compiled binary
+    if os.name == "nt":  # Windows
+        return os.path.join(
+            os.environ["USERPROFILE"],
+            "Documents",
+            "My Games",
+            "Tabletop Simulator",
+            "Saves",
+        )
+    else:  # macOS, Linux, etc.
+        return os.path.join(
+            os.path.expanduser("~"), "Library", "Tabletop Simulator", "Saves"
+        )
+
+
+def get_base_command():
+    if os.name == "nt":  # Windows
+        binary_name = "TTSModManager.exe"
+
+    else:  # macOS, Linux, etc.
+        binary_name = "TTSModManager"
+
+    binary_path = os.path.join(os.getcwd(), binary_name)
+
+    # Check for the existence of the binary
+    if os.path.exists(binary_path) and os.path.isfile(binary_path):
+        using_go = False
+        cmd = [binary_path]
+    else:
+        using_go = True
+        cmd = ["go", "run", "main.go"]
+
+    return cmd, using_go
+
+
 def main():
     parser = argparse.ArgumentParser(description="VS Code build script for ArkhamSCE")
     parser.add_argument(
@@ -30,32 +66,9 @@ def main():
     parser.add_argument("--moddir", required=True, help="The mod directory.")
     args = parser.parse_args()
 
-    # Define the path for the pre-compiled binary
-    # The name of the binary can vary based on the OS.
-    if os.name == "nt":  # Windows
-        binary_name = "TTSModManager.exe"
-        output_folder = os.path.join(
-            os.environ["USERPROFILE"],
-            "Documents",
-            "My Games",
-        )
-    else:  # macOS, Linux, etc.
-        binary_name = "TTSModManager"
-        output_folder = os.path.join(
-            os.path.expanduser("~"),
-            "Library",
-        )
-
-    output_folder = os.path.join(f"{output_folder}", "Tabletop Simulator", "Saves")
-    binary_path = os.path.join(os.getcwd(), binary_name)
-
-    # Check for the existence of the binary
-    if os.path.exists(binary_path) and os.path.isfile(binary_path):
-        using_go = False
-        cmd = [binary_path]
-    else:
-        using_go = True
-        cmd = ["go", "run", "main.go"]
+    # Determine folder and command
+    output_folder = get_output_folder()
+    cmd, using_go = get_base_command()
 
     # Set up command-line arguments
     mod_dir_arg = ["-moddir", args.moddir]
