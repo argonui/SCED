@@ -27,7 +27,7 @@ local indexedCustomCycles    = {}
 local necessaryCustomCycles  = {}
 
 -- helper data for class sorting
-local classValueList         = {
+local CLASS_TO_VALUE         = {
   Guardian = 1,
   Seeker   = 2,
   Rogue    = 3,
@@ -36,7 +36,7 @@ local classValueList         = {
   Neutral  = 99998,
   Mythos   = 99999
 }
-local classesInOrder         = {
+local CLASS_LIST             = {
   "Guardian",
   "Seeker",
   "Rogue",
@@ -44,7 +44,7 @@ local classesInOrder         = {
   "Survivor",
   "Neutral"
 }
-local OFFICIAL_CYCLE_LIST    = {
+local OFFICIAL_CYCLE_MAP     = {
   -- campaigns
   ["investigator packs"]                = true,
   ["core"]                              = true,
@@ -77,7 +77,7 @@ local OFFICIAL_CYCLE_LIST    = {
   ["promo"]                             = true
 }
 -- conversion tables to simplify type sorting
-local typeConversion         = {
+local TYPE_TO_VALUE          = {
   Investigator = 1,
   Minicard     = 2,
   Asset        = 3,
@@ -263,6 +263,30 @@ function addCardToIndex(cardData)
   end
 
   local indexData = { data = cardData, metadata = cardMetadata }
+
+  -- The following code handles data combining:
+  -- If a card has the same ID as another card, this will check the `type` field
+  -- no type:  original metadata will be used and card data will be combined
+  -- has type: new card will fully replace the existing card
+  -- This is intended to be used by"optional replacements" (like alt art) via "Additional Cards" bag,
+  -- while still allowing "Hotfix" cards to patch existing metadata issues.
+  if cardIdIndex[cardMetadata.id] ~= nil and cardMetadata.type ~= nil then
+    -- take the existing metadata, but combine the card data
+    local existingData            = cardIdIndex[cardMetadata.id]
+
+    indexData.metadata            = existingData.metadata
+    indexData.data.GMNotes        = existingData.data.GMNotes
+    indexData.data.Tags           = existingData.data.Tags
+    indexData.data.Transform      = existingData.data.Transform
+
+    -- The following fields are only copied if empty to allow localization
+    for _, field in ipairs({ "Nickname", "Descriptions", "LuaScript", "LuaScriptState", "XmlUI" }) do
+      if indexData.data[field] == nil or indexData.data[field] == "" then
+        indexData.data[field] = existingData.data[field]
+      end
+    end
+  end
+
   cardIdIndex[cardMetadata.id] = indexData
 
   -- also add data for alternate ids
@@ -344,7 +368,7 @@ function buildSupplementalIndexes()
       end
 
       -- check if card is not from an official cycle
-      if OFFICIAL_CYCLE_LIST[cycleName] ~= true then
+      if OFFICIAL_CYCLE_MAP[cycleName] ~= true then
         otherCardsDetected = true
 
         -- overwrite the cycle for easier handling by the playercard panel
@@ -380,10 +404,10 @@ end
 function collectSortingData()
   for _, card in pairs(cardIdIndex) do
     card.sortingData = {
-      class = getClassValue(card.metadata.class),
-      cardType = typeConversion[card.metadata.type] or 99,
-      level = card.metadata.level or 6,
-      name = card.data.Nickname
+      class    = getClassValue(card.metadata.class),
+      cardType = TYPE_TO_VALUE[card.metadata.type] or 99,
+      level    = card.metadata.level or 6,
+      name     = card.data.Nickname
     }
   end
 end
@@ -562,9 +586,9 @@ function getClassValue(s)
   -- sort multiclass cards (outputs 12 for "Guardian|Seeker")
   local classValue = 0
   local multiplier = 1
-  for _, class in pairs(classesInOrder) do
+  for _, class in pairs(CLASS_LIST) do
     if splitClasses[class] then
-      classValue = classValue + classValueList[class] * multiplier
+      classValue = classValue + CLASS_TO_VALUE[class] * multiplier
       multiplier = multiplier * 10
     end
   end
