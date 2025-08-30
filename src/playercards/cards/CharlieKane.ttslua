@@ -1,4 +1,5 @@
--- This is used for cards like Good Weather, Making Preparations and Whispers of Hypnos
+local GlobalApi       = require("Global/GlobalApi")
+local PlayermatApi              = require("playermat/PlayermatApi")
 
 require("playercards/CardsWithHelper")
 
@@ -163,26 +164,6 @@ function onObjectHover(playerColor, object)
   waitId = Wait.time(maybeUpdateButtonState, (object == self) and 0.001 or 0.2)
 end
 
-function onObjectRotate(object, spin, _, player_color, old_spin)
-  if object.type == "Card" and isListening == true then
-    local md = JSON.decode(object.getGMNotes()) or {}
-    local angle = MathLib.roundAngleToMultiple(old_spin, 15)
-    if spin ~= old_spin and angle == 270 and string.match(md.traits, "Ally") then
-      local iconTypes = { "Wild", "Willpower", "Intellect", "Combat", "Agility" }
-      for _, iconName in ipairs(iconTypes) do
-        local mdName = string.lower(iconName) .. "Icons"
-        if md[mdName] ~= nil and (selectedSkills[string.lower(iconName)] == true or mdName == "wildIcons") then
-          print(iconName .. ": " .. md[mdName])
-          matchingSkillTotal = matchingSkillTotal + md[mdName]
-        end
-      end
-      matchingSkillTotal = matchingSkillTotal + 1
-      print(matchingSkillTotal)
-      self.editButton({ index = 0, label = "+" .. matchingSkillTotal })
-    end
-  end
-end
-
 function extraButtons()
   local buttonXml = {
     tag        = "HorizontalLayout",
@@ -192,16 +173,7 @@ function extraButtons()
       onClick  = "stopListening",
       font     = "font_teutonic-arkham",
       fontSize = 150,
-      text = "Stop"
-    }
-  },
-  {
-    tag = "Button",
-    attributes = {
-      onClick  = "skillClick",
-      font     = "font_teutonic-arkham",
-      fontSize = 150,
-      text = "Undo"
+      text = "End Skill Test"
     }
   }},
     attributes = {
@@ -223,6 +195,8 @@ function extraButtons()
 end
 
 function startListening()
+  addExhaustButtons()
+  bigTable = {}
   matchingSkillTotal = 0
   if hasButton then
     self.removeButton(0)
@@ -245,6 +219,184 @@ function startListening()
   hasButton = true
 end
 
+function addExhaustButtons()
+  local matColor = PlayermatApi.getMatColorByPosition(self.getPosition())
+  for _, object in ipairs(PlayermatApi.searchAroundPlayermat(matColor)) do
+    if object.type == "Card" then
+      local md = JSON.decode(object.getGMNotes()) or {}
+      if string.match(md.traits, "Ally") then
+        if not hasSpecificXmlElement(object, "Charlie") then
+          local xml = object.UI.getXmlTable() or {}
+          local exhaustButton =
+            {
+              tag = "VerticalLayout",
+              attributes = {
+                height = 375,
+                width = 375,
+                padding = "0 0 20 25",
+                scale = ".35 .35 1",
+                rotation = "0 0 180",
+                position = "0 20 -100",
+                color = "rgba(0,0,0,0.9)",
+                onClick = self.getGUID() .. "/exhaustOrReadyAlly(" .. object.getGUID() .. ")"
+              },
+              children = {
+                {
+                  tag = "Text",
+                  attributes = {
+                    fontSize = "135",
+                    font = "font_arkhamicons",
+                    color = "#ffffff",
+                    text = "v"
+                  }
+                },
+                {
+                  tag = "Text",
+                  attributes = {
+                    id = "charlieText",
+                    fontSize = "125",
+                    font = "font_teutonic-arkham",
+                    color = "#ffffff",
+                    text = "Exhaust"
+                  }
+                }
+              }
+            }
+
+          table.insert(xml, exhaustButton)
+
+          -- add special button for Bonnie
+          if md.id == "09019" then
+            local bonnieButton =
+            {
+              tag = "VerticalLayout",
+              attributes = {
+                height = 375,
+                width = 375,
+                padding = "0 0 20 25",
+                scale = ".2 .2 1",
+                rotation = "0 0 180",
+                position = "0 -85 -40",
+                color = "rgba(0,0,0,0.9)",
+                onClick = self.getGUID() .. "/bonnie"
+              },
+              children = {
+                {
+                  tag = "Text",
+                  attributes = {
+                    fontSize = "125",
+                    font = "font_arkhamicons",
+                    color = "#ffffff",
+                    text = "u"
+                  }
+                },
+                {
+                  tag = "Text",
+                  attributes = {
+                    id = "bonnieText",
+                    fontSize = "100",
+                    font = "font_teutonic-arkham",
+                    color = "#ffffff",
+                    text = "Bonnie"
+                  }
+                }
+              }
+            }
+            table.insert(xml, bonnieButton)
+          end
+          -- panel to contain these elements
+          local panelXml = {{
+             tag = "Panel",
+              attributes = {
+                id = "Charlie",
+                active = "true"
+              },
+              children = xml
+          }}
+          object.UI.setXmlTable(panelXml)
+        else
+          object.UI.setAttribute("Charlie", "active", "true")
+        end
+      end
+    end
+  end
+end
+
+function exhaustOrReadyAlly(_, allyGUID)
+  allyCard = getObjectFromGUID(allyGUID)
+  -- get behavior
+  local exhaustOrUndo = allyCard.UI.getAttribute("charlieText", "text")
+  -- exhaust card
+  local matColor = PlayermatApi.getMatColorByPosition(self.getPosition())
+  if exhaustOrUndo == "Exhaust" then
+    if isExhausted(allyCard) then broadcastToAll("Ally is already exhausted.", "Red") return end
+    modifier = 1
+    allyCard.UI.setAttribute("charlieText", "text", "Undo")
+    allyCard.setRotationSmooth(PlayermatApi.getExhaustRotation(matColor, true), nil, true)
+  elseif exhaustOrUndo == "Undo" then
+    modifier = -1
+    allyCard.UI.setAttribute("charlieText", "text", "Exhaust")
+    GlobalApi.maybeReadyCard(allyCard, PlayermatApi.returnRotation(matColor), true)
+  else
+    -- ready this card, change all other labels back to what they were before
+    revert()
+    allyCard.UI.setAttribute("charlieText", "text", "Exhaust")
+    GlobalApi.maybeReadyCard(allyCard, PlayermatApi.returnRotation(matColor), true)
+    return
+  end
+
+  local md = JSON.decode(allyCard.getGMNotes()) or {}
+
+  local iconTypes = { "Wild", "Willpower", "Intellect", "Combat", "Agility" }
+  for _, iconName in ipairs(iconTypes) do
+    local mdName = string.lower(iconName) .. "Icons"
+    if md[mdName] ~= nil and (selectedSkills[string.lower(iconName)] == true or mdName == "wildIcons") then
+      matchingSkillTotal = matchingSkillTotal + ( md[mdName] * modifier)
+    end
+  end
+  matchingSkillTotal = matchingSkillTotal + modifier
+  if matchingSkillTotal > 9 then
+    fontSize = 430
+  else
+    fontSize = 550
+  end
+  self.editButton({ index = 0, label = "+" .. matchingSkillTotal, font_size = fontSize })
+
+end
+
+function bonnie()
+  -- change buttons on exhausted allies to "ready", then back to undo after one is clicked.
+   -- check to see if Charlie's XML label exists
+  local matColor = PlayermatApi.getMatColorByPosition(self.getPosition())
+  for _, object in ipairs(PlayermatApi.searchAroundPlayermat(matColor)) do
+    if object.type == "Card" then
+      local md = JSON.decode(object.getGMNotes()) or {}
+      if string.match(md.traits, "Ally") and hasSpecificXmlElement(object, "Charlie") and md.id ~= "09019" then
+        local guid = object.guid
+        bigTable[guid] = object.UI.getAttribute("charlieText", "text")
+        if object.UI.getAttribute("Charlie", "active") == "true" and isExhausted(object) then
+          object.UI.setAttribute("charlieText", "text", "Ready")
+        end
+      end
+    end
+  end
+end
+
+function revert()
+  local matColor = PlayermatApi.getMatColorByPosition(self.getPosition())
+  for _, object in ipairs(PlayermatApi.searchAroundPlayermat(matColor)) do
+    if object.type == "Card" then
+      local md = JSON.decode(object.getGMNotes()) or {}
+      if string.match(md.traits, "Ally") and hasSpecificXmlElement(object, "Charlie") then
+        local previousText = bigTable[object.guid]
+        if object.UI.getAttribute("Charlie", "active") == "true" and previousText ~= nil then
+          object.UI.setAttribute("charlieText", "text", previousText)
+        end
+      end
+    end
+  end
+end
+
 function stopListening()
   matchingSkillTotal = 0
   if hasButton then
@@ -253,7 +405,50 @@ function stopListening()
   end
   isListening = false
   self.UI.setAttribute("Helper2", "active", "false")
+
+  -- check to see if Charlie's XML label exists
+  local matColor = PlayermatApi.getMatColorByPosition(self.getPosition())
+  for _, object in ipairs(PlayermatApi.searchAroundPlayermat(matColor)) do
+    if object.type == "Card" then
+      local md = JSON.decode(object.getGMNotes()) or {}
+      if string.match(md.traits, "Ally") and hasSpecificXmlElement(object, "Charlie") then
+        if object.UI.getAttribute("Charlie", "active") == "true" then
+          object.UI.setAttribute("Charlie", "active", "false")
+          object.UI.setAttribute("charlieText", "text", "Exhaust")
+        end
+      end
+    end
+  end
   selectedSkills = {}
+  bigTable = {}
   updateSave()
   maybeUpdateButtonState()
 end
+
+function isExhausted(card)
+  if card.isSmoothMoving() then return true end
+
+  local matColor        = PlayermatApi.getMatColorByPosition(card.getPosition())
+  local exhaustRotation = PlayermatApi.getExhaustRotation(matColor, true)
+  return MathLib.round(card.getRotation().y) == MathLib.round(exhaustRotation.y)
+end
+
+function hasSpecificXmlElement(object, elementId)
+  -- Check if the provided object is valid
+  if object == nil then return false end
+
+  local xml = object.UI.getXml()
+
+  -- Check if the XML string is empty
+  if xml == nil or xml == "" then return false end
+
+  -- Split the XML string by lines to search for the element ID
+  for line in string.gmatch(xml, "[^\r\n]+") do
+    if string.find(line, 'id="' .. elementId .. '"') then
+      return true
+    end
+  end
+
+  return false
+end
+
