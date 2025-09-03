@@ -1,168 +1,12 @@
 local GlobalApi       = require("Global/GlobalApi")
-local PlayermatApi              = require("playermat/PlayermatApi")
-
-require("playercards/CardsWithHelper")
-
-local TableLib        = require("util/TableLib")
+local PlayermatApi    = require("playermat/PlayermatApi")
 local MathLib         = require("util/MathLib")
 
--- intentionally global
-hasXML                = true
-isHelperEnabled       = false
+ROTATION = "0 0 90"
+POSITION = "0 -70 -40"
 
-local SKILL_LIST      = {
-  willpower = { text = "f", textColor = "#0B3F6C" },
-  intellect = { text = "g", textColor = "#56244A" },
-  combat    = { text = "h", textColor = "#6B2615" },
-  agility   = { text = "i", textColor = "#03553B" }
-}
-local BUTTON_COLOR    = {
-  active   = "#F5F5F5D0",
-  inactive = "#4D4D4DA0",
-  disabled = "#FFFFFF00"
-}
-local TEXT_COLOR      = {
-  inactive = "#D3D3D3A0",
-  disabled = "#FFFFFF00"
-}
-local hoveringPlayers = {}
-local maxActive       = 1
-local selectedSkills  = {}
-
-function onDestroy()
-  selectedSkills = {}
-  updateSave()
-end
-
-function updateSave()
-  self.script_state = JSON.encode({
-    isHelperEnabled = isHelperEnabled,
-    selectedSkills  = selectedSkills
-  })
-end
-
-function onLoad(savedData)
-  if savedData and savedData ~= "" then
-    local loadedData = JSON.decode(savedData)
-    isHelperEnabled  = loadedData.isHelperEnabled
-    selectedSkills   = loadedData.selectedSkills
-  end
-
-  maxActive = 4
-
-
-  generateXml()
-  Wait.time(function() extraButtons() end, 1)
-
-  if isHelperEnabled then updateDisplay() end
-end
-
-function shutOff()
-  maybeUpdateButtonState()
-end
-
-function initialize()
-  maybeUpdateButtonState()
-end
-
-function generateXml()
-  local gridXml = {
-    tag        = "GridLayout",
-    children   = {},
-    attributes = {
-      id              = "Helper",
-      active          = isHelperEnabled,
-      rotation        = "0 0 90",
-      scale           = "0.175 0.175 1",
-      childAlignment  = "MiddleCenter",
-      constraint      = "FixedColumnCount",
-      constraintCount = 2,
-      position        = "0 -70 -40",
-      width           = 350 * 2 + 55,
-      height          = 350 * 2 + 55,
-      cellSize        = "350 350",
-      spacing         = "55 55"
-    }
-  }
-
-  local buttonXml = {
-    tag = "Button",
-    attributes = {
-      onClick  = "skillClick",
-      font     = "font_arkhamicons",
-      fontSize = 315
-    }
-  }
-
-  for skill, data in pairs(SKILL_LIST) do
-    local skillXml           = TableLib.copy(buttonXml)
-    skillXml.attributes.id   = skill
-    skillXml.attributes.text = data.text
-    table.insert(gridXml.children, skillXml)
-  end
-
-  self.UI.setXmlTable({ gridXml })
-end
-
-function skillClick(player, _, elementId)
-  if selectedSkills[elementId] then
-    selectedSkills[elementId] = false
-  else
-    if maxActive == 1 then
-      selectedSkills = { [elementId] = true}
-    else
-      local currentlyActive = 0
-      for _, state in pairs(selectedSkills) do
-        if state then
-          currentlyActive = currentlyActive + 1
-        end
-      end
-
-      if currentlyActive == maxActive then
-        printToColor("You are not allowed to choose more than " .. maxActive .. " skills.", player.color)
-        return
-      end
-      selectedSkills[elementId] = true
-    end
-  end
-  updateSave()
-  maybeUpdateButtonState()
-  startListening()
-
-end
-
-function isSomeoneHovering()
-  for _, state in pairs(hoveringPlayers) do
-    if state then return true end
-  end
-  return false
-end
-
-function maybeUpdateButtonState()
-  local someoneHovers = isSomeoneHovering()
-
-  for skill, data in pairs(SKILL_LIST) do
-    local attributes = { color = BUTTON_COLOR.inactive, textColor = TEXT_COLOR.inactive }
-
-    if selectedSkills[skill] then
-      attributes.color     = BUTTON_COLOR.active
-      attributes.textColor = data.textColor
-    elseif not someoneHovers then
-      attributes.color     = BUTTON_COLOR.disabled
-      attributes.textColor = TEXT_COLOR.disabled
-    end
-
-    self.UI.setAttributes(skill, attributes)
-  end
-end
-
-function onObjectHover(playerColor, object)
-  hoveringPlayers[playerColor] = object == self
-  if waitId then
-    Wait.stop(waitId)
-  end
-  waitId = Wait.time(maybeUpdateButtonState, (object == self) and 0.001 or 0.2)
-end
+require("playercards/CardsWithHelper")
+require("playercards/SkillSelectionCard")
 
 function extraButtons()
   local buttonXml = {
@@ -194,7 +38,8 @@ function extraButtons()
   self.UI.setXmlTable(currentXml)
 end
 
-function startListening()
+-- starts listening for Ally card exhausts
+function extraClickFunction()
   addExhaustButtons()
   bigTable = {}
   matchingSkillTotal = 0
@@ -346,7 +191,7 @@ function exhaustOrReadyAlly(_, allyGUID)
   end
 
   local md = JSON.decode(allyCard.getGMNotes()) or {}
-
+  local selectedSkills = getSelectedSkills()
   local iconTypes = { "Wild", "Willpower", "Intellect", "Combat", "Agility" }
   for _, iconName in ipairs(iconTypes) do
     local mdName = string.lower(iconName) .. "Icons"
@@ -419,7 +264,7 @@ function stopListening()
       end
     end
   end
-  selectedSkills = {}
+  clearSelectedSkills()
   bigTable = {}
   updateSave()
   maybeUpdateButtonState()
