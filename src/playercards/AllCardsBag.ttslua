@@ -1,33 +1,33 @@
-local CoroutineLib           = require("util/CoroutineLib")
-local DeckImporterApi        = require("deckbuilder/DeckImporterApi")
-local GUIDReferenceApi       = require("core/GUIDReferenceApi")
-local TableLib               = require("util/TableLib")
+local CoroutineLib          = require("util/CoroutineLib")
+local DeckImporterApi       = require("deckbuilder/DeckImporterApi")
+local GUIDReferenceApi      = require("core/GUIDReferenceApi")
+local TableLib              = require("util/TableLib")
 
-local debugSpawnData         = {
+local debugSpawnData        = {
   --{ id = "11050", pos = { -55.21, 1.6, 14.96 }, rot = { 0, 270, 0 }, moveCam = true }
 }
 
 -- card index and sub-indices
-local cardIdIndex            = {}
-local classAndLevelIndex     = {}
-local customInvestigatorData = {}
-local customSignatureDict    = {}
+local cardIdIndex           = {}
+local classAndLevelIndex    = {}
+local investigatorData      = {}
+local signatureDict         = {}
 
-local basicWeaknessList      = {}
-local uniqueWeaknessList     = {}
-local evolvedWeaknessList    = {}
-local bondedList             = {}
-local upgradeSheetList       = {}
+local basicWeaknessList     = {}
+local uniqueWeaknessList    = {}
+local evolvedWeaknessList   = {}
+local bondedList            = {}
+local upgradeSheetList      = {}
 
-local cycleIndex             = {}
+local cycleIndex            = {}
 
-local indexingDone           = false
-local otherCardsDetected     = false
-local indexedCustomCycles    = {}
-local necessaryCustomCycles  = {}
+local indexingDone          = false
+local otherCardsDetected    = false
+local indexedCustomCycles   = {}
+local necessaryCustomCycles = {}
 
 -- helper data for class sorting
-local CLASS_TO_VALUE         = {
+local CLASS_TO_VALUE        = {
   Guardian = 1,
   Seeker   = 2,
   Rogue    = 3,
@@ -36,7 +36,7 @@ local CLASS_TO_VALUE         = {
   Neutral  = 99998,
   Mythos   = 99999
 }
-local CLASS_LIST             = {
+local CLASS_LIST            = {
   "Guardian",
   "Seeker",
   "Rogue",
@@ -44,7 +44,7 @@ local CLASS_LIST             = {
   "Survivor",
   "Neutral"
 }
-local OFFICIAL_CYCLE_MAP     = {
+local OFFICIAL_CYCLE_MAP    = {
   -- campaigns
   ["investigator packs"]                = true,
   ["core"]                              = true,
@@ -77,7 +77,7 @@ local OFFICIAL_CYCLE_MAP     = {
   ["promo"]                             = true
 }
 -- conversion tables to simplify type sorting
-local TYPE_TO_VALUE          = {
+local TYPE_TO_VALUE         = {
   Investigator = 1,
   Minicard     = 2,
   Asset        = 3,
@@ -106,17 +106,17 @@ end
 
 -- Resets all current bag indexes
 function clearIndexes()
-  indexingDone           = false
-  cardIdIndex            = {}
-  classAndLevelIndex     = {}
-  cycleIndex             = {}
-  customInvestigatorData = {}
-  customSignatureDict    = {}
-  basicWeaknessList      = {}
-  uniqueWeaknessList     = {}
-  evolvedWeaknessList    = {}
-  bondedList             = {}
-  upgradeSheetList       = {}
+  indexingDone        = false
+  cardIdIndex         = {}
+  classAndLevelIndex  = {}
+  cycleIndex          = {}
+  investigatorData    = {}
+  signatureDict       = {}
+  basicWeaknessList   = {}
+  uniqueWeaknessList  = {}
+  evolvedWeaknessList = {}
+  bondedList          = {}
+  upgradeSheetList    = {}
 end
 
 -- Clears the bag indexes and starts the coroutine to rebuild the indexes
@@ -272,12 +272,12 @@ function addCardToIndex(cardData)
   -- while still allowing "Hotfix" cards to patch existing metadata issues.
   if cardIdIndex[cardMetadata.id] ~= nil and cardMetadata.type == nil then
     -- take the existing metadata, but combine the card data
-    local existingData            = cardIdIndex[cardMetadata.id]
+    local existingData       = cardIdIndex[cardMetadata.id]
 
-    indexData.metadata            = existingData.metadata
-    indexData.data.GMNotes        = existingData.data.GMNotes
-    indexData.data.Tags           = existingData.data.Tags
-    indexData.data.Transform      = existingData.data.Transform
+    indexData.metadata       = existingData.metadata
+    indexData.data.GMNotes   = existingData.data.GMNotes
+    indexData.data.Tags      = existingData.data.Tags
+    indexData.data.Transform = existingData.data.Transform
 
     -- The following fields are only copied if empty to allow localization
     for _, field in ipairs({ "Nickname", "Description", "LuaScript", "LuaScriptState", "XmlUI" }) do
@@ -373,25 +373,25 @@ function buildSupplementalIndexes()
 
         -- overwrite the cycle for easier handling by the playercard panel
         cycleName = "other"
+      end
 
-        -- maybe add to special investigator / minicard index
-        if card.metadata.type == "Investigator" then
-          writeToNestedTable(customInvestigatorData, "InvestigatorGroup", cardId)
-          writeToNestedTable(customInvestigatorData, "InvestigatorSubdata", cardId, "cards", cardId)
+      -- maybe add to special investigator / minicard index
+      if card.metadata.type == "Investigator" then
+        writeToNestedTable(investigatorData, "InvestigatorGroup", cardId)
+        writeToNestedTable(investigatorData, "InvestigatorSubdata", cardId, "cards", cardId)
 
-          -- read the signatures
-          if card.metadata.signatures and type(card.metadata.signatures) == "table" then
-            for sigId, sigCount in pairs(card.metadata.signatures[1] or {}) do
-              customSignatureDict[sigId] = true
-              for i = 1, sigCount do
-                writeToNestedTable(customInvestigatorData, "InvestigatorSubdata", cardId, "signatures", sigId)
-              end
+        -- read the signatures
+        if card.metadata.signatures and type(card.metadata.signatures) == "table" then
+          for sigId, sigCount in pairs(card.metadata.signatures[1] or {}) do
+            signatureDict[sigId] = true
+            for i = 1, sigCount do
+              writeToNestedTable(investigatorData, "InvestigatorSubdata", cardId, "signatures", sigId)
             end
           end
-        elseif card.metadata.type == "Minicard" then
-          local parentId = getParentId(cardId)
-          writeToNestedTable(customInvestigatorData, "InvestigatorSubdata", parentId, "minicards", cardId)
         end
+      elseif card.metadata.type == "Minicard" then
+        local parentId = getParentId(cardId)
+        writeToNestedTable(investigatorData, "InvestigatorSubdata", parentId, "minicards", cardId)
       end
 
       -- add to cycle index
@@ -463,8 +463,8 @@ function sortIndexes()
   -- sort upgradesheet index
   table.sort(upgradeSheetList)
 
-  -- sort custom investigator / minicard data
-  for _, indexTable in pairs(customInvestigatorData) do
+  -- sort investigator / minicard data
+  for _, indexTable in pairs(investigatorData) do
     table.sort(indexTable, metadataSortFunction)
   end
 end
@@ -559,7 +559,7 @@ function getCardsByCycle(params)
   for _, id in ipairs(cycleData) do
     local md = cardIdIndex[id].metadata
     -- only include cards without level if requested (don't include investigators / minicards / signatures though)
-    if (md.level or params.includeNoLevelCards) and md.type ~= "Investigator" and md.type ~= "Minicard" and customSignatureDict[id] ~= true then
+    if (md.level or params.includeNoLevelCards) and md.type ~= "Investigator" and md.type ~= "Minicard" and signatureDict[id] ~= true then
       table.insert(cardList, id)
     end
   end
@@ -596,42 +596,55 @@ function getClassValue(s)
   return classValue
 end
 
-function getCustomInvestigatorData()
+function getInvestigatorData()
   if not isIndexReady() then return {} end
 
+  local cycle = params.cycle
+  local class = params.class
+
+  local matchingInvestigators = {}
+
+  -- filter by cycle / class
+  for _, investigatorId in ipairs(investigatorData.InvestigatorGroup) do
+    local shouldAdd = true
+
+    if cycle then
+      local searchCycle = string.lower(cycle)
+      local cardCycle   = string.lower(cardIdIndex[investigatorId].metadata.cycle)
+      if searchCycle ~= cardCycle then
+        shouldAdd = false
+      end
+    end
+
+    if class then
+      local searchClass   = string.lower(class)
+      local cardClass     = string.lower(cardIdIndex[investigatorId].metadata.class)
+      local containsClass = string.find(cardClass, searchClass, 1, true)
+      if not containsClass then
+        shouldAdd = false
+      end
+    end
+
+    if shouldAdd then
+      table.insert(matchingInvestigators, investigatorId)
+    end
+  end
+
   return {
-    InvestigatorGroup = customInvestigatorData.InvestigatorGroup or {},
-    InvestigatorSubdata = customInvestigatorData.InvestigatorSubdata or {}
+    InvestigatorGroup   = matchingInvestigators,
+    InvestigatorSubdata = investigatorData.InvestigatorSubdata or {}
   }
 end
 
--- Searches the bag for cards which match the given name and returns a list. Note that this is
--- an O(n) search without index support. It may be slow.
+-- Searches the bag for cards which match the given criteria and returns a list.
 -- Parameter array must contain these fields to define the search:
 --   name: String or string fragment to search for names
 --   exact: Whether the name match should be exact
-function getCardsByName(params)
-  local name       = params.name
-  local exact      = params.exact
-  local results    = {}
-
-  -- Track cards (by ID) that we've added to avoid duplicates that may come from alternate IDs
-  local addedCards = {}
-  for _, cardData in pairs(cardIdIndex) do
-    if (not addedCards[cardData.metadata.id]) then
-      if (exact and (string.lower(cardData.data.Nickname) == string.lower(name)))
-          or (not exact and string.find(string.lower(cardData.data.Nickname), string.lower(name), 1, true)) then
-        table.insert(results, cardData)
-        addedCards[cardData.metadata.id] = true
-      end
-    end
-  end
-  return results
-end
-
 function getCardsByFilter(params)
   local filters    = params.filters
   local exact      = params.exact
+  if exact == nil then exact = true end
+
   local results    = {}
 
   -- track cards (by ID) that we've added to avoid duplicates that may come from alternate IDs
@@ -726,6 +739,21 @@ function getCardsByFilter(params)
         local operator      = filters.f.operator
         local containsClass = string.find(cardClass, searchClass, 1, true)
         if (operator == ":" and not containsClass) or (operator == "!" and containsClass) then
+          cardMatches = false
+        end
+      end
+    end
+
+    -- compare cycle (c)
+    if filters.c and cardMatches then
+      if not cardData.metadata.cycle then
+        cardMatches = false
+      else
+        local searchCycle  = string.lower(filters.c.value)
+        local cardCycle    = string.lower(cardData.metadata.class)
+        local operator     = filters.c.operator
+        local cycleMatches = searchCycle == cardCycle
+        if (operator == ":" and not cycleMatches) or (operator == "!" and cycleMatches) then
           cardMatches = false
         end
       end
