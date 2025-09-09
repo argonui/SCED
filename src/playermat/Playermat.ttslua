@@ -11,8 +11,10 @@ local MathLib                     = require("util/MathLib")
 local MythosAreaApi               = require("mythos/MythosAreaApi")
 local NavigationOverlayApi        = require("core/NavigationOverlayApi")
 local SearchLib                   = require("util/SearchLib")
+local TokenChecker                = require("tokens/TokenChecker")
 local TokenManagerApi             = require("tokens/TokenManagerApi")
 local TokenSpawnTrackerApi        = require("tokens/TokenSpawnTrackerApi")
+local VictoryDisplayApi           = require("mythos/VictoryDisplayApi")
 local zones                       = require("playermat/Zones")
 
 -- option panel data
@@ -391,43 +393,72 @@ end
 -- Discard buttons (threat area)
 ---------------------------------------------------------
 
+-- handles discarding for a list of objects
+---@param objList table List of objects to discard
+function discardListOfObjects(objList)
+  for _, obj in ipairs(objList) do
+    if obj.type == "Card" or obj.type == "Deck" then
+      if obj.hasTag("CardThatSeals") then
+        local func = obj.getVar("resetSealedTokens")
+        if func ~= nil then obj.call("resetSealedTokens") end
+      end
+      if obj.hasTag("PlayerCard") then
+        DeckLib.placeOrMergeIntoDeck(obj, returnGlobalDiscardPosition(), self.getRotation())
+      else
+        local discardPos = MythosAreaApi.getEncounterDiscardPosition()
+        local discardRot = MythosAreaApi.getEncounterDiscardRotation()
+        DeckLib.placeOrMergeIntoDeck(obj, discardPos, discardRot)
+      end
+    elseif TokenChecker.isChaosToken(obj) then
+      -- put chaos tokens back into bag (e.g. Unrelenting)
+      ChaosBagApi.returnChaosTokenToBag(obj, false)
+    elseif not obj.getLock() and not obj.hasTag("DontDiscard") and obj.interactable == true then
+      -- don't touch locked objects (like the table etc.) or specific objects (like key tokens)
+      if obj.getMemo() == "clueDoom" then
+        VictoryDisplayApi.update()
+      end
+      ownedObjects.Trash.putObject(obj)
+    end
+  end
+end
+
 -- build a discard button to discard from searchPosition
 ---@param id number Index of the discard button (from left to right, must be unique)
 function makeDiscardButton(id)
-  local xValue         = DISCARD_BUTTON_X_START + (id - 1) * DISCARD_BUTTON_X_OFFSET
-  local position       = Vector(xValue, 0.1, -0.94)
+  local xValue = DISCARD_BUTTON_X_START + (id - 1) * DISCARD_BUTTON_X_OFFSET
+  local position = Vector(xValue, 0.1, -0.94)
   local searchPosition = Vector(-position[1], 1, position[3] + 0.32)
-  local handlerName    = 'handler' .. id
+  local handlerName = 'handler' .. id
   self.setVar(handlerName, function()
     local cardSizeSearch = Vector(2, 2, 3.2)
     local globalSearchPosition = self.positionToWorld(searchPosition)
     local searchResult = SearchLib.inArea(globalSearchPosition, self.getRotation(), cardSizeSearch)
-    return GlobalApi.discardObjects(searchResult, matColor)
+    return discardListOfObjects(searchResult)
   end)
   self.createButton({
-    label          = "Discard",
+    label = "Discard",
     click_function = handlerName,
     function_owner = self,
-    position       = position,
-    scale          = { 0.12, 0.12, 0.12 },
-    width          = 900,
-    height         = 350,
-    font_size      = 210
+    position = position,
+    scale = { 0.12, 0.12, 0.12 },
+    width = 900,
+    height = 350,
+    font_size = 210
   })
 end
 
 -- build a hybrid button to discard from searchPosition or move a card/deck to empty threat area on right click
 function makeDrawAreaButton()
   self.createButton({
-    label          = "Discard / ➜",
+    label = "Discard / ➜",
     click_function = "discardOrMove",
-    tooltip        = "Right-click to move to threat area",
+    tooltip = "Right-click to move to threat area",
     function_owner = self,
-    position       = { -1.365, 0.1, -0.94 },
-    scale          = { 0.12, 0.12, 0.12 },
-    width          = 1190,
-    height         = 350,
-    font_size      = 207
+    position = { -1.365, 0.1, -0.94 },
+    scale = { 0.12, 0.12, 0.12 },
+    width = 1190,
+    height = 350,
+    font_size = 207
   })
 end
 
@@ -450,7 +481,7 @@ function discardOrMove(_, playerColor, isRightClick)
       end
     end
   else
-    return GlobalApi.discardObjects(searchResult, matColor)
+    return discardListOfObjects(searchResult)
   end
 end
 
@@ -475,7 +506,7 @@ function doUpkeep(_, clickedByColor, isRightClick)
   local rot = self.getRotation()
   for _, obj in ipairs(searchAroundSelf()) do
     if obj.hasTag("Temporary") then
-      GlobalApi.discardObjects(obj, matColor)
+      discardListOfObjects({ obj })
     elseif obj.hasTag("UniversalToken") and obj.is_face_down then
       obj.flip()
     end
@@ -863,24 +894,24 @@ function createXML()
       local slotXML = {
         tag = "Panel",
         attributes = {
-          id            = "slotPanel" .. snapId,
-          raycastTarget = false, -- this disables the click function temporarily
-          onClick       = "slotClickFunction",
-          scale         = "0.1 0.1 1",
-          width         = 350,
-          height        = 175,
-          position      = x .. " " .. y .. " -11"
+          id = "slotPanel" .. snapId,
+          raycastTarget = "false", -- this disables the click function temporarily
+          onClick = "slotClickFunction",
+          scale = "0.1 0.1 1",
+          width = "350",
+          height = "175",
+          position = x .. " " .. y .. " -11"
         },
         children = {
           {
             tag = "Text",
             attributes = {
-              id       = "slot" .. snapId,
+              id = "slot" .. snapId,
               rotation = getSlotRotation(slotName),
-              fontSize = 145,
-              font     = "font_arkhamicons",
-              color    = "#414141CB",
-              text     = slotNameToChar[slotName]
+              fontSize = "145",
+              font = "font_arkhamicons",
+              color = "#414141CB",
+              text = slotNameToChar[slotName]
             }
           }
         }
@@ -895,8 +926,8 @@ function createXML()
     attributes = {
       id       = "shuffleDiscardButton",
       onClick  = "shuffleDiscardIntoDeck",
-      width    = 7,
-      height   = 7,
+      width    = "7",
+      height   = "7",
       position = "-182 30.5 -11",
       rotation = "0 0 180",
       image    = "shuffle"
@@ -918,7 +949,7 @@ function createXML()
       },
       {
         tag = "Cell",
-        attributes = { dontUseTableCellBackground = true, outlineSize = "0 1", outline = "grey" }
+        attributes = { dontUseTableCellBackground = "true", outlineSize = "0 1", outline = "grey" }
       }
     }
   }
@@ -941,12 +972,12 @@ function createXML()
   local toggleOptionPanelXML = {
     tag = "Button",
     attributes = {
-      onClick  = "onClick_hideOrShowOptions",
-      width    = 7,
-      height   = 7,
+      onClick = "onClick_hideOrShowOptions",
+      width = "7",
+      height = "7",
       position = gearPos,
       rotation = "0 0 180",
-      image    = "option_gear_white"
+      image = "option_gear_white"
     }
   }
   table.insert(xml, toggleOptionPanelXML)
@@ -1019,7 +1050,7 @@ function createXML()
       children = {
         {
           tag = "Cell",
-          attributes = { padding = "20 10 0 0", columnSpan = 2, color = "#222222" },
+          attributes = { padding = "20 10 0 0", columnSpan = "2", color = "#222222" },
           children = {
             {
               tag = "Panel",
@@ -1136,7 +1167,7 @@ function createXML()
         subTable.attributes.id             = optionData.id
         subTable.attributes.onValueChanged = "onDropdownChange(selectedIndex)"
         subTable.attributes.value          = getDropdownOptionIndex(optionData.id, optionPanelData[optionData.id]) - 1
-        subTable.attributes.raycastTarget  = true
+        subTable.attributes.raycastTarget  = "true"
         subTable.attributes.dropdownHeight = 250 * math.min(#optionData.options, 3)
         subTable.attributes.itemHeight     = 70
         subTable.attributes.fontSize       = 60
@@ -1149,7 +1180,7 @@ function createXML()
           table.insert(subTable.children, {
             tag        = "Option",
             value      = option,
-            attributes = { id = "PM_option_" .. optionData.id .. "_dropdown_" .. dropdownOptionId }
+            attributes = { id = "PM_option_" .. optionData.id .. "_dropdown_".. dropdownOptionId }
           })
         end
       end
