@@ -57,7 +57,6 @@ function onLoad(savedData)
 
   selfId = getSelfId()
   maybeLoadLivingInkSkills()
-  xmlTable = {}
   createUi()
   maybeUpdateLivingInkSkillDisplay()
   maybeUpdateServitorSlotDisplay()
@@ -91,15 +90,19 @@ function resetSelections()
 end
 
 function createUi()
+  xmlTable = {}
+
   if customizations == nil then return end
   for i = 1, #customizations do
     if customizations[i].checkboxes ~= nil then
       createRowCheckboxes(i)
     end
+
     if customizations[i].textField ~= nil then
       createRowTextField(i)
     end
   end
+
   self.UI.setXmlTable(xmlTable)
   maybeMakeLivingInkSkillSelectionButtons()
   maybeMakeServitorSlotSelectionButtons()
@@ -119,12 +122,12 @@ function createRowCheckboxes(rowIndex)
     local checkboxXml = {
       tag = "Button",
       attributes = {
-        onClick = funcName,
+        onClick  = funcName,
         position = cbPos,
-        height = 75,
-        width = 75,
-        scale = "0.1 0.1 1",
-        color = "#00000000"
+        height   = 75,
+        width    = 75,
+        scale    = "0.1 0.1 1",
+        color    = "#00000000"
       }
     }
     table.insert(xmlTable, checkboxXml)
@@ -135,14 +138,14 @@ function createRowCheckboxes(rowIndex)
     local labelXml = {
       tag = "Text",
       attributes = {
-        id = cbId,
-        position = cbPos,
-        rotation = "0 0 " .. cbData.angle,
-        height = 165,
-        width = 165,
-        scale = "0.1 0.1 1",
-        fontSize = cbData.size,
-        text = cbData.symbol,
+        id        = cbId,
+        position  = cbPos,
+        rotation  = "0 0 " .. cbData.angle,
+        height    = 165,
+        width     = 165,
+        scale     = "0.1 0.1 1",
+        fontSize  = cbData.size,
+        text      = cbData.symbol,
         textColor = "#000000FF"
       }
     }
@@ -156,7 +159,6 @@ end
 
 -- gets randomized data for a checkbox
 function getCheckboxData(cbId)
-  -- nil handling
   checkboxData = checkboxData or {}
 
   -- generate data if not present
@@ -180,29 +182,27 @@ function createRowTextField(rowIndex)
   local newTextbox = {
     tag = "InputField",
     attributes = {
-      onEndEdit = funcName,
-      id = rowIndex,
-      placeholder = "Click to type",
-      position = actualPosition,
-      alignment = "MiddleLeft",
-      width = textField.width * 1.04,
-      height = (inputFontsize + 20),
-      fontSize = inputFontsize,
+      onEndEdit            = funcName,
+      id                   = rowIndex,
+      placeholder          = "Click to type",
+      position             = actualPosition,
+      alignment            = "MiddleLeft",
+      width                = textField.width * 1.04,
+      height               = (inputFontsize + 20),
+      fontSize             = inputFontsize,
       resizeTextForBestFit = true,
-      fontStyle = "Bold",
-      rotation = "0 0 180",
-      scale = "0.2 0.2 0.2",
-      color = "#FFFFFF"
+      fontStyle            = "Bold",
+      rotation             = "0 0 180",
+      scale                = "0.2 0.2 0.2",
+      color                = "#FFFFFF"
     }
   }
   table.insert(xmlTable, newTextbox)
 end
 
 function translatePosition(posX, posZ)
-  -- position values are made strings to be usabled by the XML, height (z) is always -22
-  local translatedPosX = tostring(posX * -100)
-  local translatedPosY = tostring(posZ * 100)
-  return translatedPosX .. " " .. translatedPosY .. " -40"
+  -- position values are converted for XML
+  return (posX * -100) .. " " .. (posZ * 100) .. " -40"
 end
 
 function updateDisplay()
@@ -260,15 +260,15 @@ function waitForUILoad(id, attribute, value)
 end
 
 function clickCheckbox(row, col)
-  if selectedUpgrades[row] == nil then
-    selectedUpgrades[row] = {}
-    selectedUpgrades[row].xp = 0
-  end
+  selectedUpgrades[row] = selectedUpgrades[row] or {}
+  selectedUpgrades[row].xp = selectedUpgrades[row].xp or 0
+
   if selectedUpgrades[row].xp == col then
     selectedUpgrades[row].xp = col - 1
   else
     selectedUpgrades[row].xp = col
   end
+
   updateCheckboxes(row)
   updateSave()
   PlayermatApi.syncAllCustomizableCards()
@@ -276,9 +276,7 @@ end
 
 -- Updates saved value for given text box when it loses focus
 function clickTextbox(rowIndex, value)
-  if selectedUpgrades[rowIndex] == nil then
-    selectedUpgrades[rowIndex] = {}
-  end
+  selectedUpgrades[rowIndex] = selectedUpgrades[rowIndex] or {}
   selectedUpgrades[rowIndex].text = value:gsub("^%s*(.-)%s*$", "%1")
   updateSave()
   -- Editing isn't actually done yet, and will block the update. Wait a frame so it's finished
@@ -298,7 +296,8 @@ function maybeLoadLivingInkSkills()
     combat    = false,
     agility   = false
   }
-  if selectedUpgrades[1] ~= nil and selectedUpgrades[1].text ~= nil then
+
+  if selectedUpgrades[1] and selectedUpgrades[1].text then
     for skill in string.gmatch(selectedUpgrades[1].text, "([^,]+)") do
       selectedSkills[skill] = true
     end
@@ -337,33 +336,26 @@ end
 -- Builds a comma-delimited string of skills and places it in the Row 1 text field
 function updateSelectedLivingInkSkillText()
   local skillString = ""
-  if selectedSkills.willpower then
-    skillString = skillString .. "willpower" .. ","
+
+  for _, skill in pairs({ "willpower", "intellect", "combat", "agility" }) do
+    if selectedSkills[skill] then
+      skillString = skillString .. skill .. ","
+    end
   end
-  if selectedSkills.intellect then
-    skillString = skillString .. "intellect" .. ","
-  end
-  if selectedSkills.combat then
-    skillString = skillString .. "combat" .. ","
-  end
-  if selectedSkills.agility then
-    skillString = skillString .. "agility" .. ","
-  end
-  if selectedUpgrades[1] == nil then
-    selectedUpgrades[1] = {}
-  end
+
+  selectedUpgrades[1] = selectedUpgrades[1] or {}
   selectedUpgrades[1].text = skillString
   updateSave()
 end
 
--- Refresh the vector circles indicating a skill is selected. Since we can only have one table of
--- vectors set, have to refresh all 4 at once
+-- Refresh the vector circles indicating a skill is selected.
+-- Since we can only have one table of vectors set, have to refresh all 4 at once.
 function maybeUpdateLivingInkSkillDisplay()
   if selfId ~= "09079-c" then return end
   local circles = {}
   for skill, isSelected in pairs(selectedSkills) do
     if isSelected then
-      local circle = getCircleVector(SKILL_ICON_POSITIONS[skill])
+      local circle = getCircleLines(SKILL_ICON_POSITIONS[skill])
       if circle ~= nil then
         table.insert(circles, circle)
       end
@@ -372,17 +364,13 @@ function maybeUpdateLivingInkSkillDisplay()
   self.setVectorLines(circles)
 end
 
-function getCircleVector(center)
-  local diameter = Vector(0, 0, 0.1)
+function getCircleLines(center)
+  local diameter      = Vector(0, 0, 0.1)
   local pointOfOrigin = Vector(center.x, Y_VISIBLE, center.z)
-  local vec
-  local vecList = {}
-  local arcStep = 5
+  local vecList       = {}
+  local arcStep       = 5
   for i = 0, 360, arcStep do
-    diameter:rotateOver('y', arcStep)
-    vec = pointOfOrigin + diameter
-    vec.y = pointOfOrigin.y
-    table.insert(vecList, vec)
+    table.insert(vecList, pointOfOrigin + diameter:rotateOver('y', arcStep))
   end
 
   return {
@@ -416,30 +404,24 @@ function maybeMakeServitorSlotSelectionButtons()
   self.createButton(buttonData)
 end
 
--- toggles the clicked slot
 function clickArcane()
-  if selectedUpgrades[6] == nil then
-    selectedUpgrades[6] = {}
-  end
-  if selectedUpgrades[6].text == SUMMONED_SERVITOR_SLOT_INDICES.arcane then
-    selectedUpgrades[6].text = SUMMONED_SERVITOR_SLOT_INDICES.none
-  else
-    selectedUpgrades[6].text = SUMMONED_SERVITOR_SLOT_INDICES.arcane
-  end
-  updateSave()
-  maybeUpdateServitorSlotDisplay()
+  servitorSlotClick("arcane")
+end
+
+function clickAlly()
+  servitorSlotClick("ally")
 end
 
 -- toggles the clicked slot
-function clickAlly()
-  if selectedUpgrades[6] == nil then
-    selectedUpgrades[6] = {}
-  end
-  if selectedUpgrades[6].text == SUMMONED_SERVITOR_SLOT_INDICES.ally then
+function servitorSlotClick(slotType)
+  selectedUpgrades[6] = selectedUpgrades[6] or {}
+
+  if selectedUpgrades[6].text == SUMMONED_SERVITOR_SLOT_INDICES[slotType] then
     selectedUpgrades[6].text = SUMMONED_SERVITOR_SLOT_INDICES.none
   else
-    selectedUpgrades[6].text = SUMMONED_SERVITOR_SLOT_INDICES.ally
+    selectedUpgrades[6].text = SUMMONED_SERVITOR_SLOT_INDICES[slotType]
   end
+
   updateSave()
   maybeUpdateServitorSlotDisplay()
 end
