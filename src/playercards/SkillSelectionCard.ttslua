@@ -1,4 +1,4 @@
--- This is used for cards like Good Weather, Making Preparations and Whispers of Hypnos
+-- This is used for cards like Charlie Kane, Good Weather, Making Preparations and Whispers of Hypnos
 
 require("playercards/CardsWithHelper")
 
@@ -33,15 +33,19 @@ function onDestroy()
 end
 
 function updateSave()
-  self.script_state = JSON.encode({
-    isHelperEnabled = isHelperEnabled,
-    selectedSkills  = selectedSkills
-  })
+  local saveData = {}
+    -- allow the parent script to save data
+  if getSaveData then
+    saveData = getSaveData()
+  end
+  saveData.isHelperEnabled = isHelperEnabled
+  saveData.selectedSkills  = selectedSkills
+  self.script_state = JSON.encode(saveData)
 end
 
 function onLoad(savedData)
   if savedData and savedData ~= "" then
-    local loadedData = JSON.decode(savedData)
+    loadedData = JSON.decode(savedData)
     isHelperEnabled  = loadedData.isHelperEnabled
     selectedSkills   = loadedData.selectedSkills
   end
@@ -49,11 +53,17 @@ function onLoad(savedData)
   local md = JSON.decode(self.getGMNotes()) or {}
   if md.id == "09106" then
     maxActive = 2
+  elseif md.id == "09018" then
+    maxActive = 4
   end
 
   generateXml()
-
+  if extraButtons then
+    Wait.time(function() extraButtons() end, 1)
+  end
   if isHelperEnabled then updateDisplay() end
+
+  if onLoad2 then Wait.time(function() onLoad2(loadedData) end, 1.5) end
 end
 
 function shutOff()
@@ -71,12 +81,12 @@ function generateXml()
     attributes = {
       id              = "Helper",
       active          = isHelperEnabled,
-      rotation        = "0 0 180",
+      rotation        = ROTATION or "0 0 180",
       scale           = "0.175 0.175 1",
       childAlignment  = "MiddleCenter",
       constraint      = "FixedColumnCount",
       constraintCount = 2,
-      position        = "0 -60 -40",
+      position        = POSITION or "0 -60 -40",
       width           = 350 * 2 + 55,
       height          = 350 * 2 + 55,
       cellSize        = "350 350",
@@ -126,6 +136,7 @@ function skillClick(player, _, elementId)
   end
   updateSave()
   maybeUpdateButtonState()
+  if extraClickFunction then extraClickFunction() end
 end
 
 function isSomeoneHovering()
@@ -159,4 +170,12 @@ function onObjectHover(playerColor, object)
     Wait.stop(waitId)
   end
   waitId = Wait.time(maybeUpdateButtonState, (object == self) and 0.001 or 0.2)
+end
+
+function getSelectedSkills()
+  return selectedSkills
+end
+
+function clearSelectedSkills()
+  selectedSkills = {}
 end
