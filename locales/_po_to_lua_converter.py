@@ -9,9 +9,7 @@ OUTPUT_LUA_FILE = os.path.join("..", "src", "Global", "i18nData.ttslua")
 
 
 def to_lua_string(s):
-    """
-    Escapes a Python string to be a valid Lua string literal.
-    """
+    """Escapes a Python string to be a valid Lua string literal."""
     return '"' + s.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n") + '"'
 
 
