@@ -4,6 +4,7 @@ import shutil
 import subprocess
 import time
 import datetime
+from pathlib import Path
 
 
 def get_current_git_branch():
@@ -91,7 +92,9 @@ def main():
     print(f"{' '.join(full_cmd)}")
 
     if using_go:
-        subprocess.run(full_cmd, check=True, cwd="C:\\git\\TTSModManager")
+        git_directory_path = Path(__file__).resolve().parent.resolve().parent.resolve().parent
+        full_ttsmodmanager_path = git_directory_path / "TTSModManager"
+        subprocess.run(full_cmd, check=True, cwd=full_ttsmodmanager_path)
     else:
         subprocess.run(full_cmd, check=True)
 
