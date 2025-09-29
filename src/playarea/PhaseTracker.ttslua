@@ -1,4 +1,6 @@
-local PHASE_NAMES = {
+local PlayermatApi = require("playermat/PlayermatApi")
+
+local PHASE_NAMES  = {
   "I. Mythos Phase",
   "II. Investigation Phase",
   "III. Enemy Phase",
@@ -14,7 +16,9 @@ local PHASE_IMAGES = {
 function onSave()
   return JSON.encode({
     phaseId = phaseId,
-    broadcastChange = broadcastChange
+    broadcastChange = broadcastChange,
+    broadcastChangeVerbosity = broadcastChangeVerbosity,
+    pingMythos = pingMythos
   })
 end
 
@@ -30,6 +34,8 @@ function onLoad(savedData)
   else
     phaseId = 1
     broadcastChange = false
+    broadcastChangeVerbosity = false
+    pingMythos = false
   end
 
   self.createButton({
@@ -38,21 +44,65 @@ function onLoad(savedData)
     function_owner = self,
     width          = 600,
     height         = 600,
-    color          = { r = 0, g = 0, b = 0, a = 0 }
+    matColor       = { r = 0, g = 0, b = 0, a = 0 }
   })
 
-  self.addContextMenuItem("Toggle Broadcasting", updateBroadcast)
+  self.addContextMenuItem("Toggle Broadcasting", toggleBroadcast)
+  self.addContextMenuItem("Toggle Verbosity Broadcasting", toggleBroadcastVerbosity)
+  self.addContextMenuItem("Toggle Ping Mythos Area", togglePing)
+
+  -- detect player mats
+  local mats = {}
+  table.insert(mats, getObjectByName('Playermat 1: White'))
+  table.insert(mats, getObjectByName('Playermat 2: Orange'))
+  table.insert(mats, getObjectByName('Playermat 3: Green'))
+  table.insert(mats, getObjectByName('Playermat 4: Red'))
 end
 
-function updateBroadcast(playerColor)
+function toggleBroadcast(playerColor)
+  -- Changes (toggles) the if the phase changes are broadcast or not
   Player[playerColor].clearSelectedObjects()
   for _, tracker in ipairs(getObjectsWithTag("LinkedPhaseTracker")) do
     tracker.setVar("broadcastChange", not broadcastChange)
+    if not broadcastChange then
+      -- If broadcastChange is off, broadcastChangeVerbosity and pingMythos should also be off
+      tracker.setVar("broadcastChangeVerbosity", false)
+      tracker.setVar("pingMythos", false)
+    end
   end
   broadcastToAll("Broadcasting phase changes has been " .. (broadcastChange and "enabled." or "disabled."))
 end
 
-function changeState(_, _, isRightClick)
+function toggleBroadcastVerbosity(playerColor)
+  -- Changes (toggles) the if the phase changes are broadcast with a lot of verbosity or not
+  Player[playerColor].clearSelectedObjects()
+  for _, tracker in ipairs(getObjectsWithTag("LinkedPhaseTracker")) do
+    tracker.setVar("broadcastChangeVerbosity", not broadcastChangeVerbosity) -- Toggle  → Set the opposite
+    if broadcastChangeVerbosity then
+      -- If broadcastChangeVerbosity is on, broadcastChange should also be on
+      tracker.setVar("broadcastChange", true)
+    end
+  end
+  broadcastToAll("Broadcasting phase changes in (Verbosity mode) has been " ..
+    (broadcastChangeVerbosity and "enabled." or "disabled."))
+end
+
+function togglePing(playerColor)
+  -- Changes (toggles)
+  Player[playerColor].clearSelectedObjects()
+  for _, tracker in ipairs(getObjectsWithTag("LinkedPhaseTracker")) do
+    tracker.setVar("pingMythos", not pingMythos) -- Toggle  → Set the opposite
+    if pingMythos then
+      -- If pingMythos is on, broadcastChangeVerbosity and broadcastChange should also be on
+      tracker.setVar("broadcastChange", true)
+      tracker.setVar("broadcastChangeVerbosity", true)
+    end
+  end
+  broadcastToAll("Broadcasting phase changes in (Verbosity mode) has been " ..
+    (broadcastChangeVerbosity and "enabled" or "disabled") .. 'and the Phase Tracker will bring you to the Mythos Area.')
+end
+
+function changeState(_, player_clicker_color, isRightClick)
   -- get newId for all trackers
   local newId = phaseId + (isRightClick and -1 or 1)
   if newId == 0 then
@@ -62,27 +112,126 @@ function changeState(_, _, isRightClick)
   end
 
   -- broadcast if option is enabled
-  if broadcastChange then
+  if broadcastChange and not broadcastChangeVerbosity then
     broadcastToAll(PHASE_NAMES[newId])
+  elseif broadcastChangeVerbosity then
+    expressChangeWithVerbosity(newId)
+    if pingMythos and newId == 1 then
+      pingMythosPhase(player_clicker_color)
+    elseif pingMythos and newId == 2 then
+      pingPlayerMiniCards(player_clicker_color)
+    end
   end
 
-  -- manipulate data and then respawn
+
+  --
   local data = self.getData()
   data["CustomImage"]["ImageURL"] = PHASE_IMAGES[newId]
   data["CustomImage"]["ImageSecondaryURL"] = PHASE_IMAGES[newId]
-  data["LuaScriptState"] = "{\"broadcastChange\":" .. tostring(broadcastChange) .. ",\"phaseId\":" .. newId .. "}"
+  data["LuaScriptState"] = "{\"broadcastChange\":" ..
+      tostring(broadcastChange) ..
+      ",\"phaseId\":" .. newId ..
+      ",\"broadcastChangeVerbosity\":" ..
+      tostring(broadcastChangeVerbosity) ..
+      ",\"pingMythos\":" ..
+      tostring(pingMythos) ..
+      "}"
 
   -- update all trackers with tag
-  for _, tracker in ipairs(getObjectsWithTag("LinkedPhaseTracker")) do
+  for i, tracker in ipairs(getObjectsWithTag("LinkedPhaseTracker")) do
     local pos = tracker.getPosition()
     local rot = tracker.getRotation()
     local scale = tracker.getScale()
     tracker.destruct()
-    spawnObjectData({
+    spawnObjectData({ -- Esto es una funcion de tts
       data     = data,
       position = pos,
       rotation = rot,
       scale    = scale
     })
   end
+end
+
+-- Added
+
+function expressChangeWithVerbosity(newId)
+  -- This function shows every change in the Phase tracker
+
+  local color_bone = { r = 1, g = 1, b = 0.8 }
+
+  if newId == 1 then
+    printToAll('End of the round', color_bone)
+    printToAll("\n-------\n", color_bone)
+    broadcastToAll('Mythos Phase', { r = 1, g = 0, b = 0 })
+  elseif newId == 2 then
+    printToAll('End of Mythos Phase', { r = 1, g = 0, b = 0 })
+    broadcastToAll('Investigation Phase.', color_bone)
+    showHandResourceInfo()
+  elseif newId == 3 then
+    printToAll('End of Investigation Phase', color_bone)
+    printToAll('Enemy Phase.', color_bone)
+  elseif newId == 4 then
+    printToAll('End of Enemy Phase', color_bone)
+    printToAll('Upkeep Phase.', color_bone)
+  end
+end
+
+function pingMythosPhase(player_clicker_color)
+  pl = getPlayer(player_clicker_color)
+  all = getObjects()
+  for _, obj in ipairs(all) do
+    if obj.name == 'Doom Counter' or obj.getName() == 'Doom Counter' then
+      pos = obj.getPosition()
+      pl.pingTable(pos)
+      pl.lookAt({ position = pos, pitch = 90, yaw = 90, distance = 30 })
+    end
+  end
+end
+
+function pingPlayerMiniCards(player_clicker_color)
+  all = getObjects()
+  pl = getPlayer(player_clicker_color)
+  found = 0
+  for _, obj in ipairs(all) do
+    if obj.type == 'Card' then
+      if string.find(obj.getGMNotes(), 'Minicard') or obj.hasTag('Minicard') then
+        pos = obj.getPosition()
+        pl.pingTable(pos)
+        found = found + 1
+        if found == 1 then pl.lookAt({ position = pos, pitch = 90, yaw = 90, distance = 30 }) end -- Look at one of them
+      end
+    end
+  end
+end
+
+function showHandResourceInfo()
+  local COLORS = { White = { 1, 1, 1 }, Orange = { 1, 0.5, 0 }, Green = { 0, 1, 0 }, Red = { 1, 0, 0 } }
+  -- This shows how many cards and resources has every MatPlayer
+  local matColors = Player.getAvailableColors()
+  for _, matColor in ipairs(matColors) do
+    local color = COLORS[matColor] or { 1, 1, 1 }
+    local player = Player[matColor]
+    local cards = player.getHandObjects(1)
+    local num = #cards
+    local resources = PlayermatApi.getCounterValue(matColor, "ResourceCounter")
+    printToAll(matColor .. ' has ' .. num .. ' cards in hand and ' .. resources .. ' resources.', color)
+  end
+end
+
+function getPlayer(color)
+  for _, pl in ipairs(Player.getPlayers()) do
+    if pl.color == color then
+      return pl
+    end
+  end
+  return nil
+end
+
+function getObjectByName(name)
+  for _, obj in ipairs(getObjects()) do
+    if obj.getName() == name then
+      return obj
+    end
+  end
+  return nil
 end
