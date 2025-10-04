@@ -1,0 +1,355 @@
+local GlobalApi    = require("Global/GlobalApi")
+local MathLib      = require("util/MathLib")
+local PlayermatApi = require("playermat/PlayermatApi")
+
+ROTATION           = "0 0 90"
+POSITION           = "0 -70 -40"
+isListening        = false
+
+require("playercards/SkillSelectionCard")
+
+function extraButtons()
+  local buttonXml = {
+    tag        = "Panel",
+    attributes = {
+      id             = "bottomButton",
+      active         = false,
+      rotation       = "0 0 90",
+      scale          = "0.175 0.175 1",
+      childAlignment = "MiddleCenter",
+      position       = "90 -70 -40",
+      width          = 755,
+      height         = 185
+    },
+    children   = {
+      {
+        tag = "Button",
+        attributes = {
+          onClick   = "stopListening",
+          font      = "font_teutonic-arkham",
+          fontSize  = 150,
+          text      = "End Skill Test",
+          color     = "#ffffff05",
+          textColor = "#ffffff"
+        }
+      }
+    }
+  }
+
+  local numberXml = {
+    tag        = "HorizontalLayout",
+    attributes = {
+      id             = "modifierPanel",
+      active         = false,
+      rotation       = "0 0 90",
+      scale          = "0.175 0.175 1",
+      childAlignment = "MiddleCenter",
+      position       = "0 82 -40",
+      width          = 700,
+      height         = 550,
+      color          = "rgba(0,0,0,0.9)",
+      padding        = "0 20 50 0"
+    },
+    children   = { {
+      tag = "Text",
+      attributes = {
+        id       = "modifierText",
+        font     = "font_arno-pro/arno-pro-bold",
+        fontSize = 600,
+        text     = "+0",
+        color    = "#ffffff"
+      }
+    } }
+  }
+
+  local currentXml = self.UI.getXmlTable()
+  table.insert(currentXml, buttonXml)
+  table.insert(currentXml, numberXml)
+  self.UI.setXmlTable(currentXml)
+end
+
+function hasAllyTrait(md)
+  if md and md.traits and string.match(md.traits, "Ally") then
+    return true
+  else
+    return false
+  end
+end
+
+function strToBoolean(value)
+  if value == "true" or value == "True" or value == true then
+    return true
+  else
+    return false
+  end
+end
+
+-- starts listening for Ally card exhausts
+function extraClickFunction()
+  addExhaustButtons()
+  bigTable = {}
+  matchingSkillTotal = 0
+  self.UI.setAttribute("bottomButton", "active", true)
+  self.UI.setAttribute("modifierPanel", "active", true)
+  isListening = true
+end
+
+function addExhaustButtons()
+  local matColor = PlayermatApi.getMatColorByPosition(self.getPosition())
+  for _, object in ipairs(PlayermatApi.searchAroundPlayermat(matColor)) do
+    if object.type == "Card" then
+      local md = JSON.decode(object.getGMNotes()) or {}
+      if hasAllyTrait(md) then
+        if not hasSpecificXmlElement(object, "Charlie") then
+          local xml = object.UI.getXmlTable() or {}
+          local exhaustButton = makeExhaustButton(object.getGUID())
+
+          table.insert(xml, exhaustButton)
+
+          -- add special button for Bonnie
+          if md.id == "09019" then
+            local bonnieButton =
+            {
+              tag = "VerticalLayout",
+              attributes = {
+                height   = 375,
+                width    = 375,
+                padding  = "0 0 20 25",
+                scale    = ".2 .2 1",
+                rotation = "0 0 180",
+                position = "0 -85 -40",
+                color    = "rgba(0,0,0,0.9)",
+                onClick  = self.getGUID() .. "/bonnie"
+              },
+              children = {
+                {
+                  tag = "Text",
+                  attributes = {
+                    fontSize = 125,
+                    font     = "font_arkhamicons",
+                    color    = "#ffffff",
+                    text     = "u"
+                  }
+                },
+                {
+                  tag = "Text",
+                  attributes = {
+                    id       = "bonnieText",
+                    fontSize = 100,
+                    font     = "font_teutonic-arkham",
+                    color    = "#ffffff",
+                    text     = "Bonnie"
+                  }
+                }
+              }
+            }
+            table.insert(xml, bonnieButton)
+          end
+          -- panel to contain these elements
+          local panelXml = { {
+            tag = "Panel",
+            attributes = { id = "Charlie", active = true },
+            children = xml
+          } }
+          object.UI.setXmlTable(panelXml)
+        else
+          object.UI.setAttribute("Charlie", "active", true)
+        end
+      end
+    end
+  end
+end
+
+function exhaustOrReadyAlly(_, allyGUID)
+  allyCard = getObjectFromGUID(allyGUID)
+  -- get behavior
+  local exhaustOrUndo = allyCard.UI.getAttribute("charlieText", "text")
+  -- exhaust card
+  local matColor = PlayermatApi.getMatColorByPosition(self.getPosition())
+  if exhaustOrUndo == "Exhaust" then
+    if isExhausted(allyCard) then
+      broadcastToAll("Ally is already exhausted.", "Red")
+      return
+    end
+    modifier = 1
+    allyCard.UI.setAttribute("charlieText", "text", "Undo")
+    allyCard.setRotationSmooth(PlayermatApi.getExhaustRotation(matColor, true), nil, true)
+  elseif exhaustOrUndo == "Undo" then
+    modifier = -1
+    allyCard.UI.setAttribute("charlieText", "text", "Exhaust")
+    GlobalApi.maybeReadyCard(allyCard, PlayermatApi.returnRotation(matColor), true, true)
+  else
+    -- ready this card, change all other labels back to what they were before
+    revert()
+    allyCard.UI.setAttribute("charlieText", "text", "Exhaust")
+    GlobalApi.maybeReadyCard(allyCard, PlayermatApi.returnRotation(matColor), true, true)
+    return
+  end
+
+  local md = JSON.decode(allyCard.getGMNotes()) or {}
+  local selectedSkills = getSelectedSkills()
+  local iconTypes = { "Wild", "Willpower", "Intellect", "Combat", "Agility" }
+  for _, iconName in ipairs(iconTypes) do
+    local mdName = string.lower(iconName) .. "Icons"
+    if md[mdName] ~= nil and (selectedSkills[string.lower(iconName)] == true or mdName == "wildIcons") then
+      matchingSkillTotal = matchingSkillTotal + (md[mdName] * modifier)
+    end
+  end
+  matchingSkillTotal = matchingSkillTotal + modifier
+  updateMatchingSkillLabel(matchingSkillTotal)
+end
+
+function bonnie()
+  -- change buttons on exhausted allies to "ready", then back to undo after one is clicked.
+  -- check to see if Charlie's XML label exists
+  local matColor = PlayermatApi.getMatColorByPosition(self.getPosition())
+  for _, object in ipairs(PlayermatApi.searchAroundPlayermat(matColor)) do
+    if object.type == "Card" then
+      local md = JSON.decode(object.getGMNotes()) or {}
+      if hasAllyTrait(md) and hasSpecificXmlElement(object, "Charlie") and md.id ~= "09019" then
+        bigTable[object.guid] = object.UI.getAttribute("charlieText", "text")
+        if strToBoolean(object.UI.getAttribute("Charlie", "active")) and isExhausted(object) then
+          object.UI.setAttribute("charlieText", "text", "Ready")
+        end
+      end
+    end
+  end
+end
+
+function revert()
+  local matColor = PlayermatApi.getMatColorByPosition(self.getPosition())
+  for _, object in ipairs(PlayermatApi.searchAroundPlayermat(matColor)) do
+    if object.type == "Card" then
+      local md = JSON.decode(object.getGMNotes()) or {}
+      if hasAllyTrait(md) and hasSpecificXmlElement(object, "Charlie") then
+        local previousText = bigTable[object.guid]
+        if strToBoolean(object.UI.getAttribute("Charlie", "active")) and previousText ~= nil then
+          object.UI.setAttribute("charlieText", "text", previousText)
+        end
+      end
+    end
+  end
+end
+
+function stopListening()
+  matchingSkillTotal = 0
+  isListening = false
+  self.UI.setAttribute("bottomButton", "active", false)
+  self.UI.setAttribute("modifierPanel", "active", false)
+  self.UI.setAttribute("modifierText", "text", "+0")
+  self.UI.setAttribute("modifierText", "fontSize", 550)
+
+  -- check to see if Charlie's XML label exists
+  local matColor = PlayermatApi.getMatColorByPosition(self.getPosition())
+  for _, object in ipairs(PlayermatApi.searchAroundPlayermat(matColor)) do
+    if object.type == "Card" then
+      local md = JSON.decode(object.getGMNotes()) or {}
+      if hasAllyTrait(md) and hasSpecificXmlElement(object, "Charlie") then
+        if strToBoolean(object.UI.getAttribute("Charlie", "active")) then
+          object.UI.setAttribute("Charlie", "active", false)
+          object.UI.setAttribute("charlieText", "text", "Exhaust")
+        end
+      end
+    end
+  end
+  clearSelectedSkills()
+  bigTable = {}
+  updateSave()
+  maybeUpdateButtonState()
+end
+
+function isExhausted(card)
+  if card.isSmoothMoving() then return true end
+
+  local matColor        = PlayermatApi.getMatColorByPosition(card.getPosition())
+  local exhaustRotation = PlayermatApi.getExhaustRotation(matColor, true)
+  return MathLib.round(card.getRotation().y) == MathLib.round(exhaustRotation.y)
+end
+
+function hasSpecificXmlElement(object, elementId)
+  -- Check if the provided object is valid
+  if object == nil then return false end
+
+  local xml = object.UI.getXml()
+
+  -- Check if the XML string is empty
+  if xml == nil or xml == "" then return false end
+
+  -- Split the XML string by lines to search for the element ID
+  for line in string.gmatch(xml, "[^\r\n]+") do
+    if string.find(line, 'id="' .. elementId .. '"') then
+      return true
+    end
+  end
+
+  return false
+end
+
+function makeExhaustButton(cardGUID)
+  return {
+    tag = "VerticalLayout",
+    attributes = {
+      height   = 375,
+      width    = 375,
+      padding  = "0 0 20 25",
+      scale    = ".35 .35 1",
+      rotation = "0 0 180",
+      position = "0 20 -100",
+      color    = "rgba(0,0,0,0.9)",
+      onClick  = self.getGUID() .. "/exhaustOrReadyAlly(" .. cardGUID .. ")"
+    },
+    children = {
+      {
+        tag = "Text",
+        attributes = {
+          fontSize = 135,
+          font     = "font_arkhamicons",
+          color    = "#ffffff",
+          text     = "v"
+        }
+      },
+      {
+        tag = "Text",
+        attributes = {
+          id       = "charlieText",
+          fontSize = 125,
+          font     = "font_teutonic-arkham",
+          color    = "#ffffff",
+          text     = "Exhaust"
+        }
+      }
+    }
+  }
+end
+
+function updateMatchingSkillLabel(matchingSkillTotal)
+  if matchingSkillTotal > 9 then
+    fontSize = 430
+  else
+    fontSize = 550
+  end
+  local label = "+" .. matchingSkillTotal
+  self.UI.setAttribute("modifierText", "text", label)
+  self.UI.setAttribute("modifierText", "fontSize", fontSize)
+  updateSave()
+end
+
+function getSaveData()
+  return {
+    matchingSkillTotal = matchingSkillTotal,
+    isListening = isListening
+  }
+end
+
+function onLoad2(loadedData)
+  if loadedData ~= nil then
+    matchingSkillTotal = loadedData.matchingSkillTotal
+    isListening = loadedData.isListening
+    if isListening == true then
+      updateDisplay()
+      self.UI.setAttribute("bottomButton", "active", true)
+      self.UI.setAttribute("modifierPanel", "active", true)
+      updateMatchingSkillLabel(matchingSkillTotal)
+    end
+  end
+end
