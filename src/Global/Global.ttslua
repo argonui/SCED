@@ -488,10 +488,11 @@ function onObjectNumberTyped(hoveredObject, playerColor, number)
   end
 
   -- check whether the hovered object is part of a players draw objects
-  for color, _ in pairs(GUIDReferenceApi.getObjectsByType("Playermat")) do
-    local deckAreaObjects = PlayermatApi.getDeckAreaObjects(color)
+  for matColor, _ in pairs(GUIDReferenceApi.getObjectsByType("Playermat")) do
+    local deckAreaObjects = PlayermatApi.getDeckAreaObjects(matColor)
     if deckAreaObjects.topCard == hoveredObject or deckAreaObjects.draw == hoveredObject then
-      PlayermatApi.drawCardsWithReshuffle(color, number)
+      PlayermatApi.updateMessageColor(matColor, playerColor)
+      PlayermatApi.drawCardsWithReshuffle(matColor, number)
       return true
     end
   end
@@ -1475,11 +1476,11 @@ end
 ---------------------------------------------------------
 
 function createChaosTokenNameLookupTable()
-  local namesToIds = {}
+  local reversedTable = {}
   for k, v in pairs(ID_URL_MAP) do
-    namesToIds[v.name] = k
+    reversedTable[v.name] = k
   end
-  return namesToIds
+  return reversedTable
 end
 
 -- returns the currently drawn chaos tokens
@@ -1748,20 +1749,20 @@ end
 function placeholder_download(params)
   function downloadCoroutine()
     -- show progress bar
-    UI.setAttribute('download_progress', 'active', true)
+    UI.setAttribute("download_progress", "active", true)
 
     -- update progress bar
     while requestObj do
-      UI.setAttribute('download_progress', 'percentage', requestObj.download_progress * 100)
+      UI.setAttribute("download_progress", "percentage", requestObj.download_progress * 100)
       CoroutineLib.yieldFrames()
     end
-    UI.setAttribute('download_progress', 'percentage', 100)
+    UI.setAttribute("download_progress", "percentage", 100)
 
     -- wait 30 frames
     CoroutineLib.yieldFrames(30)
 
     -- hide progress bar
-    UI.setAttribute('download_progress', 'active', false)
+    UI.setAttribute("download_progress", "active", false)
 
     -- hide download window
     if params.player then
@@ -3642,15 +3643,20 @@ function titleSplash(scenarioName)
     if waitIds["hideTitleSplash"] then
       Wait.stop(waitIds["hideTitleSplash"])
       waitIds["hideTitleSplash"] = nil
-      UI.setAttribute('title_splash', 'active', false)
+      UI.setAttribute("title_splash", "active", false)
     end
+
+    -- update the xml
+    UI.setAttributes("title_splash_text", {
+      font = i18n.getFont(),
+      text = scenarioName
+    })
 
     -- display scenario name and set a 4 seconds (2 seconds animation and 2 seconds on screen)
     -- wait timer to hide the scenario name
-    UI.setValue('title_splash_text', scenarioName)
-    UI.show('title_splash')
+    UI.show("title_splash")
     waitIds["hideTitleSplash"] = Wait.time(function()
-      UI.hide('title_splash')
+      UI.hide("title_splash")
       waitIds["hideTitleSplash"] = nil
     end, 4)
 
@@ -3950,8 +3956,9 @@ end
 -- Spawns a single resource counter token and sets the value to tokenValue.
 function TokenManager.spawnResourceCounterToken(params)
   local card = params.card
+  local modifier = card.is_face_down and -1 or 1
   TokenManager.spawnToken({
-    position    = card.positionToWorld(card.positionToLocal(card.getPosition()) + Vector(0, 0.2, -0.5)),
+    position    = card.positionToWorld(card.positionToLocal(card.getPosition()) + Vector(0, modifier * 0.2, -0.5)),
     tokenType   = "resourceCounter",
     rotation    = card.getRotation(),
     scriptstate = params.tokenCount or params.tokenValue
@@ -4086,7 +4093,11 @@ function TokenManager.spawnToken(params)
     return
   end
 
-  tokenTemplate.Nickname = ""
+  -- remove nickname for clue / doom tokens since they are double-sided
+  if loadTokenType == "clueDoom" then
+    tokenTemplate.Nickname = ""
+  end
+
   spawnData.data = tokenTemplate
 
   -- maybe directly update the script state of the token
@@ -4197,7 +4208,7 @@ end
 
 -- Gets the right uses structure for this card, based on metadata and face up/down state
 ---@param card tts__Object Card to pull the uses from
-TokenManager.getUses = function(card)
+function TokenManager.getUses(card)
   local metadata = JSON.decode(card.getGMNotes()) or {}
   if metadata.type == "Location" then
     if card.is_face_down and metadata.locationBack ~= nil then
@@ -4215,7 +4226,7 @@ end
 ---@param card tts__Object Card the clues will be placed on
 ---@param count number How many clues?
 ---@return table: Array of global positions to spawn the clues at
-TokenManager.buildClueOffsets = function(card, count)
+function TokenManager.buildClueOffsets(card, count)
   -- make sure clues always spawn from left to right
   local modifier = card.is_face_down and 1 or -1
 
@@ -4426,12 +4437,6 @@ end
 
 function updateUniversalActionAbilityToken(obj, params)
   obj.call("updateClassAndSymbol", params)
-end
-
-function updateStateToken(obj, stateID)
-  if stateID ~= nil and stateID ~= 1 then
-    obj.setState(stateID)
-  end
 end
 
 ---------------------------------------------------------
@@ -4715,12 +4720,14 @@ end
 --- card tts__Object Card to ready
 --- ownerRotation? tts__Vector Rotation of the owner
 --- smooth? boolean Should the card be rotated smoothly?
+--- forceReady? boolean True if this card should be readied regardless of "DoNoReady" tag
 function maybeReadyCard(params)
   local card          = params.card
   local ownerRotation = params.ownerRotation
   local smooth        = params.smooth
+  local forceReady    = params.forceReady
 
-  if card.getVar("do_not_ready") or card.hasTag("DoNotReady") then return end
+  if not forceReady and (card.getVar("do_not_ready") or card.hasTag("DoNotReady")) then return end
 
   -- if not provided, get the rotation of the owner
   if not ownerRotation then
