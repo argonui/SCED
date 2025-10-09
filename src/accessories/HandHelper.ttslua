@@ -1,16 +1,16 @@
-local PlayermatApi   = require("playermat/PlayermatApi")
+local PlayermatApi     = require("playermat/PlayermatApi")
 
 -- forward declaration of variables that are used across functions
 local matColor, handColor, newModifier, modifiedBase
 
 -- cache for decoded metadata
-local metadataCache  = {}
+local metadataCache    = {}
 
 -- description before modifications
-local DESCRIPTION    = "Displays your hand size and maximum hand size. Right click for options."
+local DESCRIPTION      = "Displays your hand size and maximum hand size. Right click for options."
 
 -- list of hand modifying cards that are applied automatically
-local HAND_MODIFIERS = {
+local HAND_MODIFIERS   = {
   ["02020"] = 2,  -- Laboratory Assistant
   ["03041"] = -5, -- Drawing the Sign
   ["06095"] = -3, -- Deeper Slumber
@@ -19,6 +19,8 @@ local HAND_MODIFIERS = {
   ["71023"] = 2   -- Dr. Mya Badry
   -- Drawn to Darkness is handled differently to apply last
 }
+
+local lastAppliedCards = {}
 
 function onLoad()
   -- index 0: button as hand size label
@@ -72,9 +74,11 @@ function updateColors()
 end
 
 function getHandSizeModifierData()
-  local modSize = newModifier or 0
-  local deckAreaObjects = PlayermatApi.getDeckAreaObjects(matColor)
-  local desCount, foundDrawnToDarkness
+  local modSize              = newModifier or 0
+  local deckAreaObjects      = PlayermatApi.getDeckAreaObjects(matColor)
+  local appliedCards         = {}
+  local desCount             = nil
+  local foundDrawnToDarkness = false
 
   -- look for  cards around playermat that modify hand size (also store value from DES if found)
   for _, obj in ipairs(PlayermatApi.searchAroundPlayermat(matColor, "isCard")) do
@@ -84,17 +88,29 @@ function getHandSizeModifierData()
         obj ~= deckAreaObjects.discard then
       -- handle specific cards
       local md = getMetadata(obj)
-      modSize = modSize + (HAND_MODIFIERS[md.id] or 0)
+      local cardMod = HAND_MODIFIERS[md.id]
+
+      if cardMod then
+        local cardName = obj.getName()
+        appliedCards[cardName] = (appliedCards[cardName] or 0) + 1
+        modSize = modSize + cardMod
+      end
 
       -- store DES value in a global variable for later
       if md.id == "06159" then
         desCount = obj.call("updateValue")
       elseif md.id == "11750" then
         foundDrawnToDarkness = true
+        appliedCards[obj.getName()] = 1
       end
     end
   end
-  return { modifier = modSize, desCount = desCount, foundDrawnToDarkness = foundDrawnToDarkness }
+  return {
+    appliedCards         = appliedCards,
+    desCount             = desCount,
+    foundDrawnToDarkness = foundDrawnToDarkness,
+    modifier             = modSize
+  }
 end
 
 function setBaseHandSize(player)
@@ -203,4 +219,31 @@ function updateValue()
   -- update button label and color
   self.editButton({ index = 0, font_color = handSizeColor, label = size })
   self.editButton({ index = 1, label = math.max(maxSizeLabel, 0) })
+
+  -- check if a new card was involved
+  local newCardNames = {}
+  local allCardNames = {}
+  for cardName, count in pairs(data.appliedCards) do
+    local oldCount = lastAppliedCards[cardName] or 0
+    local diff = count - oldCount
+    if diff > 1 then
+      table.insert(newCardNames, cardName .. " [" .. diff .. "x]")
+    elseif diff == 1 then
+      table.insert(newCardNames, cardName)
+    end
+
+    if count > 1 then
+      table.insert(allCardNames, cardName .. " [" .. count .. "x]")
+    elseif count == 1 then
+      table.insert(allCardNames, cardName)
+    end
+  end
+  lastAppliedCards = data.appliedCards
+
+  if #newCardNames > 0 then
+    local messageColor = PlayermatApi.getMessageColor(matColor)
+    local tool = "[" .. Color.fromString(handColor):toHex() .. "]Hand Helper[-]"
+    local modStr = "modifier" .. ((#newCardNames == 1) and ": " or "s:\n")
+    printToColor(tool .. " detected new " .. modStr .. table.concat(newCardNames, "\n"), messageColor)
+  end
 end
