@@ -42,7 +42,7 @@ local bagSearchers                = {}
 local lastZoneEnterObject         = nil
 
 -- online functionality related variables
-local library, requestObj, modMeta, searchFilter, authorFilter
+local failCount, library, requestObj, modMeta, searchFilter, authorFilter
 local downloadPending             = {}
 local acknowledgedUpgradeVersions = {}
 local authorList                  = {}
@@ -3773,13 +3773,31 @@ function getModVersion()
   WebRequest.get(SOURCE_REPO .. 'modversion.json', compareVersion)
 end
 
--- compares the modversion with GitHub and possibly shows the update notification
-function compareVersion(request)
+function maybeUseFallback(request)
   if request.is_error then
     log(request.error)
+    failCount = (failCount or 0) + 1
+    local prefix = FALLBACK_MIRRORS[failCount]
+    if not prefix then
+      printToAll("GitHub and/or its mirrors don't seem to be accessible right now.\n" ..
+        "The download menu and certain other aspects might not work.", "Red")
+      return
+    end
+
+    printToAll("Failed to access GitHub, trying a mirror: " .. prefix)
+    WebRequest.get(prefix .. SOURCE_REPO .. 'modversion.json', maybeUseFallback)
     return
   end
 
+  -- update the SOURCE_REPO to include the mirror
+  local prefix = FALLBACK_MIRRORS[failCount] or ""
+  SOURCE_REPO = prefix .. SOURCE_REPO
+
+  compareVersion(request)
+end
+
+-- compares the modversion with GitHub and possibly shows the update notification
+function compareVersion(request)
   -- global variable to make it accessible for other functions
   modMeta = JSON.decode(request.text)
 
@@ -3787,8 +3805,14 @@ function compareVersion(request)
   if modMeta["setSpecificDownloadVersion"] then
     local versionTable = modMeta["setSpecificDownloadVersion"][1]
     if versionTable[MOD_VERSION] then
-      SOURCE_REPO = "https://github.com/Chr1Z93/SCED-downloads/releases/download/" .. versionTable[MOD_VERSION] .. "/"
       log("Using download repo version: " .. versionTable[MOD_VERSION])
+
+      -- construct URL to specific version
+      SOURCE_REPO = "https://github.com/Chr1Z93/SCED-downloads/releases/download/" .. versionTable[MOD_VERSION] .. "/"
+
+      -- re-add the mirror prefix
+      local prefix = FALLBACK_MIRRORS[failCount] or ""
+      SOURCE_REPO = prefix .. SOURCE_REPO
     end
   end
 
