@@ -1770,6 +1770,15 @@ function placeholder_download(params)
     end
   end
 
+  -- make sure that language pack spawn in the correct spot
+  if string.startsWith(params.filename, "language_pack_") then
+    if string.endsWith(params.filename, "playercards") then
+      params.addToPlayerCards = true
+    elseif string.endsWith(params.filename, "campaigns") then
+      params.addToEncounterCards = true
+    end
+  end
+
   local url = SOURCE_REPO .. params.filename .. ".json"
   requestObj = WebRequest.get(url, function(request) contentDownloadCallback(request, params) end)
 
@@ -2260,8 +2269,9 @@ function downloadCustomCycle(cycleId)
       if itemData.cycle_code == cycleId then
         downloadPending[cycleId] = true
         local url = SOURCE_REPO .. itemData.filename .. ".json"
+        itemData.addToPlayerCards = true
         requestObj = WebRequest.get(url, function(request)
-          contentDownloadCallback(request, itemData, true)
+          contentDownloadCallback(request, itemData)
           Wait.time(function() downloadPending[cycleId] = false end, 1)
         end)
         return true
@@ -2757,7 +2767,7 @@ end
 
 -- called after the webrequest of downloading an item
 -- deletes the placeholder and spawns the downloaded item
-function contentDownloadCallback(request, params, addToAdditionalCards)
+function contentDownloadCallback(request, params)
   requestObj = nil
 
   -- error handling
@@ -2778,10 +2788,20 @@ function contentDownloadCallback(request, params, addToAdditionalCards)
     end
   end
 
-  if addToAdditionalCards then
-    local additionalCardsBag = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "AdditionalPlayerCardsBag")
-    spawnTable.position = additionalCardsBag.getPosition() + Vector(0, 2, 0)
-    spawnTable.rotation = additionalCardsBag.getRotation()
+  -- move language packs to the correct bag
+  local referenceObjectType
+  if params.addToPlayerCards then
+    referenceObjectType = "AdditionalPlayerCardsBag"
+  elseif params.addToEncounterCards then
+    referenceObjectType = "AllEncounterCardsBag"
+  end
+
+  if referenceObjectType then
+    local referenceObject = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", referenceObjectType)
+    if referenceObject then
+      spawnTable.position = referenceObject.getPosition() + Vector(0, 2, 0)
+      spawnTable.rotation = referenceObject.getRotation()
+    end
   end
 
   -- if position is undefined, get empty position
