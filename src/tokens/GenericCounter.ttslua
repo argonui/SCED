@@ -1,6 +1,36 @@
-local MathLib        = require("util/MathLib")
+local MathLib = require("util/MathLib")
 
-MIN_VALUE, MAX_VALUE = 0, 99
+local DATA    = {
+  ["default"] = {
+    MIN_VALUE  = 0,
+    MAX_VALUE  = 99,
+    POSITION   = Vector(0, 0.06, 0),
+    ROTATION   = Vector(0, 0, 0),
+    HEIGHT     = 600,
+    WIDTH      = 1000,
+    FONT_SIZE  = 600,
+    FONT_COLOR = { 1, 1, 1, 100 },
+    COLOR      = { 0, 0, 0, 0 },
+    SCALE      = { 1.5, 1.5, 1.5 }
+  },
+  ["damage"] = {
+    POSITION = Vector(0.1, -0.07, 0.1),
+    ROTATION = Vector(180, 180, 0)
+  },
+  ["horror"] = {
+    POSITION = Vector(-0.025, -0.07, 0.025),
+    ROTATION = Vector(180, 180, 0)
+  },
+  ["resourceCounter"] = {
+    POSITION = Vector(0, 0.06, 0.1)
+  },
+  ["DoomCounter"] = {
+    SIZE       = 800,
+    FONT_SIZE  = 650,
+    FONT_COLOR = { 1, 1, 1, 95 },
+    POSITION   = Vector(0.00, -0.03, 2.40)
+  }
+}
 
 function onDestroy()
   updateSave()
@@ -10,39 +40,27 @@ function updateSave()
   self.script_state = val
 end
 
+function getDataValue(key)
+  local data = DATA[self.getMemo()] or DATA["default"]
+  return data[key] or DATA["default"][key]
+end
+
 function onLoad(savedData)
   val = tonumber(savedData) or 0
-  self.max_typed_number = MAX_VALUE
-
-  -- set data depending on type
-  local tokenType = self.getMemo()
-  if tokenType == "damage" then
-    position = { 0.1, -0.07, 0.1 }
-    rotation = { 180, 180, 0 }
-  elseif tokenType == "horror" then
-    position = { -0.025, -0.07, 0.025 }
-    rotation = { 180, 180, 0 }
-  elseif tokenType == "resource" or tokenType == "resourceCounter" then
-    position = { 0, 0.06, 0.1 }
-  elseif tokenType == "DoomCounter" then
-    height    = 800
-    width     = 800
-    fontSize  = 650
-    fontColor = { 1, 1, 1, 95 }
-  end
+  self.max_typed_number = getDataValue("MAX_VALUE")
 
   self.createButton({
     label          = tostring(val),
     click_function = "addOrSubtract",
     function_owner = self,
-    position       = position or { 0, 0.06, 0 },
-    rotation       = rotation or { 0, 0, 0 },
-    height         = height or 600,
-    width          = width or 1000,
-    scale          = { 1.5, 1.5, 1.5 },
-    font_size      = fontSize or 600,
-    font_color     = fontColor or { 1, 1, 1, 100 },
-    color          = { 0, 0, 0, 0 }
+    scale          = getDataValue("SCALE"),
+    position       = getDataValue("POSITION"),
+    rotation       = getDataValue("ROTATION"),
+    height         = getDataValue("HEIGHT"),
+    width          = getDataValue("WIDTH"),
+    font_size      = getFontSize(val),
+    font_color     = getDataValue("FONT_COLOR"),
+    color          = getDataValue("COLOR")
   })
 
   -- add context menu entries
@@ -52,10 +70,21 @@ function onLoad(savedData)
   self.addContextMenuItem("Subtract 10", function() updateVal(val - 10) end)
 end
 
+function getFontSize(val)
+  local fontSize = getDataValue("FONT_SIZE")
+  if val > 9 then
+    fontSize = fontSize * 0.9
+  end
+  if val > 99 then
+    fontSize = fontSize * 0.9
+  end
+  return fontSize
+end
+
 function updateVal(newVal)
   if tonumber(newVal) then
-    val = MathLib.clamp(newVal, MIN_VALUE, MAX_VALUE)
-    self.editButton({ index = 0, label = tostring(val) })
+    val = MathLib.clamp(newVal, getDataValue("MIN_VALUE"), getDataValue("MAX_VALUE"))
+    self.editButton({ index = 0, label = tostring(val), font_size = getFontSize(val) })
     updateSave()
   end
 end
@@ -65,8 +94,8 @@ function addOrSubtract(_, _, isRightClick)
 end
 
 function modifyValue(mod)
-  val = MathLib.clamp(val + tonumber(mod), MIN_VALUE, MAX_VALUE)
-  self.editButton({ index = 0, label = tostring(val) })
+  val = MathLib.clamp(val + tonumber(mod), getDataValue("MIN_VALUE"), getDataValue("MAX_VALUE"))
+  self.editButton({ index = 0, label = tostring(val), font_size = getFontSize(val) })
   updateSave()
 end
 
