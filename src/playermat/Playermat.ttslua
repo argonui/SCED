@@ -310,6 +310,10 @@ function updateMessageColor(clickedByColor)
   end
 end
 
+function getMessageColor()
+  return messageColor
+end
+
 function moveAndRotateSelf(params)
   local position = params.position
   local rotationY = params.rotationY
@@ -470,8 +474,9 @@ function doUpkeep(_, clickedByColor, isRightClick)
   local coloredName = GlobalApi.getColoredName(playerColor)
   printToColor("Upkeep for " .. coloredName .. " (card draw and then resource gain).", messageColor)
 
-  -- unexhaust cards in play zone, flip action tokens and find Forced Learning / Dream-Enhancing Serum
-  local forcedLearning = false
+  -- unexhaust cards in play zone, flip action tokens and find Forced Learning / cards that skip resource gains
+  local forcedLearning     = false
+  local skipUpkeepResource = false
   local rot = self.getRotation()
   for _, obj in ipairs(searchAroundSelf()) do
     if obj.hasTag("Temporary") then
@@ -483,6 +488,10 @@ function doUpkeep(_, clickedByColor, isRightClick)
     -- call the 'doInUpkeep' function for face-up objects with the respective tag
     if obj.hasTag("DoInUpkeep") and not obj.is_face_down then
       obj.call("doInUpkeep")
+    end
+
+    if obj.hasTag("DisableResourceGain") and not obj.is_face_down then
+      skipUpkeepResource = true
     end
 
     if obj.type == "Card" and not obj.hasTag("Investigator") then -- do not continue for investigator cards
@@ -574,8 +583,10 @@ function doUpkeep(_, clickedByColor, isRightClick)
     drawCardsWithReshuffle(1)
   end
 
-  -- gain a resource (or two if playing non-parallel Jenny Barnes)
-  if activeInvestigatorData.id == "02003" or activeInvestigatorData.id == "02003-pb" then
+  -- gain a resource (or two if playing non-parallel Jenny Barnes), with potential resource skipping
+  if skipUpkeepResource == true then
+    printToColor("Skipping Upkeep resource(s)", messageColor)
+  elseif activeInvestigatorData.id == "02003" or activeInvestigatorData.id == "02003-pb" then
     updateCounter({ type = "ResourceCounter", modifier = 2 })
     printToColor("Gaining 1 additional resource (Jenny)", messageColor)
   else
