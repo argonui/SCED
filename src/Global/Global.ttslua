@@ -3623,6 +3623,7 @@ function onClick_defaultSettings()
     tokenArrangerOdds         = "No Odds",
     useClassTexture           = true,
     useClueClickers           = false,
+    useCustomResourceImages   = true,
     useResourceCounters       = "disabled",
     useSnapTags               = true
   }
@@ -3943,6 +3944,23 @@ function shouldSpawnResourceCounter(params)
   return false
 end
 
+function shouldUseCustomResourceImage(matColor)
+  local matSetting = "Global"
+  if matColor and matColor ~= "Mythos" then
+    matSetting = PlayermatApi.getResourceImageOption(matColor)
+  end
+
+  if matSetting == "Global" then
+    return optionPanel["useCustomResourceImages"]
+  end
+
+  if matSetting == "Enabled" then
+    return true
+  else
+    return false
+  end
+end
+
 -- Spawns a single counter token and sets the value to tokenValue. Used for damage and horror tokens.
 function TokenManager.spawnCounterToken(params)
   TokenManager.spawnToken({
@@ -3958,10 +3976,12 @@ function TokenManager.spawnResourceCounterToken(params)
   local card = params.card
   local modifier = card.is_face_down and -1 or 1
   TokenManager.spawnToken({
-    position    = card.positionToWorld(card.positionToLocal(card.getPosition()) + Vector(0, modifier * 0.2, -0.5)),
-    tokenType   = "resourceCounter",
-    rotation    = card.getRotation(),
-    scriptstate = params.tokenCount or params.tokenValue
+    position       = card.positionToWorld(card.positionToLocal(card.getPosition()) + Vector(0, modifier * 0.2, -0.5)),
+    tokenType      = "resourceCounter",
+    rotation       = card.getRotation(),
+    scriptstate    = params.tokenCount or params.tokenValue,
+    callbackName   = "addUseName",
+    callbackParams = { useName = params.subType }
   })
 end
 
@@ -4031,15 +4051,19 @@ function TokenManager.spawnMultipleTokens(params)
     return
   end
 
-  -- if a special resource exists, spawn it directly
-  if RESOURCE_STATES[string.lower(subType or "")] then
+    -- special handling for some tokens like action/ability tokens
+  local callbackName = nil
+  local callbackParams = nil
+
+  -- if a special resource exists, spawn it directly if custom resource images are enabled
+  if RESOURCE_STATES[string.lower(subType or "")] and shouldUseCustomResourceImage(matColor) == true then
     tokenType = string.lower(subType)
   end
 
-  -- special handling for some tokens like action/ability tokens
-  local callbackName = nil
-  local callbackParams = nil
-  if tokenType == "universalActionAbility" then
+  if tokenType == "resource" then
+    callbackName = "addUseName"
+    callbackParams = { useName = subType }
+  elseif tokenType == "universalActionAbility" then
     matColor = matColor or PlayermatApi.getMatColorByPosition(card.getPosition())
     local activeInvestigatorData = PlayermatApi.getActiveInvestigatorData(matColor)
     callbackName = "updateUniversalActionAbilityToken"
@@ -4285,7 +4309,8 @@ function TokenManager.replenishTokens(card, useInfo)
 
     for _, obj in ipairs(SearchLib.onObject(card, "isTileOrToken", 0.8)) do
       local memo = obj.getMemo()
-      if searchType == memo then
+      local name = string.lower(obj.getName())
+      if searchType == memo or searchType == name then
         foundTokens = foundTokens + math.abs(obj.getQuantity())
         table.insert(maybeDeleteThese, obj)
       elseif memo == "resourceCounter" then
@@ -4437,6 +4462,14 @@ end
 
 function updateUniversalActionAbilityToken(obj, params)
   obj.call("updateClassAndSymbol", params)
+end
+
+function addUseName(obj, params)
+  if obj.memo == "resourceCounter" then
+    obj.setName(params.useName .. " Counter")
+  else
+    obj.setName(params.useName)
+  end
 end
 
 ---------------------------------------------------------
