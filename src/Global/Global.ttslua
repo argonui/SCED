@@ -3413,7 +3413,6 @@ function applyOptionPanelChange(id, state)
     Wait.frames(function() spawnOrRemoveHelperForPlayermats("Clickable Clue Counter", state) end, state and 0 or 20)
     Wait.frames(function() PlayermatApi.clickableClues(state, "All") end, 10)
 
-
     -- option: Enable card helpers
   elseif id == "enableCardHelpers" then
     toggleCardHelpers(state)
@@ -3977,10 +3976,12 @@ function TokenManager.spawnResourceCounterToken(params)
   local card = params.card
   local modifier = card.is_face_down and -1 or 1
   TokenManager.spawnToken({
-    position    = card.positionToWorld(card.positionToLocal(card.getPosition()) + Vector(0, modifier * 0.2, -0.5)),
-    tokenType   = "resourceCounter",
-    rotation    = card.getRotation(),
-    scriptstate = params.tokenCount or params.tokenValue
+    position       = card.positionToWorld(card.positionToLocal(card.getPosition()) + Vector(0, modifier * 0.2, -0.5)),
+    tokenType      = "resourceCounter",
+    rotation       = card.getRotation(),
+    scriptstate    = params.tokenCount or params.tokenValue,
+    callbackName   = "addUseName",
+    callbackParams = { useName = params.subType }
   })
 end
 
@@ -4057,15 +4058,12 @@ function TokenManager.spawnMultipleTokens(params)
   -- if a special resource exists, spawn it directly if custom resource images are enabled
   if RESOURCE_STATES[string.lower(subType or "")] and shouldUseCustomResourceImage(matColor) == true then
     tokenType = string.lower(subType)
-  else
-    callbackName = "addUseName"
-    callbackParams = { useName = subType }
   end
 
-  if tokenType == "universalActionAbility" then
-    matColor = matColor or PlayermatApi.getMatColorByPosition(card.getPosition())
-    local activeInvestigatorData = PlayermatApi.getActiveInvestigatorData(matColor)
-    callbackName = "updateUniversalActionAbilityToken"
+  if tokenType == "resource" then
+      callbackName = "addUseName"
+      callbackParams = { useName = subType }
+  elseif tokenType == "universalActionAbility" then
     callbackParams = {
       class  = activeInvestigatorData.class,
       symbol = subType
@@ -4308,7 +4306,8 @@ function TokenManager.replenishTokens(card, useInfo)
 
     for _, obj in ipairs(SearchLib.onObject(card, "isTileOrToken", 0.8)) do
       local memo = obj.getMemo()
-      if searchType == memo then
+      local name = string.lower(obj.getName())
+      if searchType == memo or searchType == name then
         foundTokens = foundTokens + math.abs(obj.getQuantity())
         table.insert(maybeDeleteThese, obj)
       elseif memo == "resourceCounter" then
@@ -4463,7 +4462,11 @@ function updateUniversalActionAbilityToken(obj, params)
 end
 
 function addUseName(obj, params)
-  obj.setName(params.useName)
+  if obj.memo == "resourceCounter" then
+    obj.setName(params.useName .. " Counter")
+  else
+    obj.setName(params.useName)
+  end
 end
 
 ---------------------------------------------------------
