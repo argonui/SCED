@@ -42,7 +42,7 @@ local bagSearchers                = {}
 local lastZoneEnterObject         = nil
 
 -- online functionality related variables
-local library, requestObj, modMeta, searchFilter, authorFilter
+local failCount, library, requestObj, modMeta, searchFilter, authorFilter
 local downloadPending             = {}
 local acknowledgedUpgradeVersions = {}
 local authorList                  = {}
@@ -200,8 +200,6 @@ function onLoad(savedData)
   Wait.time(NavigationOverlayApi.updateVisibility, getXmlDelay())
   Wait.time(PlayAreaApi.updatePlayAreaGallery, getXmlDelay()) -- also selects the first item after 0.1s
   Wait.time(i18n.updateGlobalUiLanguage, getXmlDelay())
-  Wait.time(initializeLibrary, getXmlDelay())                 -- also simulates a click on the first item after 0.1s
-  Wait.time(function() printToAll("XML UI initialized.", "Green") end, getXmlDelay())
 
   -- add a button and context menu to the chaos token stat tracker
   local statTracker = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "StatTracker")
@@ -1770,6 +1768,15 @@ function placeholder_download(params)
     end
   end
 
+  -- make sure that language pack spawn in the correct spot
+  if string.startsWith(params.filename, "language_pack_") then
+    if string.endsWith(params.filename, "playercards") then
+      params.addToPlayerCards = true
+    elseif string.endsWith(params.filename, "campaigns") then
+      params.addToEncounterCards = true
+    end
+  end
+
   local url = SOURCE_REPO .. params.filename .. ".json"
   requestObj = WebRequest.get(url, function(request) contentDownloadCallback(request, params) end)
 
@@ -2260,8 +2267,9 @@ function downloadCustomCycle(cycleId)
       if itemData.cycle_code == cycleId then
         downloadPending[cycleId] = true
         local url = SOURCE_REPO .. itemData.filename .. ".json"
+        itemData.addToPlayerCards = true
         requestObj = WebRequest.get(url, function(request)
-          contentDownloadCallback(request, itemData, true)
+          contentDownloadCallback(request, itemData)
           Wait.time(function() downloadPending[cycleId] = false end, 1)
         end)
         return true
@@ -2757,7 +2765,7 @@ end
 
 -- called after the webrequest of downloading an item
 -- deletes the placeholder and spawns the downloaded item
-function contentDownloadCallback(request, params, addToAdditionalCards)
+function contentDownloadCallback(request, params)
   requestObj = nil
 
   -- error handling
@@ -2778,22 +2786,34 @@ function contentDownloadCallback(request, params, addToAdditionalCards)
     end
   end
 
-  if addToAdditionalCards then
-    local additionalCardsBag = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "AdditionalPlayerCardsBag")
-    spawnTable.position = additionalCardsBag.getPosition() + Vector(0, 2, 0)
-    spawnTable.rotation = additionalCardsBag.getRotation()
-  end
-
-  -- if position is undefined, get empty position
   if not spawnTable.position then
-    local pos = getValidSpawnPosition()
-    if not pos then
-      broadcastToAll("Please make sure there's space in the upper middle of the table and try again.", "Red")
-      return
+    -- move language packs (or automatically requested content in a deck)
+    -- to the correct bag (unless a position is already set)
+    local referenceObjectType
+    if params.addToPlayerCards then
+      referenceObjectType = "AdditionalPlayerCardsBag"
+    elseif params.addToEncounterCards then
+      referenceObjectType = "AllEncounterCardsBag"
     end
 
-    spawnTable.position = pos
-    spawnTable.rotation = Vector(0, 270, 0)
+    if referenceObjectType then
+      local referenceObject = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", referenceObjectType)
+      if referenceObject then
+        spawnTable.position = referenceObject.getPosition() + Vector(0, 2, 0)
+        spawnTable.rotation = referenceObject.getRotation()
+        printToAll("Requested Content was automatically placed in the correct container.")
+      end
+    else
+      -- if position is undefined, get empty position
+      local pos = getValidSpawnPosition()
+      if not pos then
+        broadcastToAll("Please make sure there's space in the upper middle of the table and try again.", "Red")
+        return
+      end
+
+      spawnTable.position = pos
+      spawnTable.rotation = Vector(0, 270, 0)
+    end
   end
 
   spawnTable["callback_function"] = function(obj)
@@ -2879,6 +2899,7 @@ function libraryDownloadCallback(request)
   if pcall(function() jsonResponse = JSON.decode(request.text) end) then
     formatLibrary(jsonResponse)
     updateDownloadItemList()
+    Wait.time(function() printToAll("XML UI initialized.", "Green") end, 0.3)
   else
     print('error parsing downloaded library')
   end
@@ -3623,6 +3644,7 @@ function onClick_defaultSettings()
     tokenArrangerOdds         = "No Odds",
     useClassTexture           = true,
     useClueClickers           = false,
+    useCustomResourceImages   = true,
     useResourceCounters       = "disabled",
     useSnapTags               = true
   }
@@ -3770,16 +3792,34 @@ end
 
 -- grabs the latest mod version and release notes from GitHub (called onLoad())
 function getModVersion()
-  WebRequest.get(SOURCE_REPO .. 'modversion.json', compareVersion)
+  WebRequest.get(SOURCE_REPO .. 'modversion.json', maybeUseFallback)
+end
+
+function maybeUseFallback(request)
+  if request.is_error then
+    log("Error: " .. tostring(request.error))
+    failCount = (failCount or 0) + 1
+    local prefix = FALLBACK_MIRRORS[failCount]
+    if not prefix then
+      printToAll("GitHub and/or its mirrors don't seem to be accessible right now. " ..
+        "The download menu and certain other aspects might not work.", "Red")
+      return
+    end
+
+    printToAll("Failed to access GitHub, trying a mirror: " .. prefix)
+    WebRequest.get(prefix .. SOURCE_REPO .. 'modversion.json', maybeUseFallback)
+    return
+  end
+
+  -- update the SOURCE_REPO to include the mirror
+  local prefix = FALLBACK_MIRRORS[failCount] or ""
+  SOURCE_REPO = prefix .. SOURCE_REPO
+
+  compareVersion(request)
 end
 
 -- compares the modversion with GitHub and possibly shows the update notification
 function compareVersion(request)
-  if request.is_error then
-    log(request.error)
-    return
-  end
-
   -- global variable to make it accessible for other functions
   modMeta = JSON.decode(request.text)
 
@@ -3787,10 +3827,21 @@ function compareVersion(request)
   if modMeta["setSpecificDownloadVersion"] then
     local versionTable = modMeta["setSpecificDownloadVersion"][1]
     if versionTable[MOD_VERSION] then
-      SOURCE_REPO = "https://github.com/Chr1Z93/SCED-downloads/releases/download/" .. versionTable[MOD_VERSION] .. "/"
       log("Using download repo version: " .. versionTable[MOD_VERSION])
+
+      -- construct URL to specific version
+      SOURCE_REPO = "https://github.com/Chr1Z93/SCED-downloads/releases/download/" .. versionTable[MOD_VERSION] .. "/"
+
+      -- re-add the mirror prefix
+      local prefix = FALLBACK_MIRRORS[failCount] or ""
+      SOURCE_REPO = prefix .. SOURCE_REPO
     end
   end
+
+  log("SOURCE URL: " .. SOURCE_REPO)
+
+  -- init library and simulate a click on the first item after 0.1s
+  Wait.time(initializeLibrary, getXmlDelay())
 
   -- stop here if on latest or newer version
   if convertVersionToNumber(MOD_VERSION) >= convertVersionToNumber(modMeta["latestVersion"]) then return end
@@ -3943,6 +3994,23 @@ function shouldSpawnResourceCounter(params)
   return false
 end
 
+function shouldUseCustomResourceImage(matColor)
+  local matSetting = "Global"
+  if matColor and matColor ~= "Mythos" then
+    matSetting = PlayermatApi.getResourceImageOption(matColor)
+  end
+
+  if matSetting == "Global" then
+    return optionPanel["useCustomResourceImages"]
+  end
+
+  if matSetting == "Enabled" then
+    return true
+  else
+    return false
+  end
+end
+
 -- Spawns a single counter token and sets the value to tokenValue. Used for damage and horror tokens.
 function TokenManager.spawnCounterToken(params)
   TokenManager.spawnToken({
@@ -3958,10 +4026,12 @@ function TokenManager.spawnResourceCounterToken(params)
   local card = params.card
   local modifier = card.is_face_down and -1 or 1
   TokenManager.spawnToken({
-    position    = card.positionToWorld(card.positionToLocal(card.getPosition()) + Vector(0, modifier * 0.2, -0.5)),
-    tokenType   = "resourceCounter",
-    rotation    = card.getRotation(),
-    scriptstate = params.tokenCount or params.tokenValue
+    position       = card.positionToWorld(card.positionToLocal(card.getPosition()) + Vector(0, modifier * 0.2, -0.5)),
+    tokenType      = "resourceCounter",
+    rotation       = card.getRotation(),
+    scriptstate    = params.tokenCount or params.tokenValue,
+    callbackName   = "addUseName",
+    callbackParams = { useName = params.subType }
   })
 end
 
@@ -4031,15 +4101,19 @@ function TokenManager.spawnMultipleTokens(params)
     return
   end
 
-  -- if a special resource exists, spawn it directly
-  if RESOURCE_STATES[string.lower(subType or "")] then
+    -- special handling for some tokens like action/ability tokens
+  local callbackName = nil
+  local callbackParams = nil
+
+  -- if a special resource exists, spawn it directly if custom resource images are enabled
+  if RESOURCE_STATES[string.lower(subType or "")] and shouldUseCustomResourceImage(matColor) == true then
     tokenType = string.lower(subType)
   end
 
-  -- special handling for some tokens like action/ability tokens
-  local callbackName = nil
-  local callbackParams = nil
-  if tokenType == "universalActionAbility" then
+  if tokenType == "resource" then
+    callbackName = "addUseName"
+    callbackParams = { useName = subType }
+  elseif tokenType == "universalActionAbility" then
     matColor = matColor or PlayermatApi.getMatColorByPosition(card.getPosition())
     local activeInvestigatorData = PlayermatApi.getActiveInvestigatorData(matColor)
     callbackName = "updateUniversalActionAbilityToken"
@@ -4285,7 +4359,8 @@ function TokenManager.replenishTokens(card, useInfo)
 
     for _, obj in ipairs(SearchLib.onObject(card, "isTileOrToken", 0.8)) do
       local memo = obj.getMemo()
-      if searchType == memo then
+      local name = string.lower(obj.getName())
+      if searchType == memo or searchType == name then
         foundTokens = foundTokens + math.abs(obj.getQuantity())
         table.insert(maybeDeleteThese, obj)
       elseif memo == "resourceCounter" then
@@ -4437,6 +4512,14 @@ end
 
 function updateUniversalActionAbilityToken(obj, params)
   obj.call("updateClassAndSymbol", params)
+end
+
+function addUseName(obj, params)
+  if obj.memo == "resourceCounter" then
+    obj.setName(params.useName .. " Counter")
+  else
+    obj.setName(params.useName)
+  end
 end
 
 ---------------------------------------------------------
