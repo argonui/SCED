@@ -42,7 +42,7 @@ local bagSearchers                = {}
 local lastZoneEnterObject         = nil
 
 -- online functionality related variables
-local library, requestObj, modMeta, searchFilter, authorFilter
+local failCount, library, requestObj, modMeta, searchFilter, authorFilter
 local downloadPending             = {}
 local acknowledgedUpgradeVersions = {}
 local authorList                  = {}
@@ -200,8 +200,6 @@ function onLoad(savedData)
   Wait.time(NavigationOverlayApi.updateVisibility, getXmlDelay())
   Wait.time(PlayAreaApi.updatePlayAreaGallery, getXmlDelay()) -- also selects the first item after 0.1s
   Wait.time(i18n.updateGlobalUiLanguage, getXmlDelay())
-  Wait.time(initializeLibrary, getXmlDelay())                 -- also simulates a click on the first item after 0.1s
-  Wait.time(function() printToAll("XML UI initialized.", "Green") end, getXmlDelay())
 
   -- add a button and context menu to the chaos token stat tracker
   local statTracker = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "StatTracker")
@@ -2901,6 +2899,7 @@ function libraryDownloadCallback(request)
   if pcall(function() jsonResponse = JSON.decode(request.text) end) then
     formatLibrary(jsonResponse)
     updateDownloadItemList()
+    Wait.time(function() printToAll("XML UI initialized.", "Green") end, 0.3)
   else
     print('error parsing downloaded library')
   end
@@ -3793,16 +3792,34 @@ end
 
 -- grabs the latest mod version and release notes from GitHub (called onLoad())
 function getModVersion()
-  WebRequest.get(SOURCE_REPO .. 'modversion.json', compareVersion)
+  WebRequest.get(SOURCE_REPO .. 'modversion.json', maybeUseFallback)
+end
+
+function maybeUseFallback(request)
+  if request.is_error then
+    log("Error: " .. tostring(request.error))
+    failCount = (failCount or 0) + 1
+    local prefix = FALLBACK_MIRRORS[failCount]
+    if not prefix then
+      printToAll("GitHub and/or its mirrors don't seem to be accessible right now. " ..
+        "The download menu and certain other aspects might not work.", "Red")
+      return
+    end
+
+    printToAll("Failed to access GitHub, trying a mirror: " .. prefix)
+    WebRequest.get(prefix .. SOURCE_REPO .. 'modversion.json', maybeUseFallback)
+    return
+  end
+
+  -- update the SOURCE_REPO to include the mirror
+  local prefix = FALLBACK_MIRRORS[failCount] or ""
+  SOURCE_REPO = prefix .. SOURCE_REPO
+
+  compareVersion(request)
 end
 
 -- compares the modversion with GitHub and possibly shows the update notification
 function compareVersion(request)
-  if request.is_error then
-    log(request.error)
-    return
-  end
-
   -- global variable to make it accessible for other functions
   modMeta = JSON.decode(request.text)
 
@@ -3810,10 +3827,21 @@ function compareVersion(request)
   if modMeta["setSpecificDownloadVersion"] then
     local versionTable = modMeta["setSpecificDownloadVersion"][1]
     if versionTable[MOD_VERSION] then
-      SOURCE_REPO = "https://github.com/Chr1Z93/SCED-downloads/releases/download/" .. versionTable[MOD_VERSION] .. "/"
       log("Using download repo version: " .. versionTable[MOD_VERSION])
+
+      -- construct URL to specific version
+      SOURCE_REPO = "https://github.com/Chr1Z93/SCED-downloads/releases/download/" .. versionTable[MOD_VERSION] .. "/"
+
+      -- re-add the mirror prefix
+      local prefix = FALLBACK_MIRRORS[failCount] or ""
+      SOURCE_REPO = prefix .. SOURCE_REPO
     end
   end
+
+  log("SOURCE URL: " .. SOURCE_REPO)
+
+  -- init library and simulate a click on the first item after 0.1s
+  Wait.time(initializeLibrary, getXmlDelay())
 
   -- stop here if on latest or newer version
   if convertVersionToNumber(MOD_VERSION) >= convertVersionToNumber(modMeta["latestVersion"]) then return end
