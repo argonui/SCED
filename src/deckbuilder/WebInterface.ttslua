@@ -300,6 +300,15 @@ do
       deckMeta = JSON.decode(deck.meta) or {}
     end
 
+    -- arkham.build utilizes the meta field to store cards that are not available on ArkhamDB
+    -- we are combining this hidden_slots field with the actual slots data
+    if deckMeta.hidden_slots then
+      for cardId, count in pairs(deckMeta.hidden_slots.slots or {}) do
+        slots[cardId] = (slots[cardId] or 0) + count
+      end
+      deck.investigator_code = deckMeta.hidden_slots.investigatorCode or deck.investigator_code
+    end
+
     -- make sure the necessary custom content is loaded
     if deckMeta.fan_made_content then
       -- check if all cards are available
@@ -413,15 +422,15 @@ do
 
     configuration = configuration or getConfiguration()
 
+    -- arkham.build's API is now the default because of custom card support
     local deckUri = {
-      configuration.ArkhamDB_api_uri,
-      isPrivate and configuration.private_deck or configuration.public_deck,
+      configuration.arkhambuild_api_uri,
       deckId
     }
 
-    -- detect arkham.build decks
-    if string.len(deckId) == 15 then
-      deckUri = { configuration.arkhambuild_api_uri, deckId }
+    -- add parameter for published decks
+    if not isPrivate then
+      table.insert(deckUri, configuration.arkhambuild_published_deck)
     end
 
     WebRequestLib.get(deckUri, function(responseText)
