@@ -9,6 +9,7 @@ val                  = 0
 global               = false
 enabled              = false
 counterToken         = "Elder Sign"
+FONT_SIZE = 600
 
 function onDestroy()
   updateSave()
@@ -29,6 +30,8 @@ function onLoad(savedData)
 
   self.max_typed_number = MAX_VALUE
 
+  createXmlNumber()
+  --[[
   self.createButton({
     label = tostring(val),
     click_function = "addOrSubtract",
@@ -42,6 +45,7 @@ function onLoad(savedData)
     font_color = { 1, 1, 1, 100 },
     color = { 0, 0, 0, 0 }
   })
+]]
 
   -- add context menu entries
   ID_URL_MAP = ChaosBagApi.getIdUrlMap()
@@ -125,21 +129,72 @@ end
 function updateVal(newVal)
   if tonumber(newVal) then
     val = MathLib.clamp(newVal, MIN_VALUE, MAX_VALUE)
-    self.editButton({ index = 0, label = tostring(val) })
+    self.UI.setAttribute("numberText", "text", tostring(val))
+    self.UI.setAttribute("numberText", "fontSize", getFontSize(val))
     updateSave()
   end
 end
 
-function addOrSubtract(_, _, isRightClick)
-  modifyValue(isRightClick and -1 or 1)
+-- left-click: increase / right-click: decrease / middle-click: reset
+function addOrSubtract(_, clickType)
+  local mod = 1
+  if clickType == "-2" then
+    mod = -1
+  elseif clickType == "-3" then
+    updateVal(1)
+    return
+  end
+  modifyValue(mod)
 end
 
 function modifyValue(mod)
   val = MathLib.clamp(val + tonumber(mod), MIN_VALUE, MAX_VALUE)
-  self.editButton({ index = 0, label = tostring(val) })
+  self.UI.setAttribute("numberText", "text", tostring(val))
+  self.UI.setAttribute("numberText", "fontSize", getFontSize(val))
   updateSave()
 end
 
 function onNumberTyped(_, number)
   updateVal(number)
+end
+
+function createXmlNumber()
+  local numberXml = {
+      tag        = "Button",
+      attributes = {
+        id             = "xmlBtn",
+        image = "circle",
+        scale          = "0.35 0.35 1",
+        childAlignment = "MiddleCenter",
+        position       = "0 0 -20",
+        width          = 600,
+        height         = 600,
+        padding        = "0 0 70 0",
+        onClick        = "addOrSubtract",
+        color          = "rgba(0,0,0,0.3)",
+        rotation       = "0 0 180"
+      },
+      children   = { {
+        tag = "Text",
+        attributes = {
+          id       = "numberText",
+          font     = "font_arno-pro/arno-pro-bold",
+          fontSize = getFontSize(val),
+          text     = tostring(val),
+          color    = "#ffffff",
+          outline     = "#000000",
+          outlineSize = "8 -8",
+        }
+      } }
+    }
+  self.UI.setXmlTable({numberXml})
+end
+
+function getFontSize(val)
+  local fontSize = FONT_SIZE
+  log(val)
+  if val > 9 then
+    fontSize = fontSize * 0.80
+  end
+  return fontSize
 end
