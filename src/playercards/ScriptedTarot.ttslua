@@ -1,3 +1,4 @@
+BAG_OFFSET = Vector(0, 0.1, -1)
 CARD_OFFSET = Vector(0, 0.1, -2)
 ORIENTATIONS = { {0, 270, 0}, { 0, 90, 0} }
 READING = {
@@ -17,12 +18,14 @@ function onLoad()
   self.addContextMenuItem("Choice", choice)
   self.addContextMenuItem("Destiny (Campaign)", destiny)
   self.addContextMenuItem("Accept Your Fate", fate)
+  self.addContextMenuItem("Observed", observed)
+  self.addContextMenuItem("Damned", damned)
 end
 
 function chaos()
   self.shuffle()
   self.takeObject({
-    position = self.getPosition() + CARD_OFFSET,
+    position = self.positionToWorld(BAG_OFFSET + CARD_OFFSET),
     rotation = ORIENTATIONS[math.random(2)],
     smooth = true
   })
@@ -32,7 +35,7 @@ function balance()
   self.shuffle()
   for i = 1, 2 do
     self.takeObject({
-      position = self.getPosition() + i * CARD_OFFSET,
+      position = self.getPosition() + BAG_OFFSET + i * CARD_OFFSET,
       rotation = ORIENTATIONS[i],
       smooth = true
     })
@@ -43,8 +46,8 @@ function choice(color)
   self.shuffle()
   for i = 1, 3 do
     self.takeObject({
-      position = self.getPosition() + i * CARD_OFFSET,
-      rotation = ORIENTATIONS[1],
+      position = self.getPosition() + BAG_OFFSET + i * CARD_OFFSET,
+      rotation = self.getRotation(),
       smooth = true
     })
   end
@@ -55,7 +58,7 @@ function destiny(color)
   self.shuffle()
   for i = 1, 8 do
     self.takeObject({
-      position = self.getPosition() + i * CARD_OFFSET,
+      position = self.getPosition() + BAG_OFFSET + i * CARD_OFFSET,
       rotation = ORIENTATIONS[1],
       smooth = true
     })
@@ -71,7 +74,7 @@ function fate(color)
         i = i + 1
         self.takeObject({
           guid = card.guid,
-          position = self.getPosition() + i * CARD_OFFSET,
+          position = self.getPosition() + BAG_OFFSET + i * CARD_OFFSET,
           rotation = ORIENTATIONS[1],
           smooth = true
         })
@@ -80,4 +83,33 @@ function fate(color)
     end
   end
   broadcastToColor("Each card corresponds to one scenario, leftmost is first. Choose and reverse half of the cards (rounded up).", color)
+end
+
+function observed(color)
+  self.shuffle()
+  for i = 1, 3 do
+    self.takeObject({
+      position = self.getPosition() + BAG_OFFSET + i * CARD_OFFSET,
+      rotation = ORIENTATIONS[1],
+      smooth = true
+    })
+  end
+  broadcastToColor("Choose one of cards to be in upright position; shuffle the rest back into the bag.", color)
+end
+
+function damned(color)
+  self.shuffle()
+  self.takeObject({
+    position = self.getPosition() + BAG_OFFSET + CARD_OFFSET,
+    smooth = true,
+    callback_function = function(card) card.call("rotateSelfAndPreview", color) end
+  })
+end
+
+function tryObjectEnter(object)
+  local angle = object.alt_view_angle
+  angle.y = 0
+  object.alt_view_angle = angle
+  object.setRotation(Vector(0, 270, 0))
+  return true
 end
