@@ -1,6 +1,5 @@
-BAG_OFFSET = Vector(0, 0.1, -1)
-CARD_OFFSET = Vector(0, 0.1, -2)
-ORIENTATIONS = { {0, 270, 0}, { 0, 90, 0} }
+BAG_OFFSET = Vector(-1, 0.1, 0)
+CARD_OFFSET = Vector(-3.5, 0.1, 0)
 READING = {
   "Temperance",
   "Justice",
@@ -11,6 +10,7 @@ READING = {
   "Chariot",
   "Wheel of Fortune"
 }
+doubleSize = false
 
 function onLoad()
   self.addContextMenuItem("Chaos", chaos)
@@ -20,14 +20,15 @@ function onLoad()
   self.addContextMenuItem("Accept Your Fate", fate)
   self.addContextMenuItem("Observed", observed)
   self.addContextMenuItem("Damned", damned)
+  self.addContextMenuItem("Toggle Large Tarot", enlargeSize)
 end
 
-function chaos()
+function chaos(color)
   self.shuffle()
   self.takeObject({
     position = self.positionToWorld(BAG_OFFSET + CARD_OFFSET),
-    rotation = ORIENTATIONS[math.random(2)],
-    smooth = true
+    smooth = true,
+    callback_function = function(card) if math.random(2) == 2 then card.call("rotateSelfAndPreview", color) else card.setRotation(self.getRotation()) end end
   })
 end
 
@@ -35,8 +36,8 @@ function balance()
   self.shuffle()
   for i = 1, 2 do
     self.takeObject({
-      position = self.getPosition() + BAG_OFFSET + i * CARD_OFFSET,
-      rotation = ORIENTATIONS[i],
+      position = self.positionToWorld(BAG_OFFSET + i * CARD_OFFSET),
+      rotation = self.getRotation(),
       smooth = true
     })
   end
@@ -46,7 +47,7 @@ function choice(color)
   self.shuffle()
   for i = 1, 3 do
     self.takeObject({
-      position = self.getPosition() + BAG_OFFSET + i * CARD_OFFSET,
+      position = self.positionToWorld(BAG_OFFSET + i * CARD_OFFSET),
       rotation = self.getRotation(),
       smooth = true
     })
@@ -58,8 +59,8 @@ function destiny(color)
   self.shuffle()
   for i = 1, 8 do
     self.takeObject({
-      position = self.getPosition() + BAG_OFFSET + i * CARD_OFFSET,
-      rotation = ORIENTATIONS[1],
+      position = self.positionToWorld(BAG_OFFSET + i * CARD_OFFSET),
+      rotation = self.getRotation(),
       smooth = true
     })
   end
@@ -74,8 +75,8 @@ function fate(color)
         i = i + 1
         self.takeObject({
           guid = card.guid,
-          position = self.getPosition() + BAG_OFFSET + i * CARD_OFFSET,
-          rotation = ORIENTATIONS[1],
+          position = self.positionToWorld(BAG_OFFSET + i * CARD_OFFSET),
+          rotation = self.getRotation(),
           smooth = true
         })
         break
@@ -89,8 +90,8 @@ function observed(color)
   self.shuffle()
   for i = 1, 3 do
     self.takeObject({
-      position = self.getPosition() + BAG_OFFSET + i * CARD_OFFSET,
-      rotation = ORIENTATIONS[1],
+      position = self.positionToWorld(BAG_OFFSET + i * CARD_OFFSET),
+      rotation = self.getRotation(),
       smooth = true
     })
   end
@@ -100,7 +101,7 @@ end
 function damned(color)
   self.shuffle()
   self.takeObject({
-    position = self.getPosition() + BAG_OFFSET + CARD_OFFSET,
+    position = self.positionToWorld(BAG_OFFSET + CARD_OFFSET),
     smooth = true,
     callback_function = function(card) card.call("rotateSelfAndPreview", color) end
   })
@@ -110,6 +111,21 @@ function tryObjectEnter(object)
   local angle = object.alt_view_angle
   angle.y = 0
   object.alt_view_angle = angle
-  object.setRotation(Vector(0, 270, 0))
+  object.setRotation(self.getRotation())
+  object.setScale({1, 1, 1})
   return true
+end
+
+function enlargeSize()
+  if doubleSize == false then
+    doubleSize = true
+    CARD_OFFSET.x = CARD_OFFSET.x * 2
+  else
+    doubleSize = false
+    CARD_OFFSET.x = CARD_OFFSET.x / 2
+  end
+end
+
+function onObjectLeaveContainer(container, object)
+  if container == self and doubleSize == true then object.setScale({2, 1, 2}) end
 end
