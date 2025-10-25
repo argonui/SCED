@@ -9,6 +9,7 @@ val                  = 0
 global               = false
 enabled              = false
 counterToken         = "Elder Sign"
+FONT_SIZE = 700
 
 function onDestroy()
   updateSave()
@@ -29,19 +30,7 @@ function onLoad(savedData)
 
   self.max_typed_number = MAX_VALUE
 
-  self.createButton({
-    label = tostring(val),
-    click_function = "addOrSubtract",
-    function_owner = self,
-    position = { 0, 0.1, 0 },
-    rotation = { 0, 0, 0 },
-    height = 400,
-    width = 400,
-    scale = { 1.5, 1.5, 1.5 },
-    font_size = 600,
-    font_color = { 1, 1, 1, 100 },
-    color = { 0, 0, 0, 0 }
-  })
+  createXmlNumber()
 
   -- add context menu entries
   ID_URL_MAP = ChaosBagApi.getIdUrlMap()
@@ -125,21 +114,69 @@ end
 function updateVal(newVal)
   if tonumber(newVal) then
     val = MathLib.clamp(newVal, MIN_VALUE, MAX_VALUE)
-    self.editButton({ index = 0, label = tostring(val) })
+    self.UI.setAttribute("numberText", "text", tostring(val))
+    self.UI.setAttribute("numberText", "fontSize", getFontSize(val))
     updateSave()
   end
 end
 
-function addOrSubtract(_, _, isRightClick)
-  modifyValue(isRightClick and -1 or 1)
+-- left-click: increase / right-click: decrease / middle-click: reset
+function addOrSubtract(_, clickType)
+  local mod = 1
+  if clickType == "-2" then
+    mod = -1
+  elseif clickType == "-3" then
+    updateVal(1)
+    return
+  end
+  modifyValue(mod)
 end
 
 function modifyValue(mod)
   val = MathLib.clamp(val + tonumber(mod), MIN_VALUE, MAX_VALUE)
-  self.editButton({ index = 0, label = tostring(val) })
+  self.UI.setAttribute("numberText", "text", tostring(val))
+  self.UI.setAttribute("numberText", "fontSize", getFontSize(val))
   updateSave()
 end
 
 function onNumberTyped(_, number)
   updateVal(number)
+end
+
+function createXmlNumber()
+  local numberXml = {{
+      tag        = "Text",
+      attributes = {
+        scale       = "0.35 0.35 1",
+        position    = "0 -10 -20",
+        rotation    = "0 0 180",
+        id          = "numberText",
+        font        = "font_amaranth/amaranth-regular",
+        fontSize    = getFontSize(val),
+        text        = tostring(val),
+        color       = "#ffffff",
+        outline     = "#000000",
+        outlineSize = "10 -10"
+      }
+    },
+    {
+      tag = "Panel",
+      attributes = {
+        scale    = "0.35 0.35 1",
+        position = "0 0 -20",
+        onClick  = "addOrSubtract",
+        height   = 200,
+        width    = 200
+      }
+    }
+  }
+  self.UI.setXmlTable(numberXml)
+end
+
+function getFontSize(val)
+  local fontSize = FONT_SIZE
+  if val > 9 then
+    fontSize = fontSize * 0.67
+  end
+  return fontSize
 end
