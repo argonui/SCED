@@ -11,6 +11,7 @@ local MathLib                     = require("util/MathLib")
 local MythosAreaApi               = require("mythos/MythosAreaApi")
 local NavigationOverlayApi        = require("core/NavigationOverlayApi")
 local SearchLib                   = require("util/SearchLib")
+local TableLib                    = require("util/TableLib")
 local TokenManagerApi             = require("tokens/TokenManagerApi")
 local TokenSpawnTrackerApi        = require("tokens/TokenSpawnTrackerApi")
 local zones                       = require("playermat/Zones")
@@ -301,7 +302,23 @@ function searchAroundSelf(filter)
   -- Perform the search
   local pos               = self.positionToWorld(localCenter) + Vector(0, 1, 0)
   local rot               = self.getRotation()
-  return SearchLib.inArea(pos, rot, size, filter)
+  local objectList        = SearchLib.inArea(pos, rot, size, filter)
+
+  -- also search on playermat extensions
+  local extensions        = getObjectsWithAllTags({ "PlayermatExtension", matColor })
+
+  if #extensions ~= 0 then
+    -- make a map to quickly check if an object is already part of the search
+    local objectListMap = TableLib.makeMap(objectList)
+    for _, extension in ipairs(extensions) do
+      for _, obj in ipairs(SearchLib.onObject(extension, filter, nil, true)) do
+        if not objectListMap[obj] then
+          table.insert(objectList, obj)
+        end
+      end
+    end
+  end
+  return objectList
 end
 
 -- updates the internal "messageColor" which is used for print/broadcast statements if no player is seated
@@ -483,7 +500,8 @@ function doUpkeep(_, clickedByColor, isRightClick)
   -- unexhaust cards in play zone, flip action tokens and find Forced Learning / cards that skip resource gains
   local forcedLearning     = false
   local skipUpkeepResource = false
-  local rot = self.getRotation()
+  local rot                = self.getRotation()
+
   for _, obj in ipairs(searchAroundSelf()) do
     if obj.hasTag("Temporary") then
       GlobalApi.discardObjects(obj, matColor)
