@@ -1,6 +1,7 @@
 require("playercards/CardsWithHelper")
 local BlessCurseManagerApi = require("chaosbag/BlessCurseManagerApi")
 local ChaosBagApi          = require("chaosbag/ChaosBagApi")
+local GlobalApi            = require("Global/GlobalApi")
 local GUIDReferenceApi     = require("core/GUIDReferenceApi")
 local PlayermatApi         = require("playermat/PlayermatApi")
 
@@ -50,6 +51,7 @@ function resolveToken(player, _, tokenType)
 
   local mat = GUIDReferenceApi.getObjectByOwnerAndType(matColor, "Playermat")
   ChaosBagApi.drawChaosToken(mat, true, tokenType)
+  self.setRotationSmooth(PlayermatApi.getExhaustRotation(matColor, true), nil, true)
 
   Wait.frames(maybeUpdateButtonState, 2)
 end
@@ -57,14 +59,16 @@ end
 -- count tokens in the bag and show appropriate buttons
 function maybeUpdateButtonState()
   local state = { Bless = false, Curse = false }
-  local numInBag = BlessCurseManagerApi.getBlessCurseInBag()
+  if not GlobalApi.isExhausted(self) then
+    local numInBag = BlessCurseManagerApi.getBlessCurseInBag()
 
-  if numInBag.Bless >= numInBag.Curse and numInBag.Bless > 0 then
-    state.Bless = true
-  end
+    if numInBag.Bless >= numInBag.Curse and numInBag.Bless > 0 then
+      state.Bless = true
+    end
 
-  if numInBag.Curse >= numInBag.Bless and numInBag.Curse > 0 then
-    state.Curse = true
+    if numInBag.Curse >= numInBag.Bless and numInBag.Curse > 0 then
+      state.Curse = true
+    end
   end
 
   setUiState(state)
@@ -84,13 +88,17 @@ function setUiState(state)
 end
 
 function errorMessage()
-  local numInBag = BlessCurseManagerApi.getBlessCurseInBag()
-
-  if numInBag.Bless == 0 and numInBag.Curse == 0 then
-    broadcastToAll("There are no Bless or Curse tokens in the chaos bag.", "Red")
-  elseif numInBag.Bless > numInBag.Curse then
-    broadcastToAll("There are more Bless tokens than Curse tokens in the chaos bag.", "Red")
+  if GlobalApi.isExhausted(self) then
+    broadcastToAll(self.getName() .. " isn't ready.", "Red")
   else
-    broadcastToAll("There are more Curse tokens than Bless tokens in the chaos bag.", "Red")
+    local numInBag = BlessCurseManagerApi.getBlessCurseInBag()
+
+    if numInBag.Bless == 0 and numInBag.Curse == 0 then
+      broadcastToAll("There are no Bless or Curse tokens in the chaos bag.", "Red")
+    elseif numInBag.Bless > numInBag.Curse then
+      broadcastToAll("There are more Bless tokens than Curse tokens in the chaos bag.", "Red")
+    else
+      broadcastToAll("There are more Curse tokens than Bless tokens in the chaos bag.", "Red")
+    end
   end
 end
