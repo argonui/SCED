@@ -1,9 +1,22 @@
 local PlayermatApi    = require("playermat/PlayermatApi")
 
--- only sent the explanation once per session
+-- Flag to only sent the explanation once per session
 local explanationSent = false
 
-function onLoad()
+-- Track the matColor of the linked mat
+local linkedMatColor
+
+function updateSave()
+  return JSON.encode({ linkedMatColor = linkedMatColor })
+end
+
+function onLoad(savedData)
+  if savedData and savedData ~= "" then
+    local loadedData = JSON.decode(savedData)
+    linkedMatColor = loadedData.linkedMatColor
+  end
+
+  -- Add the context menu entry to manually link
   self.addContextMenuItem("Link to my Mat", function(playerColor)
     local matColor = PlayermatApi.getMatColor(playerColor)
 
@@ -12,7 +25,7 @@ function onLoad()
       return
     end
 
-    if self.hasTag(matColor) then
+    if linkedMatColor == matColor then
       printToColor("This extension is already linked to you.", playerColor, "Orange")
       return
     end
@@ -21,19 +34,39 @@ function onLoad()
   end)
 end
 
+-- Link to the nearest playermat when dropped
 function onDrop(playerColor)
   local matColor = PlayermatApi.getMatColorByPosition(self.getPosition())
-  if self.hasTag(matColor) then return end
+  if linkedMatColor == matColor then return end
   performLink(playerColor, matColor)
 end
 
+-- Perform the linking and output messages
 function performLink(playerColor, matColor)
+  -- Maybe sent an explanation
   if not explanationSent then
     explanationSent = true
-    printToColor("You can adjust this link by editing the tags of the extension or using its context menu.", playerColor)
+    printToColor("You can adjust this link by using its context menu.", playerColor)
   end
 
-  self.setTags({ "PlayermatExtension", matColor })
   local coloredString = "[" .. Color.fromString(matColor):toHex() .. "]" .. matColor .. "[-]"
+
+  -- Enforce correct tags and update internal variable + description
+  self.setTags({ "PlayermatExtension", matColor })
+  self.setDescription("Linked to " .. coloredString)
+  linkedMatColor = matColor
+
+  -- Broadcast the result
   broadcastToColor("Linked this extension to " .. coloredString .. ".", playerColor)
+end
+
+-- Forward card collisions to the playermat
+function onCollisionEnter(collisionInfo)
+  if collisionInfo.collision_object.type ~= "Card" then return end
+
+  -- Small hack: we are adding this property to the table to indicate that it should spawn uses
+  collisionInfo.isOnExtension = true
+
+  -- Forward this to the Playermat
+  PlayermatApi.onCollisionEnter(linkedMatColor, collisionInfo)
 end
