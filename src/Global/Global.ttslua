@@ -266,7 +266,7 @@ function tryObjectEnterContainer(container, object)
   if object.hasTag("Minicard") and container.hasTag("Minicard") then
     return false
   elseif object.type == "Card" and object.getName() ~= "Atlach-Nacha" then
-    handleTokenDetaching({ card = object })
+    handleTokenDetaching(object)
   elseif object.memo == "clueDoom" and container.memo == "clueDoom" then
     local flip1 = MathLib.roundAngleToMultiple(object.getRotation().z, 180)
     local flip2 = MathLib.roundAngleToMultiple(container.getRotation().z, 180)
@@ -572,6 +572,9 @@ function onObjectRotate(obj, _, flip, _, _, oldFlip)
 end
 
 function onObjectSpawn(obj)
+  -- Make sure this tag is never unintentionally on objects
+  obj.removeTag("onExtension")
+
   if obj.hasTag("NotInteractable") then
     obj.interactable = false
   end
@@ -3480,6 +3483,10 @@ function applyOptionPanelChange(id, state)
   elseif id == "showDisplacementTool" then
     spawnOrRemoveHelper(state, "Displacement Tool", { -68, 1.53, 57 })
 
+    -- option: Show playermat extension
+  elseif id == "showPlayermatExtension" then
+    spawnOrRemoveHelper(state, "Playermat Extensions", { -65, 1.4, 0 })
+
     -- shortcut: Remove the tour
   elseif id == "skipTour" then
     if state then removeTourStarter() end
@@ -3637,6 +3644,7 @@ function onClick_defaultSettings()
     showDrawButton            = false,
     showHandHelper            = false,
     showOneDamageHorror       = false,
+    showPlayermatExtension    = false,
     showSearchAssistant       = false,
     showTitleSplash           = true,
     showTokenSplash           = false,
@@ -4208,7 +4216,7 @@ end
 function TokenManager.maybeReplenishCard(params)
   for _, useInfo in ipairs(params.uses) do
     if useInfo.count and useInfo.replenish then
-      TokenManager.replenishTokens(params.card, useInfo)
+      TokenManager.replenishTokens(params.card, useInfo, params.matColor)
     end
   end
 end
@@ -4330,7 +4338,8 @@ end
 
 ---@param card tts__Object Card object to be replenished
 ---@param useInfo table The already decoded subtable of metadata.uses (to avoid decoding again)
-function TokenManager.replenishTokens(card, useInfo)
+---@param matColor? string Owning playermat indicated by the color
+function TokenManager.replenishTokens(card, useInfo, matColor)
   -- get current amount of matching resource tokens on the card
   local clickableResourceCounter = nil
   local foundTokens = 0
@@ -4397,7 +4406,7 @@ function TokenManager.replenishTokens(card, useInfo)
       tokenType  = useInfo.token,
       tokenCount = newCount,
       subType    = useInfo.type,
-      matColor   = GUIDReferenceApi.getOwnerOfObject(card)
+      matColor   = matColor or GUIDReferenceApi.getOwnerOfObject(card)
     })
   end
 end
@@ -4678,7 +4687,7 @@ function handleTokenAttaching(params)
   end
 
   Wait.condition(
-    function() handleTokenDetaching({ card = card }) end,
+    function() handleTokenDetaching(card) end,
     function()
       if card ~= nil and player ~= nil and player.seated then
         return card.resting and card.held_by_color ~= player.color
@@ -4689,8 +4698,7 @@ function handleTokenAttaching(params)
   )
 end
 
-function handleTokenDetaching(params)
-  local card = params.card
+function handleTokenDetaching(card)
   if card == nil or next(card.getAttachments()) == nil then return end
 
   -- restore card settings
@@ -4847,6 +4855,15 @@ function maybeReadyCard(params)
 
   -- returns whether the card is now fully readied (and wasn't ready before)
   return (cardRotY == ownerRotation.y) and (roundedRotY ~= ownerRotation.y)
+end
+
+-- checks if a card is exhausted, according to the rotation settings of its playermat
+function isExhausted(card)
+  if card.isSmoothMoving() then return true end
+
+  local matColor        = PlayermatApi.getMatColorByPosition(card.getPosition())
+  local exhaustRotation = PlayermatApi.getExhaustRotation(matColor, true) or 0
+  return MathLib.round(card.getRotation().y) == MathLib.round(exhaustRotation.y)
 end
 
 -- removes tokens from the provided card/deck
