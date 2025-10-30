@@ -20,6 +20,7 @@ local TokenArrangerApi            = require("tokens/TokenArrangerApi")
 local TokenChecker                = require("tokens/TokenChecker")
 local TokenSpawnTrackerApi        = require("tokens/TokenSpawnTrackerApi")
 local VictoryDisplayApi           = require("mythos/VictoryDisplayApi")
+local XmlLib                      = require("util/XmlLib")
 local Zones                       = require("playermat/Zones")
 
 ---------------------------------------------------------
@@ -2965,22 +2966,43 @@ end
 function onClick_customTableSetup(player)
   local oldSetupName = optionPanel["tableSetup"]
   local data         = TABLE_SETUP_DATA[oldSetupName]
-  local dataStr      = JSON.encode_pretty(data)
+
+  local titleText    = "Customize Table Layout"
+  local inputText    = JSON.encode_pretty(data)
 
   -- display an input box with the current data
-  player.showMemoDialog("Customize Table Layout", dataStr, function(text, playerColor)
-    if dataStr == text then
-      broadcastToColor("No change detected.", playerColor, "White")
+  XmlLib.showInputWindow(titleText, inputText, "confirmCustomTableSetup")
+end
+
+function confirmCustomTableSetup(player)
+  local inputId     = "InputDialog_scrollableInput"
+  local text        = UI.getAttribute(inputId, "text")
+  local defaultText = UI.getAttribute(inputId, "defaultText")
+
+  if defaultText == text then
+    broadcastToColor("No change detected.", player.color, "White")
+  else
+    local newData
+    pcall(function() newData = JSON.decode(text) end)
+    if type(newData) == "table" then
+      updateTableSetup(nil, optionPanel["tableSetup"], newData)
     else
-      local newData
-      pcall(function() newData = JSON.decode(text) end)
-      if type(newData) == "table" then
-        updateTableSetup(nil, oldSetupName, newData)
-      else
-        broadcastToColor("Error parsing input - seems to be invalid.", playerColor, "Red")
-      end
+      broadcastToColor("Error parsing input - seems to be invalid.", player.color, "Red")
     end
-  end)
+  end
+  UI.setAttribute("InputDialog", "active", false)
+end
+
+function onConfirmClicked()
+  UI.setAttribute("InputDialog", "active", false)
+end
+
+function onCancelClicked()
+  UI.setAttribute("InputDialog", "active", false)
+end
+
+function syncTextWithXml(_, value, id)
+  UI.setAttribute(id, "text", value)
 end
 
 -- called by selecting something in a dropdown
@@ -3878,8 +3900,6 @@ function compareVersion(request)
       SOURCE_REPO = prefix .. SOURCE_REPO
     end
   end
-
-  log("SOURCE URL: " .. SOURCE_REPO)
 
   -- init library and simulate a click on the first item after 0.1s
   Wait.time(initializeLibrary, getXmlDelay())
