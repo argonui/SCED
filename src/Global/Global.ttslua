@@ -202,7 +202,6 @@ function onLoad(savedData)
   Wait.time(NavigationOverlayApi.updateVisibility, getXmlDelay())
   Wait.time(PlayAreaApi.updatePlayAreaGallery, getXmlDelay()) -- also selects the first item after 0.1s
   Wait.time(i18n.updateGlobalUiLanguage, getXmlDelay())
-  Wait.time(onClick_customTableSetup, getXmlDelay())
 
   -- add a button and context menu to the chaos token stat tracker
   local statTracker = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "StatTracker")
@@ -2977,8 +2976,10 @@ end
 
 function confirmCustomTableSetup(player)
   local inputId     = "InputDialog_scrollableInput"
-  local text        = UI.getAttribute(inputId, "text")
-  local defaultText = UI.getAttribute(inputId, "defaultText")
+
+  -- get text values and remove whitespace (leading and trailing)
+  local text        = UI.getAttribute(inputId, "text"):gsub("^%s+", ""):gsub("%s+$", "")
+  local defaultText = UI.getAttribute(inputId, "defaultText"):gsub("^%s+", ""):gsub("%s+$", "")
 
   if defaultText == text then
     broadcastToColor("No change detected.", player.color, "White")
@@ -3150,8 +3151,8 @@ function collectPlayermatSpawnData()
   return spawnData
 end
 
-function spawnPlayermatObjects(matColor, playermat, transformData, spawnData)
-  local tableSetupData = TABLE_SETUP_DATA[optionPanel["tableSetup"]]
+function spawnPlayermatObjects(matColor, playermat, transformData, spawnData, tableSetupData)
+  tableSetupData = tableSetupData or TABLE_SETUP_DATA[optionPanel["tableSetup"]]
   local sharesBags = tableSetupData.sharedBagArea and (matColor == "White" or matColor == "Orange")
   for name, objData in pairs(spawnData) do
     if name ~= "Playermat" then
@@ -3162,7 +3163,7 @@ function spawnPlayermatObjects(matColor, playermat, transformData, spawnData)
         local localPos = Zones.getLocalZoneData(matColor, name)
         if localPos then
           local pos = playermat.positionToWorld(localPos)
-          local rot = transformData.rotation:copy()
+          local rot = Vector(transformData.rotation)
 
           -- special handling for certain objects
           if name == "HandZone" then
@@ -3376,7 +3377,7 @@ function updateTableSetup(newSetupName, oldSetupName, newData)
           CoroutineLib.yieldFrames(5)
 
           -- spawn missing objects
-          spawnPlayermatObjects(matColor, playermat, transformData, spawnData)
+          spawnPlayermatObjects(matColor, playermat, transformData, spawnData, tableSetupData)
         else
           spawnPlayermat(matColor, transformData)
         end
