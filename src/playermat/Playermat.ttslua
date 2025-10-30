@@ -518,30 +518,33 @@ function doUpkeep(_, clickedByColor, isRightClick)
       obj.call("doInUpkeep")
     end
 
-    if obj.hasTag("DisableResourceGain") and not obj.is_face_down then
-      skipUpkeepResource = true
-    end
+    -- look for specific cards in the play area or on extensions (draw / discard excluded)
+    if (obj.hasTag("onExtension") or self.positionToLocal(obj.getPosition()).x > -1) then
+      if obj.type == "Card" and not obj.hasTag("Investigator") then
+        GlobalApi.maybeReadyCard(obj, rot, false)
 
-    if obj.type == "Card" and not obj.hasTag("Investigator") then -- do not continue for investigator cards
-      GlobalApi.maybeReadyCard(obj, rot, false)
+        local cardMetadata = JSON.decode(obj.getGMNotes()) or {}
 
-      local cardMetadata = JSON.decode(obj.getGMNotes()) or {}
-
-      -- detect Forced Learning to handle card drawing accordingly
-      if cardMetadata.id == "08031" then
-        forcedLearning = true
-      end
-
-      -- maybe replenish uses on certain cards (don't continue for cards on the deck (Norman) or in the discard pile)
-      if cardMetadata.uses and not obj.is_face_down
-          and (obj.hasTag("onExtension") or self.positionToLocal(obj.getPosition()).x > -1) then
-        TokenManagerApi.maybeReplenishCard(obj, cardMetadata.uses, matColor)
-      end
-    elseif obj.type == "Deck" and not obj.is_face_down and not forcedLearning then -- check face up decks for forced learning
-      for _, deepObj in ipairs(obj.getObjects()) do
-        local cardMetadata = JSON.decode(deepObj.gm_notes) or {}
+        -- detect Forced Learning to handle card drawing accordingly
         if cardMetadata.id == "08031" then
           forcedLearning = true
+        end
+
+        -- detect Dark Horse
+        if obj.hasTag("DisableResourceGain") and not obj.is_face_down then
+          skipUpkeepResource = true
+        end
+
+        -- maybe replenish uses on certain cards
+        if cardMetadata.uses and not obj.is_face_down then
+          TokenManagerApi.maybeReplenishCard(obj, cardMetadata.uses, matColor)
+        end
+      elseif obj.type == "Deck" and not obj.is_face_down and not forcedLearning then -- check face up decks for forced learning
+        for _, deepObj in ipairs(obj.getObjects()) do
+          local cardMetadata = JSON.decode(deepObj.gm_notes) or {}
+          if cardMetadata.id == "08031" then
+            forcedLearning = true
+          end
         end
       end
     end
