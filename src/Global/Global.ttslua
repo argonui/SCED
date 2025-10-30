@@ -2961,6 +2961,27 @@ function onClick_playAreaConnectionColor(player, _, id)
   end)
 end
 
+-- customize table layout
+function onClick_customTableSetup(player)
+  local oldSetupName = optionPanel["tableSetup"]
+  local data         = TABLE_SETUP_DATA[oldSetupName]
+  local dataStr      = JSON.encode_pretty(data)
+
+  -- display an input box with the current data
+  player.showMemoDialog("Customize Table Layout", dataStr, function(text, playerColor)
+    if dataStr == text then
+      broadcastToColor("No change detected.", playerColor, "White")
+    else
+      local newData = JSON.decode(text)
+      if type(newData) == "table" then
+        updateTableSetup(nil, oldSetupName, newData)
+      else
+        broadcastToColor("Error parsing input - seems to be invalid.", playerColor, "Red")
+      end
+    end
+  end)
+end
+
 -- called by selecting something in a dropdown
 function onDropdownChange(player, selectedIndex, id)
   local indexNumber = tonumber(selectedIndex) + 1
@@ -3255,13 +3276,23 @@ function removeSharedBagArea()
   end
 end
 
-function updateTableSetup(newSetupName, oldSetupName)
+---@param newSetupName? string Name of the new table setup
+---@param oldSetupName? string Name of the old table setup
+---@param newData? table This contains the new data for the table setup
+function updateTableSetup(newSetupName, oldSetupName, newData)
   spawnData = spawnData or collectPlayermatSpawnData()
   if not spawnData then return end
 
   if newSetupName == oldSetupName then return end
 
-  local tableSetupData = TABLE_SETUP_DATA[newSetupName]
+  -- determine new data
+  local tableSetupData
+  if newSetupName then
+    tableSetupData = TABLE_SETUP_DATA[newSetupName]
+  elseif newData then
+    tableSetupData = newData
+  end
+
   if not tableSetupData then return end
 
   -- update playercount
@@ -4110,7 +4141,7 @@ function TokenManager.spawnMultipleTokens(params)
     return
   end
 
-    -- special handling for some tokens like action/ability tokens
+  -- special handling for some tokens like action/ability tokens
   local callbackName = nil
   local callbackParams = nil
 
