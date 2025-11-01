@@ -20,6 +20,7 @@ local TokenArrangerApi            = require("tokens/TokenArrangerApi")
 local TokenChecker                = require("tokens/TokenChecker")
 local TokenSpawnTrackerApi        = require("tokens/TokenSpawnTrackerApi")
 local VictoryDisplayApi           = require("mythos/VictoryDisplayApi")
+local XmlLib                      = require("util/XmlLib")
 local Zones                       = require("playermat/Zones")
 
 ---------------------------------------------------------
@@ -158,7 +159,8 @@ function onSave()
     chaosTokensLastMatGUID      = chaosTokensLastMatGUID,
     chaosTokensGUID             = chaosTokensGUID,
     handVisibility              = handVisibility,
-    optionPanel                 = optionPanel
+    optionPanel                 = optionPanel,
+    customTableSetupData        = customTableSetupData
   })
 end
 
@@ -171,6 +173,7 @@ function onLoad(savedData)
     chaosTokensLastMatGUID      = loadedData.chaosTokensLastMatGUID
     handVisibility              = loadedData.handVisibility
     optionPanel                 = loadedData.optionPanel
+    customTableSetupData        = loadedData.customTableSetupData
 
     -- restore saved state for drawn chaos tokens
     for _, guid in ipairs(loadedData.chaosTokensGUID or {}) do
@@ -266,7 +269,7 @@ function tryObjectEnterContainer(container, object)
   if object.hasTag("Minicard") and container.hasTag("Minicard") then
     return false
   elseif object.type == "Card" and object.getName() ~= "Atlach-Nacha" then
-    handleTokenDetaching({ card = object })
+    handleTokenDetaching(object)
   elseif object.memo == "clueDoom" and container.memo == "clueDoom" then
     local flip1 = MathLib.roundAngleToMultiple(object.getRotation().z, 180)
     local flip2 = MathLib.roundAngleToMultiple(container.getRotation().z, 180)
@@ -572,6 +575,9 @@ function onObjectRotate(obj, _, flip, _, _, oldFlip)
 end
 
 function onObjectSpawn(obj)
+  -- Make sure this tag is never unintentionally on objects
+  obj.removeTag("onExtension")
+
   if obj.hasTag("NotInteractable") then
     obj.interactable = false
   end
@@ -2957,6 +2963,58 @@ function onClick_playAreaConnectionColor(player, _, id)
   end)
 end
 
+-- customize table layout
+function onClick_customTableSetup(player)
+  local oldSetupName = optionPanel["tableSetup"]
+  local data         = TABLE_SETUP_DATA[oldSetupName]
+
+  local titleText    = "Customize Table Layout"
+  local inputText    = JSON.encode_pretty(data)
+
+  -- display an input box with the current data
+  XmlLib.showInputWindow(titleText, inputText, "confirmCustomTableSetup")
+end
+
+function confirmCustomTableSetup(player)
+  local inputId     = "InputDialog_scrollableInput"
+
+  -- get text values and remove whitespace (leading and trailing)
+  local text        = UI.getAttribute(inputId, "text"):gsub("^%s+", ""):gsub("%s+$", "")
+  local defaultText = UI.getAttribute(inputId, "defaultText"):gsub("^%s+", ""):gsub("%s+$", "")
+
+  if defaultText == text then
+    broadcastToColor("No change detected.", player.color, "White")
+  else
+    local newData
+    pcall(function() newData = JSON.decode(text) end)
+    if type(newData) == "table" then
+      customTableSetupData = newData
+      updateTableSetup(nil, optionPanel["tableSetup"], newData)
+    else
+      broadcastToColor("Error parsing input - seems to be invalid.", player.color, "Red")
+    end
+  end
+  UI.setAttribute("InputDialog", "active", false)
+end
+
+function onConfirmClicked()
+  UI.setAttribute("InputDialog", "active", false)
+end
+
+function onLoadClicked()
+  local titleText = "Customize Table Layout"
+  local inputText = JSON.encode_pretty(customTableSetupData)
+  XmlLib.showInputWindow(titleText, inputText, "confirmCustomTableSetup")
+end
+
+function onCancelClicked()
+  UI.setAttribute("InputDialog", "active", false)
+end
+
+function syncTextWithXml(_, value, id)
+  UI.setAttribute(id, "text", value)
+end
+
 -- called by selecting something in a dropdown
 function onDropdownChange(player, selectedIndex, id)
   local indexNumber = tonumber(selectedIndex) + 1
@@ -3101,8 +3159,8 @@ function collectPlayermatSpawnData()
   return spawnData
 end
 
-function spawnPlayermatObjects(matColor, playermat, transformData, spawnData)
-  local tableSetupData = TABLE_SETUP_DATA[optionPanel["tableSetup"]]
+function spawnPlayermatObjects(matColor, playermat, transformData, spawnData, tableSetupData)
+  tableSetupData = tableSetupData or TABLE_SETUP_DATA[optionPanel["tableSetup"]]
   local sharesBags = tableSetupData.sharedBagArea and (matColor == "White" or matColor == "Orange")
   for name, objData in pairs(spawnData) do
     if name ~= "Playermat" then
@@ -3113,7 +3171,7 @@ function spawnPlayermatObjects(matColor, playermat, transformData, spawnData)
         local localPos = Zones.getLocalZoneData(matColor, name)
         if localPos then
           local pos = playermat.positionToWorld(localPos)
-          local rot = transformData.rotation:copy()
+          local rot = Vector(transformData.rotation)
 
           -- special handling for certain objects
           if name == "HandZone" then
@@ -3251,13 +3309,23 @@ function removeSharedBagArea()
   end
 end
 
-function updateTableSetup(newSetupName, oldSetupName)
+---@param newSetupName? string Name of the new table setup
+---@param oldSetupName? string Name of the old table setup
+---@param newData? table This contains the new data for the table setup
+function updateTableSetup(newSetupName, oldSetupName, newData)
   spawnData = spawnData or collectPlayermatSpawnData()
   if not spawnData then return end
 
   if newSetupName == oldSetupName then return end
 
-  local tableSetupData = TABLE_SETUP_DATA[newSetupName]
+  -- determine new data
+  local tableSetupData
+  if newSetupName then
+    tableSetupData = TABLE_SETUP_DATA[newSetupName]
+  elseif newData then
+    tableSetupData = newData
+  end
+
   if not tableSetupData then return end
 
   -- update playercount
@@ -3317,7 +3385,7 @@ function updateTableSetup(newSetupName, oldSetupName)
           CoroutineLib.yieldFrames(5)
 
           -- spawn missing objects
-          spawnPlayermatObjects(matColor, playermat, transformData, spawnData)
+          spawnPlayermatObjects(matColor, playermat, transformData, spawnData, tableSetupData)
         else
           spawnPlayermat(matColor, transformData)
         end
@@ -3355,11 +3423,11 @@ function moveObjectWithObjectsOnTop(mainObject, position, rotationY, positionOff
   local currentRotY = mainObject.getRotation().y
 
   -- use current values if undefined
-  position = position or currentPos
+  position = Vector(position or currentPos)
   rotationY = rotationY or currentRotY
 
   if positionOffset then
-    position = Vector(position) + Vector(positionOffset)
+    position = position + positionOffset
   end
 
   local movedObjects = {}
@@ -3479,6 +3547,10 @@ function applyOptionPanelChange(id, state)
     -- option: Show displacement tool
   elseif id == "showDisplacementTool" then
     spawnOrRemoveHelper(state, "Displacement Tool", { -68, 1.53, 57 })
+
+    -- option: Show playermat extension
+  elseif id == "showPlayermatExtension" then
+    spawnOrRemoveHelper(state, "Playermat Extensions", { -65, 1.4, 0 })
 
     -- shortcut: Remove the tour
   elseif id == "skipTour" then
@@ -3637,6 +3709,7 @@ function onClick_defaultSettings()
     showDrawButton            = false,
     showHandHelper            = false,
     showOneDamageHorror       = false,
+    showPlayermatExtension    = false,
     showSearchAssistant       = false,
     showTitleSplash           = true,
     showTokenSplash           = false,
@@ -3837,8 +3910,6 @@ function compareVersion(request)
       SOURCE_REPO = prefix .. SOURCE_REPO
     end
   end
-
-  log("SOURCE URL: " .. SOURCE_REPO)
 
   -- init library and simulate a click on the first item after 0.1s
   Wait.time(initializeLibrary, getXmlDelay())
@@ -4101,7 +4172,7 @@ function TokenManager.spawnMultipleTokens(params)
     return
   end
 
-    -- special handling for some tokens like action/ability tokens
+  -- special handling for some tokens like action/ability tokens
   local callbackName = nil
   local callbackParams = nil
 
@@ -4208,7 +4279,7 @@ end
 function TokenManager.maybeReplenishCard(params)
   for _, useInfo in ipairs(params.uses) do
     if useInfo.count and useInfo.replenish then
-      TokenManager.replenishTokens(params.card, useInfo)
+      TokenManager.replenishTokens(params.card, useInfo, params.matColor)
     end
   end
 end
@@ -4330,7 +4401,8 @@ end
 
 ---@param card tts__Object Card object to be replenished
 ---@param useInfo table The already decoded subtable of metadata.uses (to avoid decoding again)
-function TokenManager.replenishTokens(card, useInfo)
+---@param matColor? string Owning playermat indicated by the color
+function TokenManager.replenishTokens(card, useInfo, matColor)
   -- get current amount of matching resource tokens on the card
   local clickableResourceCounter = nil
   local foundTokens = 0
@@ -4397,7 +4469,7 @@ function TokenManager.replenishTokens(card, useInfo)
       tokenType  = useInfo.token,
       tokenCount = newCount,
       subType    = useInfo.type,
-      matColor   = GUIDReferenceApi.getOwnerOfObject(card)
+      matColor   = matColor or GUIDReferenceApi.getOwnerOfObject(card)
     })
   end
 end
@@ -4678,7 +4750,7 @@ function handleTokenAttaching(params)
   end
 
   Wait.condition(
-    function() handleTokenDetaching({ card = card }) end,
+    function() handleTokenDetaching(card) end,
     function()
       if card ~= nil and player ~= nil and player.seated then
         return card.resting and card.held_by_color ~= player.color
@@ -4689,8 +4761,7 @@ function handleTokenAttaching(params)
   )
 end
 
-function handleTokenDetaching(params)
-  local card = params.card
+function handleTokenDetaching(card)
   if card == nil or next(card.getAttachments()) == nil then return end
 
   -- restore card settings
@@ -4847,6 +4918,15 @@ function maybeReadyCard(params)
 
   -- returns whether the card is now fully readied (and wasn't ready before)
   return (cardRotY == ownerRotation.y) and (roundedRotY ~= ownerRotation.y)
+end
+
+-- checks if a card is exhausted, according to the rotation settings of its playermat
+function isExhausted(card)
+  if card == nil or card.isSmoothMoving() then return true end
+
+  local matColor        = PlayermatApi.getMatColorByPosition(card.getPosition())
+  local exhaustRotation = PlayermatApi.getExhaustRotation(matColor, true) or 0
+  return MathLib.round(card.getRotation().y) == MathLib.round(exhaustRotation.y)
 end
 
 -- removes tokens from the provided card/deck
