@@ -5,17 +5,11 @@ import subprocess
 import time
 import datetime
 from pathlib import Path
-import socket
-import json
+import pyautogui
+import pygetwindow
 
 GAME_NAME = "ArkhamSCE"
 
-# The Tabletop Simulator External Editor API listens on port 39999
-HOST = "127.0.0.1"  # localhost
-PORT = 39999
-
-# Convert the Python dictionary to a JSON string and then encode it to bytes
-RELOAD_MSG = json.dumps({"messageID": 1, "scriptStates": []}).encode("utf-8")
 
 def get_current_git_branch():
     try:
@@ -71,7 +65,9 @@ def main():
     start_time = time.time()
     start_time_formatted = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    parser = argparse.ArgumentParser(description=f"VS Code build script for {GAME_NAME}")
+    parser = argparse.ArgumentParser(
+        description=f"VS Code build script for {GAME_NAME}"
+    )
     parser.add_argument(
         "--action",
         required=True,
@@ -120,15 +116,16 @@ def main():
     elapsed_time = time.time() - start_time
     print(f"Execution took {elapsed_time:.2f} seconds.")
 
-    # Attempt to reload the game in TTS
-    try:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.connect((HOST, PORT))
-            s.sendall(RELOAD_MSG)
-            print("Running TTS detected - reloading the game.")
+    # Attempt to load the created savegame in TTS
+    window = pygetwindow.getWindowsWithTitle("Tabletop Simulator")
 
-    except ConnectionRefusedError:
-        print(f"Connection refused. Ensure TTS is running and a savegame is loaded.")
+    if window:
+        main_window = window[0]
+        main_window.activate()
+        time.sleep(0.5)  # Give the OS time to switch focus
+
+        # Requires setup in TTS (Autoexec.cfg: bind f13 load ArkhamSCE)
+        pyautogui.hotkey("f13")
 
 
 if __name__ == "__main__":
