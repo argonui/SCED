@@ -5,7 +5,17 @@ import subprocess
 import time
 import datetime
 from pathlib import Path
+import socket
+import json
 
+GAME_NAME = "ArkhamSCE"
+
+# The Tabletop Simulator External Editor API listens on port 39999
+HOST = "127.0.0.1"  # localhost
+PORT = 39999
+
+# Convert the Python dictionary to a JSON string and then encode it to bytes
+RELOAD_MSG = json.dumps({"messageID": 1, "scriptStates": []}).encode("utf-8")
 
 def get_current_git_branch():
     try:
@@ -61,7 +71,7 @@ def main():
     start_time = time.time()
     start_time_formatted = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    parser = argparse.ArgumentParser(description="VS Code build script for ArkhamSCE")
+    parser = argparse.ArgumentParser(description=f"VS Code build script for {GAME_NAME}")
     parser.add_argument(
         "--action",
         required=True,
@@ -77,7 +87,7 @@ def main():
 
     # Set up command-line arguments
     mod_dir_arg = ["-moddir", args.moddir]
-    mod_file_arg = ["-modfile", os.path.join(output_folder, "ArkhamSCE.json")]
+    mod_file_arg = ["-modfile", os.path.join(output_folder, GAME_NAME + ".json")]
     reverse_arg = ["-reverse"] if args.action == "decompose" else []
 
     # Final command to execute
@@ -100,15 +110,25 @@ def main():
 
     # Handle dynamic file copying if the action is 'build'
     if args.action == "build":
-        source_file = "ArkhamSCE.png"
+        source_file = GAME_NAME + ".png"
         if branch and branch != "main":
-            source_file = "ArkhamSCE_dev.png"
+            source_file = GAME_NAME + "_dev.png"
 
-        shutil.copy(source_file, os.path.join(output_folder, "ArkhamSCE.png"))
+        shutil.copy(source_file, os.path.join(output_folder, GAME_NAME + ".png"))
 
     # Calculate and print the elapsed time
     elapsed_time = time.time() - start_time
     print(f"Execution took {elapsed_time:.2f} seconds.")
+
+    # Attempt to reload the game in TTS
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.connect((HOST, PORT))
+            s.sendall(RELOAD_MSG)
+            print("Running TTS detected - reloading the game.")
+
+    except ConnectionRefusedError:
+        print(f"Connection refused. Ensure TTS is running and a savegame is loaded.")
 
 
 if __name__ == "__main__":
