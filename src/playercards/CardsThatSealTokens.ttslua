@@ -113,7 +113,7 @@ function generateContextMenu()
           end
 
           if allowed then
-            for i = SHOW_MULTI_SEAL, 1, -1 do
+            for i = 1, SHOW_MULTI_SEAL do
               sealToken(map.name, playerColor)
             end
           else
@@ -165,13 +165,14 @@ function sealToken(name, playerColor)
   local chaosbag = ChaosBagApi.findChaosBag()
   for i, obj in ipairs(chaosbag.getObjects()) do
     if obj.name == name then
-      return chaosbag.takeObject({
+      local token = chaosbag.takeObject({
         position          = self.getPosition() + Vector(0, 0.5 + 0.1 * #sealedTokens, 0),
         rotation          = self.getRotation(),
         index             = i - 1,
-        smooth            = false,
-        callback_function = tokenSealingCallback
+        smooth            = false
       })
+      tokenSealingCallback(token)
+      return token
     end
   end
   printToColor(name .. " token not found in chaos bag", playerColor)
@@ -411,11 +412,18 @@ function resolveTokenByGuid(playerColor, guidToBeResolved)
   end
 
   local closestMatColor = PlayermatApi.getMatColorByPosition(self.getPosition())
-  ChaosBagApi.drawChaosToken(closestMatColor, true, _, guidToBeResolved)
+  ChaosBagApi.drawChaosToken(closestMatColor, true, nil, guidToBeResolved)
   Player[playerColor].clearSelectedObjects()
 end
 
 function updateStackSize()
+  if waitId then
+    Wait.stop(waitId)
+  end
+  waitId = Wait.frames(actualUpdateStackSize, 5)
+end
+
+function actualUpdateStackSize()
   if MAX_SEALED == 1 then return end
   if #sealedTokens == 0 then return end
 
