@@ -65,9 +65,7 @@ def main():
     start_time = time.time()
     start_time_formatted = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    parser = argparse.ArgumentParser(
-        description=f"VS Code build script for {GAME_NAME}"
-    )
+    parser = argparse.ArgumentParser(description=f"VS Code build script for {GAME_NAME}")
     parser.add_argument(
         "--action",
         required=True,
@@ -117,15 +115,16 @@ def main():
     print(f"Execution took {elapsed_time:.2f} seconds.")
 
     # Attempt to load the created savegame in TTS
-    window = pygetwindow.getWindowsWithTitle("Tabletop Simulator")
+    if args.action != "decompose":
+        window = pygetwindow.getWindowsWithTitle("Tabletop Simulator")
 
-    if window:
-        main_window = window[0]
-        main_window.activate()
-        time.sleep(0.5)  # Give the OS time to switch focus
+        if window:
+            main_window = window[0]
+            main_window.activate()
+            time.sleep(0.5)  # Give the OS time to switch focus
 
-        # Requires setup in TTS (Autoexec.cfg: bind f13 load ArkhamSCE)
-        pyautogui.hotkey("f13")
+            # Requires setup in TTS (Autoexec.cfg: bind f13 load ArkhamSCE)
+            pyautogui.hotkey("f13")
 
 
 if __name__ == "__main__":
