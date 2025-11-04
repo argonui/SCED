@@ -160,7 +160,7 @@ function onSave()
     chaosTokensGUID             = chaosTokensGUID,
     handVisibility              = handVisibility,
     optionPanel                 = optionPanel,
-    customTableSetupData        = customTableSetupData
+    customTableSetupData        = TABLE_SETUP_DATA["Custom"]
   })
 end
 
@@ -173,7 +173,7 @@ function onLoad(savedData)
     chaosTokensLastMatGUID      = loadedData.chaosTokensLastMatGUID
     handVisibility              = loadedData.handVisibility
     optionPanel                 = loadedData.optionPanel
-    customTableSetupData        = loadedData.customTableSetupData
+    TABLE_SETUP_DATA["Custom"]  = loadedData.customTableSetupData
 
     -- restore saved state for drawn chaos tokens
     for _, guid in ipairs(loadedData.chaosTokensGUID or {}) do
@@ -315,8 +315,9 @@ function maybeMoveObjectToMythosArea(object)
   if object.hasTag("StayInMythos") then return end
 
   -- check if mythos area is moved
-  local setupName = optionPanel["tableSetup"]
-  local tableSetupData = TABLE_SETUP_DATA[setupName]
+  local tableSetupData = getTableSetupData()
+  if not tableSetupData or not tableSetupData.transforms then return end
+
   local transformData = tableSetupData.transforms["MythosArea"]
   if not transformData then return end
 
@@ -327,8 +328,8 @@ function maybeMoveObjectToMythosArea(object)
   if not inArea(objectPosition, MYTHOS_AREA_DATA) then return end
 
   -- calculate new position and rotation and move object
-  local positionDiff = transformData.position - MYTHOS_AREA_DATA.center
-  local rotationDiff = transformData.rotation - MYTHOS_AREA_DATA.rotation
+  local positionDiff = Vector(transformData.position) - MYTHOS_AREA_DATA.center
+  local rotationDiff = Vector(transformData.rotation) - MYTHOS_AREA_DATA.rotation
   local originOffset = objectPosition - MYTHOS_AREA_DATA.center
   local originRotate = originOffset:rotateOver('y', rotationDiff.y)
 
@@ -2965,14 +2966,16 @@ end
 
 -- customize table layout
 function onClick_customTableSetup()
-  local oldSetupName = optionPanel["tableSetup"]
-  local data         = TABLE_SETUP_DATA[oldSetupName]
-
-  local titleText    = "Customize Table Layout"
-  local inputText    = JSON.encode_pretty(data)
+  local titleText = "Customize Table Layout"
+  local inputText = JSON.encode_pretty(getTableSetupData())
 
   -- display an input box with the current data
   XmlLib.showInputWindow(titleText, inputText, "confirmCustomTableSetup")
+end
+
+function getTableSetupData()
+  local setupName = optionPanel["tableSetup"]
+  return TABLE_SETUP_DATA[setupName] or {}
 end
 
 function confirmCustomTableSetup(player)
@@ -2988,8 +2991,9 @@ function confirmCustomTableSetup(player)
     local newData
     pcall(function() newData = JSON.decode(text) end)
     if type(newData) == "table" then
-      customTableSetupData = newData
-      updateTableSetup(nil, optionPanel["tableSetup"], newData)
+      optionPanel["tableSetup"] = "Custom"
+      TABLE_SETUP_DATA["Custom"] = newData
+      updateTableSetup("Custom")
     else
       broadcastToColor("Error parsing input - seems to be invalid.", player.color, "Red")
     end
@@ -3003,7 +3007,7 @@ end
 
 function onLoadClicked()
   local titleText = "Customize Table Layout"
-  local inputText = JSON.encode_pretty(customTableSetupData)
+  local inputText = JSON.encode_pretty(TABLE_SETUP_DATA["Custom"])
   XmlLib.showInputWindow(titleText, inputText, "confirmCustomTableSetup")
 end
 
@@ -3066,6 +3070,7 @@ function getDropdownOptionIndex(id, name)
       return index
     end
   end
+  return 1
 end
 
 -- returns the ID (position in the table) for a provided language code
@@ -3159,8 +3164,8 @@ function collectPlayermatSpawnData()
   return spawnData
 end
 
-function spawnPlayermatObjects(matColor, playermat, transformData, spawnData, tableSetupData)
-  tableSetupData = tableSetupData or TABLE_SETUP_DATA[optionPanel["tableSetup"]]
+function spawnPlayermatObjects(matColor, playermat, transformData, spawnData)
+  local tableSetupData = getTableSetupData()
   local sharesBags = tableSetupData.sharedBagArea and (matColor == "White" or matColor == "Orange")
   for name, objData in pairs(spawnData) do
     if name ~= "Playermat" then
@@ -3228,8 +3233,7 @@ function spawnPlayermat(matColor, transformData)
 
   -- get transforms if not supplied
   if not transformData then
-    local setupName = optionPanel["tableSetup"]
-    local tableSetupData = TABLE_SETUP_DATA[setupName]
+    local tableSetupData = getTableSetupData()
     transformData = tableSetupData.transforms["Playermat" .. matColor]
     if not transformData then
       broadcastToAll("This playermat is not part of the current table layout.", "Orange")
@@ -3309,23 +3313,16 @@ function removeSharedBagArea()
   end
 end
 
----@param newSetupName? string Name of the new table setup
+---@param newSetupName string Name of the new table setup
 ---@param oldSetupName? string Name of the old table setup
----@param newData? table This contains the new data for the table setup
-function updateTableSetup(newSetupName, oldSetupName, newData)
+function updateTableSetup(newSetupName, oldSetupName)
   spawnData = spawnData or collectPlayermatSpawnData()
   if not spawnData then return end
 
   if newSetupName == oldSetupName then return end
 
   -- determine new data
-  local tableSetupData
-  if newSetupName then
-    tableSetupData = TABLE_SETUP_DATA[newSetupName]
-  elseif newData then
-    tableSetupData = newData
-  end
-
+  local tableSetupData = TABLE_SETUP_DATA[newSetupName]
   if not tableSetupData then return end
 
   -- update playercount
@@ -3385,7 +3382,7 @@ function updateTableSetup(newSetupName, oldSetupName, newData)
           CoroutineLib.yieldFrames(5)
 
           -- spawn missing objects
-          spawnPlayermatObjects(matColor, playermat, transformData, spawnData, tableSetupData)
+          spawnPlayermatObjects(matColor, playermat, transformData, spawnData)
         else
           spawnPlayermat(matColor, transformData)
         end
@@ -3558,7 +3555,7 @@ function applyOptionPanelChange(id, state)
 
     -- this will only be called by the "loadOptionPanelState" function
   elseif id == "tableSetup" then
-    updateTableSetup(state, nil)
+    updateTableSetup(state)
   end
 end
 
