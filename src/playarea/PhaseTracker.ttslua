@@ -1,4 +1,8 @@
-local PHASE_NAMES = {
+local PlayermatApi = require("playermat/PlayermatApi")
+local MythosAreaApi = require("mythos/MythosAreaApi")
+
+
+local PHASE_NAMES  = {
   "I. Mythos Phase",
   "II. Investigation Phase",
   "III. Enemy Phase",
@@ -14,7 +18,9 @@ local PHASE_IMAGES = {
 function onSave()
   return JSON.encode({
     phaseId = phaseId,
-    broadcastChange = broadcastChange
+    broadcastChange = broadcastChange,
+    broadcastChangeVerbosity = broadcastChangeVerbosity,
+    pingAndLookAtPhase = pingAndLookAtPhase
   })
 end
 
@@ -30,6 +36,8 @@ function onLoad(savedData)
   else
     phaseId = 1
     broadcastChange = false
+    broadcastChangeVerbosity = false
+    pingAndLookAtPhase = false
   end
 
   self.createButton({
@@ -38,21 +46,62 @@ function onLoad(savedData)
     function_owner = self,
     width          = 600,
     height         = 600,
-    color          = { r = 0, g = 0, b = 0, a = 0 }
+    color       = { r = 0, g = 0, b = 0, a = 0 }
   })
 
-  self.addContextMenuItem("Toggle Broadcasting", updateBroadcast)
+  self.addContextMenuItem("Toggle Broadcasting", toggleBroadcast)
+  self.addContextMenuItem("Toggle Verbosity Broadcasting", toggleBroadcastVerbosity)
+  self.addContextMenuItem("Toggle Ping Mythos Area", togglePing)
 end
 
-function updateBroadcast(playerColor)
+-- Context menu functions
+
+function toggleBroadcast(playerColor)
+  -- Changes (toggles) the if the phase changes are broadcast or not
   Player[playerColor].clearSelectedObjects()
   for _, tracker in ipairs(getObjectsWithTag("LinkedPhaseTracker")) do
     tracker.setVar("broadcastChange", not broadcastChange)
+    if not broadcastChange then
+      -- If broadcastChange is off, broadcastChangeVerbosity and pingAndLookAtPhase should also be off
+      tracker.setVar("broadcastChangeVerbosity", false)
+      tracker.setVar("pingAndLookAtPhase", false)
+    end
   end
   broadcastToAll("Broadcasting phase changes has been " .. (broadcastChange and "enabled." or "disabled."))
 end
 
-function changeState(_, _, isRightClick)
+function toggleBroadcastVerbosity(playerColor)
+  -- Changes (toggles) the if the phase changes are broadcast with a lot of verbosity or not
+  Player[playerColor].clearSelectedObjects()
+  for _, tracker in ipairs(getObjectsWithTag("LinkedPhaseTracker")) do
+    tracker.setVar("broadcastChangeVerbosity", not broadcastChangeVerbosity) -- Toggle  → Set the opposite
+    if broadcastChangeVerbosity then
+      -- If broadcastChangeVerbosity is on, broadcastChange should also be on
+      tracker.setVar("broadcastChange", true)
+    end
+  end
+  broadcastToAll("Broadcasting phase changes in (Verbosity mode) has been " ..
+    (broadcastChangeVerbosity and "enabled." or "disabled."))
+end
+
+function togglePing(playerColor)
+  -- Changes (toggles)
+  Player[playerColor].clearSelectedObjects()
+  for _, tracker in ipairs(getObjectsWithTag("LinkedPhaseTracker")) do
+    tracker.setVar("pingAndLookAtPhase", not pingAndLookAtPhase) -- Toggle  → Set the opposite
+    if pingAndLookAtPhase then
+      -- If pingAndLookAtPhase is on, broadcastChangeVerbosity and broadcastChange should also be on
+      tracker.setVar("broadcastChange", true)
+      tracker.setVar("broadcastChangeVerbosity", true)
+    end
+  end
+  broadcastToAll("Broadcasting phase changes in (Verbosity mode) has been " ..
+    (broadcastChangeVerbosity and "enabled" or "disabled") .. 'and the Phase Tracker will bring you to the Mythos Area.')
+end
+
+-- Functions that run when changing phase
+
+function changeState(_, playerColor, isRightClick)
   -- get newId for all trackers
   local newId = phaseId + (isRightClick and -1 or 1)
   if newId == 0 then
@@ -62,27 +111,237 @@ function changeState(_, _, isRightClick)
   end
 
   -- broadcast if option is enabled
-  if broadcastChange then
+  if broadcastChange and not broadcastChangeVerbosity then
     broadcastToAll(PHASE_NAMES[newId])
+  elseif broadcastChangeVerbosity then
+    expressChangeWithVerbosity(newId)
+    if pingAndLookAtPhase and newId == 1 then
+      pingAndMoveCameraInMythosPhase(playerColor)
+    elseif pingAndLookAtPhase and newId == 2 then
+      pingPlayerMiniCards(playerColor)
+    elseif pingAndLookAtPhase and newId == 3 then
+      local enemies = getEnemiesInPlayArea()
+      if #enemies == 1 then
+        moveToSingleMonster(playerColor, enemies[1])
+      end     
+    end
   end
 
-  -- manipulate data and then respawn
+  --
   local data = self.getData()
   data["CustomImage"]["ImageURL"] = PHASE_IMAGES[newId]
   data["CustomImage"]["ImageSecondaryURL"] = PHASE_IMAGES[newId]
-  data["LuaScriptState"] = "{\"broadcastChange\":" .. tostring(broadcastChange) .. ",\"phaseId\":" .. newId .. "}"
+  data["LuaScriptState"] = "{\"broadcastChange\":" ..
+      tostring(broadcastChange) ..
+      ",\"phaseId\":" .. newId ..
+      ",\"broadcastChangeVerbosity\":" ..
+      tostring(broadcastChangeVerbosity) ..
+      ",\"pingAndLookAtPhase\":" ..
+      tostring(pingAndLookAtPhase) ..
+      "}"
 
   -- update all trackers with tag
-  for _, tracker in ipairs(getObjectsWithTag("LinkedPhaseTracker")) do
+  for i, tracker in ipairs(getObjectsWithTag("LinkedPhaseTracker")) do
     local pos = tracker.getPosition()
     local rot = tracker.getRotation()
     local scale = tracker.getScale()
     tracker.destruct()
-    spawnObjectData({
+    spawnObjectData({ -- Esto es una funcion de tts
       data     = data,
       position = pos,
       rotation = rot,
       scale    = scale
     })
   end
+end
+
+function expressChangeWithVerbosity(newId)
+  -- This function shows every change in the Phase tracker
+
+  local color_bone = { r = 1, g = 1, b = 0.8 }
+
+  if newId == 1 then
+    printToAll('End of the round', color_bone)
+    printToAll("-------", color_bone)
+    broadcastToAll('Mythos Phase', { r = 1, g = 0, b = 0 })
+  elseif newId == 2 then
+    printToAll('End of Mythos Phase', { r = 1, g = 0, b = 0 })
+    broadcastToAll('Investigation Phase.', color_bone)
+    showHandResourceInfo()
+  elseif newId == 3 then
+    printToAll('End of Investigation Phase', color_bone)
+    printToAll('Enemy Phase.', color_bone)
+    showEnemyInPlayInfo(color_bone)
+    showEnemyInThreatAreaInfo()
+  elseif newId == 4 then
+    printToAll('End of Enemy Phase', color_bone)
+    printToAll('Upkeep Phase.', color_bone)
+  end
+end
+
+function pingAndMoveCameraInMythosPhase(playerColor)
+  local pl = getPlayer(playerColor)
+  local agenda_pos = MythosAreaApi.getAgendaPosition() or nil
+  if agenda_pos then
+    pl.pingTable(agenda_pos)
+    pl.lookAt({ position = agenda_pos, pitch = 90, yaw = 90, distance = 50 })
+    return
+  end
+  log("Could not get the agenda position to ping and move the camera.")
+end
+
+function pingPlayerMiniCards(playerColor)
+  -- Pings the Minicards and moves the camera to one of them
+  all = getObjects()
+  pl = getPlayer(playerColor)
+  found = 0
+  for _, obj in ipairs(all) do
+    if obj.type == 'Card' then
+      if string.find(obj.getGMNotes(), 'Minicard') or obj.hasTag('Minicard') then
+        pos = obj.getPosition()
+        pl.pingTable(pos)
+        found = found + 1
+        if found == 1 then pl.lookAt({ position = pos, pitch = 90, yaw = 90, distance = 30 }) end -- Look at one of them
+      end
+    end
+  end
+end
+
+function moveToSingleMonster(playerColor, monster)
+  pos = monster.getPosition()
+  pl = getPlayer(playerColor)
+  pl.lookAt({ position = pos, pitch = 90, yaw = 90, distance = 40 })
+end
+
+function showHandResourceInfo()
+  local COLORS = { White = Color.White, Orange = Color.Orange, Green = Color.Green, Red = Color.Red }
+  -- It iterates all players, -- The mod makes shure the number of players is the same as the number of mats
+  local playerColors = Player.getAvailableColors()
+  for _, playerColor in ipairs(playerColors) do
+    local color = COLORS[playerColor] or { 1, 1, 1 }
+    log(playerColor)local player = Player[playerColor] or nil
+    local matColor = PlayermatApi.getMatColor(playerColor) or nil
+    log(matColor)local cards = player.getHandObjects(1)
+    local num = #cards
+    local resources = PlayermatApi.getCounterValue(matColor, "ResourceCounter")
+    local investigator = PlayermatApi.getInvestigatorName(matColor)
+    if investigator == "" then investigator = playerColor end -- maybe the inv-card is not well placed, or they aret testing
+    printToAll(investigator .. ' has ' .. num .. ' cards in hand and ' .. resources .. ' resources.', color)
+  end
+end
+
+function showEnemyInPlayInfo(colorPrint)
+  -- This searches for all enemies in the play area and highlights them
+  local enemies = getEnemiesInPlayArea()
+  local num = #enemies
+  if num > 1 then
+    printToAll('There are ' .. tostring(num) .. ' enemies', colorPrint)
+  elseif num == 1 then
+    printToAll('There is ' .. tostring(num) .. ' enemy', colorPrint)
+  end
+  highlightObjects(enemies, { r = 0, g = 1, b = 0 }, 10)
+end
+
+function showEnemyInThreatAreaInfo()
+  -- This searches for all enemies in the threat area of all mats and highlights them
+  local matColors = Player.getAvailableColors()
+  for _, matColor in ipairs(matColors) do
+    local enemies = getEnemiesInThreatArea(matColor)
+    local num = #enemies
+    if num > 1 then
+      printToAll(matColor .. ' has ' .. tostring(num) .. ' enemies in the threat area')
+    elseif num == 1 then
+        printToAll(matColor .. ' has ' .. tostring(num) .. ' enemy in the threat area')
+    end
+    highlightObjects(enemies, { r = 1, g = 0.5, b = 0 }, 10)
+  end
+end
+
+-- Basic Helper functions
+
+function getPlayer(color)
+  --log('Calling getPlayer from the PhaseTracker code')
+  for _, pl in ipairs(Player.getPlayers()) do
+    if pl.color == color then
+      return pl
+    end
+  end
+  return nil
+end
+
+-- helper functions for this script
+
+function scanPlayArea()
+  -- Returns all objects in the PlayArea (the central zone)
+  local zoneGUID = "a2f932"
+  local zone = getObjectFromGUID(zoneGUID)
+
+  if not zone then
+    log("Zone not found (GUID " .. zoneGUID .. ")")
+    return
+  end
+
+  if zone.tag ~= "Scripting" then
+    log("Object is not a ScriptingTrigger zone. Tag: " .. zone.tag)
+    return
+  end
+
+  -- Obtener los objetos dentro de la zona
+  local objs = zone.getObjects()
+  return objs
+end
+
+function getEnemiesInPlayArea()
+  -- returns a table of objects
+  local enemies = {}
+  local objs = scanPlayArea()
+  for _, obj in ipairs(objs) do
+    if isVisibleEnemy(obj) then
+      table.insert(enemies, obj)
+    end
+  end
+  return enemies
+end
+
+function getEnemiesInThreatArea(matColor)
+  -- returns a table of objects
+  local enemies = {}
+  local  threats = PlayermatApi.getThreatAreaObjects(matColor)
+  for _, obj in ipairs(threats) do
+    if isVisibleEnemy(obj) then table.insert(enemies, obj) end
+  end
+  return enemies
+end
+
+function highlightObjects(objects, color, duration)
+  for _, obj in ipairs(objects) do
+    obj.highlightOn(color, duration)
+  end
+end
+
+function isVisibleEnemy(obj)
+  -- Receives an object, takes its metadata and checks if it's an enemy
+  -- And if it is face up, because some scenarios have facedown enemies, like Blood on the Alter
+  -- Returns boolean
+  local rawNotes = obj.getGMNotes() or "{}"
+  local md = JSON.decode(rawNotes) or {}
+  local type = md['type'] or ''
+  if type == 'Enemy' and not obj.is_face_down then
+    return true
+  elseif type == 'Enemy' and obj.is_face_down then
+    return false
+  end
+  -- Second check, because some enemies are in the back of Agenda Cards
+  local specialEnemies = {
+    ["03241"] = true,
+    ['01121a'] = true,
+    ['50026a'] = true,
+    ['11537a'] = true
+  }
+  local id = md['id'] or ''
+  local isSpecial = specialEnemies[id] or false
+  if isSpecial and obj.is_face_down then
+    return true
+  end
+  return false
 end
