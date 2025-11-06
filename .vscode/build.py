@@ -5,6 +5,10 @@ import subprocess
 import time
 import datetime
 from pathlib import Path
+import pyautogui
+import pygetwindow
+
+GAME_NAME = "ArkhamSCE"
 
 
 def get_current_git_branch():
@@ -61,7 +65,7 @@ def main():
     start_time = time.time()
     start_time_formatted = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    parser = argparse.ArgumentParser(description="VS Code build script for ArkhamSCE")
+    parser = argparse.ArgumentParser(description=f"VS Code build script for {GAME_NAME}")
     parser.add_argument(
         "--action",
         required=True,
@@ -77,7 +81,7 @@ def main():
 
     # Set up command-line arguments
     mod_dir_arg = ["-moddir", args.moddir]
-    mod_file_arg = ["-modfile", os.path.join(output_folder, "ArkhamSCE.json")]
+    mod_file_arg = ["-modfile", os.path.join(output_folder, GAME_NAME + ".json")]
     reverse_arg = ["-reverse"] if args.action == "decompose" else []
 
     # Final command to execute
@@ -100,15 +104,27 @@ def main():
 
     # Handle dynamic file copying if the action is 'build'
     if args.action == "build":
-        source_file = "ArkhamSCE.png"
+        source_file = GAME_NAME + ".png"
         if branch and branch != "main":
-            source_file = "ArkhamSCE_dev.png"
+            source_file = GAME_NAME + "_dev.png"
 
-        shutil.copy(source_file, os.path.join(output_folder, "ArkhamSCE.png"))
+        shutil.copy(source_file, os.path.join(output_folder, GAME_NAME + ".png"))
 
     # Calculate and print the elapsed time
     elapsed_time = time.time() - start_time
     print(f"Execution took {elapsed_time:.2f} seconds.")
+
+    # Attempt to load the created savegame in TTS
+    if args.action != "decompose":
+        window = pygetwindow.getWindowsWithTitle("Tabletop Simulator")
+
+        if window:
+            main_window = window[0]
+            main_window.activate()
+            time.sleep(0.5)  # Give the OS time to switch focus
+
+            # Requires setup in TTS (Autoexec.cfg: bind f13 load ArkhamSCE)
+            pyautogui.hotkey("f13")
 
 
 if __name__ == "__main__":
