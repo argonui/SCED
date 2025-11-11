@@ -310,12 +310,16 @@ function maybeDrawBorderAroundMinicard(object)
   if not object.hasTag("Minicard") then return end
 
   local md = JSON.decode(object.getGMNotes())
-  if not md or type(md) ~= "table" or not md.id then return end
+  if not md or type(md) ~= "table" or not md.id or md.type ~= "Minicard" then return end
 
   for matColor, _ in pairs(GUIDReferenceApi.getObjectsByType("Playermat")) do
     local data = PlayermatApi.getActiveInvestigatorData(matColor)
-    if md.type == "Minicard" and md.id == data.miniId then
-      drawBorderAroundCard({ card = card, borderColor = PlayermatApi.getPlayerColor(matColor) })
+    if md.id == data.miniId then
+      drawBorderAroundCard({
+        card        = object,
+        borderColor = PlayermatApi.getPlayerColor(matColor),
+        thickness   = 0.15
+      })
       return
     end
   end
@@ -324,20 +328,23 @@ end
 function drawBorderAroundCard(params)
   if params.card == nil then return end
 
-  local bounds = card.getBoundsNormalized()
-  local xSize = bounds.size.x / 2
-  local zSize = bounds.size.z / 2
+  local bounds = params.card.getBoundsNormalized()
+  local scale  = params.card.getScale()
+  local xSize  = bounds.size.x / 2 / scale.x
+  local zSize  = bounds.size.z / 2 / scale.z
 
-  card.setVectorLines({
-    points = {
+  params.card.setVectorLines({ {
+    points    = {
       { 0 - xSize, 0, 0 - zSize },
       { 0 + xSize, 0, 0 - zSize },
       { 0 + xSize, 0, 0 + zSize },
       { 0 - xSize, 0, 0 + zSize },
-      { 0 - xSize, 0, 0 - zSize }
+      { 0 - xSize, 0, 0 - zSize },
+      { 0 + xSize, 0, 0 - zSize }
     },
-    color = params.borderColor
-  })
+    color     = params.borderColor,
+    thickness = params.thickness
+  } })
 end
 
 -- moves an object to the new position of the mythos area
