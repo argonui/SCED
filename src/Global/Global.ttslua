@@ -306,6 +306,54 @@ function maybeAddDecalToChaosToken(object)
   object.setDecals(decalData)
 end
 
+function maybeDrawBorderAroundMinicard(object)
+  if not optionPanel["highlightMinicards"] then return end
+  if not object.hasTag("Minicard") then return end
+
+  local md = JSON.decode(object.getGMNotes())
+  if not md or type(md) ~= "table" or not md.id or md.type ~= "Minicard" then return end
+
+  for matColor, _ in pairs(GUIDReferenceApi.getObjectsByType("Playermat")) do
+    local data = PlayermatApi.getActiveInvestigatorData(matColor)
+    if md.id == data.miniId then
+      drawBorderAroundCard({
+        card        = object,
+        borderColor = PlayermatApi.getPlayerColor(matColor),
+        thickness   = 0.15
+      })
+      return
+    end
+  end
+end
+
+function drawBorderAroundCard(params)
+  if params.card == nil then return end
+
+  local bounds = params.card.getBoundsNormalized()
+  local scale  = params.card.getScale()
+  local xSize  = bounds.size.x / 2 / scale.x
+  local zSize  = bounds.size.z / 2 / scale.z
+
+  -- special handling for cards from custom decks because it seems like
+  -- the internal model for those is somehow different than custom cards :)
+  if params.card.getData().Name == "Card" then
+    xSize = xSize * 1.09
+  end
+
+  params.card.setVectorLines({ {
+    points    = {
+      { 0 - xSize, 0, 0 - zSize },
+      { 0 + xSize, 0, 0 - zSize },
+      { 0 + xSize, 0, 0 + zSize },
+      { 0 - xSize, 0, 0 + zSize },
+      { 0 - xSize, 0, 0 - zSize },
+      { 0 + xSize, 0, 0 - zSize }
+    },
+    color     = params.borderColor,
+    thickness = params.thickness
+  } })
+end
+
 -- moves an object to the new position of the mythos area
 function maybeMoveObjectToMythosArea(object)
   -- only continue for interactable objects
@@ -603,6 +651,7 @@ function onObjectSpawn(obj)
   end
 
   maybeAddDecalToChaosToken(obj)
+  maybeDrawBorderAroundMinicard(obj)
   maybeMoveObjectToMythosArea(obj)
   maybeUpdateClueDoomStackCount(obj)
   maybeUpdateActionTrackerTokens(obj, 5)
@@ -3503,6 +3552,16 @@ function applyOptionPanelChange(id, state)
   elseif id == "enableCardHelpers" then
     toggleCardHelpers(state)
 
+    -- option: Highlight mini cards
+  elseif id == "highlightMinicards" then
+    for _, minicard in ipairs(getObjectsWithTag("Minicard")) do
+      if state then
+        maybeDrawBorderAroundMinicard(minicard)
+      else
+        minicard.setVectorLines({})
+      end
+    end
+
     -- option: Make damage / horror clickable // Show '1' on damage / horror
   elseif id == "makeDamageHorrorClickable" or id == "showOneDamageHorror" then
     for _, obj in ipairs(getObjects()) do
@@ -3696,6 +3755,7 @@ function onClick_defaultSettings()
     uiLanguage                = "en",
     changePlayAreaImage       = false,
     enableCardHelpers         = true,
+    highlightMinicards        = false,
     makeDamageHorrorClickable = true,
     playAreaConnectionColor   = { a = 1, b = 0.4, g = 0.4, r = 0.4 },
     playAreaConnections       = true,

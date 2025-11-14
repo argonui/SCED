@@ -116,15 +116,16 @@ def main():
 
     # Attempt to load the created savegame in TTS
     if args.action != "decompose":
-        window = pygetwindow.getWindowsWithTitle("Tabletop Simulator")
+        target_title = "Tabletop Simulator"
+        for window in pygetwindow.getWindowsWithTitle(target_title):
+            # Check if the title is an EXACT match
+            if window.title == target_title:
+                window.activate()
+                time.sleep(0.5)  # Give the OS time to switch focus
 
-        if window:
-            main_window = window[0]
-            main_window.activate()
-            time.sleep(0.5)  # Give the OS time to switch focus
-
-            # Requires setup in TTS (Autoexec.cfg: bind f13 load ArkhamSCE)
-            pyautogui.hotkey("f13")
+                # Requires setup in TTS (Autoexec.cfg: bind f13 load ArkhamSCE)
+                pyautogui.hotkey("f13")
+                break # Found the exact window, so stop searching
 
 
 if __name__ == "__main__":

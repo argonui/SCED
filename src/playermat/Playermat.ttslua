@@ -551,7 +551,7 @@ function doUpkeep(_, clickedByColor, isRightClick)
   end
 
   -- flip investigator mini-card and summoned servitor mini-card
-  for _, obj in ipairs(getObjects()) do
+  for _, obj in ipairs(getObjectsWithTag("Minicard")) do
     if obj.type == "Card" and obj.is_face_down then
       local md = JSON.decode(obj.getGMNotes()) or {}
       if md.type == "Minicard" and (md.id == activeInvestigatorData.miniId or md.id == "09080-m") then
@@ -1267,6 +1267,9 @@ function onClick_handColorSelect(player)
     local colorBlock = ColorLib.getXmlColorBlock(Color[playerColor], 0.75, 1.33)
     self.UI.setAttribute("handColorSelect", "colors", colorBlock)
     updateSave()
+
+    -- update the mini card border
+    maybeDrawBorderAroundMinicard()
   end)
 end
 
@@ -1660,6 +1663,8 @@ function maybeUpdateActiveInvestigator(card, md)
     md.agilityIcons
   })
 
+  maybeDrawBorderAroundMinicard()
+
   -- small delay to allow other objects to finish colliding
   Wait.time(updateTexture, 0.3)
 
@@ -1713,6 +1718,20 @@ function maybeUpdateActiveInvestigator(card, md)
         local globalSpawnPos = self.positionToWorld(localSpawnPos):add(Vector(0, 0.2, 0))
         callbackParams.symbol = str
         TokenManagerApi.spawnToken(globalSpawnPos, tokenType, rotation, callbackName, callbackParams)
+      end
+    end
+  end
+end
+
+function maybeDrawBorderAroundMinicard()
+  if not GlobalApi.getOptionPanelState().highlightMinicards then return end
+
+  for _, minicard in ipairs(getObjectsWithTag("Minicard")) do
+    if minicard.type == "Card" then
+      local miniMd = JSON.decode(minicard.getGMNotes()) or {}
+      if miniMd.type == "Minicard" and miniMd.id == activeInvestigatorData.miniId then
+        GlobalApi.drawBorderAroundCard(minicard, playerColor, 0.15)
+        break
       end
     end
   end
