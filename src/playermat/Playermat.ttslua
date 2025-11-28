@@ -551,7 +551,7 @@ function doUpkeep(_, clickedByColor, isRightClick)
   end
 
   -- flip investigator mini-card and summoned servitor mini-card
-  for _, obj in ipairs(getObjects()) do
+  for _, obj in ipairs(getObjectsWithTag("Minicard")) do
     if obj.type == "Card" and obj.is_face_down then
       local md = JSON.decode(obj.getGMNotes()) or {}
       if md.type == "Minicard" and (md.id == activeInvestigatorData.miniId or md.id == "09080-m") then
@@ -1267,6 +1267,9 @@ function onClick_handColorSelect(player)
     local colorBlock = ColorLib.getXmlColorBlock(Color[playerColor], 0.75, 1.33)
     self.UI.setAttribute("handColorSelect", "colors", colorBlock)
     updateSave()
+
+    -- update the mini card border
+    maybeDrawBorderAroundMinicard()
   end)
 end
 
@@ -1427,16 +1430,8 @@ function onEndEdit_exhaustRotation(player, text)
   end
 end
 
-function getResourceCounterOption()
-  return optionPanelData["useResourceCounters"]
-end
-
-function getResourceImageOption()
-  return optionPanelData["useCustomResourceImages"]
-end
-
-function getTokenSplashOption()
-  return optionPanelData["showTokenSplash"]
+function getOptionPanelSetting(setting)
+  return optionPanelData[setting]
 end
 
 function getExhaustRotation(convertToGlobal)
@@ -1660,13 +1655,15 @@ function maybeUpdateActiveInvestigator(card, md)
   -- extract relevant data from the metadata
   activeInvestigatorData.class = md.class
   activeInvestigatorData.id = md.id
-  activeInvestigatorData.miniId = getMiniId(md.id)
+  activeInvestigatorData.miniId = GlobalApi.getMiniId(md.id)
   ownedObjects.InvestigatorSkillTracker.call("updateStats", {
     md.willpowerIcons,
     md.intellectIcons,
     md.combatIcons,
     md.agilityIcons
   })
+
+  maybeDrawBorderAroundMinicard()
 
   -- small delay to allow other objects to finish colliding
   Wait.time(updateTexture, 0.3)
@@ -1721,6 +1718,20 @@ function maybeUpdateActiveInvestigator(card, md)
         local globalSpawnPos = self.positionToWorld(localSpawnPos):add(Vector(0, 0.2, 0))
         callbackParams.symbol = str
         TokenManagerApi.spawnToken(globalSpawnPos, tokenType, rotation, callbackName, callbackParams)
+      end
+    end
+  end
+end
+
+function maybeDrawBorderAroundMinicard()
+  if not GlobalApi.getOptionPanelState().highlightMinicards then return end
+
+  for _, minicard in ipairs(getObjectsWithTag("Minicard")) do
+    if minicard.type == "Card" then
+      local miniMd = JSON.decode(minicard.getGMNotes()) or {}
+      if miniMd.type == "Minicard" and miniMd.id == activeInvestigatorData.miniId then
+        GlobalApi.drawBorderAroundCard(minicard, playerColor, 0.15)
+        break
       end
     end
   end
@@ -1799,17 +1810,6 @@ function spawnInfiniteTokenBag(tokenType)
   GUIDReferenceApi.editIndex(matColor, "InvestigatorSpecifics", spawnedObj.getGUID())
 end
 
--- returns the mini ID for the currently placed investigator
-function getMiniId(baseId)
-  if #baseId < 16 then
-    -- use the first 5 characters to exclude suffixes
-    return string.match(baseId, ".....") .. "-m"
-  else
-    -- use the full ID (long -> assume it's from Zoop)
-    return baseId .. "-m"
-  end
-end
-
 -- updates the texture of the playermat
 ---@param overrideName? string Force a specific texture
 function updateTexture(overrideName)
@@ -1884,16 +1884,6 @@ end
 ---@return number: Counter value
 function getCounterValue(type)
   return ownedObjects[type].getVar("val")
-end
-
--- set investigator skill tracker to "1, 1, 1, 1"
-function resetSkillTracker()
-  local obj = ownedObjects.InvestigatorSkillTracker
-  if obj ~= nil then
-    obj.call("updateStats", { 1, 1, 1, 1 })
-  else
-    printToAll("Skill tracker for " .. matColor .. " playermat could not be found.", "Yellow")
-  end
 end
 
 function activateTransformEffect()

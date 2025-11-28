@@ -1,3 +1,6 @@
+local MythosAreaApi = require("mythos/MythosAreaApi")
+local EffectWatcherApi = require("playarea/EffectWatcherApi")
+
 local PHASE_NAMES = {
   "I. Mythos Phase",
   "II. Investigation Phase",
@@ -14,7 +17,9 @@ local PHASE_IMAGES = {
 function onSave()
   return JSON.encode({
     phaseId = phaseId,
-    broadcastChange = broadcastChange
+    broadcastChange = broadcastChange,
+    broadcastChangeVerbosity = broadcastChangeVerbosity,
+    pingAndLookAtPhase = pingAndLookAtPhase
   })
 end
 
@@ -30,6 +35,8 @@ function onLoad(savedData)
   else
     phaseId = 1
     broadcastChange = false
+    broadcastChangeVerbosity = false
+    pingAndLookAtPhase = false
   end
 
   self.createButton({
@@ -41,10 +48,16 @@ function onLoad(savedData)
     color          = { r = 0, g = 0, b = 0, a = 0 }
   })
 
-  self.addContextMenuItem("Toggle Broadcasting", updateBroadcast)
+  self.addContextMenuItem("Toggle Broadcasting", toggleBroadcast)
+  self.addContextMenuItem("Toggle Verbosity", toggleBroadcastVerbosity)
+  self.addContextMenuItem("Toggle Ping and Look", togglePing)
+
 end
 
-function updateBroadcast(playerColor)
+-- Context menu functions
+
+function toggleBroadcast(playerColor)
+  -- Changes (toggles) the if the phase changes are broadcast or not
   Player[playerColor].clearSelectedObjects()
   for _, tracker in ipairs(getObjectsWithTag("LinkedPhaseTracker")) do
     tracker.setVar("broadcastChange", not broadcastChange)
@@ -52,7 +65,28 @@ function updateBroadcast(playerColor)
   broadcastToAll("Broadcasting phase changes has been " .. (broadcastChange and "enabled." or "disabled."))
 end
 
-function changeState(_, _, isRightClick)
+function toggleBroadcastVerbosity(playerColor)
+  -- Changes (toggles) the if the phase changes are broadcast with a lot of verbosity or not
+  Player[playerColor].clearSelectedObjects()
+  for _, tracker in ipairs(getObjectsWithTag("LinkedPhaseTracker")) do
+    tracker.setVar("broadcastChangeVerbosity", not broadcastChangeVerbosity) -- Toggle  → Set the opposite
+  end
+  broadcastToAll("Broadcasting phase changes in (Verbosity mode) has been " ..
+    (broadcastChangeVerbosity and "enabled." or "disabled."))
+end
+
+function togglePing(playerColor)
+  Player[playerColor].clearSelectedObjects()
+  for _, tracker in ipairs(getObjectsWithTag("LinkedPhaseTracker")) do
+    tracker.setVar("pingAndLookAtPhase", not pingAndLookAtPhase)
+  end
+  broadcastToAll("Pinging and moving camera when changing phase has been " ..
+    (broadcastChangeVerbosity and "enabled" or "disabled") .. '.')
+end
+
+-- Functions that run when changing phase
+
+function changeState(_, playerColor, isRightClick)
   -- get newId for all trackers
   local newId = phaseId + (isRightClick and -1 or 1)
   if newId == 0 then
@@ -62,27 +96,104 @@ function changeState(_, _, isRightClick)
   end
 
   -- broadcast if option is enabled
-  if broadcastChange then
+  if broadcastChange and not broadcastChangeVerbosity then
     broadcastToAll(PHASE_NAMES[newId])
+  elseif broadcastChangeVerbosity then
+    expressChangeWithVerbosity(newId)
   end
-
-  -- manipulate data and then respawn
+  
+  -- move camera if enabled
+  if pingAndLookAtPhase and newId == 1 then
+      pingAndMoveCameraInMythosPhase(playerColor)
+  elseif pingAndLookAtPhase and newId == 2 then
+    pingAndMoveCameraPlayerMiniCards(playerColor)
+  elseif pingAndLookAtPhase and newId == 3 then
+    moveToSingleMonster(playerColor, EffectWatcherApi.getSingleEnemy())
+  end
+  
+  -- update all trackers with newId
   local data = self.getData()
   data["CustomImage"]["ImageURL"] = PHASE_IMAGES[newId]
   data["CustomImage"]["ImageSecondaryURL"] = PHASE_IMAGES[newId]
-  data["LuaScriptState"] = "{\"broadcastChange\":" .. tostring(broadcastChange) .. ",\"phaseId\":" .. newId .. "}"
+  data["LuaScriptState"] = "{\"broadcastChange\":" ..
+      tostring(broadcastChange) ..
+      ",\"phaseId\":" .. newId ..
+      ",\"broadcastChangeVerbosity\":" ..
+      tostring(broadcastChangeVerbosity) ..
+      ",\"pingAndLookAtPhase\":" ..
+      tostring(pingAndLookAtPhase) ..
+      "}"
 
   -- update all trackers with tag
-  for _, tracker in ipairs(getObjectsWithTag("LinkedPhaseTracker")) do
+  for i, tracker in ipairs(getObjectsWithTag("LinkedPhaseTracker")) do
     local pos = tracker.getPosition()
     local rot = tracker.getRotation()
     local scale = tracker.getScale()
     tracker.destruct()
-    spawnObjectData({
+    spawnObjectData({ 
       data     = data,
       position = pos,
       rotation = rot,
       scale    = scale
     })
   end
+end
+
+function expressChangeWithVerbosity(newId)
+  -- This function shows every change in the Phase tracker
+  local ColorMythos = { r = 1, g = 0, b = 0 }
+  local ColorInvestigation = { r = 1, g = 1, b = 0.8 }
+  local ColorEnemy = { r = 0, g = 1, b = 0.75 }
+  local ColorUpkeep = { r = 0.95, g = 1, b = 0.8 }
+
+  if newId == 1 then
+    printToAll('End of the round', ColorUpkeep)
+    printToAll("-------", ColorUpkeep)
+    broadcastToAll('Mythos Phase', ColorMythos)
+  elseif newId == 2 then
+    printToAll('End of Mythos Phase', { r = 1, g = 0, b = 0 })
+    broadcastToAll('Investigation Phase.', ColorInvestigation)
+    EffectWatcherApi.showHandResourceInfo()
+  elseif newId == 3 then
+    printToAll('End of Investigation Phase', ColorInvestigation)
+    EffectWatcherApi.showEnemyInfo(ColorEnemy)
+    broadcastToAll('Enemy Phase.', ColorEnemy)
+  elseif newId == 4 then
+    printToAll('End of Enemy Phase', ColorEnemy)
+    broadcastToAll('Upkeep Phase.', ColorUpkeep)
+  end
+end
+
+function pingAndMoveCameraInMythosPhase(playerColor)
+  local pl = Player[playerColor]
+  local agenda_pos = MythosAreaApi.getAgendaPosition() or nil
+  if agenda_pos then
+    pl.pingTable(agenda_pos)
+    pl.lookAt({ position = agenda_pos, pitch = 90, yaw = 90, distance = 50 })
+    return
+  end
+end
+
+function pingAndMoveCameraPlayerMiniCards(playerColor)
+  -- Pings the Minicards and moves the camera to one of them
+  local all = getObjects()
+  local pl = Player[playerColor]
+  found = 0
+  for _, obj in ipairs(all) do
+    if obj.type == 'Card' then
+      if string.find(obj.getGMNotes(), 'Minicard') or obj.hasTag('Minicard') then
+        pos = obj.getPosition()
+        pl.pingTable(pos)
+        found = found + 1
+        if found == 1 then pl.lookAt({ position = pos, pitch = 90, yaw = 90, distance = 30 }) end -- Look at one of them
+      end
+    end
+  end
+end
+
+function moveToSingleMonster(playerColor, monster)
+  if not monster then return end
+  pos = monster.getPosition()
+  local pl = Player[playerColor]
+  pl.lookAt({ position = pos, pitch = 90, yaw = 90, distance = 40 })
 end

@@ -1,0 +1,204 @@
+-- FIND ENEMIES: Cards that are enemies only only when face-down
+-- Here we list them by their id in the metadata
+-- These cases are explicitly defined here because they are not in the metadata
+
+FaceDownEnemies             = { -- Some enemies are Agenda or Act cards that are Enemies in the metadata
+    ['04137a'] = true,    -- Maria DeSilva
+    ['04122'] = true,     -- Harlan Earstone
+    ['04130a'] = true,    -- The other guy
+    ['04209'] = true,     -- The Winged serpent
+}
+AgendaFacedownEnemies       = { -- Some enemies are Agenda or Act cards
+    ["03241"] = true,     -- Empire of the Dead
+    ['01121a'] = true,    -- The Masked Hunter
+    ['50026a'] = true,    -- Nagorath   
+    ['11537a'] = true,    -- Seafloor Leviathan
+}
+
+local PlayermatApi    = require("playermat/PlayermatApi")
+local SearchLib             = require("util/SearchLib")
+local zones                 = require("playermat/Zones")
+
+-- General functions
+
+function onLoad(savedData)
+    self.interactable = false
+end
+
+function showEnemyInfo(colorPrint)
+    -- This function shows how many enemies are in play area and threat areas
+    -- Retrieve objects
+    local enemiesInPlayArea = getEnemiesInPlayArea()
+    local matColors = Player.getAvailableColors()
+    local enemiesInThreatArea = {}
+    for _, matColor in ipairs(matColors) do
+        local adding = getEnemiesInThreatArea(matColor)
+        for _, element in ipairs(adding) do table.insert(enemiesInThreatArea, element) end
+    end
+
+    local num = #enemiesInPlayArea
+    if num > 1 then
+        printToAll('There are ' .. tostring(num) .. ' enemies in the map', colorPrint)
+    elseif num == 1 then
+        printToAll('There is ' .. tostring(num) .. ' enemy in the map', colorPrint)
+    end
+    highlightObjects(enemiesInPlayArea, colorPrint, 5)
+    local num = #enemiesInThreatArea
+    if num > 1 then
+        printToAll('There are ' .. tostring(num) .. ' enemies engaged', colorPrint)
+    elseif num == 1 then
+        printToAll('There is ' .. tostring(num) .. ' enemy engaged', colorPrint)
+    end
+    highlightObjects(enemiesInPlayArea, colorPrint, 5)
+end
+
+function showHandResourceInfo()
+    local COLORS = { White = Color.White, Orange = Color.Orange, Green = Color.Green, Red = Color.Red }
+    -- It iterates all players, -- The mod makes shure the number of players is the same as the number of mats
+    local playerColors = Player.getAvailableColors()
+    for _, playerColor in ipairs(playerColors) do
+        local color = COLORS[playerColor] or { 1, 1, 1 }
+        local player = Player[playerColor] or nil
+        local matColor = PlayermatApi.getMatColor(playerColor) or nil
+        local cards = player.getHandObjects(1)
+        local num = #cards
+        local resources = PlayermatApi.getCounterValue(matColor, "ResourceCounter")
+        local investigator = PlayermatApi.getInvestigatorName(matColor)
+        if investigator == "" then investigator = playerColor end -- maybe the inv-card is not well placed, or they are testing
+        printToAll(investigator .. ' has ' .. num .. ' cards in hand and ' .. resources .. ' resources.', color)
+    end
+end
+
+-- threat area helper
+
+function getThreatAreaPositions(matColor)
+    -- Returns a table with Vectors
+    local positions = {}
+
+    for i = 1, 4 do
+        local position = zones.getZonePosition(matColor, "Threat" .. i)
+        table.insert(positions, position)
+    end
+
+    return positions
+end
+
+function getThreatAreaObjects(matColor)
+    -- Returns a table of objects
+    local objects = {}
+    for _, pos in ipairs(getThreatAreaPositions(matColor)) do
+        local thisObj = SearchLib.atPosition(pos, "isCardOrDeck")
+        if #thisObj > 0 then
+            table.insert(objects, thisObj[1])
+        end
+    end
+    return objects
+end
+
+function getEnemiesInThreatArea(matColor)
+    -- returns a table of objects
+    -- only enemies that are face up (some custom scenarios can make you draw facedown enemies)
+    local enemies = {}
+    if matColor == 'All' then
+        local colors = Player.getAvailableColors()
+    else
+        local colors = { matColor }
+    end
+
+    local colors = (matColor == 'All') and Player.getAvailableColors() or { matColor }
+    for _, color in ipairs(colors) do
+        local threats = getThreatAreaObjects(color)
+        for _, obj in ipairs(threats) do
+            if isVisibleEnemy(obj) then table.insert(enemies, obj) end
+        end
+    end
+    return enemies
+end
+
+function getSingleEnemy()
+    -- If there is only one enemy in play area, return it
+    local enemies = getEnemiesInPlayArea()
+    if #enemies == 1 then
+        return enemies[1]
+    end
+    return nil
+end
+
+
+-- PlayArea helper
+
+function scanPlayArea()
+    -- Returns all objects in the PlayArea (the central zone)
+    local zoneGUID = "a2f932"
+    local zone = getObjectFromGUID(zoneGUID)
+
+    if not zone then
+        log("Zone not found (GUID " .. zoneGUID .. ")")
+        return
+    end
+
+    if zone.tag ~= "Scripting" then
+        log("Object is not a ScriptingTrigger zone. Tag: " .. zone.tag)
+        return
+    end
+
+    -- Obtener los objetos dentro de la zona
+    local objs = zone.getObjects()
+    return objs
+end
+
+function getEnemiesInPlayArea()
+    -- returns a table of objects
+    local enemies = {}
+    local objs = scanPlayArea()
+    for _, obj in ipairs(objs) do
+        if isVisibleEnemy(obj) then
+            table.insert(enemies, obj)
+        end
+    end
+    return enemies
+end
+
+
+-- Identify card wisely
+
+function isVisibleEnemy(obj)
+    -- Receives an object, takes its metadata and checks if it's an faceup or visible enemy
+    -- This is a long function, because it checks the type of the card
+    -- And if its visible, and there are many strange combinations
+    -- Returns boolean
+    local rawNotes = obj.getGMNotes() or "{}"
+    local md = JSON.decode(rawNotes) or {}
+    local type = md['type'] or ''
+    if type == 'Location' then
+        -- most objects in the playarea are objects, the fastest is to say false immediately
+        return false
+    elseif type == 'Enemy' and not obj.is_face_down then
+        return true
+    elseif type == 'Enemy' and obj.is_face_down then
+        local id = md['id'] or ''
+        if FaceDownEnemies[id] then return true end
+        return false
+    elseif type == 'Agenda' and obj.is_face_down then
+        local id = md['id'] or ''
+        local isSpecial = AgendaFacedownEnemies[id] or false
+        log(id .. ' is special agenda facedown enemy: ' .. tostring(isSpecial))
+        if isSpecial then return true end
+    elseif type == 'Agenda' and not obj.is_face_down then
+        return false
+    elseif type == 'Act' then
+        return false
+    end
+
+    return false
+end
+
+-- Generic
+
+function highlightObjects(objects, color, duration)
+    for _, obj in ipairs(objects) do
+        obj.highlightOn(color, duration)
+    end
+end
+
+
