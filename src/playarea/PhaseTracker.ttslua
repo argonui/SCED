@@ -1,5 +1,5 @@
 local MythosAreaApi = require("mythos/MythosAreaApi")
-local EffectWatcherApi = require("playarea/EffectWatcherApi")
+local EffectWatcherApi = require("mythos/EffectWatcherApi")
 
 local PHASE_NAMES = {
   "I. Mythos Phase",
@@ -103,12 +103,14 @@ function changeState(_, playerColor, isRightClick)
   end
   
   -- move camera if enabled
-  if pingAndLookAtPhase and newId == 1 then
+  if pingAndLookAtPhase then
+    if newId == 1 then
       pingAndMoveCameraInMythosPhase(playerColor)
-  elseif pingAndLookAtPhase and newId == 2 then
-    pingAndMoveCameraPlayerMiniCards(playerColor)
-  elseif pingAndLookAtPhase and newId == 3 then
-    moveToSingleMonster(playerColor, EffectWatcherApi.getSingleEnemy())
+    elseif newId == 2 then
+      pingAndMoveCameraPlayerMiniCards(playerColor)
+    elseif newId == 3 then
+      moveCameraToElement(playerColor, EffectWatcherApi.getSingleEnemy())
+    end
   end
   
   -- update all trackers with newId
@@ -130,7 +132,7 @@ function changeState(_, playerColor, isRightClick)
     local rot = tracker.getRotation()
     local scale = tracker.getScale()
     tracker.destruct()
-    spawnObjectData({ 
+    spawnObjectData({
       data     = data,
       position = pos,
       rotation = rot,
@@ -176,24 +178,16 @@ end
 
 function pingAndMoveCameraPlayerMiniCards(playerColor)
   -- Pings the Minicards and moves the camera to one of them
-  local all = getObjects()
+  local minis = EffectWatcherApi.getMinicardsInPlayArea()
   local pl = Player[playerColor]
-  found = 0
-  for _, obj in ipairs(all) do
-    if obj.type == 'Card' then
-      if string.find(obj.getGMNotes(), 'Minicard') or obj.hasTag('Minicard') then
-        pos = obj.getPosition()
-        pl.pingTable(pos)
-        found = found + 1
-        if found == 1 then pl.lookAt({ position = pos, pitch = 90, yaw = 90, distance = 30 }) end -- Look at one of them
-      end
-    end
+  if #minis > 0 then
+    moveCameraToElement(playerColor, minis[1])
   end
 end
 
-function moveToSingleMonster(playerColor, monster)
-  if not monster then return end
-  pos = monster.getPosition()
+function moveCameraToElement(playerColor, object)
+  if not object then return end
+  local pos = object.getPosition()
   local pl = Player[playerColor]
   pl.lookAt({ position = pos, pitch = 90, yaw = 90, distance = 40 })
 end
