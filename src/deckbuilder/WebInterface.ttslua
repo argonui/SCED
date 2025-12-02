@@ -242,25 +242,41 @@ do
 
   -- Check the deck for cards on its taboo list. If they're found, replace the entry in the slot with the Taboo id (i.e. "XXXX" becomes "XXXX-t")
   ---@param tabooId string The deck's taboo ID, taken from the deck response taboo_id field. May be nil, indicating that no taboo list should be used
-  local function checkTaboos(tabooId, slots, playerColor)
-    if tabooId and tabooList[tabooId] then
-      for cardId, _ in pairs(tabooList[tabooId].cards) do
-        if slots[cardId] ~= nil then
-          -- Make sure there's a taboo version of the card before we replace it
-          -- SCED only maintains the most recent taboo cards. If a deck is using
-          -- an older taboo list it's possible the card isn't a taboo any more
-          local tabooCard = AllCardsBagApi.getCardById(cardId .. "-t")
-          if tabooCard == nil then
-            local cardName = AllCardsBagApi.getCardById(cardId).data.Nickname
-            maybePrint("Taboo version for " .. cardName .. " is not available. Using standard version",
-              playerColor)
-          else
-            slots[cardId .. "-t"] = slots[cardId]
-            slots[cardId] = nil
-          end
+  local function checkTaboos(tabooId, slots, deckMeta, playerColor)
+    if not tabooId or not tabooList[tabooId] then return end
+
+    -- handle regular deck
+    for cardId, _ in pairs(tabooList[tabooId].cards) do
+      if slots[cardId] ~= nil then
+        -- Make sure there's a taboo version of the card before we replace it
+        -- SCED only maintains the most recent taboo cards. If a deck is using
+        -- an older taboo list it's possible the card isn't a taboo any more
+        local tabooCard = AllCardsBagApi.getCardById(cardId .. "-t")
+        if tabooCard == nil then
+          local cardName = AllCardsBagApi.getCardById(cardId).data.Nickname
+          maybePrint("Taboo version for " .. cardName .. " is not available. Using standard version", playerColor)
+        else
+          slots[cardId .. "-t"] = slots[cardId]
+          slots[cardId] = nil
         end
       end
     end
+
+    -- handle extraDeck (parallel Jim)
+    if not deckMeta.extra_deck then return end
+
+    local cardList = {}
+    for cardId in string.gmatch(deckMeta.extra_deck, "([^,]+)") do -- split by ","
+      local tabooCard = AllCardsBagApi.getCardById(cardId .. "-t")
+      if tabooCard == nil then
+        table.insert(cardList, cardId .. "-t")
+      else
+        table.insert(cardList, cardId)
+      end
+    end
+
+    -- write the card list back to the deckMeta field
+    deckMeta.extra_deck = table.concat(cardList, ",")
   end
 
   -- Callback when the deck information is received from WebInterface. Parses the
@@ -371,7 +387,7 @@ do
     maybeAddOnTheMend(slots, playerColor)
     maybeAddRealityAcidReference(slots)
     local bondList = extractBondedCards(slots)
-    checkTaboos(deck.taboo_id, slots, playerColor)
+    checkTaboos(deck.taboo_id, slots, deckMeta, playerColor)
     maybeAddUpgradeSheets(slots)
 
     callback(slots, deck.investigator_code, bondList, deckMeta, playerColor, loadAltInvestigator)
