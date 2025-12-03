@@ -9,7 +9,7 @@ import pyautogui
 import pygetwindow
 
 GAME_NAME = "ArkhamSCE"
-
+HOTKEY = "f13"
 
 def get_current_git_branch():
     try:
@@ -130,8 +130,8 @@ def main():
 
                 time.sleep(0.65)  # Give the OS time to switch focus
 
-                # Requires setup in TTS (Autoexec.cfg: bind f13 load ArkhamSCE)
-                pyautogui.hotkey("f13")
+                # Requires setup in TTS (Example Autoexec.cfg: bind f13 load ArkhamSCE)
+                pyautogui.hotkey(HOTKEY)
                 break  # Found the exact window, so stop searching
 
 
