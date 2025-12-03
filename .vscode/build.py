@@ -128,7 +128,7 @@ def main():
                     window.minimize()
                     window.restore()
 
-                time.sleep(0.65)  # Give the OS time to switch focus
+                time.sleep(0.5)  # Give the OS time to switch focus
 
                 # Requires setup in TTS (Example Autoexec.cfg: bind f13 load ArkhamSCE)
                 pyautogui.hotkey(HOTKEY)
