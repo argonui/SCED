@@ -116,8 +116,6 @@ def main():
 
     # Attempt to load the created savegame in TTS
     if args.action == "build":
-        time.sleep(0.3)  # Make sure build file is saved
-
         target_title = "Tabletop Simulator"
         for window in pygetwindow.getWindowsWithTitle(target_title):
             # Check if the title is an EXACT match
@@ -129,7 +127,8 @@ def main():
                     # This bypasses the Windows focus restriction
                     window.minimize()
                     window.restore()
-                time.sleep(0.3)  # Give the OS time to switch focus
+
+                time.sleep(0.65)  # Give the OS time to switch focus
 
                 # Requires setup in TTS (Autoexec.cfg: bind f13 load ArkhamSCE)
                 pyautogui.hotkey("f13")
