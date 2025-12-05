@@ -9,7 +9,7 @@ import pyautogui
 import pygetwindow
 
 GAME_NAME = "ArkhamSCE"
-
+HOTKEY = "f13"
 
 def get_current_git_branch():
     try:
@@ -65,7 +65,7 @@ def main():
     start_time = time.time()
     start_time_formatted = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    parser = argparse.ArgumentParser(description=f"VS Code build script for {GAME_NAME}")
+    parser = argparse.ArgumentParser(description="VS Code build script for " + GAME_NAME)
     parser.add_argument(
         "--action",
         required=True,
@@ -115,17 +115,24 @@ def main():
     print(f"Execution took {elapsed_time:.2f} seconds.")
 
     # Attempt to load the created savegame in TTS
-    if args.action != "decompose":
+    if args.action == "build":
         target_title = "Tabletop Simulator"
         for window in pygetwindow.getWindowsWithTitle(target_title):
             # Check if the title is an EXACT match
             if window.title == target_title:
-                window.activate()
+                try:
+                    window.activate()
+                except pygetwindow.PyGetWindowException:
+                    # If direct activation fails, toggle the window state
+                    # This bypasses the Windows focus restriction
+                    window.minimize()
+                    window.restore()
+
                 time.sleep(0.5)  # Give the OS time to switch focus
 
-                # Requires setup in TTS (Autoexec.cfg: bind f13 load ArkhamSCE)
-                pyautogui.hotkey("f13")
-                break # Found the exact window, so stop searching
+                # Requires setup in TTS (Example Autoexec.cfg: bind f13 load ArkhamSCE)
+                pyautogui.hotkey(HOTKEY)
+                break  # Found the exact window, so stop searching
 
 
 if __name__ == "__main__":
