@@ -6,14 +6,21 @@ local explanationSent = false
 -- Track the matColor of the linked mat
 local linkedMatColor
 
+-- Flag to allow disabling use spawning
+local spawnUses       = true
+
 function updateSave()
-  return JSON.encode({ linkedMatColor = linkedMatColor })
+  return JSON.encode({ linkedMatColor = linkedMatColor, spawnUses = spawnUses })
 end
 
 function onLoad(savedData)
   if savedData and savedData ~= "" then
     local loadedData = JSON.decode(savedData)
     linkedMatColor = loadedData.linkedMatColor
+
+    if loadedData.spawnUses ~= nil then
+      spawnUses = loadedData.spawnUses
+    end
   end
 
   -- Add the context menu entry to manually link
@@ -31,6 +38,13 @@ function onLoad(savedData)
     end
 
     performLink(playerColor, matColor)
+  end)
+
+  -- Add the context menu entry to toggle use spawning
+  self.addContextMenuItem("Toggle use spawning", function(playerColor)
+    spawnUses = not spawnUses
+    local str = spawnUses and "en" or "dis"
+    printToColor("Use spawning has been " .. str .. "abled.", playerColor)
   end)
 end
 
@@ -62,7 +76,7 @@ end
 
 -- Forward card collisions to the playermat
 function onCollisionEnter(collisionInfo)
-  if collisionInfo.collision_object.type ~= "Card" then return end
+  if not spawnUses or collisionInfo.collision_object.type ~= "Card" then return end
 
   -- Small hack: we are adding this property to the table to indicate that it should spawn uses
   collisionInfo.isOnExtension = true
