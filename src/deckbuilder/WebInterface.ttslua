@@ -29,6 +29,18 @@ do
     return str:gsub("\\u(%w%w%w%w)", function(match) return string.char(tonumber(match, 16)) end)
   end
 
+  local function determineInvestigatorType(id)
+    if not id or type(id) ~= "number" then return "normal" end
+    if id > 90000 and id < 90100 then
+      return "parallel"
+    elseif id > 01500 and id < 01506 then
+      return "revised"
+    elseif id > 98000 then
+      return "promo"
+    end
+    return "normal"
+  end
+
   -- If the slot list contains the RANDOM_WEAKNESS_ID, this replaces it with the ID of a RBW provided by the AllCardsBag
   ---@param restrictions table Additional restrictions:
   ---  class string Class to restrict weakness to
@@ -62,25 +74,12 @@ do
     if deckMeta ~= nil then
       local altFrontId = tonumber(deckMeta.alternate_front) or tonumber(deck.investigator_code)
       local altBackId  = tonumber(deckMeta.alternate_back) or tonumber(deck.investigator_code)
-      local altArt     = { front = "normal", back = "normal" }
 
-      -- translating front ID
-      if altFrontId > 90000 and altFrontId < 90100 then
-        altArt.front = "parallel"
-      elseif altFrontId > 01500 and altFrontId < 01506 then
-        altArt.front = "revised"
-      elseif altFrontId > 98000 then
-        altArt.front = "promo"
-      end
-
-      -- translating back ID
-      if altBackId > 90000 and altBackId < 90100 then
-        altArt.back = "parallel"
-      elseif altBackId > 01500 and altBackId < 01506 then
-        altArt.back = "revised"
-      elseif altBackId > 98000 then
-        altArt.back = "promo"
-      end
+      -- translate IDs
+      local altArt     = {
+        front = determineInvestigatorType(altFrontId),
+        back = determineInvestigatorType(altBackId)
+      }
 
       -- updating investigatorID based on alt investigator selection (parallel > promo > revised)
       if altArt.front == "parallel" then
