@@ -1,4 +1,7 @@
-local PHASE_NAMES = {
+local GlobalApi    = require("Global/GlobalApi")
+local PlayermatApi = require("playermat/PlayermatApi")
+
+local PHASE_NAMES  = {
   "I. Mythos Phase",
   "II. Investigation Phase",
   "III. Enemy Phase",
@@ -12,9 +15,14 @@ local PHASE_IMAGES = {
 }
 
 function onSave()
+  return getSaveData()
+end
+
+function getSaveData()
   return JSON.encode({
-    phaseId = phaseId,
-    broadcastChange = broadcastChange
+    phaseId         = phaseId,
+    broadcastChange = broadcastChange,
+    moreDetails     = moreDetails
   })
 end
 
@@ -28,8 +36,9 @@ function onLoad(savedData)
   if savedData and savedData ~= "" then
     loadFromSaveTable(savedData)
   else
-    phaseId = 1
+    phaseId         = 1
     broadcastChange = false
+    moreDetails     = false
   end
 
   self.createButton({
@@ -42,6 +51,7 @@ function onLoad(savedData)
   })
 
   self.addContextMenuItem("Toggle Broadcasting", updateBroadcast)
+  self.addContextMenuItem("Toggle Level of Detail", updateDetails)
 end
 
 function updateBroadcast(playerColor)
@@ -52,37 +62,54 @@ function updateBroadcast(playerColor)
   broadcastToAll("Broadcasting phase changes has been " .. (broadcastChange and "enabled." or "disabled."))
 end
 
+function updateDetails(playerColor)
+  Player[playerColor].clearSelectedObjects()
+  for _, tracker in ipairs(getObjectsWithTag("LinkedPhaseTracker")) do
+    tracker.setVar("moreDetails", not moreDetails)
+  end
+  broadcastToAll("'Showing more details' has been " .. (moreDetails and "enabled." or "disabled."))
+end
+
 function changeState(_, _, isRightClick)
   -- get newId for all trackers
-  local newId = phaseId + (isRightClick and -1 or 1)
-  if newId == 0 then
-    newId = 4
-  elseif newId == 5 then
-    newId = 1
-  end
+  local newId = (phaseId + (isRightClick and -1 or 1) - 1) % 4 + 1
 
   -- broadcast if option is enabled
   if broadcastChange then
     broadcastToAll(PHASE_NAMES[newId])
+    if moreDetails then
+      if newId == 2 then
+        for matColor, card in pairs(PlayermatApi.getUsedInvestigatorCards()) do
+          local playerColor   = PlayermatApi.getPlayerColor(matColor)
+          local cardCount     = #Player[playerColor].getHandObjects()
+          local resourceCount = PlayermatApi.getCounterValue(matColor, "ResourceCounter")
+
+          -- Outputs a string like: "Chr1Z has 3 cards and 1 resource.""
+          local strings       = {
+            GlobalApi.getColoredName(playerColor),
+            "has",
+            cardCount,
+            "card" .. (cardCount == 1 and "" or "s"),
+            "and",
+            resourceCount,
+            "resource" .. (resourceCount == 1 and "" or "s") .. "."
+          }
+          printToAll(table.concat(strings, " "))
+        end
+      end
+    end
   end
 
   -- manipulate data and then respawn
-  local data = self.getData()
-  data["CustomImage"]["ImageURL"] = PHASE_IMAGES[newId]
-  data["CustomImage"]["ImageSecondaryURL"] = PHASE_IMAGES[newId]
-  data["LuaScriptState"] = "{\"broadcastChange\":" .. tostring(broadcastChange) .. ",\"phaseId\":" .. newId .. "}"
+  local saveData = getSaveData()
 
   -- update all trackers with tag
   for _, tracker in ipairs(getObjectsWithTag("LinkedPhaseTracker")) do
-    local pos = tracker.getPosition()
-    local rot = tracker.getRotation()
-    local scale = tracker.getScale()
+    local data = tracker.getData()
+    data["CustomImage"]["ImageURL"] = PHASE_IMAGES[newId]
+    data["LuaScriptState"] = saveData
+
     tracker.destruct()
-    spawnObjectData({
-      data     = data,
-      position = pos,
-      rotation = rot,
-      scale    = scale
-    })
+    spawnObjectData({ data = data })
   end
 end
