@@ -14,27 +14,32 @@ do
   -- performs the actual search and returns a filtered list of object references
   ---@param pos tts__Vector Global position
   ---@param rot? tts__Vector Global rotation
-  ---@param size table Size
-  ---@param filter? string Name of the filter function
+  ---@param size? table Size
+  ---@param filter? string|function Name of the filter function or custom filter function
   ---@param direction? table Direction (positive is up)
   ---@param maxDistance? number Distance for the cast
   ---@param debug? boolean Whether the debug boxes should be shown
   local function returnSearchResult(pos, rot, size, filter, direction, maxDistance, debug)
-    local filterFunc = filter and FILTER_FUNCTIONS[filter]
+    local filterFunc
+    if type(filter) == "string" then
+      filterFunc = FILTER_FUNCTIONS[filter]
+    elseif type(filter) == "function" then
+      filterFunc = filter
+    end
+
     local searchResult = Physics.cast({
       origin       = pos,
       direction    = direction or { 0, 1, 0 },
       orientation  = rot or { 0, 0, 0 },
       type         = 3,
-      size         = size,
+      size         = size or { 0.1, 2, 0.1 },
       max_distance = maxDistance or 0,
       debug        = debug or false
     })
 
-    -- filter the result for matching objects
     local objList = {}
     for _, v in ipairs(searchResult) do
-      if (not filter or filterFunc(v.hit_object)) then
+      if (not filterFunc or filterFunc(v.hit_object)) then
         table.insert(objList, v.hit_object)
       end
     end
@@ -48,33 +53,29 @@ do
 
   -- searches the area on an object
   function SearchLib.onObject(obj, filter, scale, debug)
-    scale      = scale or 1
     local pos  = obj.getPosition() + Vector(0, 1, 0) -- offset by half the cast's height
-    local size = obj.getBounds().size:scale(scale):setAt("y", 2)
+    local size = obj.getBounds().size:scale(scale or 1):setAt("y", 2)
     return returnSearchResult(pos, nil, size, filter, nil, nil, debug)
   end
 
   -- searches the area directly below an object
   function SearchLib.belowObject(obj, filter, scale, debug)
-    scale        = scale or 1
     local objPos = obj.getPosition()
     local pos    = objPos + Vector(0, -objPos.y / 2, 0) -- offset by half the cast's height
-    local size   = obj.getBounds().size:scale(scale):setAt("y", objPos.y)
+    local size   = obj.getBounds().size:scale(scale or 1):setAt("y", objPos.y)
     return returnSearchResult(pos, nil, size, filter, nil, nil, debug)
   end
 
   -- searches the specified position (a single point)
   function SearchLib.atPosition(pos, filter, debug)
-    local size = { 0.1, 2, 0.1 }
-    return returnSearchResult(pos, nil, size, filter, nil, nil, debug)
+    return returnSearchResult(pos, nil, nil, filter, nil, nil, debug)
   end
 
   -- searches below the specified position (downwards until y = 0)
   function SearchLib.belowPosition(pos, filter, debug)
-    local size = { 0.1, 2, 0.1 }
     local direction = { 0, -1, 0 }
     local maxDistance = pos.y
-    return returnSearchResult(pos, nil, size, filter, direction, maxDistance, debug)
+    return returnSearchResult(pos, nil, nil, filter, direction, maxDistance, debug)
   end
 
   return SearchLib
