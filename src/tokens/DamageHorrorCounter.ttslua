@@ -25,17 +25,21 @@ function getXmlParameters()
   local tokenType = self.getMemo()
   if tokenType == "damage" then
     return {
-      size = 600,
-      posX = "10",
-      posY = "5",
-      color = "#FA2A19FC"
+      size    = 600,
+      posUp   = "10 5 6",
+      posDown = "10 5 -6",
+      rotUp   = "0 180 180",
+      rotDown = "0 0 180",
+      color   = "#FA2A19FC"
     }
   elseif tokenType == "horror" then
     return {
-      size = 600,
-      posX = "-18",
-      posY = "-5",
-      color = "#302F6DFC"
+      size    = 600,
+      posUp   = "-18 -5 6",
+      posDown = "-18 -5 -6",
+      rotUp   = "0 180 180",
+      rotDown = "0 0 180",
+      color   = "#302F6DFC"
     }
   else
     printToAll("Invalid token type")
@@ -47,38 +51,30 @@ function createXml()
   if not params then return end
 
   local uiData = getUiData()
-  local pos    = params.posX .. " " .. params.posY .. " -6"
-  local rot    = "0 0 180"
-
-  if self.is_face_down then
-    pos = params.posX .. " " .. params.posY .. " 6"
-    rot = "0 180 180"
-  end
-
   local xml = {
     {
       tag = "Button",
       attributes = {
-        id = "xmlBtn",
-        image = "circle",
-        onClick = "addOrSubtract",
+        id            = "xmlBtn",
+        image         = "circle",
+        onClick       = "addOrSubtract",
+        scale         = "0.35 0.35 1",
         rayCastTarget = uiData.rayCastTarget,
-        scale = "0.35 0.35 1",
-        colors = uiData.colors,
-        position = pos,
-        rotation = rot,
-        height = params.size,
-        width = params.size
+        colors        = uiData.colors,
+        position      = self.is_face_down and params.posUp or params.posDown,
+        rotation      = self.is_face_down and params.rotUp or params.rotDown,
+        height        = params.size,
+        width         = params.size
       },
       children = {
         {
           tag = "Text",
           attributes = {
-            id = "xmlTxt",
+            id       = "xmlTxt",
             fontSize = uiData.fontSize,
-            font = "font_arkham-numbers",
-            text = uiData.text,
-            color = "#FFFFFF"
+            font     = "font_arkham-numbers",
+            text     = uiData.text,
+            color    = "#FFFFFF"
           }
         }
       }
@@ -90,20 +86,15 @@ end
 function onRotate(_, flip, _, _, oldFlip)
   if flip == oldFlip then return end
 
-  if flip == 180 then
-    self.UI.setAttribute("xmlBtn", "position", params.posX .. " " .. params.posY .. " 6")
-    self.UI.setAttribute("xmlBtn", "rotation", "0 180 180")
-  else
-    self.UI.setAttribute("xmlBtn", "position", params.posX .. " " .. params.posY .. " -6")
-    self.UI.setAttribute("xmlBtn", "rotation", "0 0 180")
-  end
+  self.UI.setAttribute("xmlBtn", "position", (flip == 180) and params.posUp or params.posDown)
+  self.UI.setAttribute("xmlBtn", "rotation", (flip == 180) and params.rotUp or params.rotDown)
 end
 
 -- value == 1 -> no label/background (unless option is enabled)
 function getUiData()
   local uiData = {
     colors        = getColorBlock(params.color),
-    fontSize      = val < 10 and "700" or "350",
+    fontSize      = val < 10 and 700 or 350,
     rayCastTarget = GlobalApi.getOptionPanelState()["makeDamageHorrorClickable"],
     text          = val
   }
@@ -140,8 +131,7 @@ end
 
 -- modifies the value by 'mod'
 function modifyValue(mod)
-  local newVal = MathLib.clamp(val + tonumber(mod), MIN_VALUE, MAX_VALUE)
-  updateVal(newVal)
+  updateVal(val + tonumber(mod))
 end
 
 -- left-click: increase / right-click: decrease / middle-click: reset
