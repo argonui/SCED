@@ -1202,6 +1202,10 @@ function tokenSplash(matColor)
 
   local leftEdgePositionX = -containerWidth / 2
 
+  -- Load active investigator data
+  local activeInvestigatorData = PlayermatApi.getActiveInvestigatorData(matColor)
+  investigatorTokenData = activeInvestigatorData.tokens or nil
+
   -- update the XML
   waitIds["updateChaosSplash"] = Wait.frames(function()
     for i = 1, 5 do
@@ -1232,7 +1236,12 @@ function tokenSplash(matColor)
 
         -- determine if modifier should be shown (only for symbol tokens)
         if tonumber(tokenName) == nil then
-          local modifier = TokenArrangerApi.getCurrentModifier(tokenName) or TokenArrangerApi.getCurrentModifier("")
+          local modifier
+          if tokenName == "Elder Sign" then
+            modifier = investigatorTokenData[1].modifier or nil
+          else
+            modifier = TokenArrangerApi.getCurrentModifier(tokenName) or TokenArrangerApi.getCurrentModifier("")
+          end
           if modifier and math.abs(modifier) < 100 then
             local modifierText = "( "
             if modifier > 0 then
@@ -1261,22 +1270,27 @@ function tokenSplash(matColor)
 
     -- determine if scenario card reference data should be shown
     local descriptionAttributes = { active = false, text = "" }
-    local tokenData = MythosAreaApi.returnTokenData()
-    if tokenData and tokenData.tokenData and tokenData.tokenData[tokenNames[1]] then
-      local tokenDescription = tokenData.tokenData[tokenNames[1]].description
-      if tokenDescription then
-        screenTime                     = 1.75 -- more time due to text
-
-        -- update the attributes
-        descriptionAttributes.active   = true
-
-        -- clean up SE tags from text (< followed by any characters until the next >)
-        descriptionAttributes.text     = string.gsub(tokenDescription, "<[^>]->", "")
-        descriptionAttributes.position = (elementWidth - containerWidth) / 2 .. " 130 0"
-
-        -- make sure the color is reset too
-        descriptionAttributes.color    = "#FFFFFFFF"
+    local tokenDescription
+    if tokenNames[1] == "Elder Sign" then
+      tokenDescription = investigatorTokenData[1].description or nil
+    else
+      local tokenData = MythosAreaApi.returnTokenData()
+      if tokenData and tokenData.tokenData and tokenData.tokenData[tokenNames[1]] then
+        tokenDescription = tokenData.tokenData[tokenNames[1]].description
       end
+    end
+    if tokenDescription then
+      screenTime                     = 1.75 -- more time due to text
+
+      -- update the attributes
+      descriptionAttributes.active   = true
+
+      -- clean up SE tags from text (< followed by any characters until the next >)
+      descriptionAttributes.text     = string.gsub(tokenDescription, "<[^>]->", "")
+      descriptionAttributes.position = (elementWidth - containerWidth) / 2 .. " 130 0"
+
+      -- make sure the color is reset too
+      descriptionAttributes.color    = "#FFFFFFFF"
     end
 
     UI.setAttributes("CTS_description", descriptionAttributes)
