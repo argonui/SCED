@@ -3,18 +3,16 @@ do
 
   local CoroutineLib = require("util/CoroutineLib")
   local SearchLib    = require("util/SearchLib")
+  local TableLib     = require("util/TableLib")
 
   -- parse the 'objOrTable' parameter into a table
   ---@param objOrTable tts__Object|table Object or table of objects
   ---@return table: List of object references
   local function parseObjectTable(objOrTable)
-    local objects = {}
     if type(objOrTable) == "table" then
-      objects = objOrTable
-    else
-      table.insert(objects, objOrTable)
+      return objOrTable
     end
-    return objects
+    return { objOrTable }
   end
 
   -- parses the mixed "object or reference" parameter
@@ -22,30 +20,9 @@ do
   ---@return tts__Object: Object reference
   local function parseObjectOrGuid(objOrGuid)
     if type(objOrGuid) == "string" then
-      objOrGuid = getObjectFromGUID(objOrGuid)
+      return getObjectFromGUID(objOrGuid)
     end
     return objOrGuid
-  end
-
-  -- Shuffles the elements from startIndex to endIndex (inclusive) in-place (Fisher-Yates-Shuffle)
-  local function shuffleRange(tbl, startIndex, endIndex)
-    if not tbl or type(tbl) ~= "table" then return end
-    startIndex = math.max(1, startIndex or 1)
-    endIndex = math.min(#tbl, endIndex or #tbl)
-    if startIndex >= endIndex then return end
-
-    for i = endIndex, startIndex + 1, -1 do
-      local j = math.random(startIndex, i)
-      tbl[i], tbl[j] = tbl[j], tbl[i]
-    end
-  end
-
-  -- Creates a new table that has the objects of t1 and t2 in order
-  local function concatTables(t1, t2)
-    local result = {}
-    for _, v in ipairs(t1) do table.insert(result, v) end
-    for _, v in ipairs(t2) do table.insert(result, v) end
-    return result
   end
 
   -- generates deck data from a list of card data
@@ -274,17 +251,17 @@ do
         endIndex = currentDeckSize + #cardsToInsertData
 
         -- insert the existing cards first and then the new cards
-        resultingCardList = concatTables(cardsInDeck, cardsToInsertData)
+        resultingCardList = TableLib.concat(cardsInDeck, cardsToInsertData)
       else
         startIndex = 1
         endIndex = count + #cardsToInsertData
 
         -- insert new cards first and then the existing cards
-        resultingCardList = concatTables(cardsToInsertData, cardsInDeck)
+        resultingCardList = TableLib.concat(cardsToInsertData, cardsInDeck)
       end
 
       -- shuffle this part of the card list
-      shuffleRange(resultingCardList, startIndex, endIndex)
+      TableLib.shuffle(resultingCardList, startIndex, endIndex)
 
       -- Step 5: Spawn the new deck
       local newDeckData     = DeckLib.generateDeckDataFromCardList(resultingCardList)
