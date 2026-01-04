@@ -117,6 +117,14 @@ local handVisibility              = {}
 local cardTokens                  = {}
 local cardSettings                = {}
 
+-- track state of sliders
+local clueSliderValue             = {
+  ClueSliderWhite  = 0,
+  ClueSliderOrange = 0,
+  ClueSliderGreen  = 0,
+  ClueSliderRed    = 0
+}
+
 ---------------------------------------------------------
 -- data for tokens
 ---------------------------------------------------------
@@ -197,9 +205,8 @@ function onLoad(savedData)
   TokenManager.initialize()
 
   -- these things update the Global XML and thus need to happen with delays
+  Wait.time(createGlobalXml, getXmlDelay())
   Wait.time(updateBlurseVisibility, getXmlDelay())
-  Wait.time(createActionTrackerUI, getXmlDelay())
-  Wait.time(createChaosTokenSplashXml, getXmlDelay())
   Wait.time(NavigationOverlayApi.createXmlButtons, getXmlDelay())
   Wait.time(NavigationOverlayApi.updateVisibility, getXmlDelay())
   Wait.time(PlayAreaApi.updatePlayAreaGallery, getXmlDelay()) -- also selects the first item after 0.1s
@@ -2530,8 +2537,9 @@ function createActionTrackerUI()
 
   local xml = Global.UI.getXmlTable() or {}
   table.insert(xml, actionTrackerXml)
-  updateGlobalXml(xml)
+
   Wait.frames(updateActionTrackerWidth, 3)
+  return xml
 end
 
 -- updates the layout of the action tracker
@@ -2707,6 +2715,19 @@ function getDisplayName(matColor)
   return playerColor
 end
 
+function createGlobalXml()
+  -- retrieve the existing XML
+  local globalXml = Global.UI.getXmlTable() or {}
+
+  -- add additional XML to it
+  table.insert(globalXml, createActionTrackerUI())
+  table.insert(globalXml, createChaosTokenSplashXml())
+  table.insert(globalXml, createClueSpendingUI())
+
+  -- finally, apply the updated XML
+  updateGlobalXml(globalXml)
+end
+
 function createChaosTokenSplashXml()
   local CROSS_URL =
   "https://steamusercontent-a.akamaihd.net/ugc/16527220566318339270/4533B90A1CDA9AC23D480DC0F520E1FC24DC087E/"
@@ -2816,7 +2837,135 @@ function createChaosTokenSplashXml()
   local xml = Global.UI.getXmlTable() or {}
   table.insert(xml, defaultsXml)
   table.insert(xml, mainPanelXml)
-  updateGlobalXml(xml)
+  return xml
+end
+
+function createClueSpendingUI()
+  local clueXml = {
+    tag = "VerticalLayout",
+    attributes = {
+      id          = "clueSpendingWindow",
+      active      = true,
+      color       = "Black",
+      height      = 400,
+      width       = 500,
+      padding     = "20 20 20 20",
+      spacing     = 10,
+      outlineSize = "2 2",
+      outline     = "#303030"
+    },
+    children = {
+      -- Header
+      {
+        tag = "Text",
+        attributes = {
+          text            = "CLUE SPENDING: 0",
+          fontSize        = 24,
+          font            = "font_teutonic-arkham",
+          color           = "White",
+          preferredHeight = 40
+        }
+      },
+      -- The 4 Slider Rows
+      createSliderRow("ClueSliderWhite"),
+      createSliderRow("ClueSliderOrange"),
+      createSliderRow("ClueSliderGreen"),
+      createSliderRow("ClueSliderRed"),
+      -- Footer with Total and Skip/Spend labels
+      {
+        tag = "VerticalLayout",
+        attributes = { preferredHeight = 70, spacing = 15 },
+        children = {
+          {
+            tag = "Text",
+            attributes = {
+              id       = "TotalClues",
+              text     = "TOTAL: 0",
+              fontSize = 24,
+              font     = "font_teutonic-arkham",
+              color    = "White"
+            }
+          },
+          {
+            tag = "HorizontalLayout",
+            children = {
+              {
+                tag = "Button",
+                attributes = {
+                  text      = "SKIP",
+                  fontSIze  = 25,
+                  alignment = "MiddleLeft",
+                  font      = "font_teutonic-arkham",
+                  color     = "#888888"
+                }
+              },
+              {
+                tag = "Panel"
+              },
+              {
+                tag = "Button",
+                attributes = {
+                  text      = "SPEND",
+                  fontSIze  = 25,
+                  alignment = "MiddleRight",
+                  font      = "font_teutonic-arkham",
+                  color     = "#888888"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  return clueXml
+end
+
+-- Helper to keep the code clean
+function createSliderRow(id)
+  return {
+    tag = "HorizontalLayout",
+    attributes = { spacing = 10, width = 400, preferredHeight = 50 },
+    children = {
+      {
+        tag = "Text",
+        attributes = { id = id .. "-current", text = 0, fontSize = 20, color = "White", preferredWidth = 50 }
+      },
+      {
+        tag = "Slider",
+        attributes = {
+          id              = id,
+          backgroundColor = "#1a1a1a",
+          fillColor       = "#888888",
+          handleColor     = "White",
+          wholeNumbers    = true,
+          minValue        = 0,
+          maxValue        = 10,
+          flexibleWidth   = 1000,
+          onValueChanged  = "onClueSliderChanged"
+        }
+      },
+      {
+        tag = "Text",
+        attributes = { id = id .. "-max", text = 10, fontSize = 20, color = "White", preferredWidth = 50 }
+      }
+    }
+  }
+end
+
+function onClueSliderChanged(player, value, id)
+  UI.setAttribute(id .. "-current", "text", value)
+  clueSliderValue[id] = value
+  updateClueSpendingTotal()
+end
+
+function updateClueSpendingTotal()
+  local count = 0
+  for _, playerColor in ipairs(MAT_COLORS) do
+    count = count + clueSliderValue["ClueSlider" .. playerColor]
+  end
+
+  UI.setAttribute("TotalClues", "text", "TOTAL: " .. count)
 end
 
 -- this helper function updates the global XML while preserving the visibility of windows
