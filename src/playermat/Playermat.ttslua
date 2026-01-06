@@ -2007,8 +2007,9 @@ function useClassTexture(state)
 end
 
 -- removes all clues (moving tokens to the trash and setting counters to 0)
-function removeClues()
-  searchForClueDoom(true)
+---@param number? number Number of clues to remove (defaults to all)
+function removeClues(number)
+  searchForClueDoom(number or 999)
   if ownedObjects.ClickableClueCounter then
     ownedObjects.ClickableClueCounter.call("updateVal", 0)
   end
@@ -2032,7 +2033,7 @@ function getDoomCount()
   return doomCount
 end
 
-function searchForClueDoom(removeClues)
+function searchForClueDoom(cluesToRemove)
   local foundTokens = { clue = 0, doom = 0 }
 
   -- search on playermat and extensions
@@ -2056,13 +2057,29 @@ function searchForClueDoom(removeClues)
     local doomQuantity = getDoomQuantityOfObject(obj)
 
     -- maybe remove clues
-    if removeClues and clueQuantity > 0 then
-      if ownedObjects.Trash then
-        ownedObjects.Trash.putObject(obj)
+    if cluesToRemove and cluesToRemove > 0 and clueQuantity > 0 then
+      if cluesToRemove >= clueQuantity then
+        -- this object has a clueQuantity smaller than cluesToRemove and can thus be fully removed
+        if ownedObjects.Trash then
+          ownedObjects.Trash.putObject(obj)
+        else
+          obj.destruct()
+        end
+        cluesToRemove = cluesToRemove - clueQuantity
+        clueQuantity = 0
       else
-        obj.destruct()
+        -- this object is a stack of clues and only part of it should get removed
+        for i = 1, cluesToRemove do
+          local clue = obj.takeObject()
+          if ownedObjects.Trash then
+            ownedObjects.Trash.putObject(clue)
+          else
+            clue.destruct()
+          end
+        end
+        clueQuantity = clueQuantity - cluesToRemove
+        cluesToRemove = 0
       end
-      clueQuantity = 0
     end
 
     foundTokens.clue = foundTokens.clue + clueQuantity
