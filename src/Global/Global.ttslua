@@ -2864,65 +2864,58 @@ function createClueSpendingUI()
       outline     = "#303030"
     },
     children = {
-      -- Header
+      -- header
       {
         tag = "Text",
         attributes = {
-          text            = "CLUE SPENDING: 0",
-          id              = "clueSpendingNeed",
+          id              = "clueSpendingNeedTitle",
           fontSize        = 30,
           font            = "font_teutonic-arkham",
           color           = "White",
           preferredHeight = 50
         }
       },
-      -- The 4 Slider Rows
       createSliderRow("White"),
       createSliderRow("Orange"),
       createSliderRow("Green"),
       createSliderRow("Red"),
-      -- Footer with Total and Skip/Spend labels
+      -- footer
       {
         tag = "VerticalLayout",
-        attributes = { preferredHeight = 80, spacing = 15 },
+        attributes = { preferredHeight = 100, spacing = 15 },
         children = {
           {
             tag = "Text",
             attributes = {
-              preferredHeight = 40,
-              id              = "TotalClues",
-              text            = "TOTAL: 0",
-              fontSize        = 30,
-              font            = "font_teutonic-arkham",
-              color           = "White"
+              id       = "TotalClues",
+              fontSize = 30,
+              font     = "font_teutonic-arkham",
+              color    = "White"
             }
           },
           {
             tag = "HorizontalLayout",
-            attributes = { preferredHeight = 40 },
             children = {
               {
                 tag = "Button",
                 attributes = {
-                  text      = "SKIP",
-                  onClick   = "onClick_hideUi(clueSpendingWindow)",
-                  fontSize  = 25,
-                  alignment = "MiddleLeft",
-                  font      = "font_teutonic-arkham",
-                  color     = "#888888"
+                  text     = "SKIP",
+                  onClick  = "onClick_hideUi(clueSpendingWindow)",
+                  fontSize = 25,
+                  font     = "font_teutonic-arkham",
+                  color    = "#888888"
                 }
               },
               { tag = "Panel" },
               {
                 tag = "Button",
                 attributes = {
-                  text      = "SPEND",
-                  onClick   = "onClick_spendClues",
-                  id        = "clueSpendingConfirmButton",
-                  fontSize  = 25,
-                  alignment = "MiddleRight",
-                  font      = "font_teutonic-arkham",
-                  color     = "#88FF88"
+                  id       = "clueSpendingConfirmButton",
+                  text     = "SPEND",
+                  onClick  = "onClick_spendClues",
+                  fontSize = 25,
+                  font     = "font_teutonic-arkham",
+                  color    = "#88FF88"
                 }
               }
             }
@@ -2934,12 +2927,11 @@ function createClueSpendingUI()
   return clueXml
 end
 
--- Helper to keep the code clean
 function createSliderRow(matColor)
   local id = "ClueSlider" .. matColor
   return {
     tag = "HorizontalLayout",
-    attributes = { id = "Row" .. id, spacing = 10, width = 400, preferredHeight = 50 },
+    attributes = { id = "Row" .. id, spacing = 10, width = 400, preferredHeight = 60 },
     children = {
       {
         tag = "Text",
@@ -2947,7 +2939,7 @@ function createSliderRow(matColor)
       },
       {
         tag = "Text",
-        attributes = { id = id .. "-current", fontSize = 20, color = "White", alignment = "MiddleCenter", preferredWidth = 50 }
+        attributes = { id = id .. "-current", fontSize = 25, color = "White", alignment = "MiddleCenter", preferredWidth = 50 }
       },
       {
         tag = "Slider",
@@ -2960,12 +2952,13 @@ function createSliderRow(matColor)
           maxValue        = 100,
           wholeNumbers    = true,
           flexibleWidth   = 1000,
+          handleImage     = "", -- this forces a rectangular handle
           onValueChanged  = "onClueSliderChanged"
         }
       },
       {
         tag = "Text",
-        attributes = { id = id .. "-max", fontSize = 20, color = "White", alignment = "MiddleCenter", preferredWidth = 50 }
+        attributes = { id = id .. "-max", fontSize = 25, color = "White", alignment = "MiddleCenter", preferredWidth = 50 }
       }
     }
   }
@@ -3008,21 +3001,36 @@ function showClueSpendingUi(totalNeededClues)
   end
 
   -- apply slider settings
+  local visibleRows = 0
   for _, matColor in ipairs(MAT_COLORS) do
     local id     = "ClueSlider" .. matColor
+
+    -- apply values to slider
     local att    = UI.getAttributes(id)
     att.value    = sliderValues[matColor] or 0
     att.maxValue = math.min(playerClueTable[matColor] or 10, totalNeededClues)
     UI.setAttributes(id, att)
 
+    -- set value for labels
     clueSliderValue[matColor] = att.value
     UI.setAttribute(id .. "-current", "text", att.value)
     UI.setAttribute(id .. "-max", "text", att.maxValue)
 
+    -- set player name
     local playerColor = PlayermatApi.getPlayerColor(matColor)
     UI.setAttribute(id .. "-name", "text", getColoredName(playerColor, true))
+
+    -- hide unused rows
+    local showThisRow = playerClueTable[matColor] ~= nil and playerClueTable[matColor] > 0
+    UI.setAttribute("Row" .. id, "active", showThisRow)
+
+    if showThisRow then
+      visibleRows = visibleRows + 1
+    end
   end
 
+  -- update main UI (height includes spacing)
+  UI.setAttribute("clueSpendingWindow", "height", 60 + visibleRows * 70 + 110)
   UI.setAttribute("TotalClues", "text", "TOTAL: " .. (totalNeededClues - remainder))
 
   setClueSpendingNeed(totalNeededClues)
@@ -3035,7 +3043,7 @@ function setClueSpendingNeed(totalNeededClues)
   else
     clueSpendingNeed = totalNeededClues
   end
-  UI.setAttribute("clueSpendingNeed", "text", "CLUE SPENDING: " .. (clueSpendingNeed or "?"))
+  UI.setAttribute("clueSpendingNeedTitle", "text", "CLUE SPENDING: " .. (clueSpendingNeed or "?"))
 end
 
 function onClueSliderChanged(player, value, id)
