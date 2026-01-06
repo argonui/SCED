@@ -2856,9 +2856,8 @@ function createClueSpendingUI()
       id          = "clueSpendingWindow",
       active      = false,
       color       = "Black",
-      height      = 450,
       width       = 500,
-      padding     = "20 20 20 20",
+      padding     = "20 20 10 10",
       spacing     = 10,
       outlineSize = "2 2",
       outline     = "#303030"
@@ -2872,7 +2871,7 @@ function createClueSpendingUI()
           fontSize        = 30,
           font            = "font_teutonic-arkham",
           color           = "White",
-          preferredHeight = 50
+          preferredHeight = 40
         }
       },
       createSliderRow("White"),
@@ -2882,7 +2881,7 @@ function createClueSpendingUI()
       -- footer
       {
         tag = "VerticalLayout",
-        attributes = { preferredHeight = 100, spacing = 15 },
+        attributes = { preferredHeight = 90, spacing = 15 },
         children = {
           {
             tag = "Text",
@@ -2931,7 +2930,7 @@ function createSliderRow(matColor)
   local id = "ClueSlider" .. matColor
   return {
     tag = "HorizontalLayout",
-    attributes = { id = "Row" .. id, spacing = 10, width = 400, preferredHeight = 60 },
+    attributes = { id = "Row" .. id, spacing = 10, width = 400, preferredHeight = 55 },
     children = {
       {
         tag = "Text",
@@ -2973,8 +2972,28 @@ function showClueSpendingUi(totalNeededClues)
     broadcastToAll("The group does not control enough clues.", "Orange")
     return
   elseif totalPlayerClues == totalNeededClues then
-    broadcastToAll("All controlled clues (" .. totalNeededClues .. ") spent.", "Green")
+    broadcastToAll("All controlled clues (" .. totalNeededClues .. ") spent.", "White")
     PlayermatApi.removeClues("All")
+    return
+  end
+
+  -- check if only one player has clues
+  local playerCountWithClues  = 0
+  local lastMatColorWithClues = nil
+
+  for _, matColor in ipairs(MAT_COLORS) do
+    if playerClueTable[matColor] ~= nil and playerClueTable[matColor] > 0 then
+      playerCountWithClues  = playerCountWithClues + 1
+      lastMatColorWithClues = matColor
+    end
+  end
+
+  if playerCountWithClues == 0 then
+    broadcastToAll("Couldn't detect players with clues!", "Red")
+    return
+  elseif playerCountWithClues == 1 then
+    broadcastToAll("There's only one player with clues, spending all required clues (" .. totalNeededClues .. ").", "White")
+    PlayermatApi.removeClues(lastMatColorWithClues, totalNeededClues)
     return
   end
 
@@ -3001,7 +3020,6 @@ function showClueSpendingUi(totalNeededClues)
   end
 
   -- apply slider settings
-  local visibleRows = 0
   for _, matColor in ipairs(MAT_COLORS) do
     local id     = "ClueSlider" .. matColor
 
@@ -3023,14 +3041,10 @@ function showClueSpendingUi(totalNeededClues)
     -- hide unused rows
     local showThisRow = playerClueTable[matColor] ~= nil and playerClueTable[matColor] > 0
     UI.setAttribute("Row" .. id, "active", showThisRow)
-
-    if showThisRow then
-      visibleRows = visibleRows + 1
-    end
   end
 
   -- update main UI (height includes spacing)
-  UI.setAttribute("clueSpendingWindow", "height", 60 + visibleRows * 70 + 110)
+  UI.setAttribute("clueSpendingWindow", "height", 50 + playerCountWithClues * 65 + 100 + 20)
   UI.setAttribute("TotalClues", "text", "TOTAL: " .. (totalNeededClues - remainder))
 
   setClueSpendingNeed(totalNeededClues)
