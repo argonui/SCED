@@ -1,0 +1,76 @@
+do
+  local MessageQueue = {}
+
+  MessageQueue.config = {
+    defaultDelay = 0.5,
+    typeSettings = {} -- Stores custom delays per type
+  }
+
+  local messageQueues = {}
+  local messageTimers = {}
+  local formatters = {}
+
+  --- TEMPLATE/FALLBACK FORMATTER
+  --- This serves as an example of the signature required for all formatters.
+  --- @param playerColor string The color of the player.
+  --- @param messages table A list of messageData tables.
+  --- @return string: The formatted text to print.
+  function MessageQueue.defaultFormatter(playerColor, messages)
+    local playerName  = Player[playerColor] and Player[playerColor].steam_name or playerColor
+    local coloredName = "[" .. Color.fromString(playerColor):toHex() .. "]" .. playerName .. "[-]"
+    local count       = #messages
+    local s           = count > 1 and "s" or ""
+    return coloredName .. " triggered " .. count .. " event" .. s .. "."
+  end
+
+  --- Sets a specific delay (in seconds) for a message type.
+  function MessageQueue.setDelay(messageType, delay)
+    MessageQueue.config.typeSettings[messageType] = delay
+  end
+
+  --- Registers a function to handle how a message type is formatted.
+  --- @param messageType string
+  --- @param formatter function (playerName, messages) -> string
+  function MessageQueue.registerFormatter(messageType, formatter)
+    formatters[messageType] = formatter
+  end
+
+  --- Queues a message.
+  function MessageQueue.queue(playerColor, messageType, messageData)
+    messageQueues[messageType] = messageQueues[messageType] or {}
+    messageQueues[messageType][playerColor] = messageQueues[messageType][playerColor] or {}
+
+    table.insert(messageQueues[messageType][playerColor], messageData)
+
+    -- Reset timer (Debouncing logic)
+    if messageTimers[messageType] then
+      Wait.stop(messageTimers[messageType])
+    end
+
+    -- Determine which delay to use
+    local activeDelay = MessageQueue.config.typeSettings[messageType] or MessageQueue.config.defaultDelay
+
+    messageTimers[messageType] = Wait.time(function() MessageQueue.flush(messageType) end, activeDelay)
+  end
+
+  --- Internal: Processes the queue and prints results.
+  function MessageQueue.flush(messageType)
+    messageTimers[messageType] = nil
+    local queue = messageQueues[messageType]
+    if not queue then return end
+
+    local formatter = formatters[messageType] or formatters["manual_counter_change"] or MessageQueue.defaultFormatter
+
+    for playerColor, messages in pairs(queue) do
+      local finalMessage = formatter(playerColor, messages)
+
+      if finalMessage and finalMessage ~= "" then
+        printToAll(finalMessage)
+      end
+    end
+
+    messageQueues[messageType] = {}
+  end
+
+  return MessageQueue
+end
