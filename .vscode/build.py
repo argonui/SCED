@@ -7,6 +7,7 @@ import datetime
 from pathlib import Path
 import pyautogui
 import pygetwindow
+import platform
 
 GAME_NAME = "ArkhamSCE"
 HOTKEY = "f13"
@@ -41,10 +42,11 @@ def get_output_folder():
 
 
 def get_base_command():
-    if os.name == "nt":  # Windows
+    if platform.system() == "Windows":  # Windows
         binary_name = "TTSModManager.exe"
-
-    else:  # macOS, Linux, etc.
+    elif platform.system() == "Darwin":  # macOS
+        binary_name = "TTSModManager-macOS"
+    else:  # Linux
         binary_name = "TTSModManager"
 
     binary_path = os.path.join(os.getcwd(), binary_name)
@@ -116,23 +118,24 @@ def main():
 
     # Attempt to load the created savegame in TTS
     if args.action == "build":
-        target_title = "Tabletop Simulator"
-        for window in pygetwindow.getWindowsWithTitle(target_title):
-            # Check if the title is an EXACT match
-            if window.title == target_title:
-                try:
-                    window.activate()
-                except pygetwindow.PyGetWindowException:
-                    # If direct activation fails, toggle the window state
-                    # This bypasses the Windows focus restriction
-                    window.minimize()
-                    window.restore()
+        if os.name == "nt":  # Windows
+            target_title = "Tabletop Simulator"
+            for window in pygetwindow.getWindowsWithTitle(target_title):
+                # Check if the title is an EXACT match
+                if window.title == target_title:
+                    try:
+                        window.activate()
+                    except pygetwindow.PyGetWindowException:
+                        # If direct activation fails, toggle the window state
+                        # This bypasses the Windows focus restriction
+                        window.minimize()
+                        window.restore()
 
-                time.sleep(0.5)  # Give the OS time to switch focus
+                    time.sleep(0.5)  # Give the OS time to switch focus
 
-                # Requires setup in TTS (Example Autoexec.cfg: bind f13 load ArkhamSCE)
-                pyautogui.hotkey(HOTKEY)
-                break  # Found the exact window, so stop searching
+                    # Requires setup in TTS (Example Autoexec.cfg: bind f13 load ArkhamSCE)
+                    pyautogui.hotkey(HOTKEY)
+                    break  # Found the exact window, so stop searching
 
 
 if __name__ == "__main__":
