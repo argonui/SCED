@@ -27,7 +27,7 @@ def get_current_git_branch():
 
 
 def get_output_folder():
-    if os.name == "nt":  # Windows
+    if platform.system() == "Windows":  # Windows
         return os.path.join(
             os.environ["USERPROFILE"],
             "Documents",
@@ -118,7 +118,7 @@ def main():
 
     # Attempt to load the created savegame in TTS
     if args.action == "build":
-        if os.name == "nt":  # Windows
+        if platform.system() == "Windows":  # Windows
             target_title = "Tabletop Simulator"
             for window in pygetwindow.getWindowsWithTitle(target_title):
                 # Check if the title is an EXACT match
