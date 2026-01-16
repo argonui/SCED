@@ -242,11 +242,15 @@ function formatManualCounterChange(playerColor, messages)
 
   local netAmount = 0
   for _, msg in ipairs(messages) do
-    netAmount = netAmount + (msg.remove and -1 or 1) * (msg.amount or 1)
+    netAmount = netAmount + (msg.amount or 1)
   end
   if netAmount == 0 then return end
 
   -- handle damage, horror, resources and clues
+  if counter == "clickableclue" then
+    counter = "clue"
+  end
+
   local action
   if counter == "damage" or counter == "horror" then
     action = netAmount > 0 and " took " or " removed "
@@ -257,13 +261,15 @@ function formatManualCounterChange(playerColor, messages)
   end
 
   -- singular / plural handling
+  local amountStr = "a"
   if math.abs(netAmount) > 1 then
     if counter == "resource" or counter == "clue" then
       counter = counter .. "s"
     end
+    amountStr = math.abs(netAmount)
   end
 
-  return getColoredName(playerColor) .. action .. math.abs(netAmount) .. " " .. counter:lower() .. "."
+  return getColoredName(playerColor) .. action .. amountStr .. " " .. counter:lower() .. "."
 end
 
 function sendManualCounterChange(params)
@@ -279,14 +285,8 @@ function sendManualCounterChange(params)
   local playerColor = PlayermatApi.getPlayerColor(owner)
   local counter     = type:sub(1, -8):lower()
 
-  -- Create a unique key like "manual_resource" to split messages for different counters
-  MessageQueue.queue(playerColor, "manual_" .. counter,
-    {
-      counter = counter,
-      amount  = params.amount,
-      remove  = params.remove
-    }
-  )
+  -- Create a unique key like "manual_counter_change_resource" to split messages for different counters
+  MessageQueue.queue(playerColor, "manual_counter_change_" .. counter, { counter = counter, amount = params.amount })
 end
 
 -- provides a random seed (from 1 to 999) to be used by "linked" objects like the action tokens
