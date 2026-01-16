@@ -1,4 +1,5 @@
 local ChaosBagApi               = require("chaosbag/ChaosBagApi")
+local MessageQueue              = require("util/MessageQueue")
 local TokenArrangerApi          = require("tokens/TokenArrangerApi")
 
 -- common button parameters
@@ -52,10 +53,31 @@ function onLoad()
   initializeState()
   broadcastCount("Curse")
   broadcastCount("Bless")
+
+  MessageQueue.registerFormatter("blurse_change", formatBlurseCount)
+end
+
+function formatBlurseCount(playerColor, messages)
+  local netChange = 0
+  local tokenType = messages[1].tokenType
+
+  -- Calculate net difference (Gain +1, Loss -1)
+  for _, msg in ipairs(messages) do
+    netChange = netChange + msg.change
+  end
+
+  if netChange == 0 then return end
+
+  local absDiff     = math.abs(netChange)
+  local action      = netChange > 0 and "Added " or "Removed "
+  local tokenString = absDiff == 1 and " token " or " tokens "
+  local totalStatus = formatTokenCount(tokenType)
+
+  return action .. absDiff .. " " .. tokenType .. tokenString .. totalStatus
 end
 
 function resetTables()
-  numInPlay    = { Bless = 0,  Curse = 0 }
+  numInPlay    = { Bless = 0, Curse = 0 }
   tokensTaken  = { Bless = {}, Curse = {} }
   sealedTokens = {}
 end
@@ -314,7 +336,12 @@ function addToken(type)
     printToColor("10 tokens already in play, not adding any.", playerColor)
     return
   end
-  printCountWithDelay(type)
+
+  MessageQueue.queue("System", "blurse_change_" .. type, {
+    tokenType = type,
+    change    = 1
+  })
+
   numInPlay[type] = numInPlay[type] + 1
   updateButtonLabels()
   return ChaosBagApi.spawnChaosToken(type)
@@ -335,7 +362,10 @@ function removeToken(type)
     return
   end
 
-  printCountWithDelay(type)
+  MessageQueue.queue("System", "blurse_change_" .. type, {
+    tokenType = type,
+    change    = -1
+  })
 
   chaosBag.takeObject({
     guid = table.remove(tokens),
@@ -362,39 +392,14 @@ function removeTakenTokens(type)
   return count
 end
 
--- prints the changes to the chaos bag after 1s delay, bundles them into a single message
-function printCountWithDelay(type)
-  if waitIds[type] then
-    Wait.stop(waitIds[type])
-  else
-    currentCount[type] = numInPlay[type]
-  end
-
-  waitIds[type] = Wait.time(function()
-    local diff = numInPlay[type] - currentCount[type]
-    local tokenString = " tokens "
-    if diff == 1 then
-      tokenString = " token "
-    end
-
-    if diff > 0 then
-      printToAll("Added " .. math.abs(diff) .. " " .. type .. tokenString .. formatTokenCount(type))
-    elseif diff < 0 then
-      printToAll("Removed " .. math.abs(diff) .. " " .. type .. tokenString .. formatTokenCount(type))
-    end
-    waitIds[type] = nil
-    currentCount[type] = nil
-  end, 1)
-end
-
 ---------------------------------------------------------
 -- Wendy's Menu (context menu for cards on hotkey press)
 ---------------------------------------------------------
 
 function addMenuOptions(parameters)
-  local playerColor = parameters.playerColor
+  local playerColor   = parameters.playerColor
   local hoveredObject = parameters.hoveredObject
-  local noCurse = parameters.noCurse or false
+  local noCurse       = parameters.noCurse or false
 
   if hoveredObject == nil or hoveredObject.type ~= "Card" then
     broadcastToColor("Right-click seal options can only be added to cards.", playerColor)
