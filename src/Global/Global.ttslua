@@ -117,6 +117,15 @@ local handVisibility              = {}
 local cardTokens                  = {}
 local cardSettings                = {}
 
+-- track state of sliders
+local clueSliderValue             = {
+  White  = 0,
+  Orange = 0,
+  Green  = 0,
+  Red    = 0
+}
+local clueSpendingNeed
+
 ---------------------------------------------------------
 -- data for tokens
 ---------------------------------------------------------
@@ -197,9 +206,8 @@ function onLoad(savedData)
   TokenManager.initialize()
 
   -- these things update the Global XML and thus need to happen with delays
+  Wait.time(createGlobalXml, getXmlDelay())
   Wait.time(updateBlurseVisibility, getXmlDelay())
-  Wait.time(createActionTrackerUI, getXmlDelay())
-  Wait.time(createChaosTokenSplashXml, getXmlDelay())
   Wait.time(NavigationOverlayApi.createXmlButtons, getXmlDelay())
   Wait.time(NavigationOverlayApi.updateVisibility, getXmlDelay())
   Wait.time(PlayAreaApi.updatePlayAreaGallery, getXmlDelay()) -- also selects the first item after 0.1s
@@ -2031,6 +2039,14 @@ function onClick_toggleOptionPanel(player, clickType)
   end
 end
 
+function onClick_showUi(_, windowId)
+  UI.setAttribute(windowId, "active", true)
+end
+
+function onClick_hideUi(_, windowId)
+  UI.setAttribute(windowId, "active", false)
+end
+
 -- toggles the visibility of the respective UI
 ---@param player tts__Player Player that triggered this
 ---@param windowId string Name of the UI to toggle
@@ -2530,8 +2546,9 @@ function createActionTrackerUI()
 
   local xml = Global.UI.getXmlTable() or {}
   table.insert(xml, actionTrackerXml)
-  updateGlobalXml(xml)
+
   Wait.frames(updateActionTrackerWidth, 3)
+  return xml
 end
 
 -- updates the layout of the action tracker
@@ -2707,6 +2724,19 @@ function getDisplayName(matColor)
   return playerColor
 end
 
+function createGlobalXml()
+  -- retrieve the existing XML
+  local globalXml = Global.UI.getXmlTable() or {}
+
+  -- add additional XML to it
+  table.insert(globalXml, createActionTrackerUI())
+  table.insert(globalXml, createChaosTokenSplashXml())
+  table.insert(globalXml, createClueSpendingUI())
+
+  -- finally, apply the updated XML
+  updateGlobalXml(globalXml)
+end
+
 function createChaosTokenSplashXml()
   local CROSS_URL =
   "https://steamusercontent-a.akamaihd.net/ugc/16527220566318339270/4533B90A1CDA9AC23D480DC0F520E1FC24DC087E/"
@@ -2816,7 +2846,286 @@ function createChaosTokenSplashXml()
   local xml = Global.UI.getXmlTable() or {}
   table.insert(xml, defaultsXml)
   table.insert(xml, mainPanelXml)
-  updateGlobalXml(xml)
+  return xml
+end
+
+function createClueSpendingUI()
+  local clueXml = {
+    tag = "VerticalLayout",
+    attributes = {
+      id          = "clueSpendingWindow",
+      active      = false,
+      color       = "Black",
+      width       = 600,
+      padding     = "20 20 10 10",
+      spacing     = 10,
+      outlineSize = "2 2",
+      outline     = "#303030"
+    },
+    children = {
+      -- header
+      {
+        tag = "Text",
+        attributes = {
+          id              = "clueSpendingNeedTitle",
+          fontSize        = 30,
+          font            = "font_teutonic-arkham",
+          color           = "White",
+          preferredHeight = 40
+        }
+      },
+      -- Header Row
+      {
+        tag = "HorizontalLayout",
+        attributes = {
+          preferredHeight = 30,
+          width           = 500,
+          spacing         = 10
+        },
+        children = {
+          { tag = "Text",  attributes = { preferredWidth = 175, text = "PLAYER", fontSize = 16, color = "#AAAAAA", alignment = "MiddleLeft" } },
+          { tag = "Panel", attributes = { flexibleWidth = 1000 } },
+          { tag = "Text",  attributes = { preferredWidth = 70, text = "SELECTED", fontSize = 16, color = "#AAAAAA", alignment = "MiddleLeft" } },
+          { tag = "Text",  attributes = { preferredWidth = 35, text = "MAX", fontSize = 16, color = "#AAAAAA", alignment = "MiddleCenter" } },
+        }
+      },
+      createSliderRow("White"),
+      createSliderRow("Orange"),
+      createSliderRow("Green"),
+      createSliderRow("Red"),
+      -- footer
+      {
+        tag = "VerticalLayout",
+        attributes = { preferredHeight = 90, spacing = 15 },
+        children = {
+          {
+            tag = "Text",
+            attributes = {
+              id       = "TotalClues",
+              fontSize = 30,
+              font     = "font_teutonic-arkham",
+              color    = "White"
+            }
+          },
+          {
+            tag = "HorizontalLayout",
+            children = {
+              {
+                tag = "Button",
+                attributes = {
+                  text     = "SKIP",
+                  onClick  = "onClick_hideUi(clueSpendingWindow)",
+                  fontSize = 25,
+                  font     = "font_teutonic-arkham",
+                  color    = "#888888"
+                }
+              },
+              { tag = "Panel" },
+              {
+                tag = "Button",
+                attributes = {
+                  id       = "clueSpendingConfirmButton",
+                  text     = "SPEND",
+                  onClick  = "onClick_spendClues",
+                  fontSize = 25,
+                  font     = "font_teutonic-arkham",
+                  color    = "#88FF88"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  return clueXml
+end
+
+function createSliderRow(matColor)
+  local id = "ClueSlider" .. matColor
+  return {
+    tag = "HorizontalLayout",
+    attributes = { id = "Row" .. id, spacing = 10, width = 500, preferredHeight = 55 },
+    children = {
+      {
+        tag = "Text",
+        attributes = { id = id .. "-name", fontSize = 25, color = matColor, preferredWidth = 175 }
+      },
+      {
+        tag = "Slider",
+        attributes = {
+          id              = id,
+          backgroundColor = "#1a1a1a",
+          fillColor       = "#AAAAAA",
+          handleColor     = matColor,
+          minValue        = 0,
+          maxValue        = 100,
+          wholeNumbers    = true,
+          flexibleWidth   = 1000,
+          handleImage     = "", -- this forces a rectangular handle
+          onValueChanged  = "onClueSliderChanged"
+        }
+      },
+      {
+        tag = "Text",
+        attributes = { id = id .. "-current", fontSize = 25, color = "White", alignment = "MiddleCenter", preferredWidth = 35 }
+      },
+      {
+        tag = "Text",
+        attributes = { text = "/", fontSize = 25, color = "White", alignment = "MiddleCenter", preferredWidth = 35 }
+      },
+      {
+        tag = "Text",
+        attributes = { id = id .. "-max", fontSize = 25, color = "White", alignment = "MiddleCenter", preferredWidth = 35 }
+      }
+    }
+  }
+end
+
+function showClueSpendingUi(totalNeededClues)
+  if not totalNeededClues then return end
+
+  local totalPlayerClues, playerClueTable = PlayermatApi.getClueCount("All")
+
+  if totalPlayerClues < totalNeededClues then
+    broadcastToAll("The group does not control enough clues.", "Orange")
+    return
+  elseif totalPlayerClues == totalNeededClues then
+    broadcastToAll("All controlled clues (" .. totalNeededClues .. ") spent.", "White")
+    PlayermatApi.removeClues("All")
+    return
+  end
+
+  -- check if only one player has clues
+  local playerCountWithClues  = 0
+  local lastMatColorWithClues = nil
+
+  for _, matColor in ipairs(MAT_COLORS) do
+    if playerClueTable[matColor] ~= nil and playerClueTable[matColor] > 0 then
+      playerCountWithClues  = playerCountWithClues + 1
+      lastMatColorWithClues = matColor
+    end
+  end
+
+  if playerCountWithClues == 0 then
+    broadcastToAll("Couldn't detect players with clues!", "Red")
+    return
+  elseif playerCountWithClues == 1 then
+    local playerColor = PlayermatApi.getPlayerColor(lastMatColorWithClues)
+    local playerName  = getColoredName(playerColor)
+    PlayermatApi.removeClues(lastMatColorWithClues, totalNeededClues)
+    broadcastToAll(playerName .. " is the only player with clues and spends " .. totalNeededClues .. " clues.", "White")
+    return
+  end
+
+  -- figure out contribution for each player (1 by 1 for each player that can fulfill it)
+  local sliderValues = {}
+  local remainder    = totalNeededClues
+
+  while remainder > 0 do
+    local emptyLoop = true
+
+    for matColor, playerClues in pairs(playerClueTable) do
+      local currentAssigned = sliderValues[matColor] or 0
+
+      -- can this player afford to give one more?
+      if remainder > 0 and currentAssigned < playerClues then
+        sliderValues[matColor] = currentAssigned + 1
+        remainder              = remainder - 1
+        emptyLoop              = false
+      end
+    end
+
+    -- safety break to avoid infinite loop
+    if emptyLoop then break end
+  end
+
+  -- apply slider settings
+  for _, matColor in ipairs(MAT_COLORS) do
+    local id     = "ClueSlider" .. matColor
+
+    -- apply values to slider
+    local att    = UI.getAttributes(id)
+    att.value    = sliderValues[matColor] or 0
+
+    -- limit the max value to what the player has or the totalNeededClues (if it's larger than 0, otherwise to 20)
+    att.maxValue = math.min(playerClueTable[matColor] or 10, (totalNeededClues > 0) and totalNeededClues or 20)
+    UI.setAttributes(id, att)
+
+    -- set value for labels
+    clueSliderValue[matColor] = att.value
+    UI.setAttribute(id .. "-current", "text", att.value)
+    UI.setAttribute(id .. "-max", "text", att.maxValue)
+
+    -- set player name
+    local playerColor = PlayermatApi.getPlayerColor(matColor)
+    UI.setAttribute(id .. "-name", "text", getColoredName(playerColor, true))
+
+    -- hide unused rows
+    local showThisRow = playerClueTable[matColor] ~= nil and playerClueTable[matColor] > 0
+    UI.setAttribute("Row" .. id, "active", showThisRow)
+  end
+
+  -- update main UI (height includes spacing)
+  UI.setAttribute("clueSpendingWindow", "height", 50 + 40 + playerCountWithClues * 65 + 100 + 20)
+  UI.setAttribute("TotalClues", "text", "TOTAL: " .. (totalNeededClues - remainder))
+
+  setClueSpendingNeed(totalNeededClues)
+  onClick_showUi(_, "clueSpendingWindow")
+end
+
+function setClueSpendingNeed(totalNeededClues)
+  if totalNeededClues == 0 then
+    clueSpendingNeed = nil
+  else
+    clueSpendingNeed = totalNeededClues
+  end
+  UI.setAttribute("clueSpendingNeedTitle", "text", "CLUE SPENDING: " .. (clueSpendingNeed or "?"))
+end
+
+function onClueSliderChanged(player, value, id)
+  UI.setAttribute(id .. "-current", "text", value)
+
+  -- remove 'ClueSlider' from the string
+  local matColor = string.sub(id, 11)
+  clueSliderValue[matColor] = tonumber(value)
+
+  updateClueSpendingTotal()
+end
+
+function updateClueSpendingTotal()
+  local count = 0
+
+  for matColor, cluesToRemove in pairs(clueSliderValue) do
+    count = count + cluesToRemove
+  end
+
+  UI.setAttribute("TotalClues", "text", "TOTAL: " .. count)
+
+  local att = UI.getAttributes("clueSpendingConfirmButton")
+  if clueSpendingNeed and count ~= clueSpendingNeed then
+    att.color         = "#FF8888"
+    att.raycastTarget = false
+  else
+    att.color         = "#88FF88"
+    att.raycastTarget = true
+  end
+  UI.setAttributes("clueSpendingConfirmButton", att)
+end
+
+function onClick_spendClues(player)
+  for matColor, cluesToRemove in pairs(clueSliderValue) do
+    if cluesToRemove > 0 then
+      PlayermatApi.removeClues(matColor, cluesToRemove)
+      local playerColor = PlayermatApi.getPlayerColor(matColor)
+      local str = (cluesToRemove == 1) and " clue." or " clues."
+      printToAll(getColoredName(playerColor) .. " has spent " .. cluesToRemove .. str, "White")
+      clueSliderValue[matColor] = 0
+    end
+  end
+
+  clueSpendingNeed = nil
+  onClick_hideUi(player, "clueSpendingWindow")
 end
 
 -- this helper function updates the global XML while preserving the visibility of windows
@@ -4784,7 +5093,7 @@ end
 
 -- returns the colored steam name, investigator name or color
 ---@param playerColor string Color of the player
-function getColoredName(playerColor)
+function getColoredName(playerColor, uncolored)
   local displayName = playerColor
   if playerColor ~= "Grey" and Player[playerColor].steam_name then
     displayName = Player[playerColor].steam_name
@@ -4795,6 +5104,8 @@ function getColoredName(playerColor)
       displayName = investigatorName
     end
   end
+
+  if uncolored then return displayName end
 
   -- add bb-code
   return "[" .. Color.fromString(playerColor):toHex() .. "]" .. displayName .. "[-]"
