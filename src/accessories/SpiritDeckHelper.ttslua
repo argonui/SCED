@@ -1,22 +1,15 @@
-local SearchLib = require("util/SearchLib")
+local SearchLib             = require("util/SearchLib")
+local TokenSpawnTrackerApi  = require("tokens/TokenSpawnTrackerApi")
 
 function onSave()
   return JSON.encode({ saved_hiddenCards = hiddenCards })
 end
 
 function onLoad(savedData)
-  revealCardPositions = {
-    Vector(3.5, 0.25, 0),
-    Vector(-3.5, 0.25, 0)
-  }
-
-  revealCardPositionsSwap = {
-    Vector(-3.5, 0.25, 0),
-    Vector(3.5, 0.25, 0)
-  }
+  revealCardPosition = Vector(3.5, 0.25, 0)
 
   self.createButton({
-    label          = 'Underworld Market\nHelper',
+    label          = 'Spirit Deck\nHelper',
     click_function = "none",
     function_owner = self,
     position       = { 0, -0.1, -1.6 },
@@ -48,6 +41,7 @@ function onObjectEnterContainer(container, object)
 
   if isSetup and object.type == "Card" then
     refreshButtons()
+    TokenSpawnTrackerApi.resetTokensSpawned(object)
   end
 
   if object.type == "Deck" then
@@ -58,7 +52,7 @@ function onObjectEnterContainer(container, object)
       isSetup = true
     end
   elseif object.type ~= "Card" then
-    broadcastToAll("The 'Underworld Market Helper' is meant to be used for cards.", "White")
+    broadcastToAll("The 'Spirit Deck Helper' is meant to be used for cards.", "White")
   end
 end
 
@@ -72,25 +66,34 @@ end
 
 function validateDeck(deck)
   if deck.getQuantity() ~= 10 then
-    print('Underworld Market Helper: Deck must include exactly 10 cards.')
+    print('Spirit Deck Helper: Deck must include exactly 10 cards.')
     return false
   end
 
-  local illicitCount = 0
+  local spiritCount = 0
+  local vengefulShade = false
 
   for _, card in ipairs(deck.getObjects()) do
     decodedGMNotes = JSON.decode(card.gm_notes)
 
-    if decodedGMNotes ~= nil and string.find(decodedGMNotes.traits, "Illicit", 1, true) then
-      illicitCount = illicitCount + 1
+    if decodedGMNotes ~= nil and string.find(decodedGMNotes.traits, "Ally", 1, true) then
+      spiritCount = spiritCount + 1
+    end
+
+    if decodedGMNotes ~= nil and decodedGMNotes.id == "90053" then
+      vengefulShade = true
     end
   end
 
-  if illicitCount ~= 10 then
-    print('Underworld Market Helper: Deck must include 10 Illicit cards.')
+  if spiritCount ~= 9 then
+    print('Spirit Deck Helper: Deck must include 9 Ally cards.')
     return false
   end
-
+  -- check if Vengeful Shade is present
+  if vengefulShade == false then
+    print('Spirit Deck Helper: Deck must include Vengeful Shade.')
+    return false
+  end
   return true
 end
 
@@ -98,7 +101,8 @@ function refreshButtons()
   local cardsList = ''
 
   for i, card in ipairs(self.getObjects()) do
-    local localCardName = card.name
+    -- shorten the name
+    local localCardName = getCardName(card.name)
 
     if i <= hiddenCards then
       localCardName = hiddenCardLabel
@@ -110,7 +114,7 @@ function refreshButtons()
   self.clearButtons()
 
   self.createButton({
-    label          = 'Market Deck:',
+    label          = 'Spirit Deck:',
     click_function = "none",
     function_owner = self,
     position       = { 0, -0.1, -1.6 },
@@ -132,34 +136,15 @@ function refreshButtons()
   })
 
   self.createButton({
-    click_function = 'revealFirstTwoCards',
+    click_function = 'revealTopCard',
     function_owner = self,
     label          = 'Reveal',
-    position       = { -0.85, 0, 1.6 },
-    width          = 375,
-    height         = 175,
-    font_size      = 90
-  })
-
-  self.createButton({
-    click_function = 'swap',
-    function_owner = self,
-    label          = 'Swap',
     position       = { 0, 0, 1.6 },
-    width          = 375,
-    height         = 175,
-    font_size      = 90
+    width          = 540,
+    height         = 230,
+    font_size      = 150
   })
 
-  self.createButton({
-    click_function = 'finish',
-    function_owner = self,
-    label          = 'Finish',
-    position       = { 0.85, 0, 1.6 },
-    width          = 375,
-    height         = 175,
-    font_size      = 90
-  })
 end
 
 function takeDeckOut(guid, pos)
@@ -175,60 +160,36 @@ end
 function getRevealedCards()
   local revealedCards = {}
 
-  for _, pos in ipairs(revealCardPositions) do
-    for _, obj in ipairs(SearchLib.atPosition(self.positionToWorld(pos), "isCard")) do
-      table.insert(revealedCards, obj)
-    end
+  for _, obj in ipairs(SearchLib.atPosition(self.positionToWorld(revealCardPosition), "isCard")) do
+    table.insert(revealedCards, obj)
   end
 
   return revealedCards
 end
 
-function revealFirstTwoCards()
-  if movingCards or #getRevealedCards() > 0 then return end
-
-  for i, card in ipairs(self.getObjects()) do
-    movingCards = true
-
-    self.takeObject({
-      index = 0,
-      rotation = self.getRotation(),
-      position = self.positionToWorld(revealCardPositions[i]),
-      callback_function = function(obj)
-        obj.resting = true
-        movingCards = false
-      end
-    })
-
-    hiddenCards = hiddenCards - 1
-
-    if i == 2 or #self.getObjects() == 0 then break end
+function revealTopCard()
+  if movingCards or #getRevealedCards() > 0 then 
+    print('Spirit Deck Helper: Move revealed card to an empty spot')
+    return
   end
 
-  refreshButtons()
-end
-
-function swap()
-  if movingCards then return end
-
-  local revealedCards = getRevealedCards()
-
-  if #revealedCards == 2 then
-    for i, revealedCard in ipairs(revealedCards) do
-      revealedCard.setPositionSmooth(self.positionToWorld(revealCardPositionsSwap[i]), false, false)
-    end
-  end
-end
-
-function finish()
-  if movingCards then return end
   movingCards = true
 
-  for i, revealedCard in ipairs(getRevealedCards()) do
-    self.putObject(revealedCard)
-  end
+  self.takeObject({
+    index = 0,
+    rotation = self.getRotation(),
+    position = self.positionToWorld(revealCardPosition),
+    callback_function = function(obj)
+      obj.resting = true
+      movingCards = false
+      obj.addTag("Spirit")
+      obj.highlightOn({ 0, 0.7843, 0.7843 })
+    end
+  })
 
-  Wait.time(function() movingCards = false end, 0.75)
+  hiddenCards = hiddenCards - 1
+
+  refreshButtons()
 end
 
 function resetHelper(playerColor)
@@ -238,14 +199,14 @@ function resetHelper(playerColor)
       index = 0,
       smooth = false,
       rotation = self.getRotation(),
-      position = self.positionToWorld(revealCardPositions[2])
+      position = self.positionToWorld(revealCardPosition)
     })
   end
 
   self.clearButtons()
 
   self.createButton({
-    label          = 'Underworld Market\nHelper',
+    label          = 'Spirit Deck\nHelper',
     click_function = "none",
     function_owner = self,
     position       = { 0, -0.1, -1.6 },
@@ -259,5 +220,14 @@ function resetHelper(playerColor)
   isSetup = false
   movingCards = false
 
-  print('Underworld Market Helper: Helper has been reset.')
+  print('Spirit Deck Helper: Helper has been reset.')
+end
+
+function getCardName(cardName)
+  local name = cardName
+  if string.find(name, " %(") then
+    return string.sub(name, 1, string.find(name, " %(") - 1)
+  else
+    return name
+  end
 end
