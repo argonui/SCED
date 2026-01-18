@@ -2,6 +2,7 @@ local BlessCurseManagerApi = require("chaosbag/BlessCurseManagerApi")
 local GlobalApi            = require("Global/GlobalApi")
 local GUIDReferenceApi     = require("core/GUIDReferenceApi")
 local MathLib              = require("util/MathLib")
+local MessageQueue         = require("util/MessageQueue")
 local MythosAreaApi        = require("mythos/MythosAreaApi")
 local NavigationOverlayApi = require("core/NavigationOverlayApi")
 local PlayAreaApi          = require("playarea/PlayAreaApi")
@@ -17,11 +18,32 @@ local sentUpkeepAsBlackMsg = false
 -- Table to track last press time for each player and hotkey
 local hotkeyTimers         = {}
 
--- Tabel to track the virtual color for the next hotkey press for each player
+-- Table to track the virtual color for the next hotkey press for each player
 local virtualColor         = {}
 
 function onLoad()
   createHotkeys()
+
+  MessageQueue.registerFormatter("hotkey_clue_taking", formatClueTaking)
+end
+
+function formatClueTaking(playerColor, messages)
+  -- Use the first message to determine the source info
+  local msgData    = messages[1]
+  local count      = #messages
+
+  -- Construct the feedback message
+  local playerName = GlobalApi.getColoredName(playerColor)
+  local clueText   = count == 1 and "a clue" or count .. " clues"
+
+  -- Only show the card name if it exists and isn't hidden by face-down settings
+  local cardName   = msgData.cardName
+  local cardInfo   = ""
+  if cardName and cardName ~= "" and not (card and card.is_face_down and card.hide_when_face_down) then
+    cardInfo = " from " .. cardName
+  end
+
+  return playerName .. " took " .. clueText .. cardInfo .. "."
 end
 
 function doesMatExist(matColor)
@@ -576,7 +598,7 @@ function takeClueFromLocation(playerColor, hoveredObject)
   if clickableClues then
     local trash = GUIDReferenceApi.getObjectByOwnerAndType(matColor, "Trash")
     pos = trash.getPosition():setAt("y", 2)
-    PlayermatApi.updateCounter(matColor, "ClickableClueCounter", _, 1)
+    PlayermatApi.updateCounter(matColor, "ClickableClueCounter", nil, 1)
   else
     pos = PlayermatApi.transformLocalPosition({ x = -1.12, y = 0.2, z = 0.7 }, matColor)
   end
@@ -595,12 +617,13 @@ function takeClueFromLocation(playerColor, hoveredObject)
   clue.setRotation(rot)
 
   -- construct feedback message
-  local playerName = GlobalApi.getColoredName(vColor)
-  local cardInfo = ""
-  if cardName and cardName ~= "" and not (card and card.is_face_down and card.hide_when_face_down) then
-    cardInfo = " from " .. cardName
-  end
-  broadcastToAll(playerName .. " took one clue" .. cardInfo .. ".", "White")
+  local cardInfoKey = (cardName and cardName ~= "") and cardName or "UnknownSource"
+  local queueKey = "hotkey_clue_taking_" .. cardInfoKey
+  MessageQueue.queue(vColor, queueKey, {
+    cardName     = cardName,
+    isFaceDown   = card and card.is_face_down,
+    hideFaceDown = card and card.hide_when_face_down
+  })
 
   VictoryDisplayApi.update()
 end
@@ -756,8 +779,8 @@ function hotkeyHandler(playerColor, object, pointerPosition, hotkeyName)
     return
   end
 
-  local currentTime = Time.time
-  local timeTableKey = playerColor .. "_" .. hotkeyName
+  local currentTime   = Time.time
+  local timeTableKey  = playerColor .. "_" .. hotkeyName
   local lastPressTime = hotkeyTimers[timeTableKey]
 
   if lastPressTime and (currentTime - lastPressTime) <= DOUBLE_CLICK_DELAY then

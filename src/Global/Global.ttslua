@@ -8,6 +8,7 @@ local ColorLib                    = require("util/ColorLib")
 local CoroutineLib                = require("util/CoroutineLib")
 local DeckLib                     = require("util/DeckLib")
 local GUIDReferenceApi            = require("core/GUIDReferenceApi")
+local MessageQueue                = require("util/MessageQueue")
 local MathLib                     = require("util/MathLib")
 local MythosAreaApi               = require("mythos/MythosAreaApi")
 local NavigationOverlayApi        = require("core/NavigationOverlayApi")
@@ -238,6 +239,64 @@ function onLoad(savedData)
   end
 
   namesToIds = createChaosTokenNameLookupTable()
+
+  -- This one formatter will handle all manual counter changes
+  MessageQueue.registerFormatter("manual_counter_change", formatManualCounterChange)
+end
+
+function formatManualCounterChange(playerColor, messages)
+  if not optionPanel.enableCounterLogging then return end
+
+  -- context stays consistent due to unique message type key
+  local counter   = messages[1].counter
+
+  local netAmount = 0
+  for _, msg in ipairs(messages) do
+    netAmount = netAmount + (msg.amount or 1)
+  end
+  if netAmount == 0 then return end
+
+  -- handle damage, horror, resources and clues
+  if counter == "clickableclue" then
+    counter = "clue"
+  end
+
+  local action
+  if counter == "damage" or counter == "horror" then
+    action = netAmount > 0 and " took " or " removed "
+  elseif counter == "resource" or counter == "clue" then
+    action = netAmount > 0 and " gained " or " spent "
+  else
+    return
+  end
+
+  -- singular / plural handling
+  local amountStr = "a"
+  if math.abs(netAmount) > 1 then
+    if counter == "resource" or counter == "clue" then
+      counter = counter .. "s"
+    end
+    amountStr = math.abs(netAmount)
+  end
+
+  return getColoredName(playerColor) .. action .. amountStr .. " " .. counter:lower() .. "."
+end
+
+function sendManualCounterChange(params)
+  -- work out the owner and counter
+  local owner, type = GUIDReferenceApi.getDirectOwnerAndType(params.object)
+
+  -- ensure it's a mat-owned object
+  if not owner or owner == "Mythos" then return end
+
+  -- ensure it's a counter
+  if type:sub(-7) ~= "Counter" then return end
+
+  local playerColor = PlayermatApi.getPlayerColor(owner)
+  local counter     = type:sub(1, -8):lower()
+
+  -- Create a unique key like "manual_counter_change_resource" to split messages for different counters
+  MessageQueue.queue(playerColor, "manual_counter_change_" .. counter, { counter = counter, amount = params.amount })
 end
 
 -- provides a random seed (from 1 to 999) to be used by "linked" objects like the action tokens
@@ -4106,6 +4165,7 @@ function onClick_defaultSettings()
     uiLanguage                = "en",
     changePlayAreaImage       = false,
     enableCardHelpers         = true,
+    enableCounterLogging      = true,
     highlightMinicards        = false,
     makeDamageHorrorClickable = true,
     playAreaConnectionColor   = { a = 1, b = 0.4, g = 0.4, r = 0.4 },
