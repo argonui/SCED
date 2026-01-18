@@ -101,31 +101,50 @@ function advance(player, deckType)
 
   if #searchResult == 0 then
     broadcastToColor(deckType .. " deck not found!", player.color, "Orange")
+    return
   elseif #searchResult > 1 then
     broadcastToColor("Multiple cards found at the " .. deckType .. " spot!", player.color, "Orange")
-  else
-    local object = searchResult[1]
-
-    if object.type == "Card" then
-      object.flip()
-      maybeSpendCluesForAct(object)
-    else
-      local targetRotation = object.getRotation():setAt("z", 180)
-      local targetPosition = self.positionToWorld(localPos + Vector(0, 0.5, -0.6))
-      local card = object.takeObject({ position = targetPosition, rotation = targetRotation })
-      maybeSpendCluesForAct(card)
-    end
+    return
   end
+
+  local object = searchResult[1]
+  local card
+
+  if object.type == "Card" then
+    object.flip()
+    card = object
+  else
+    local targetRotation = object.getRotation():setAt("z", 180)
+    local targetPosition = self.positionToWorld(localPos + Vector(0, 0.5, -0.6))
+    card = object.takeObject({ position = targetPosition, rotation = targetRotation })
+  end
+
+  maybeSpendCluesForAdvancing(card)
+  maybeResetDoomInPlay(card)
 end
 
--- maybe show clue spending UI
-function maybeSpendCluesForAct(card)
+-- spend clues and maybe show clue spending UI
+function maybeSpendCluesForAdvancing(card)
+  if card == nil then return end
+
   local md = JSON.decode(card.getGMNotes()) or {}
   if md.clueThreshold or md.clueThresholdPerInvestigator then
     local playerCount = PlayAreaApi.getInvestigatorCount()
     local totalNeededClues = (md.clueThreshold or 0) + (md.clueThresholdPerInvestigator or 0) * playerCount
     if totalNeededClues > 0 then
       GlobalApi.showClueSpendingUi(totalNeededClues)
+    end
+  end
+end
+
+function maybeResetDoomInPlay(card)
+  if card == nil then return end
+
+  local md = JSON.decode(card.getGMNotes()) or {}
+  if md.type == "Agenda" then
+    local DoomCounter = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "DoomCounter")
+    if DoomCounter then
+      DoomCounter.call("startReset")
     end
   end
 end
