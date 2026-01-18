@@ -1,0 +1,233 @@
+local SearchLib             = require("util/SearchLib")
+local TokenSpawnTrackerApi  = require("tokens/TokenSpawnTrackerApi")
+
+function onSave()
+  return JSON.encode({ saved_hiddenCards = hiddenCards })
+end
+
+function onLoad(savedData)
+  revealCardPosition = Vector(3.5, 0.25, 0)
+
+  self.createButton({
+    label          = 'Spirit Deck\nHelper',
+    click_function = "none",
+    function_owner = self,
+    position       = { 0, -0.1, -1.6 },
+    height         = 0,
+    width          = 0,
+    font_size      = 145,
+    font_color     = { 1, 1, 1 }
+  })
+
+  hiddenCards = 10
+  hiddenCardLabel = '-----'
+
+  isSetup = false
+  movingCards = false
+
+  self.addContextMenuItem('Reset Helper', resetHelper)
+
+  if savedData and savedData ~= '' then
+    local loaded_data = JSON.decode(savedData)
+    hiddenCards = loaded_data.saved_hiddenCards
+
+    isSetup = true
+    refreshButtons()
+  end
+end
+
+function onObjectEnterContainer(container, object)
+  if container ~= self then return end
+
+  if isSetup and object.tag == "Card" then
+    refreshButtons()
+    TokenSpawnTrackerApi.resetTokensSpawned(object)
+  end
+
+  if object.tag == "Deck" then
+    if validateDeck(object) then
+      takeDeckOut(object.getGUID(), self.getPosition() + Vector(0, 0.1, 0))
+      refreshButtons()
+
+      isSetup = true
+    end
+  elseif object.tag ~= "Card" then
+    broadcastToAll("The 'Spirit Deck Helper' is meant to be used for cards.", "White")
+  end
+end
+
+function onObjectLeaveContainer(container, object)
+  if container ~= self then return end
+
+  if isSetup then
+    refreshButtons()
+  end
+end
+
+function validateDeck(deck)
+  if deck.getQuantity() ~= 10 then
+    print('Spirit Deck Helper: Deck must include exactly 10 cards.')
+    return false
+  end
+
+  local spiritCount = 0
+  local vengefulShade = false
+
+  for _, card in ipairs(deck.getObjects()) do
+    decodedGMNotes = JSON.decode(card.gm_notes)
+
+    if decodedGMNotes ~= nil and string.find(decodedGMNotes.traits, "Ally", 1, true) then
+      spiritCount = spiritCount + 1
+    end
+
+    if decodedGMNotes ~= nil and decodedGMNotes.id == "90053" then
+      vengefulShade = true
+    end
+  end
+
+  if spiritCount ~= 9 then
+    print('Spirit Deck Helper: Deck must include 9 Ally cards.')
+    return false
+  end
+  -- check if Vengeful Shade is present
+  if vengefulShade == false then
+    print('Spirit Deck Helper: Deck must include Vengeful Shade.')
+    return false
+  end
+  return true
+end
+
+function refreshButtons()
+  local cardsList = ''
+
+  for i, card in ipairs(self.getObjects()) do
+    -- shorten the name
+    local localCardName = getCardName(card.name)
+
+    if i <= hiddenCards then
+      localCardName = hiddenCardLabel
+    end
+
+    cardsList = cardsList .. localCardName .. '\n'
+  end
+
+  self.clearButtons()
+
+  self.createButton({
+    label          = 'Spirit Deck:',
+    click_function = "none",
+    function_owner = self,
+    position       = { 0, -0.1, -1.6 },
+    height         = 0,
+    width          = 0,
+    font_size      = 150,
+    font_color     = { 1, 1, 1 }
+  })
+
+  self.createButton({
+    label          = cardsList,
+    click_function = "none",
+    function_owner = self,
+    position       = { 0, -0.1, 0.15 },
+    height         = 0,
+    width          = 0,
+    font_size      = 115,
+    font_color     = { 1, 1, 1 }
+  })
+
+  self.createButton({
+    click_function = 'revealTopCard',
+    function_owner = self,
+    label          = 'Reveal',
+    position       = { 0, 0, 1.6 },
+    width          = 540,
+    height         = 230,
+    font_size      = 150
+  })
+
+end
+
+function takeDeckOut(guid, pos)
+  local deck = self.takeObject({ guid = guid, position = pos, smooth = false })
+
+  for i = 1, #deck.getObjects() do
+    self.putObject(deck.takeObject({ position = pos + Vector(0, 0.1 * i, 0), smooth = false }))
+  end
+
+  self.shuffle()
+end
+
+function getRevealedCards()
+  local revealedCards = {}
+
+  for _, obj in ipairs(SearchLib.atPosition(self.positionToWorld(revealCardPosition), "isCard")) do
+    table.insert(revealedCards, obj)
+  end
+
+  return revealedCards
+end
+
+function revealTopCard()
+  if movingCards or #getRevealedCards() > 0 then 
+    print('Spirit Deck Helper: Move revealed card to an empty spot')
+    return
+  end
+
+  movingCards = true
+
+  self.takeObject({
+    index = 0,
+    rotation = self.getRotation(),
+    position = self.positionToWorld(revealCardPosition),
+    callback_function = function(obj)
+      obj.resting = true
+      movingCards = false
+      obj.addTag("Spirit")
+      obj.highlightOn({ 0, 0.7843, 0.7843 })
+    end
+  })
+
+  hiddenCards = hiddenCards - 1
+
+  refreshButtons()
+end
+
+function resetHelper(playerColor)
+  Player[playerColor].clearSelectedObjects()
+  for i, card in ipairs(self.getObjects()) do
+    self.takeObject({
+      index = 0,
+      smooth = false,
+      rotation = self.getRotation(),
+      position = self.positionToWorld(revealCardPosition)
+    })
+  end
+
+  self.clearButtons()
+
+  self.createButton({
+    label          = 'Spirit Deck\nHelper',
+    click_function = "none",
+    function_owner = self,
+    position       = { 0, -0.1, -1.6 },
+    height         = 0,
+    width          = 0,
+    font_size      = 145,
+    font_color     = { 1, 1, 1 }
+  })
+
+  hiddenCards = 10
+  isSetup = false
+  movingCards = false
+
+  print('Spirit Deck Helper: Helper has been reset.')
+end
+
+function getCardName(cardName)
+  local name = cardName
+  if string.find(name, " %(") then
+    return string.sub(name, 1, string.find(name, " %(") - 1)
+  else
+    return name
+  end
+end
