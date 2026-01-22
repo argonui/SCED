@@ -18,55 +18,26 @@ local zones                       = require("playermat/Zones")
 
 -- option panel data
 local AVAILABLE_OPTIONS           = {
-  ["PERSONAL SETTINGS"] = {
-    {
-      id    = "slotEditing",
-      title = "Enable Slot Edit Mode",
-      type  = "toggle"
-    },
-    {
-      id    = "handColorSelect",
-      title = "Select Hand Color",
-      type  = "button"
-    },
-    {
-      id    = "textureSelect",
-      title = "Select Playermat Texture",
-      type  = "button"
-    },
-    {
-      id    = "visibilitySelect",
-      title = "Show/Hide this Hand to me",
-      type  = "button"
-    },
-    {
-      id    = "visibilityAll",
-      title = "Show/Hide this Hand to all",
-      type  = "toggle"
-    },
-    {
-      id      = "showTokenSplash",
-      title   = "Show Token Splash Screen",
-      type    = "dropdown",
-      options = { "Global", "Enabled", "Own Tokens", "Others' Tokens", "Disabled " }
-    },
-    {
-      id    = "exhaustRotation",
-      title = "Specify Exhaust Rotation",
-      type  = "input"
-    },
-    {
-      id      = "useCustomResourceImages",
-      title   = "Use Custom Resource Images",
-      type    = "dropdown",
-      options = { "Global", "Enabled", "Disabled" }
-    },
-    {
-      id      = "useResourceCounters",
-      title   = "Use Resource Counters",
-      type    = "dropdown",
-      options = { "Global", "Enabled", "Chef's Selection", "Disabled " }
-    }
+  { id = "slotEditing",      type = "toggle" },
+  { id = "handColorSelect",  type = "button" },
+  { id = "textureSelect",    type = "button" },
+  { id = "visibilitySelect", type = "button" },
+  { id = "visibilityAll",    type = "toggle" },
+  {
+    id      = "showTokenSplash",
+    type    = "dropdown",
+    options = { "Global", "Enabled", "Own Tokens", "Others' Tokens", "Disabled " }
+  },
+  { id = "exhaustRotation", type = "input" },
+  {
+    id      = "useCustomResourceImages",
+    type    = "dropdown",
+    options = { "Global", "Enabled", "Disabled" }
+  },
+  {
+    id      = "useResourceCounters",
+    type    = "dropdown",
+    options = { "Global", "Enabled", "Chef's Selection", "Disabled " }
   }
 }
 
@@ -391,11 +362,11 @@ end
 
 -- calls the Upkeep function with correct parameter
 function doUpkeepFromHotkey(clickedByColor)
-  doUpkeep(_, clickedByColor)
+  doUpkeep(Player[clickedByColor])
 end
 
-function doUpkeep(_, clickedByColor, isRightClick)
-  updateMessageColor(clickedByColor)
+function doUpkeep(player, clickType)
+  updateMessageColor(player.color)
 
   -- print a message to keep track (only visible to the triggering player)
   local coloredName = GlobalApi.getColoredName(playerColor)
@@ -464,7 +435,7 @@ function doUpkeep(_, clickedByColor, isRightClick)
   GlobalApi.updateActionTrackerTokens(matColor)
   GlobalApi.updateActionTrackerName(matColor)
 
-  if isRightClick then
+  if clickType == "-2" then -- right-click
     printToColor("Skipping card draw and resource gain", messageColor)
     return
   end
@@ -527,8 +498,8 @@ function doUpkeep(_, clickedByColor, isRightClick)
 end
 
 -- click function for "draw 1 button" (that can be added via option panel)
-function doDrawOne(_, clickedByColor)
-  updateMessageColor(clickedByColor)
+function doDrawOne(player)
+  updateMessageColor(player.color)
   drawCardsWithReshuffle(1)
 end
 
@@ -716,8 +687,8 @@ function flipTopCardFromDeck(additionalDelay)
 end
 
 -- discard a random non-hidden card from hand
-function doDiscardOne(_, clickedByColor)
-  updateMessageColor(clickedByColor)
+function doDiscardOne(player)
+  updateMessageColor(player.color)
 
   local hand = Player[playerColor].getHandObjects()
   if #hand == 0 then
@@ -838,21 +809,6 @@ function createXML()
     end
   end
 
-  -- create a button for shuffling the discard pile back
-  local shuffleDiscardXML = {
-    tag = "Button",
-    attributes = {
-      id       = "shuffleDiscardButton",
-      onClick  = "shuffleDiscardIntoDeck",
-      width    = 7,
-      height   = 7,
-      position = "-182 30.5 -11",
-      rotation = "0 0 180",
-      image    = "shuffle"
-    }
-  }
-  table.insert(xml, shuffleDiscardXML)
-
   -- create the personal option panel
   local defaultsXML = {
     tag = "Defaults",
@@ -956,31 +912,61 @@ function createXML()
     }
   }
 
-  -- add options groups
-  local groupCount = 0
-  for groupName, groupData in pairs(AVAILABLE_OPTIONS) do
-    groupCount = groupCount + 1
-    totalHeight = totalHeight + rowHeight.groupHeader
-    -- group header
-    local groupXML = {
+  -- add option group
+  totalHeight = totalHeight + rowHeight.groupHeader
+
+  -- group header
+  table.insert(optionPanelXML.children, {
+    tag = "Row",
+    attributes = { preferredHeight = rowHeight.groupHeader },
+    children = {
+      {
+        tag = "Cell",
+        attributes = { padding = "20 10 0 0", columnSpan = 2, color = "#222222" },
+        children = {
+          {
+            tag = "Panel",
+            attributes = { padding = "40 0 0 0" },
+            children = {
+              {
+                tag = "Text",
+                attributes = {
+                  id       = "PM_group_1_text",
+                  fontSize = 75,
+                  font     = fontName,
+                  text     = i18nApi.getStrById("PM_group_1_text")
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  })
+
+  -- options
+  for _, optionData in ipairs(AVAILABLE_OPTIONS) do
+    totalHeight = totalHeight + rowHeight.option
+    local optionXML = {
       tag = "Row",
-      attributes = { preferredHeight = rowHeight.groupHeader },
+      attributes = { preferredHeight = rowHeight.option },
       children = {
+        -- option title
         {
           tag = "Cell",
-          attributes = { padding = "20 10 0 0", columnSpan = 2, color = "#222222" },
+          attributes = { padding = "20 10 5 5", color = "#333333" },
           children = {
             {
               tag = "Panel",
-              attributes = { padding = "40 0 0 0" },
+              attributes = { padding = "50 0 0 0" },
               children = {
                 {
                   tag = "Text",
                   attributes = {
-                    id       = "PM_group_" .. groupCount .. "_text",
-                    fontSize = 75,
+                    id       = "PM_optionTitle_" .. optionData.id .. "_text",
+                    fontSize = 65,
                     font     = fontName,
-                    text     = groupName
+                    text     = i18nApi.getStrById("PM_optionTitle_" .. optionData.id .. "_text")
                   }
                 }
               }
@@ -989,123 +975,89 @@ function createXML()
         }
       }
     }
-    table.insert(optionPanelXML.children, groupXML)
 
-    -- options
-    for _, optionData in ipairs(groupData) do
-      totalHeight = totalHeight + rowHeight.option
-      local optionXML = {
-        tag = "Row",
-        attributes = { preferredHeight = rowHeight.option },
-        children = {
-          -- option title
-          {
-            tag = "Cell",
-            attributes = { padding = "20 10 5 5", color = "#333333" },
-            children = {
-              {
-                tag = "Panel",
-                attributes = { padding = "50 0 0 0" },
-                children = {
-                  {
-                    tag = "Text",
-                    attributes = {
-                      id       = "PM_optionTitle_" .. optionData.id .. "_text",
-                      fontSize = 65,
-                      font     = fontName,
-                      text     = optionData.title
-                    }
-                  }
-                }
-              }
-            }
-          }
+    -- default data, will be changed below
+    local typeXML = {
+      tag = "Cell",
+      attributes = { padding = "10 10 5 5", color = "#333333" },
+      children = {
+        {
+          attributes = {
+            id            = optionData.id,
+            rectAlignment = "MiddleRight",
+            offsetXY      = "-30 0",
+            fontSize      = 80,
+            height        = 108,
+            width         = 195,
+            ignoreLayout  = true
+          },
+          children = {}
         }
       }
+    }
 
-      -- default data, will be changed below
-      local typeXML = {
-        tag = "Cell",
-        attributes = { padding = "10 10 5 5", color = "#333333" },
-        children = {
-          {
-            attributes = {
-              id            = optionData.id,
-              rectAlignment = "MiddleRight",
-              offsetXY      = "-30 0",
-              fontSize      = 80,
-              height        = 108,
-              width         = 195,
-              ignoreLayout  = true
-            },
-            children = {}
-          }
-        }
-      }
+    local subTable = typeXML.children[1]
+    if optionData.type == "toggle" then
+      -- create toggle button (on / off
+      subTable.tag                = "Button"
+      subTable.attributes.image   = optionPanelData[optionData.id] and "option_on" or "option_off"
+      subTable.attributes.onClick = "onClick_toggleOption"
+      subTable.attributes.colors  = "#FFFFFF|#dfdfdf"
+    elseif optionData.type == "button" then
+      -- create a regular button
+      local baseColor = Color(0.228, 0.249, 0.773)
 
-      local subTable = typeXML.children[1]
-      if optionData.type == "toggle" then
-        -- create toggle button (on / off
-        subTable.tag                = "Button"
-        subTable.attributes.image   = optionPanelData[optionData.id] and "option_on" or "option_off"
-        subTable.attributes.onClick = "onClick_toggleOption"
-        subTable.attributes.colors  = "#FFFFFF|#dfdfdf"
-      elseif optionData.type == "button" then
-        -- create a regular button
-        local baseColor = Color(0.228, 0.249, 0.773)
-
-        -- use the hand color for the selection button
-        if optionData.id == "handColorSelect" then
-          baseColor = Color[playerColor]
-        end
-
-        subTable.tag                = "Button"
-        subTable.attributes.image   = "option_button"
-        subTable.attributes.onClick = "onClick_" .. optionData.id
-        subTable.attributes.colors  = ColorLib.getXmlColorBlock(baseColor, 0.75, 1.33)
-      elseif optionData.type == "input" then
-        -- create an inputfield
-        subTable.tag                            = "InputField"
-        subTable.attributes.onEndEdit           = "onEndEdit_" .. optionData.id
-        subTable.attributes.text                = optionPanelData[optionData.id] or ""
-        subTable.attributes.characterValidation = "Integer"
-        subTable.attributes.textAlignment       = "MiddleCenter"
-      elseif optionData.type == "slider" then
-        -- create a slider (not yet used)
-        subTable.tag                       = "Slider"
-        subTable.attributes.onValueChanged = "onSliderChange"
-        subTable.attributes.width          = subTable.attributes.width * 2
-        subTable.attributes.wholeNumbers   = true
-        subTable.attributes.minValue       = 1
-        subTable.attributes.maxValue       = 12
-        subTable.attributes.value          = 6
-      elseif optionData.type == "dropdown" then
-        -- create a dropdown menu
-        subTable.tag                       = "Dropdown"
-        subTable.attributes.id             = optionData.id
-        subTable.attributes.onValueChanged = "onDropdownChange(selectedIndex)"
-        subTable.attributes.value          = getDropdownOptionIndex(optionData.id, optionPanelData[optionData.id]) - 1
-        subTable.attributes.raycastTarget  = true
-        subTable.attributes.dropdownHeight = 250 * math.min(#optionData.options, 3)
-        subTable.attributes.itemHeight     = 70
-        subTable.attributes.fontSize       = 60
-        subTable.attributes.font           = fontName
-        subTable.attributes.width          = subTable.attributes.width * 2
-        subTable.attributes.children       = {}
-
-        -- add options
-        for dropdownOptionId, option in ipairs(optionData.options) do
-          table.insert(subTable.children, {
-            tag        = "Option",
-            value      = option,
-            attributes = { id = "PM_option_" .. optionData.id .. "_dropdown_" .. dropdownOptionId }
-          })
-        end
+      -- use the hand color for the selection button
+      if optionData.id == "handColorSelect" then
+        baseColor = Color[playerColor]
       end
 
-      table.insert(optionXML.children, typeXML)
-      table.insert(optionPanelXML.children, optionXML)
+      subTable.tag                = "Button"
+      subTable.attributes.image   = "option_button"
+      subTable.attributes.onClick = "onClick_" .. optionData.id
+      subTable.attributes.colors  = ColorLib.getXmlColorBlock(baseColor, 0.75, 1.33)
+    elseif optionData.type == "input" then
+      -- create an inputfield
+      subTable.tag                            = "InputField"
+      subTable.attributes.onEndEdit           = "onEndEdit_" .. optionData.id
+      subTable.attributes.text                = optionPanelData[optionData.id] or ""
+      subTable.attributes.characterValidation = "Integer"
+      subTable.attributes.textAlignment       = "MiddleCenter"
+    elseif optionData.type == "slider" then
+      -- create a slider (not yet used)
+      subTable.tag                       = "Slider"
+      subTable.attributes.onValueChanged = "onSliderChange"
+      subTable.attributes.width          = subTable.attributes.width * 2
+      subTable.attributes.wholeNumbers   = true
+      subTable.attributes.minValue       = 1
+      subTable.attributes.maxValue       = 12
+      subTable.attributes.value          = 6
+    elseif optionData.type == "dropdown" then
+      -- create a dropdown menu
+      subTable.tag                       = "Dropdown"
+      subTable.attributes.id             = optionData.id
+      subTable.attributes.onValueChanged = "onDropdownChange(selectedIndex)"
+      subTable.attributes.value          = getDropdownOptionIndex(optionData.id, optionPanelData[optionData.id]) - 1
+      subTable.attributes.raycastTarget  = true
+      subTable.attributes.dropdownHeight = 250 * math.min(#optionData.options, 3)
+      subTable.attributes.itemHeight     = 70
+      subTable.attributes.fontSize       = 60
+      subTable.attributes.font           = fontName
+      subTable.attributes.width          = subTable.attributes.width * 2
+      subTable.attributes.children       = {}
+
+      -- add options
+      for dropdownOptionId, option in ipairs(optionData.options) do
+        table.insert(subTable.children, {
+          tag        = "Option",
+          value      = option,
+          attributes = { id = "PM_option_" .. optionData.id .. "_dropdown_" .. dropdownOptionId }
+        })
+      end
     end
+
+    table.insert(optionXML.children, typeXML)
+    table.insert(optionPanelXML.children, optionXML)
   end
   table.insert(xml, optionPanelXML)
 
@@ -1126,9 +1078,9 @@ function addGameplayButtons(xml)
   local DEFAULT_BUTTON_POS = { position1 = -182, position3 = 15 }
 
   local BUTTON_DATA = {
-    { label = "Upkeep",    onClick = "doUpkeep",     position2 = -45, tooltip = "Right-click to skip resource gain and card draw" },
-    { label = "Discard 1", onClick = "doDiscardOne", position2 = -92, tooltip = "Discard one random card from hand (hidden cards are excluded)" },
-    { label = "Draw 1",    onClick = "doDrawOne",    position2 = 35 }
+    { id = "PM_upkeep_button_text",   onClick = "doUpkeep",     position2 = -45 },
+    { id = "PM_draw1_button_text",    onClick = "doDiscardOne", position2 = -92 },
+    { id = "PM_discard1_button_text", onClick = "doDrawOne",    position2 = 35 }
   }
 
   local fontName = i18nApi.getFont()
@@ -1140,12 +1092,15 @@ function addGameplayButtons(xml)
       table.insert(posList, data["position" .. i] or DEFAULT_BUTTON_POS["position" .. i])
     end
 
+    local tooltipkey = BUTTON_DATA.id .. "+tooltip"
+    local tooltip = i18nApi.getStrById(tooltipkey)
+
     table.insert(xml, {
       tag = "Button",
       attributes = {
-        text      = data.label,
+        text      = i18nApi.getStrById(BUTTON_DATA.id),
         onClick   = data.onClick,
-        tooltip   = data.tooltip,
+        tooltip   = (tooltip ~= tooltipkey) and tooltip,
         position  = table.concat(posList, " "),
         width     = 1000,
         height    = 280,
@@ -1159,12 +1114,15 @@ function addGameplayButtons(xml)
 
   -- special handling for discard buttons
   for i = 1, 6 do
-    local buttonXml = {
+    local i18nKey = (i == 1) and "PM_discardMove_button_text" or "PM_discard_button_text"
+    table.insert(xml, {
       tag = "Button",
       attributes = {
+        id        = "discardFromThreatArea" .. i,
+        i18n      = i18nKey,
         text      = (i == 1) and "Discard / ➜" or "Discard",
         width     = (i == 1) and 1190 or 900,
-        tooltip   = (i == 1) and "Right-click to move to threat area",
+        tooltip   = (i == 1) and i18nApi.getStrById(i18nKey .. "+tooltip"),
         onClick   = "onClick_discardButton",
         scale     = "0.12 0.12 1",
         height    = 350,
@@ -1173,10 +1131,22 @@ function addGameplayButtons(xml)
         position  = table.concat({ 136.5 - 44.5 * i, 10, -94 }, " "),
         rotation  = "0 0 180"
       }
-    }
-
-    table.insert(xml, buttonXml)
+    })
   end
+
+  -- create a button for shuffling the discard pile back
+  table.insert(xml, {
+    tag = "Button",
+    attributes = {
+      id       = "shuffleDiscardButton",
+      onClick  = "shuffleDiscardIntoDeck",
+      width    = 7,
+      height   = 7,
+      position = "-182 30.5 -11",
+      rotation = "0 0 180",
+      image    = "shuffle"
+    }
+  })
 end
 
 -- index can be 1 - 6
@@ -1954,7 +1924,7 @@ function showDrawButton(visible)
     updateSave()
   end
 
-  self.UI.setAttribute("PM_draw_button", "active", isDrawButtonVisible)
+  self.UI.setAttribute("PM_draw1_button", "active", isDrawButtonVisible)
 end
 
 -- shows / hides a clickable clue counter for this playermat and sets the correct amount of clues
