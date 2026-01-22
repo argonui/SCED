@@ -81,10 +81,6 @@ local currentlyEditingSlots       = false
 -- for stopping multiple collisions of the same object
 local collisionTable              = {}
 
--- x-Values for discard buttons
-local DISCARD_BUTTON_X_START      = -1.365
-local DISCARD_BUTTON_X_OFFSET     = 0.455
-
 local SEARCH_AROUND_SELF_X_BUFFER = 8
 local SEARCH_AROUND_SELF_Z_BUFFER = 1.75
 
@@ -121,20 +117,6 @@ local tokenSpawnPos               = {
     Vector(-1, 0, 0.118),  -- bottom left corner of the investigator card
     Vector(-1, 0, -0.118), -- top left corner of the investigator card
   }
-}
-
--- used for the buttons on the right side of the playermat
--- starts off with the data for the "Upkeep" button and will then be changed
-local buttonParameters            = {
-  label          = "Upkeep",
-  click_function = "doUpkeep",
-  tooltip        = "Right-click to skip resource gain and card draw",
-  function_owner = self,
-  position       = { x = 1.82, y = 0.15, z = -0.45 },
-  scale          = { 0.12, 0.12, 0.12 },
-  width          = 1000,
-  height         = 280,
-  font_size      = 180
 }
 
 -- table of texture URLs
@@ -220,42 +202,26 @@ function onLoad(savedData)
 
   getOwnedObjects()
 
-  -- discard button creation
-  makeDrawAreaButton()
-  for i = 2, 6 do
-    makeDiscardButton(i)
-  end
-
   self.createButton({
     click_function = "drawEncounterCard",
     function_owner = self,
-    position = { -1.84, 0, -0.65 },
-    rotation = { 0, 80, 0 },
-    width = 265,
-    height = 190
+    position       = { -1.84, 0, -0.65 },
+    rotation       = { 0, 80, 0 },
+    width          = 265,
+    height         = 190
   })
 
   self.createButton({
     click_function = "drawChaosTokenButton",
     function_owner = self,
-    position = { 1.85, 0, -0.74 },
-    rotation = { 0, -45, 0 },
-    width = 135,
-    height = 135
+    position       = { 1.85, 0, -0.74 },
+    rotation       = { 0, -45, 0 },
+    width          = 135,
+    height         = 135
   })
 
-  -- Upkeep button: can use the default parameters for this
-  self.createButton(buttonParameters)
-
-  -- Discard 1 button: modified default data
-  buttonParameters.label = "Discard 1"
-  buttonParameters.click_function = "doDiscardOne"
-  buttonParameters.tooltip = "Discard one random card from hand (hidden cards are excluded)."
-  buttonParameters.position.z = 0.92
-  self.createButton(buttonParameters)
-
-  showDrawButton()
   createXML()
+
   Wait.time(function() collisionEnabled = true end, 0.1)
 
   -- make sure the casts (for each playermat) are not in the same frame
@@ -417,73 +383,6 @@ function getHelperSpawnData(helperName)
   local pos = self.positionToWorld(localPositionTable[helperName])
   local rot = self.getRotation() + localRotationTable[helperName]
   return { position = pos, rotation = rot }
-end
-
----------------------------------------------------------
--- Discard buttons (threat area)
----------------------------------------------------------
-
--- build a discard button to discard from searchPosition
----@param id number Index of the discard button (from left to right, must be unique)
-function makeDiscardButton(id)
-  local xValue         = DISCARD_BUTTON_X_START + (id - 1) * DISCARD_BUTTON_X_OFFSET
-  local position       = Vector(xValue, 0.1, -0.94)
-  local searchPosition = Vector(-position[1], 1, position[3] + 0.32)
-  local handlerName    = 'handler' .. id
-  self.setVar(handlerName, function()
-    local cardSizeSearch = Vector(2, 2, 3.2)
-    local globalSearchPosition = self.positionToWorld(searchPosition)
-    local searchResult = SearchLib.inArea(globalSearchPosition, self.getRotation(), cardSizeSearch)
-    return GlobalApi.discardObjects(searchResult, matColor)
-  end)
-  self.createButton({
-    label          = "Discard",
-    click_function = handlerName,
-    function_owner = self,
-    position       = position,
-    scale          = { 0.12, 0.12, 0.12 },
-    width          = 900,
-    height         = 350,
-    font_size      = 210
-  })
-end
-
--- build a hybrid button to discard from searchPosition or move a card/deck to empty threat area on right click
-function makeDrawAreaButton()
-  self.createButton({
-    label          = "Discard / ➜",
-    click_function = "discardOrMove",
-    tooltip        = "Right-click to move to threat area",
-    function_owner = self,
-    position       = { -1.365, 0.1, -0.94 },
-    scale          = { 0.12, 0.12, 0.12 },
-    width          = 1190,
-    height         = 350,
-    font_size      = 207
-  })
-end
-
-function discardOrMove(_, playerColor, isRightClick)
-  local searchPosition = self.positionToWorld(Vector(1.365, 1, -0.62))
-  local searchRotation = self.getRotation()
-  local searchSize     = Vector(2, 2, 3.2) -- roughly size of a card
-  local searchResult   = SearchLib.inArea(searchPosition, searchRotation, searchSize)
-
-  if isRightClick then
-    local threatAreaPos = getEncounterCardDrawPosition(false)
-    if threatAreaPos == getEncounterCardDrawPosition(true) then
-      broadcastToColor("Threat area is full.", playerColor, "Yellow")
-      return
-    end
-
-    for _, obj in ipairs(searchResult) do
-      if obj.type == "Card" or obj.type == "Deck" then
-        GlobalApi.moveCardWithTokens(obj, threatAreaPos)
-      end
-    end
-  else
-    return GlobalApi.discardObjects(searchResult, matColor)
-  end
 end
 
 ---------------------------------------------------------
@@ -1137,7 +1036,7 @@ function createXML()
               fontSize      = 80,
               height        = 108,
               width         = 195,
-              ignoreLayout  = "True"
+              ignoreLayout  = true
             },
             children = {}
           }
@@ -1218,7 +1117,96 @@ function createXML()
   local verticalOffset               = totalHeight * scale / 2 - 95
   optionPanelXML.attributes.position = horizontalOffset .. " " .. verticalOffset .. " -65"
 
+  addGameplayButtons(xml)
+
   self.UI.setXmlTable(xml)
+end
+
+function addGameplayButtons(xml)
+  local DEFAULT_BUTTON_POS = { position1 = -182, position3 = 15 }
+
+  local BUTTON_DATA = {
+    { label = "Upkeep",    onClick = "doUpkeep",     position2 = -45, tooltip = "Right-click to skip resource gain and card draw" },
+    { label = "Discard 1", onClick = "doDiscardOne", position2 = -92, tooltip = "Discard one random card from hand (hidden cards are excluded)" },
+    { label = "Draw 1",    onClick = "doDrawOne",    position2 = 35 }
+  }
+
+  local fontName = i18nApi.getFont()
+
+  -- buttons near draw / discard pile
+  for _, data in ipairs(BUTTON_DATA) do
+    local posList = {}
+    for i = 1, 3 do
+      table.insert(posList, data["position" .. i] or DEFAULT_BUTTON_POS["position" .. i])
+    end
+
+    table.insert(xml, {
+      tag = "Button",
+      attributes = {
+        text      = data.label,
+        onClick   = data.onClick,
+        tooltip   = data.tooltip,
+        position  = table.concat(posList, " "),
+        width     = 1000,
+        height    = 280,
+        font_size = 180,
+        font      = fontName,
+        scale     = "0.12 0.12 1",
+        rotation  = "0 0 180"
+      }
+    })
+  end
+
+  -- special handling for discard buttons
+  for i = 1, 6 do
+    local buttonXml = {
+      tag = "Button",
+      attributes = {
+        text      = (i == 1) and "Discard / ➜" or "Discard",
+        width     = (i == 1) and 1190 or 900,
+        tooltip   = (i == 1) and "Right-click to move to threat area",
+        onClick   = "onClick_discardButton",
+        scale     = "0.12 0.12 1",
+        height    = 350,
+        font_size = 210,
+        font      = fontName,
+        position  = table.concat({ 136.5 - 44.5 * i, 10, -94 }, " "),
+        rotation  = "0 0 180"
+      }
+    }
+
+    table.insert(xml, buttonXml)
+  end
+end
+
+-- index can be 1 - 6
+function getLocalThreatAreaPosition(index)
+  return Vector(-1.365 + 0.455 * (index - 1), 0.1, -0.62)
+end
+
+function onClick_discardButton(player, clickType, elementId)
+  local index              = tonumber(elementId:sub(-1))
+  local threatAreaPosition = getLocalThreatAreaPosition(index)
+  local searchPosition     = self.positionToWorld(threatAreaPosition:setAt("y", 1))
+  local searchRotation     = self.getRotation()
+  local searchSize         = Vector(2, 2, 3.2) -- roughly size of a card
+  local searchResult       = SearchLib.inArea(searchPosition, searchRotation, searchSize)
+
+  if index == 1 and clickType == "-2" then -- right-click on first button
+    local emptyPosition = getEncounterCardDrawPosition(false)
+    if emptyPosition == getEncounterCardDrawPosition(true) then
+      broadcastToColor("Threat area is full.", player.color, "Yellow")
+      return
+    end
+
+    for _, obj in ipairs(searchResult) do
+      if obj.type == "Card" or obj.type == "Deck" then
+        GlobalApi.moveCardWithTokens(obj, emptyPosition)
+      end
+    end
+  else
+    GlobalApi.discardObjects(searchResult, matColor)
+  end
 end
 
 function onClick_hideOrShowOptions(player)
@@ -1942,18 +1930,16 @@ end
 function getEncounterCardDrawPosition(stack)
   local drawPos = self.positionToWorld(DRAWN_ENCOUNTER_POSITION)
 
+  if stack then
+    return drawPos
+  end
+
   -- maybe override position with first empty slot in threat area (right to left)
-  if not stack then
-    local searchPos = Vector(-0.91, 0.5, -0.625)
-    for i = 1, 5 do
-      local globalSearchPos = self.positionToWorld(searchPos)
-      local searchResult = SearchLib.atPosition(globalSearchPos, "isCardOrDeck")
-      if #searchResult == 0 then
-        drawPos = globalSearchPos
-        break
-      else
-        searchPos.x = searchPos.x + 0.455
-      end
+  for i = 2, 6 do
+    local searchPos    = self.positionToWorld(getLocalThreatAreaPosition(i))
+    local searchResult = SearchLib.atPosition(searchPos, "isCardOrDeck")
+    if #searchResult == 0 then
+      return searchPos
     end
   end
 
@@ -1968,21 +1954,7 @@ function showDrawButton(visible)
     updateSave()
   end
 
-  if isDrawButtonVisible then
-    -- Draw 1 button: modified default data
-    buttonParameters.label = "Draw 1"
-    buttonParameters.click_function = "doDrawOne"
-    buttonParameters.tooltip = ""
-    buttonParameters.position.z = -0.35
-    self.createButton(buttonParameters)
-  else
-    local buttons = self.getButtons()
-    for i = 1, #buttons do
-      if buttons[i].label == "Draw 1" then
-        self.removeButton(buttons[i].index)
-      end
-    end
-  end
+  self.UI.setAttribute("PM_draw_button", "active", isDrawButtonVisible)
 end
 
 -- shows / hides a clickable clue counter for this playermat and sets the correct amount of clues
