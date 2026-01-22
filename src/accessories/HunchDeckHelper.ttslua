@@ -1,13 +1,26 @@
-local SearchLib = require("util/SearchLib")
+local SearchLib         = require("util/SearchLib")
 
-local REVEALED_CARD_POSITION = Vector(0, 0.25, 0)
-
+local HIDDEN_CARD_LABEL = '-----'
+local REVEALED_CARD_POS = Vector(3.5, 0.25, 0)
 
 function onSave()
-  return JSON.encode({ saved_hiddenCards = hiddenCards })
+  return JSON.encode({ hiddenCards = hiddenCards })
 end
 
 function onLoad(savedData)
+  -- load data
+  if savedData and savedData ~= '' then
+    local loaded_data = JSON.decode(savedData)
+    hiddenCards = loaded_data.hiddenCards
+    isSetup = true
+    refreshButtons()
+  end
+
+  -- apply defaults
+  movingCards = false
+  hiddenCards = hiddenCards or 11
+  if isSetup == nil then isSetup = false end
+
   self.createButton({
     label          = 'Hunch Deck\nHelper',
     click_function = "none",
@@ -19,21 +32,7 @@ function onLoad(savedData)
     font_color     = { 1, 1, 1 }
   })
 
-  hiddenCards = 11
-  hiddenCardLabel = '-----'
-
-  isSetup = false
-  movingCards = false
-
   self.addContextMenuItem('Reset Helper', resetHelper)
-
-  if savedData and savedData ~= '' then
-    local loaded_data = JSON.decode(savedData)
-    hiddenCards = loaded_data.saved_hiddenCards
-
-    isSetup = true
-    refreshButtons()
-  end
 end
 
 function onObjectEnterContainer(container, object)
@@ -64,24 +63,23 @@ function onObjectLeaveContainer(container, object)
 end
 
 function validateDeck(deck)
-  local qty = deck.getQuantity()
-  if qty ~= 11 then
-    print("Hunch Deck Helper: Deck must include exactly 11 cards (got " .. tostring(qty) .. ").")
+  if deck.getQuantity() ~= 11 then
+    print("Hunch Deck Helper: Deck must include exactly 11 cards.")
     return false
   end
 
   local insightCount = 0
 
   for _, card in ipairs(deck.getObjects()) do
-    decodedGMNotes = JSON.decode(card.gm_notes)
+    local decodedGMNotes = JSON.decode(card.gm_notes)
 
-    if decodedGMNotes ~= nil and string.find(decodedGMNotes.traits, "Insight", 1, true) then
+    if decodedGMNotes and decodedGMNotes.traits and string.find(decodedGMNotes.traits, "Insight", 1, true) then
       insightCount = insightCount + 1
     end
   end
 
   if insightCount ~= 11 then
-    print("Hunch Deck Helper: Deck must include 11 Insight cards (got " .. tostring(insightCount) .. ").")
+    print("Hunch Deck Helper: Deck must include 11 Insight cards.")
     return false
   end
 
@@ -95,7 +93,7 @@ function refreshButtons()
     local localCardName = card.name
 
     if i <= hiddenCards then
-      localCardName = hiddenCardLabel
+      localCardName = HIDDEN_CARD_LABEL
     end
 
     cardsList = cardsList .. localCardName .. '\n'
@@ -157,7 +155,7 @@ function takeDeckOut(guid, pos)
 end
 
 function getRevealedCard()
-  for _, obj in ipairs(SearchLib.atPosition(self.positionToWorld(REVEALED_CARD_POSITION), "isCard")) do
+  for _, obj in ipairs(SearchLib.atPosition(self.positionToWorld(REVEALED_CARD_POS), "isCard")) do
     return obj
   end
 end
@@ -170,7 +168,6 @@ function revealTopCard()
 
 
   self.takeObject({
-    index = 0,
     rotation = self.getRotation(),
     position = self.positionToWorld(revealCardPositions[1]),
     callback_function = function(obj)
@@ -205,8 +202,7 @@ function resetHelper(playerColor)
   Player[playerColor].clearSelectedObjects()
   for i, card in ipairs(self.getObjects()) do
     self.takeObject({
-      index = 0,
-      smooth = false,
+      smooth   = false,
       rotation = self.getRotation(),
       position = self.positionToWorld(revealCardPositions[2])
     })
@@ -226,7 +222,7 @@ function resetHelper(playerColor)
   })
 
   hiddenCards = 11
-  isSetup = false
+  isSetup     = false
   movingCards = false
 
   print('Hunch Deck Helper: Helper has been reset.')
