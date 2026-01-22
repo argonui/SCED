@@ -1,65 +1,46 @@
 local SearchLib         = require("util/SearchLib")
+local TableLib          = require("util/TableLib")
 
-local HIDDEN_CARD_LABEL = '-----'
 local REVEALED_CARD_POS = Vector(3.5, 0.25, 0)
 
-function onSave()
-  return JSON.encode({ hiddenCards = hiddenCards })
-end
-
-function onLoad(savedData)
-  -- load data
-  if savedData and savedData ~= '' then
-    local loaded_data = JSON.decode(savedData)
-    hiddenCards = loaded_data.hiddenCards
-    isSetup = true
-    refreshButtons()
-  end
-
-  -- apply defaults
-  movingCards = false
-  hiddenCards = hiddenCards or 11
-  if isSetup == nil then isSetup = false end
-
-  self.createButton({
-    label          = 'Hunch Deck\nHelper',
-    click_function = "none",
-    function_owner = self,
-    position       = { 0, -0.1, -1.6 },
-    height         = 0,
-    width          = 0,
-    font_size      = 145,
-    font_color     = { 1, 1, 1 }
-  })
-
+function onLoad()
+  createButtons()
+  updateCountLabel()
   self.addContextMenuItem('Reset Helper', resetHelper)
-end
-
-function onObjectEnterContainer(container, object)
-  if container ~= self then return end
-
-  if isSetup and object.type == "Card" then
-    refreshButtons()
-  end
-
-  if object.type == "Deck" then
-    if validateDeck(object) then
-      takeDeckOut(object.getGUID(), self.getPosition() + Vector(0, 0.1, 0))
-      refreshButtons()
-
-      isSetup = true
-    end
-  elseif object.type ~= "Card" then
-    broadcastToAll("The 'Hunch Deck Helper' is meant to be used for cards.", "White")
-  end
 end
 
 function onObjectLeaveContainer(container, object)
   if container ~= self then return end
 
-  if isSetup then
-    refreshButtons()
+  if object.type == "Card" then
+    updateCountLabel()
   end
+end
+
+function onObjectEnterContainer(container, object)
+  if container ~= self then return end
+
+  if object.type == "Deck" then
+    if validateDeck(object) then
+      splitDeck()
+    end
+  elseif object.type == "Card" then
+    updateCountLabel()
+  else
+    broadcastToAll("The 'Hunch Deck Helper' is meant to be used for cards.", "White")
+  end
+end
+
+function updateCountLabel()
+  local count = 0
+
+  for _, objData in ipairs(self.getData().ContainedObjects or {}) do
+    if objData["Name"] == "Card" or objData["Name"] == "CardCustom" then
+      count = count + 1
+    end
+  end
+
+  self.editButton({ index = 1, label = count })
 end
 
 function validateDeck(deck)
@@ -69,57 +50,56 @@ function validateDeck(deck)
   end
 
   local insightCount = 0
+  local unsolvedCaseFound = false
 
   for _, card in ipairs(deck.getObjects()) do
-    local decodedGMNotes = JSON.decode(card.gm_notes)
+    local decodedGMNotes = JSON.decode(card.gm_notes or "") or {}
 
-    if decodedGMNotes and decodedGMNotes.traits and string.find(decodedGMNotes.traits, "Insight", 1, true) then
+    if decodedGMNotes.traits and string.find(decodedGMNotes.traits, "Insight", 1, true) then
       insightCount = insightCount + 1
+    end
+
+    if decodedGMNotes.id == "05010" then
+      unsolvedCaseFound = true
     end
   end
 
-  if insightCount ~= 11 then
-    print("Hunch Deck Helper: Deck must include 11 Insight cards.")
+  if not unsolvedCaseFound then
+    printToAll("Hunch Deck Helper: Unsolved Case wasn't found.")
+    return false
+  elseif insightCount ~= 11 then
+    printToAll("Hunch Deck Helper: Deck must include 11 Insight cards.")
     return false
   end
 
   return true
 end
 
-function refreshButtons()
-  local cardsList = ''
-
-  for i, card in ipairs(self.getObjects()) do
-    local localCardName = card.name
-
-    if i <= hiddenCards then
-      localCardName = HIDDEN_CARD_LABEL
-    end
-
-    cardsList = cardsList .. localCardName .. '\n'
-  end
-
+function createButtons()
   self.clearButtons()
 
   self.createButton({
-    label          = 'Hunch Deck:',
+    label          = 'Hunch Deck\nHelper',
     click_function = "none",
     function_owner = self,
-    position       = { 0, -0.1, -1.6 },
+    position       = { 0, -0.1, -1.5 },
+    scale          = { 0.725, 0.725, 0.725 },
     height         = 0,
     width          = 0,
-    font_size      = 150,
+    font_size      = 300,
     font_color     = { 1, 1, 1 }
   })
 
+  -- label for the count
   self.createButton({
-    label          = cardsList,
+    label          = '',
     click_function = "none",
     function_owner = self,
-    position       = { 0, -0.1, 0.15 },
+    position       = { 0, -0.1, -0.35 },
+    scale          = { 0.75, 0.75, 0.75 },
     height         = 0,
     width          = 0,
-    font_size      = 115,
+    font_size      = 300,
     font_color     = { 1, 1, 1 }
   })
 
@@ -127,31 +107,46 @@ function refreshButtons()
     click_function = 'revealTopCard',
     function_owner = self,
     label          = 'Reveal',
-    position       = { -0.85, 0, 1.6 },
-    width          = 375,
-    height         = 175,
-    font_size      = 90
+    position       = { 0, 0, 0.5 },
+    scale          = { 0.75, 0.75, 0.75 },
+    width          = 900,
+    height         = 400,
+    font_size      = 230
   })
 
   self.createButton({
     click_function = 'finish',
     function_owner = self,
     label          = 'Finish',
-    position       = { 0.85, 0, 1.6 },
-    width          = 375,
-    height         = 175,
-    font_size      = 90
+    position       = { 0, 0, 1.25 },
+    scale          = { 0.75, 0.75, 0.75 },
+    width          = 900,
+    height         = 400,
+    font_size      = 230
   })
 end
 
-function takeDeckOut(guid, pos)
-  local deck = self.takeObject({ guid = guid, position = pos, smooth = false })
+function splitDeck()
+  local data = self.getData()
 
-  for i = 1, #deck.getObjects() do
-    self.putObject(deck.takeObject({ position = pos + Vector(0, 0.1 * i, 0), smooth = false }))
+  local newContainedObjects = {}
+
+  for _, objData in ipairs(data.ContainedObjects) do
+    if objData["Name"] == "Card" or objData["Name"] == "CardCustom" then
+      table.insert(newContainedObjects, objData)
+    elseif objData["Name"] == "Deck" then
+      for _, cardData in ipairs(objData.ContainedObjects) do
+        table.insert(newContainedObjects, cardData)
+      end
+    end
   end
 
-  self.shuffle()
+  TableLib.shuffle(newContainedObjects)
+
+  data.ContainedObjects = newContainedObjects
+
+  self.destruct()
+  spawnObjectData({ data = data })
 end
 
 function getRevealedCard()
@@ -164,38 +159,20 @@ function revealTopCard()
   if movingCards or getRevealedCard() then return end
   if #self.getObjects() == 0 then return end
 
-  movingCards = true
-
-
   self.takeObject({
     rotation = self.getRotation(),
-    position = self.positionToWorld(revealCardPositions[1]),
-    callback_function = function(obj)
-      obj.resting = true
-      movingCards = false
-    end
+    position = self.positionToWorld(REVEALED_CARD_POS),
+    callback_function = function(obj) obj.resting = true end
   })
-
-  hiddenCards = hiddenCards - 1
-  refreshButtons()
 end
 
 function finish()
-  if movingCards then return end
-
   local revealedCard = getRevealedCard()
   if not revealedCard then return end
 
-  movingCards = true
-
   self.putObject(revealedCard)
 
-  Wait.time(function()
-    self.shuffle()
-    hiddenCards = 11
-    refreshButtons()
-    movingCards = false
-  end, 0.6)
+  Wait.time(function() self.shuffle() end, 0.5)
 end
 
 function resetHelper(playerColor)
@@ -204,26 +181,11 @@ function resetHelper(playerColor)
     self.takeObject({
       smooth   = false,
       rotation = self.getRotation(),
-      position = self.positionToWorld(revealCardPositions[2])
+      position = self.positionToWorld(REVEALED_CARD_POS)
     })
   end
 
-  self.clearButtons()
-
-  self.createButton({
-    label          = 'Hunch Deck\nHelper',
-    click_function = "none",
-    function_owner = self,
-    position       = { 0, -0.1, -1.6 },
-    height         = 0,
-    width          = 0,
-    font_size      = 145,
-    font_color     = { 1, 1, 1 }
-  })
-
-  hiddenCards = 11
-  isSetup     = false
-  movingCards = false
-
   print('Hunch Deck Helper: Helper has been reset.')
+
+  createButtons()
 end
