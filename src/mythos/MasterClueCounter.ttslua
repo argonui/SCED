@@ -1,31 +1,56 @@
+local GlobalApi    = require("Global/GlobalApi")
+local i18nApi      = require("Global/i18nApi")
+local PlayAreaApi  = require("playarea/PlayAreaApi")
 local PlayermatApi = require("playermat/PlayermatApi")
 
--- variables are intentionally global to be accessible
-count = 0
+-- variable is intentionally global to be accessible
+count              = 0
 
 function onLoad()
   self.createButton({
-    label = "0",
+    label          = "0",
     click_function = "removeAllPlayerClues",
-    tooltip = "Click here to remove all collected clues",
+    tooltip        = "Click here to remove all collected clues.\nRight-click to specify the amount.",
     function_owner = self,
-    position = { 0, 0.06, 0 },
-    height = 900,
-    width = 900,
-    scale = { 1.5, 1.5, 1.5 },
-    font_size = 650,
-    font_color = { 1, 1, 1, 100 },
-    color = { 0, 0, 0, 0 }
+    position       = { 0, 0.06, 0 },
+    height         = 900,
+    width          = 900,
+    scale          = { 1.5, 1.5, 1.5 },
+    font_size      = 650,
+    font_color     = { 1, 1, 1, 100 },
+    color          = { 0, 0, 0, 0 }
   })
 
   Wait.time(sumClues, 2, -1)
 end
 
 -- removes all player clues by calling the respective function from the counting bowls / clickers
-function removeAllPlayerClues()
-  printToAll(count .. " clue(s) from playermats removed.", "White")
-  PlayermatApi.removeClues("All")
-  self.editButton({ index = 0, label = "0" })
+function removeAllPlayerClues(_, playerColor, isRightClick)
+  if isRightClick then
+    Player[playerColor].showInputDialog(i18nApi.getStrById("ClueRequirement"), "2i",
+      function(text)
+        if string.find(text, "-") then
+          broadcastToColor("Negative numbers aren't handled.", playerColor, "Orange")
+          return
+        end
+
+        local mult = 1
+        if string.find(text, "i") then
+          mult = PlayAreaApi.getInvestigatorCount()
+        end
+
+        -- remove non-numbers
+        text = text:gsub("%D", "")
+
+        local totalNeededClues = (tonumber(text) or 0) * mult
+        GlobalApi.showClueSpendingUi(totalNeededClues)
+      end)
+  else
+    local str = (count == 1) and " clue" or " clues"
+    printToAll(count .. str .. " from playermats removed.", "White")
+    PlayermatApi.removeClues("All")
+    self.editButton({ index = 0, label = "0" })
+  end
 end
 
 -- gets the counted values from the counting bowls / clickers and sums them up
