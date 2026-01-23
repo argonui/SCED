@@ -1075,12 +1075,12 @@ function createXML()
 end
 
 function addGameplayButtons(xml)
-  local DEFAULT_BUTTON_POS = { position1 = -182, position3 = 15 }
+  local DEFAULT_BUTTON_POS = { position1 = -182, position3 = -15 }
 
   local BUTTON_DATA = {
-    { id = "PM_upkeep_button_text",   onClick = "doUpkeep",     position2 = -45 },
-    { id = "PM_draw1_button_text",    onClick = "doDiscardOne", position2 = -92 },
-    { id = "PM_discard1_button_text", onClick = "doDrawOne",    position2 = 35 }
+    { id = "PM_upkeep_button",   onClick = "doUpkeep",     position2 = -45 },
+    { id = "PM_draw1_button",    onClick = "doDrawOne",    position2 = -33 },
+    { id = "PM_discard1_button", onClick = "doDiscardOne", position2 = 92 }
   }
 
   local fontName = i18nApi.getFont()
@@ -1092,44 +1092,45 @@ function addGameplayButtons(xml)
       table.insert(posList, data["position" .. i] or DEFAULT_BUTTON_POS["position" .. i])
     end
 
-    local tooltipkey = BUTTON_DATA.id .. "+tooltip"
-    local tooltip = i18nApi.getStrById(tooltipkey)
-
+    -- TODO: implement tooltips
     table.insert(xml, {
       tag = "Button",
       attributes = {
-        text      = i18nApi.getStrById(BUTTON_DATA.id),
-        onClick   = data.onClick,
-        tooltip   = (tooltip ~= tooltipkey) and tooltip,
-        position  = table.concat(posList, " "),
-        width     = 1000,
-        height    = 280,
-        font_size = 180,
-        font      = fontName,
-        scale     = "0.12 0.12 1",
-        rotation  = "0 0 180"
+        id                   = data.id,
+        onClick              = data.onClick,
+        text                 = i18nApi.getStrById(data.id),
+        active               = data.id ~= "PM_draw1_button" or isDrawButtonVisible,
+        padding              = "10 10 10 10",
+        position             = table.concat(posList, " "),
+        width                = 230,
+        height               = 70,
+        resizeTextForBestFit = true,
+        resizeTextMaxSize    = 200,
+        font                 = fontName,
+        scale                = "0.1 0.1 1",
+        rotation             = "0 0 180"
       }
     })
   end
 
   -- special handling for discard buttons
   for i = 1, 6 do
-    local i18nKey = (i == 1) and "PM_discardMove_button_text" or "PM_discard_button_text"
     table.insert(xml, {
       tag = "Button",
       attributes = {
-        id        = "discardFromThreatArea" .. i,
-        i18n      = i18nKey,
-        text      = (i == 1) and "Discard / ➜" or "Discard",
-        width     = (i == 1) and 1190 or 900,
-        tooltip   = (i == 1) and i18nApi.getStrById(i18nKey .. "+tooltip"),
-        onClick   = "onClick_discardButton",
-        scale     = "0.12 0.12 1",
-        height    = 350,
-        font_size = 210,
-        font      = fontName,
-        position  = table.concat({ 136.5 - 44.5 * i, 10, -94 }, " "),
-        rotation  = "0 0 180"
+        id                   = "discardFromThreatArea" .. i,
+        i18n                 = (i == 1) and "PM_discardMove_button" or "PM_discard_button",
+        text                 = (i == 1) and "Discard / ➜" or "Discard",
+        width                = (i == 1) and 275 or 220,
+        onClick              = "onClick_discardButton",
+        scale                = "0.1 0.1 1",
+        padding              = "10 10 10 10",
+        height               = 75,
+        resizeTextForBestFit = true,
+        resizeTextMaxSize    = 200,
+        font                 = fontName,
+        position             = table.concat({ 136.5 - 45.5 * (i - 1), -94, -15 }, " "),
+        rotation             = "0 0 180"
       }
     })
   end
@@ -1149,9 +1150,9 @@ function addGameplayButtons(xml)
   })
 end
 
--- index can be 1 - 6
+-- index can be 1 - 6 (left to right)
 function getLocalThreatAreaPosition(index)
-  return Vector(-1.365 + 0.455 * (index - 1), 0.1, -0.62)
+  return Vector(1.365 - 0.455 * (index - 1), 0.1, -0.62)
 end
 
 function onClick_discardButton(player, clickType, elementId)
@@ -1426,13 +1427,11 @@ function getDropdownOptionValue(optionId, selectedIndex)
 end
 
 function getDropdownOptionIndex(optionId, selectedValue)
-  for _, groupData in pairs(AVAILABLE_OPTIONS) do
-    for _, optionData in pairs(groupData) do
-      if optionData.id == optionId then
-        for index, optionName in ipairs(optionData.options) do
-          if optionName == selectedValue then
-            return index
-          end
+  for _, optionData in ipairs(AVAILABLE_OPTIONS) do
+    if optionData.id == optionId then
+      for index, optionName in ipairs(optionData.options) do
+        if optionName == selectedValue then
+          return index
         end
       end
     end
