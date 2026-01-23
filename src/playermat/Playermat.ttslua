@@ -18,55 +18,26 @@ local zones                       = require("playermat/Zones")
 
 -- option panel data
 local AVAILABLE_OPTIONS           = {
-  ["PERSONAL SETTINGS"] = {
-    {
-      id    = "slotEditing",
-      title = "Enable Slot Edit Mode",
-      type  = "toggle"
-    },
-    {
-      id    = "handColorSelect",
-      title = "Select Hand Color",
-      type  = "button"
-    },
-    {
-      id    = "textureSelect",
-      title = "Select Playermat Texture",
-      type  = "button"
-    },
-    {
-      id    = "visibilitySelect",
-      title = "Show/Hide this Hand to me",
-      type  = "button"
-    },
-    {
-      id    = "visibilityAll",
-      title = "Show/Hide this Hand to all",
-      type  = "toggle"
-    },
-    {
-      id      = "showTokenSplash",
-      title   = "Show Token Splash Screen",
-      type    = "dropdown",
-      options = { "Global", "Enabled", "Own Tokens", "Others' Tokens", "Disabled " }
-    },
-    {
-      id    = "exhaustRotation",
-      title = "Specify Exhaust Rotation",
-      type  = "input"
-    },
-    {
-      id      = "useCustomResourceImages",
-      title   = "Use Custom Resource Images",
-      type    = "dropdown",
-      options = { "Global", "Enabled", "Disabled" }
-    },
-    {
-      id      = "useResourceCounters",
-      title   = "Use Resource Counters",
-      type    = "dropdown",
-      options = { "Global", "Enabled", "Chef's Selection", "Disabled " }
-    }
+  { id = "slotEditing",      type = "toggle" },
+  { id = "handColorSelect",  type = "button" },
+  { id = "textureSelect",    type = "button" },
+  { id = "visibilitySelect", type = "button" },
+  { id = "visibilityAll",    type = "toggle" },
+  {
+    id      = "showTokenSplash",
+    type    = "dropdown",
+    options = { "Global", "Enabled", "Own Tokens", "Others' Tokens", "Disabled " }
+  },
+  { id = "exhaustRotation", type = "input" },
+  {
+    id      = "useCustomResourceImages",
+    type    = "dropdown",
+    options = { "Global", "Enabled", "Disabled" }
+  },
+  {
+    id      = "useResourceCounters",
+    type    = "dropdown",
+    options = { "Global", "Enabled", "Chef's Selection", "Disabled " }
   }
 }
 
@@ -80,10 +51,6 @@ local currentlyEditingSlots       = false
 
 -- for stopping multiple collisions of the same object
 local collisionTable              = {}
-
--- x-Values for discard buttons
-local DISCARD_BUTTON_X_START      = -1.365
-local DISCARD_BUTTON_X_OFFSET     = 0.455
 
 local SEARCH_AROUND_SELF_X_BUFFER = 8
 local SEARCH_AROUND_SELF_Z_BUFFER = 1.75
@@ -121,20 +88,6 @@ local tokenSpawnPos               = {
     Vector(-1, 0, 0.118),  -- bottom left corner of the investigator card
     Vector(-1, 0, -0.118), -- top left corner of the investigator card
   }
-}
-
--- used for the buttons on the right side of the playermat
--- starts off with the data for the "Upkeep" button and will then be changed
-local buttonParameters            = {
-  label          = "Upkeep",
-  click_function = "doUpkeep",
-  tooltip        = "Right-click to skip resource gain and card draw",
-  function_owner = self,
-  position       = { x = 1.82, y = 0.15, z = -0.45 },
-  scale          = { 0.12, 0.12, 0.12 },
-  width          = 1000,
-  height         = 280,
-  font_size      = 180
 }
 
 -- table of texture URLs
@@ -220,42 +173,26 @@ function onLoad(savedData)
 
   getOwnedObjects()
 
-  -- discard button creation
-  makeDrawAreaButton()
-  for i = 2, 6 do
-    makeDiscardButton(i)
-  end
-
   self.createButton({
     click_function = "drawEncounterCard",
     function_owner = self,
-    position = { -1.84, 0, -0.65 },
-    rotation = { 0, 80, 0 },
-    width = 265,
-    height = 190
+    position       = { -1.84, 0, -0.65 },
+    rotation       = { 0, 80, 0 },
+    width          = 265,
+    height         = 190
   })
 
   self.createButton({
     click_function = "drawChaosTokenButton",
     function_owner = self,
-    position = { 1.85, 0, -0.74 },
-    rotation = { 0, -45, 0 },
-    width = 135,
-    height = 135
+    position       = { 1.85, 0, -0.74 },
+    rotation       = { 0, -45, 0 },
+    width          = 135,
+    height         = 135
   })
 
-  -- Upkeep button: can use the default parameters for this
-  self.createButton(buttonParameters)
-
-  -- Discard 1 button: modified default data
-  buttonParameters.label = "Discard 1"
-  buttonParameters.click_function = "doDiscardOne"
-  buttonParameters.tooltip = "Discard one random card from hand (hidden cards are excluded)."
-  buttonParameters.position.z = 0.92
-  self.createButton(buttonParameters)
-
-  showDrawButton()
   createXML()
+
   Wait.time(function() collisionEnabled = true end, 0.1)
 
   -- make sure the casts (for each playermat) are not in the same frame
@@ -420,83 +357,16 @@ function getHelperSpawnData(helperName)
 end
 
 ---------------------------------------------------------
--- Discard buttons (threat area)
----------------------------------------------------------
-
--- build a discard button to discard from searchPosition
----@param id number Index of the discard button (from left to right, must be unique)
-function makeDiscardButton(id)
-  local xValue         = DISCARD_BUTTON_X_START + (id - 1) * DISCARD_BUTTON_X_OFFSET
-  local position       = Vector(xValue, 0.1, -0.94)
-  local searchPosition = Vector(-position[1], 1, position[3] + 0.32)
-  local handlerName    = 'handler' .. id
-  self.setVar(handlerName, function()
-    local cardSizeSearch = Vector(2, 2, 3.2)
-    local globalSearchPosition = self.positionToWorld(searchPosition)
-    local searchResult = SearchLib.inArea(globalSearchPosition, self.getRotation(), cardSizeSearch)
-    return GlobalApi.discardObjects(searchResult, matColor)
-  end)
-  self.createButton({
-    label          = "Discard",
-    click_function = handlerName,
-    function_owner = self,
-    position       = position,
-    scale          = { 0.12, 0.12, 0.12 },
-    width          = 900,
-    height         = 350,
-    font_size      = 210
-  })
-end
-
--- build a hybrid button to discard from searchPosition or move a card/deck to empty threat area on right click
-function makeDrawAreaButton()
-  self.createButton({
-    label          = "Discard / ➜",
-    click_function = "discardOrMove",
-    tooltip        = "Right-click to move to threat area",
-    function_owner = self,
-    position       = { -1.365, 0.1, -0.94 },
-    scale          = { 0.12, 0.12, 0.12 },
-    width          = 1190,
-    height         = 350,
-    font_size      = 207
-  })
-end
-
-function discardOrMove(_, playerColor, isRightClick)
-  local searchPosition = self.positionToWorld(Vector(1.365, 1, -0.62))
-  local searchRotation = self.getRotation()
-  local searchSize     = Vector(2, 2, 3.2) -- roughly size of a card
-  local searchResult   = SearchLib.inArea(searchPosition, searchRotation, searchSize)
-
-  if isRightClick then
-    local threatAreaPos = getEncounterCardDrawPosition(false)
-    if threatAreaPos == getEncounterCardDrawPosition(true) then
-      broadcastToColor("Threat area is full.", playerColor, "Yellow")
-      return
-    end
-
-    for _, obj in ipairs(searchResult) do
-      if obj.type == "Card" or obj.type == "Deck" then
-        GlobalApi.moveCardWithTokens(obj, threatAreaPos)
-      end
-    end
-  else
-    return GlobalApi.discardObjects(searchResult, matColor)
-  end
-end
-
----------------------------------------------------------
 -- Upkeep button
 ---------------------------------------------------------
 
 -- calls the Upkeep function with correct parameter
 function doUpkeepFromHotkey(clickedByColor)
-  doUpkeep(_, clickedByColor)
+  doUpkeep(Player[clickedByColor])
 end
 
-function doUpkeep(_, clickedByColor, isRightClick)
-  updateMessageColor(clickedByColor)
+function doUpkeep(player, clickType)
+  updateMessageColor(player.color)
 
   -- print a message to keep track (only visible to the triggering player)
   local coloredName = GlobalApi.getColoredName(playerColor)
@@ -565,7 +435,7 @@ function doUpkeep(_, clickedByColor, isRightClick)
   GlobalApi.updateActionTrackerTokens(matColor)
   GlobalApi.updateActionTrackerName(matColor)
 
-  if isRightClick then
+  if clickType == "-2" then -- right-click
     printToColor("Skipping card draw and resource gain", messageColor)
     return
   end
@@ -628,8 +498,8 @@ function doUpkeep(_, clickedByColor, isRightClick)
 end
 
 -- click function for "draw 1 button" (that can be added via option panel)
-function doDrawOne(_, clickedByColor)
-  updateMessageColor(clickedByColor)
+function doDrawOne(player)
+  updateMessageColor(player.color)
   drawCardsWithReshuffle(1)
 end
 
@@ -817,8 +687,8 @@ function flipTopCardFromDeck(additionalDelay)
 end
 
 -- discard a random non-hidden card from hand
-function doDiscardOne(_, clickedByColor)
-  updateMessageColor(clickedByColor)
+function doDiscardOne(player)
+  updateMessageColor(player.color)
 
   local hand = Player[playerColor].getHandObjects()
   if #hand == 0 then
@@ -939,21 +809,6 @@ function createXML()
     end
   end
 
-  -- create a button for shuffling the discard pile back
-  local shuffleDiscardXML = {
-    tag = "Button",
-    attributes = {
-      id       = "shuffleDiscardButton",
-      onClick  = "shuffleDiscardIntoDeck",
-      width    = 7,
-      height   = 7,
-      position = "-182 30.5 -11",
-      rotation = "0 0 180",
-      image    = "shuffle"
-    }
-  }
-  table.insert(xml, shuffleDiscardXML)
-
   -- create the personal option panel
   local defaultsXML = {
     tag = "Defaults",
@@ -1057,31 +912,61 @@ function createXML()
     }
   }
 
-  -- add options groups
-  local groupCount = 0
-  for groupName, groupData in pairs(AVAILABLE_OPTIONS) do
-    groupCount = groupCount + 1
-    totalHeight = totalHeight + rowHeight.groupHeader
-    -- group header
-    local groupXML = {
+  -- add option group
+  totalHeight = totalHeight + rowHeight.groupHeader
+
+  -- group header
+  table.insert(optionPanelXML.children, {
+    tag = "Row",
+    attributes = { preferredHeight = rowHeight.groupHeader },
+    children = {
+      {
+        tag = "Cell",
+        attributes = { padding = "20 10 0 0", columnSpan = 2, color = "#222222" },
+        children = {
+          {
+            tag = "Panel",
+            attributes = { padding = "40 0 0 0" },
+            children = {
+              {
+                tag = "Text",
+                attributes = {
+                  id       = "PM_group_1_text",
+                  fontSize = 75,
+                  font     = fontName,
+                  text     = i18nApi.getStrById("PM_group_1_text")
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  })
+
+  -- options
+  for _, optionData in ipairs(AVAILABLE_OPTIONS) do
+    totalHeight = totalHeight + rowHeight.option
+    local optionXML = {
       tag = "Row",
-      attributes = { preferredHeight = rowHeight.groupHeader },
+      attributes = { preferredHeight = rowHeight.option },
       children = {
+        -- option title
         {
           tag = "Cell",
-          attributes = { padding = "20 10 0 0", columnSpan = 2, color = "#222222" },
+          attributes = { padding = "20 10 5 5", color = "#333333" },
           children = {
             {
               tag = "Panel",
-              attributes = { padding = "40 0 0 0" },
+              attributes = { padding = "50 0 0 0" },
               children = {
                 {
                   tag = "Text",
                   attributes = {
-                    id       = "PM_group_" .. groupCount .. "_text",
-                    fontSize = 75,
+                    id       = "PM_optionTitle_" .. optionData.id .. "_text",
+                    fontSize = 65,
                     font     = fontName,
-                    text     = groupName
+                    text     = i18nApi.getStrById("PM_optionTitle_" .. optionData.id .. "_text")
                   }
                 }
               }
@@ -1090,123 +975,89 @@ function createXML()
         }
       }
     }
-    table.insert(optionPanelXML.children, groupXML)
 
-    -- options
-    for _, optionData in ipairs(groupData) do
-      totalHeight = totalHeight + rowHeight.option
-      local optionXML = {
-        tag = "Row",
-        attributes = { preferredHeight = rowHeight.option },
-        children = {
-          -- option title
-          {
-            tag = "Cell",
-            attributes = { padding = "20 10 5 5", color = "#333333" },
-            children = {
-              {
-                tag = "Panel",
-                attributes = { padding = "50 0 0 0" },
-                children = {
-                  {
-                    tag = "Text",
-                    attributes = {
-                      id       = "PM_optionTitle_" .. optionData.id .. "_text",
-                      fontSize = 65,
-                      font     = fontName,
-                      text     = optionData.title
-                    }
-                  }
-                }
-              }
-            }
-          }
+    -- default data, will be changed below
+    local typeXML = {
+      tag = "Cell",
+      attributes = { padding = "10 10 5 5", color = "#333333" },
+      children = {
+        {
+          attributes = {
+            id            = optionData.id,
+            rectAlignment = "MiddleRight",
+            offsetXY      = "-30 0",
+            fontSize      = 80,
+            height        = 108,
+            width         = 195,
+            ignoreLayout  = true
+          },
+          children = {}
         }
       }
+    }
 
-      -- default data, will be changed below
-      local typeXML = {
-        tag = "Cell",
-        attributes = { padding = "10 10 5 5", color = "#333333" },
-        children = {
-          {
-            attributes = {
-              id            = optionData.id,
-              rectAlignment = "MiddleRight",
-              offsetXY      = "-30 0",
-              fontSize      = 80,
-              height        = 108,
-              width         = 195,
-              ignoreLayout  = "True"
-            },
-            children = {}
-          }
-        }
-      }
+    local subTable = typeXML.children[1]
+    if optionData.type == "toggle" then
+      -- create toggle button (on / off
+      subTable.tag                = "Button"
+      subTable.attributes.image   = optionPanelData[optionData.id] and "option_on" or "option_off"
+      subTable.attributes.onClick = "onClick_toggleOption"
+      subTable.attributes.colors  = "#FFFFFF|#dfdfdf"
+    elseif optionData.type == "button" then
+      -- create a regular button
+      local baseColor = Color(0.228, 0.249, 0.773)
 
-      local subTable = typeXML.children[1]
-      if optionData.type == "toggle" then
-        -- create toggle button (on / off
-        subTable.tag                = "Button"
-        subTable.attributes.image   = optionPanelData[optionData.id] and "option_on" or "option_off"
-        subTable.attributes.onClick = "onClick_toggleOption"
-        subTable.attributes.colors  = "#FFFFFF|#dfdfdf"
-      elseif optionData.type == "button" then
-        -- create a regular button
-        local baseColor = Color(0.228, 0.249, 0.773)
-
-        -- use the hand color for the selection button
-        if optionData.id == "handColorSelect" then
-          baseColor = Color[playerColor]
-        end
-
-        subTable.tag                = "Button"
-        subTable.attributes.image   = "option_button"
-        subTable.attributes.onClick = "onClick_" .. optionData.id
-        subTable.attributes.colors  = ColorLib.getXmlColorBlock(baseColor, 0.75, 1.33)
-      elseif optionData.type == "input" then
-        -- create an inputfield
-        subTable.tag                            = "InputField"
-        subTable.attributes.onEndEdit           = "onEndEdit_" .. optionData.id
-        subTable.attributes.text                = optionPanelData[optionData.id] or ""
-        subTable.attributes.characterValidation = "Integer"
-        subTable.attributes.textAlignment       = "MiddleCenter"
-      elseif optionData.type == "slider" then
-        -- create a slider (not yet used)
-        subTable.tag                       = "Slider"
-        subTable.attributes.onValueChanged = "onSliderChange"
-        subTable.attributes.width          = subTable.attributes.width * 2
-        subTable.attributes.wholeNumbers   = true
-        subTable.attributes.minValue       = 1
-        subTable.attributes.maxValue       = 12
-        subTable.attributes.value          = 6
-      elseif optionData.type == "dropdown" then
-        -- create a dropdown menu
-        subTable.tag                       = "Dropdown"
-        subTable.attributes.id             = optionData.id
-        subTable.attributes.onValueChanged = "onDropdownChange(selectedIndex)"
-        subTable.attributes.value          = getDropdownOptionIndex(optionData.id, optionPanelData[optionData.id]) - 1
-        subTable.attributes.raycastTarget  = true
-        subTable.attributes.dropdownHeight = 250 * math.min(#optionData.options, 3)
-        subTable.attributes.itemHeight     = 70
-        subTable.attributes.fontSize       = 60
-        subTable.attributes.font           = fontName
-        subTable.attributes.width          = subTable.attributes.width * 2
-        subTable.attributes.children       = {}
-
-        -- add options
-        for dropdownOptionId, option in ipairs(optionData.options) do
-          table.insert(subTable.children, {
-            tag        = "Option",
-            value      = option,
-            attributes = { id = "PM_option_" .. optionData.id .. "_dropdown_" .. dropdownOptionId }
-          })
-        end
+      -- use the hand color for the selection button
+      if optionData.id == "handColorSelect" then
+        baseColor = Color[playerColor]
       end
 
-      table.insert(optionXML.children, typeXML)
-      table.insert(optionPanelXML.children, optionXML)
+      subTable.tag                = "Button"
+      subTable.attributes.image   = "option_button"
+      subTable.attributes.onClick = "onClick_" .. optionData.id
+      subTable.attributes.colors  = ColorLib.getXmlColorBlock(baseColor, 0.75, 1.33)
+    elseif optionData.type == "input" then
+      -- create an inputfield
+      subTable.tag                            = "InputField"
+      subTable.attributes.onEndEdit           = "onEndEdit_" .. optionData.id
+      subTable.attributes.text                = optionPanelData[optionData.id] or ""
+      subTable.attributes.characterValidation = "Integer"
+      subTable.attributes.textAlignment       = "MiddleCenter"
+    elseif optionData.type == "slider" then
+      -- create a slider (not yet used)
+      subTable.tag                       = "Slider"
+      subTable.attributes.onValueChanged = "onSliderChange"
+      subTable.attributes.width          = subTable.attributes.width * 2
+      subTable.attributes.wholeNumbers   = true
+      subTable.attributes.minValue       = 1
+      subTable.attributes.maxValue       = 12
+      subTable.attributes.value          = 6
+    elseif optionData.type == "dropdown" then
+      -- create a dropdown menu
+      subTable.tag                       = "Dropdown"
+      subTable.attributes.id             = optionData.id
+      subTable.attributes.onValueChanged = "onDropdownChange(selectedIndex)"
+      subTable.attributes.value          = getDropdownOptionIndex(optionData.id, optionPanelData[optionData.id]) - 1
+      subTable.attributes.raycastTarget  = true
+      subTable.attributes.dropdownHeight = 250 * math.min(#optionData.options, 3)
+      subTable.attributes.itemHeight     = 70
+      subTable.attributes.fontSize       = 60
+      subTable.attributes.font           = fontName
+      subTable.attributes.width          = subTable.attributes.width * 2
+      subTable.attributes.children       = {}
+
+      -- add options
+      for dropdownOptionId, option in ipairs(optionData.options) do
+        table.insert(subTable.children, {
+          tag        = "Option",
+          value      = option,
+          attributes = { id = "PM_option_" .. optionData.id .. "_dropdown_" .. dropdownOptionId }
+        })
+      end
     end
+
+    table.insert(optionXML.children, typeXML)
+    table.insert(optionPanelXML.children, optionXML)
   end
   table.insert(xml, optionPanelXML)
 
@@ -1218,7 +1069,115 @@ function createXML()
   local verticalOffset               = totalHeight * scale / 2 - 95
   optionPanelXML.attributes.position = horizontalOffset .. " " .. verticalOffset .. " -65"
 
+  addGameplayButtons(xml)
+
   self.UI.setXmlTable(xml)
+end
+
+function addGameplayButtons(xml)
+  local DEFAULT_BUTTON_POS = { position1 = -182, position3 = -15 }
+
+  local BUTTON_DATA = {
+    { id = "PM_upkeep_button",   onClick = "doUpkeep",     position2 = -45 },
+    { id = "PM_draw1_button",    onClick = "doDrawOne",    position2 = -33 },
+    { id = "PM_discard1_button", onClick = "doDiscardOne", position2 = 92 }
+  }
+
+  local fontName = i18nApi.getFont()
+
+  -- buttons near draw / discard pile
+  for _, data in ipairs(BUTTON_DATA) do
+    local posList = {}
+    for i = 1, 3 do
+      table.insert(posList, data["position" .. i] or DEFAULT_BUTTON_POS["position" .. i])
+    end
+
+    -- TODO: implement tooltips
+    table.insert(xml, {
+      tag = "Button",
+      attributes = {
+        id                   = data.id,
+        onClick              = data.onClick,
+        text                 = i18nApi.getStrById(data.id),
+        active               = data.id ~= "PM_draw1_button" or isDrawButtonVisible,
+        padding              = "10 10 10 10",
+        position             = table.concat(posList, " "),
+        width                = 230,
+        height               = 70,
+        resizeTextForBestFit = true,
+        resizeTextMaxSize    = 200,
+        font                 = fontName,
+        scale                = "0.1 0.1 1",
+        rotation             = "0 0 180"
+      }
+    })
+  end
+
+  -- special handling for discard buttons
+  for i = 1, 6 do
+    table.insert(xml, {
+      tag = "Button",
+      attributes = {
+        id                   = "discardFromThreatArea" .. i,
+        i18n                 = (i == 1) and "PM_discardMove_button" or "PM_discard_button",
+        text                 = (i == 1) and "Discard / ➜" or "Discard",
+        width                = (i == 1) and 275 or 220,
+        onClick              = "onClick_discardButton",
+        scale                = "0.1 0.1 1",
+        padding              = "10 10 10 10",
+        height               = 75,
+        resizeTextForBestFit = true,
+        resizeTextMaxSize    = 200,
+        font                 = fontName,
+        position             = table.concat({ 136.5 - 45.5 * (i - 1), -94, -15 }, " "),
+        rotation             = "0 0 180"
+      }
+    })
+  end
+
+  -- create a button for shuffling the discard pile back
+  table.insert(xml, {
+    tag = "Button",
+    attributes = {
+      id       = "shuffleDiscardButton",
+      onClick  = "shuffleDiscardIntoDeck",
+      width    = 7,
+      height   = 7,
+      position = "-182 30.5 -11",
+      rotation = "0 0 180",
+      image    = "shuffle"
+    }
+  })
+end
+
+-- index can be 1 - 6 (left to right)
+function getLocalThreatAreaPosition(index)
+  return Vector(1.365 - 0.455 * (index - 1), 0.1, -0.62)
+end
+
+function onClick_discardButton(player, clickType, elementId)
+  local index              = tonumber(elementId:sub(-1))
+  local threatAreaPosition = getLocalThreatAreaPosition(index)
+  local searchPosition     = self.positionToWorld(threatAreaPosition:setAt("y", 1))
+  local searchRotation     = self.getRotation()
+  local searchSize         = Vector(2, 2, 3.2) -- roughly size of a card
+  local searchResult       = SearchLib.inArea(searchPosition, searchRotation, searchSize)
+
+  if index == 1 and clickType == "-2" then -- right-click on first button
+    local emptyPosition = getEncounterCardDrawPosition(false)
+    if emptyPosition == getEncounterCardDrawPosition(true) then
+      broadcastToColor("Threat area is full.", player.color, "Yellow")
+      return
+    end
+
+    for _, obj in ipairs(searchResult) do
+      if obj.type == "Card" or obj.type == "Deck" then
+        GlobalApi.moveCardWithTokens(obj, emptyPosition)
+      end
+    end
+  else
+    GlobalApi.discardObjects(searchResult, matColor)
+  end
 end
 
 function onClick_hideOrShowOptions(player)
@@ -1468,13 +1427,11 @@ function getDropdownOptionValue(optionId, selectedIndex)
 end
 
 function getDropdownOptionIndex(optionId, selectedValue)
-  for _, groupData in pairs(AVAILABLE_OPTIONS) do
-    for _, optionData in pairs(groupData) do
-      if optionData.id == optionId then
-        for index, optionName in ipairs(optionData.options) do
-          if optionName == selectedValue then
-            return index
-          end
+  for _, optionData in ipairs(AVAILABLE_OPTIONS) do
+    if optionData.id == optionId then
+      for index, optionName in ipairs(optionData.options) do
+        if optionName == selectedValue then
+          return index
         end
       end
     end
@@ -1942,18 +1899,16 @@ end
 function getEncounterCardDrawPosition(stack)
   local drawPos = self.positionToWorld(DRAWN_ENCOUNTER_POSITION)
 
+  if stack then
+    return drawPos
+  end
+
   -- maybe override position with first empty slot in threat area (right to left)
-  if not stack then
-    local searchPos = Vector(-0.91, 0.5, -0.625)
-    for i = 1, 5 do
-      local globalSearchPos = self.positionToWorld(searchPos)
-      local searchResult = SearchLib.atPosition(globalSearchPos, "isCardOrDeck")
-      if #searchResult == 0 then
-        drawPos = globalSearchPos
-        break
-      else
-        searchPos.x = searchPos.x + 0.455
-      end
+  for i = 2, 6 do
+    local searchPos    = self.positionToWorld(getLocalThreatAreaPosition(i))
+    local searchResult = SearchLib.atPosition(searchPos, "isCardOrDeck")
+    if #searchResult == 0 then
+      return searchPos
     end
   end
 
@@ -1968,21 +1923,7 @@ function showDrawButton(visible)
     updateSave()
   end
 
-  if isDrawButtonVisible then
-    -- Draw 1 button: modified default data
-    buttonParameters.label = "Draw 1"
-    buttonParameters.click_function = "doDrawOne"
-    buttonParameters.tooltip = ""
-    buttonParameters.position.z = -0.35
-    self.createButton(buttonParameters)
-  else
-    local buttons = self.getButtons()
-    for i = 1, #buttons do
-      if buttons[i].label == "Draw 1" then
-        self.removeButton(buttons[i].index)
-      end
-    end
-  end
+  self.UI.setAttribute("PM_draw1_button", "active", isDrawButtonVisible)
 end
 
 -- shows / hides a clickable clue counter for this playermat and sets the correct amount of clues
