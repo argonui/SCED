@@ -17,7 +17,6 @@ local basicWeaknessList      = {}
 local uniqueWeaknessList     = {}
 local evolvedWeaknessList    = {}
 local bondedList             = {}
-local upgradeSheetList       = {}
 
 local cycleIndex             = {}
 
@@ -58,6 +57,7 @@ local OFFICIAL_CYCLE_MAP     = {
   ["the scarlet keys"]                  = true,
   ["the feast of hemlock vale"]         = true,
   ["the drowned city"]                  = true,
+  --["core 2026"]                         = true,
   -- standalones / parallels etc.
   ["standalone"]                        = true,
   ["the blob that ate everything else"] = true,
@@ -117,7 +117,6 @@ function clearIndexes()
   uniqueWeaknessList     = {}
   evolvedWeaknessList    = {}
   bondedList             = {}
-  upgradeSheetList       = {}
 end
 
 -- Clears the bag indexes and starts the coroutine to rebuild the indexes
@@ -128,7 +127,7 @@ end
 
 function onObjectLeaveContainer(container, _)
   if container == self then
-    broadcastToAll("Removing cards from the All Player Cards bag may break some functions.", "Red")
+    broadcastToAll("Removing cards from the \"All Player Cards\" bag may break some functions.", "Red")
   end
 end
 
@@ -136,18 +135,15 @@ end
 -- and creating the keyed lookup tables for the cards. This is a coroutine which will
 -- spread the workload by processing 20 cards before yielding.
 function buildIndex()
-  cardCount = 0
-  indexingDone = false
-  otherCardsDetected = false
+  cardCount           = 0
+  indexingDone        = false
+  otherCardsDetected  = false
   indexedCustomCycles = {}
 
-  -- process the allcardsbag itself
-  local selfData = self.getData()
-  if selfData.ContainedObjects then
-    processContainedObjects(selfData.ContainedObjects)
-  end
+  -- process the AllCardsBag itself
+  processContainedObjects(self.getData().ContainedObjects or {})
 
-  -- process hotfix bags (and the additional playercards bag)
+  -- process hotfix bags (including the "Additional Playercards" bag)
   for _, hotfixBag in ipairs(getObjectsWithTag("AllCardsHotfix")) do
     local hotfixData = hotfixBag.getData()
     if hotfixData.ContainedObjects then
@@ -341,11 +337,6 @@ function buildSupplementalIndexes()
         end
       end
 
-      -- Add upgradesheets to upgradeSheetList
-      if card.metadata.type == "UpgradeSheet" then
-        table.insert(upgradeSheetList, card.metadata.id)
-      end
-
       -- Excludes signature cards and story assets for official cycles (which have no class or level)
       if card.metadata.class and card.metadata.level then
         local upgradeKey = "-level0"
@@ -477,9 +468,6 @@ function sortIndexes()
   bondedList = TableLib.removeDuplicates(bondedList)
   table.sort(bondedList)
 
-  -- sort upgradesheet index
-  table.sort(upgradeSheetList)
-
   -- sort custom investigator / minicard data
   for _, indexTable in pairs(customInvestigatorData) do
     table.sort(indexTable, metadataSortFunction)
@@ -509,7 +497,7 @@ end
 -- inform the player card panel about the presence of other cards (no cycle -> fan-made)
 function updatePlayerCardPanel()
   local panel = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "PlayerCardPanel")
-  panel.call("createXML", otherCardsDetected)
+  if panel then panel.call("createXML", otherCardsDetected) end
 end
 
 ---@return boolean: If true, the bag is currently not indexing and ready to be accessed
@@ -622,12 +610,13 @@ function getCustomInvestigatorData()
   }
 end
 
--- Searches the bag for cards which match the given filter criteria and returns a list
+-- Searches the bag for cards which match the given criteria and returns a list.
+-- Parameter array containing these fields to define the search:
+--   name:    String to search for names
+--   exact?:  Whether the name match should be exact
 function getCardsByFilter(params)
   local filters    = params.filters
-  local exact      = params.exact
-  if exact == nil then exact = true end
-
+  local exact      = params.exact ~= false -- true except when it's set to false
   local results    = {}
 
   -- track cards (by ID) that we've added to avoid duplicates that may come from alternate IDs
@@ -817,8 +806,7 @@ end
 function buildAvailableWeaknesses(restrictions)
   restrictions = restrictions or {}
   local weaknessesInPlay = {}
-  local allObjects = getAllObjects()
-  for _, object in ipairs(allObjects) do
+  for _, object in ipairs(getObjects()) do
     if object.type == "Deck" then
       for _, cardData in ipairs(object.getData().ContainedObjects) do
         incrementWeaknessCount(weaknessesInPlay, JSON.decode(cardData.GMNotes))
@@ -908,18 +896,11 @@ function getBondedCardList()
   return bondedList
 end
 
-function getUpgradeSheetList()
-  return upgradeSheetList
-end
-
 -- Helper function that adds one to the table entry for the number of weaknesses in play
-function incrementWeaknessCount(table, cardMetadata)
-  if isBasicWeakness(cardMetadata) then
-    if table[cardMetadata.id] == nil then
-      table[cardMetadata.id] = 1
-    else
-      table[cardMetadata.id] = table[cardMetadata.id] + 1
-    end
+function incrementWeaknessCount(t, cardMetadata)
+  local id = cardMetadata.id
+  if id and isBasicWeakness(cardMetadata) then
+    t[id] = (t[id] or 0) + 1
   end
 end
 
