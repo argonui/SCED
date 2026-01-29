@@ -44,7 +44,7 @@ function generateButtonData()
       tooltip = "Abort setup mode",
       pos = { -buttonX * upperButtonMult, buttonY, -buttonZ[1] },
     },
-    ["Internal"]    = {
+    ["Internal"]  = {
       tooltip = "Copy memory from internal bags",
       pos = { -buttonX * upperButtonMult, buttonY, -buttonZ[4] },
     },
@@ -75,7 +75,7 @@ function generateButtonData()
       pos = { 0, buttonY, -buttonZ[1] },
       fSize = 350
     },
-    ["Update"]   = {
+    ["Update"]    = {
       tooltip = "Update memory for placed objects",
       pos = { buttonX * upperButtonMult, buttonY, -buttonZ[3] },
       fColor = { 0.75, 0.75, 1 }
@@ -85,16 +85,16 @@ end
 
 function createButtonByName(label)
   self.createButton({
-    label = label,
-    tooltip = buttonData[label].tooltip or "",
-    position = buttonData[label].pos,
-    height = buttonData[label].h or 500,
-    width = buttonData[label].w or 1500,
-    font_size = buttonData[label].fSize or 325,
-    font_color = buttonData[label].fColor or { 1, 1, 1 },
+    label          = label,
+    tooltip        = buttonData[label].tooltip or "",
+    position       = buttonData[label].pos,
+    height         = buttonData[label].h or 500,
+    width          = buttonData[label].w or 1500,
+    font_size      = buttonData[label].fSize or 325,
+    font_color     = buttonData[label].fColor or { 1, 1, 1 },
     function_owner = self,
-    color = { 0, 0, 0 },
-    scale = buttonScale,
+    color          = { 0, 0, 0 },
+    scale          = buttonScale,
     click_function = "buttonClick_" .. string.lower(string.gsub(label, "%s+", ""))
   })
 end
@@ -121,17 +121,8 @@ function buttonClick_setup()
 end
 
 function broadcastFeedback(str1, count, name, str2, color)
-  local bcStr = count .. " " .. name
-  if str1 then
-    bcStr = str1 .. " " .. bcStr
-  end
-  if count ~= 1 then
-    bcStr = bcStr .. "s"
-  end
-  if str2 then
-    bcStr = bcStr .. " " .. str2
-  end
-  broadcastToAll(bcStr, color)
+  name = name .. (count ~= 1 and "s" or "")
+  broadcastToAll(table.concat({ count, name, str1, str2 }, " "), color)
 end
 
 function createButtonsOnAllObjects()
@@ -140,22 +131,22 @@ function createButtonsOnAllObjects()
   local buttonCount = 0
   for _, obj in ipairs(getObjects()) do
     if obj ~= self and obj.type ~= "Scripting" and obj.type ~= "Hand" then
-      local objPos = obj.getPosition()
+      local objPos    = obj.getPosition()
       local objBounds = obj.getBounds()
-      local offSet = Vector(0, objBounds.size.y / 2 + 1, 0)
-      local scaleVec = Vector(-1, 1, 1)
+      local offSet    = Vector(0, objBounds.size.y / 2 + 1, 0)
+      local scaleVec  = Vector(-1, 1, 1)
       local buttonPos = self.positionToLocal(objPos + offSet):scale(scaleVec)
 
-      local fName = "selectButton_" .. buttonCount
-      _G[fName] = function() buttonClick_selectObject(obj) end
+      local fName     = "selectButton_" .. buttonCount
+      _G[fName]       = function() buttonClick_selectObject(obj) end
       self.createButton({
         click_function = fName,
         function_owner = self,
-        position = buttonPos,
-        height = 600,
-        width = 600,
-        color = { 0.75, 0.25, 0.25, 0.75 },
-        scale = buttonScale
+        position       = buttonPos,
+        height         = 600,
+        width          = 600,
+        color          = { 0.75, 0.25, 0.25, 0.75 },
+        scale          = buttonScale
       })
       buttonIndexMap[obj.getGUID()] = buttonCount
       buttonCount = buttonCount + 1
@@ -184,8 +175,8 @@ function buttonClick_selectObject(obj)
   if tempList[guid] == nil then
     self.editButton({ index = index, color = { 0, 1, 0, 0.75 } })
     tempList[guid] = {
-      pos = roundVector(obj.getPosition(), 3),
-      rot = roundVector(obj.getRotation(), 0),
+      pos  = roundVector(obj.getPosition(), 3),
+      rot  = roundVector(obj.getRotation(), 0),
       lock = obj.getLock()
     }
     obj.highlightOn({ 0, 1, 0 })
@@ -239,8 +230,8 @@ function buttonClick_update()
     if obj ~= nil then
       count = count + 1
       memoryList[guid] = {
-        pos = roundVector(obj.getPosition(), 3),
-        rot = roundVector(obj.getRotation(), 0),
+        pos  = roundVector(obj.getPosition(), 3),
+        rot  = roundVector(obj.getRotation(), 0),
         lock = obj.getLock()
       }
     end
@@ -255,7 +246,7 @@ function buttonClick_remove()
     count = count + 1
     memoryList[guid] = nil
   end
-  broadcastFeedback(_, count, "Object", "Removed", { 1, 1, 1 })
+  broadcastFeedback(nil, count, "Object", "Removed", { 1, 1, 1 })
 
   updateSave()
   removeAllHighlights()
@@ -324,17 +315,15 @@ end
 
 -- Sends objects from bag/table to their saved position/rotation
 function buttonClick_place()
-  local data = self.getData()
-
   -- get names of contained objects
   local guidToName = {}
-  for _, bagObjData in ipairs(data.ContainedObjects or {}) do
+  for _, bagObjData in ipairs(self.getData().ContainedObjects or {}) do
     guidToName[bagObjData["GUID"]] = bagObjData["Nickname"]
   end
 
   local updateGuids = {}
-  local placeCount = 0
-  local moveCount = 0
+  local placeCount  = 0
+  local moveCount   = 0
   for guid, entry in pairs(memoryList) do
     local obj = getObjectFromGUID(guid)
     if obj ~= nil and (obj.getName() == guidToName[guid] or guidToName[guid] == nil) then
@@ -347,10 +336,10 @@ function buttonClick_place()
       -- If obj is inside of the bag
       placeCount = placeCount + 1
       local item = self.takeObject({
-        guid = guid,
+        guid     = guid,
         position = entry.pos,
         rotation = entry.rot,
-        smooth = false
+        smooth   = false
       })
       item.setLock(entry.lock)
 
@@ -370,11 +359,11 @@ function buttonClick_place()
   end
 
   if placeCount > 0 then
-    broadcastFeedback(_, placeCount, "Object", "Placed", { 1, 1, 1 })
+    broadcastFeedback(nil, placeCount, "Object", "Placed", { 1, 1, 1 })
   end
 
   if moveCount > 0 then
-    broadcastFeedback(_, moveCount, "Object", "Moved", { 1, 1, 1 })
+    broadcastFeedback(nil, moveCount, "Object", "Moved", { 1, 1, 1 })
   end
 
   if placeCount == 0 and moveCount == 0 then
@@ -391,21 +380,23 @@ function buttonClick_recall()
       count = count + 1
     end
   end
-  broadcastFeedback(_, count, "Object", "Recalled", { 1, 1, 1 })
+  broadcastFeedback(nil, count, "Object", "Recalled", { 1, 1, 1 })
 end
 
 function removeAllHighlights()
-  for _, obj in ipairs(getObjects()) do
-    obj.highlightOff()
+  -- Only clear objects we actually touched
+  for guid, _ in pairs(tempList or {}) do
+    local obj = getObjectFromGUID(guid)
+    if obj then obj.highlightOff() end
   end
 end
 
 -- Round vector to the Nth decimal
 function roundVector(vec, dec)
   local mult = 10 ^ (dec or 0)
-  local t = {}
-  for _, k in ipairs({ "x", "y", "z" }) do
-    t[k] = math.floor(vec[k] * mult + 0.5) / mult
-  end
-  return t
+  return {
+    x = math.floor(vec.x * mult + 0.5) / mult,
+    y = math.floor(vec.y * mult + 0.5) / mult,
+    z = math.floor(vec.z * mult + 0.5) / mult
+  }
 end
