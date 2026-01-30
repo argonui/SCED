@@ -3,6 +3,13 @@ local DeckImporterApi        = require("deckbuilder/DeckImporterApi")
 local GUIDReferenceApi       = require("core/GUIDReferenceApi")
 local TableLib               = require("util/TableLib")
 
+-- local assignment since this is called 2000 times onLoad
+local json_parse             = json.parse
+local string_lower           = string.lower
+local string_startsWith      = string.startsWith
+local table_insert           = table.insert
+local LOCALIZATION_FIELDS    = { "Nickname", "Description", "LuaScript", "LuaScriptState", "XmlUI", "CustomUIAssets" }
+
 local debugSpawnData         = {
   --{ id = "11050", pos = { -55.21, 1.6, 14.96 }, rot = { 0, 270, 0 }, moveCam = true }
 }
@@ -58,6 +65,7 @@ local OFFICIAL_CYCLE_MAP     = {
   ["the scarlet keys"]                  = true,
   ["the feast of hemlock vale"]         = true,
   ["the drowned city"]                  = true,
+  --["core 2026"]                         = true,
   -- standalones / parallels etc.
   ["standalone"]                        = true,
   ["the blob that ate everything else"] = true,
@@ -128,7 +136,7 @@ end
 
 function onObjectLeaveContainer(container, _)
   if container == self then
-    broadcastToAll("Removing cards from the All Player Cards bag may break some functions.", "Red")
+    broadcastToAll("Removing cards from the \"All Player Cards\" bag may break some functions.", "Red")
   end
 end
 
@@ -136,18 +144,15 @@ end
 -- and creating the keyed lookup tables for the cards. This is a coroutine which will
 -- spread the workload by processing 20 cards before yielding.
 function buildIndex()
-  cardCount = 0
-  indexingDone = false
-  otherCardsDetected = false
+  cardCount           = 0
+  indexingDone        = false
+  otherCardsDetected  = false
   indexedCustomCycles = {}
 
-  -- process the allcardsbag itself
-  local selfData = self.getData()
-  if selfData.ContainedObjects then
-    processContainedObjects(selfData.ContainedObjects)
-  end
+  -- process the AllCardsBag itself
+  processContainedObjects(self.getData().ContainedObjects or {})
 
-  -- process hotfix bags (and the additional playercards bag)
+  -- process hotfix bags (including the "Additional Playercards" bag)
   for _, hotfixBag in ipairs(getObjectsWithTag("AllCardsHotfix")) do
     local hotfixData = hotfixBag.getData()
     if hotfixData.ContainedObjects then
@@ -241,7 +246,7 @@ end
 ---@param cardData table TTS object data for the card
 function addCardToIndex(cardData)
   -- using the more efficient 'json.parse()' to speed this process up
-  local status, cardMetadata = pcall(function() return json.parse(cardData.GMNotes) end)
+  local status, cardMetadata = pcall(json_parse, cardData.GMNotes)
 
   -- if an error happens, fallback to the regular parser
   if status ~= true or cardMetadata == nil then
@@ -281,7 +286,8 @@ function addCardToIndex(cardData)
     indexData.data.Transform = existingData.data.Transform
 
     -- The following fields are only copied if empty to allow localization
-    for _, field in ipairs({ "Nickname", "Description", "LuaScript", "LuaScriptState", "XmlUI", "CustomUIAssets" }) do
+    for i = 1, #LOCALIZATION_FIELDS do
+      local field = LOCALIZATION_FIELDS[i]
       if indexData.data[field] == nil or indexData.data[field] == "" then
         indexData.data[field] = existingData.data[field]
       end
@@ -291,7 +297,7 @@ function addCardToIndex(cardData)
     if indexData.data.States then
       for _, stateData in pairs(indexData.data.States) do
         -- make sure this is actually an alt-art card (starts with the original name)
-        if string.startsWith(stateData.Nickname, indexData.data.Nickname) then
+        if string_startsWith(stateData.Nickname, indexData.data.Nickname) then
           stateData.Tags    = indexData.data.Tags
           stateData.GMNotes = indexData.data.GMNotes
         end
@@ -312,58 +318,60 @@ end
 -- Creates the supplemental indexes for classes, weaknesses etc.
 function buildSupplementalIndexes()
   for cardId, card in pairs(cardIdIndex) do
-    -- If the ID key and the metadata ID don't match this is a duplicate card created by an alternate_id, and we should skip it
-    if cardId == card.metadata.id then
-      -- Add card to the basic weakness list, if appropriate. Some weaknesses have multiple copies, and are added multiple times
-      if card.metadata.weakness then
-        table.insert(uniqueWeaknessList, cardId)
+    local md = card.metadata
 
-        if card.metadata.basicWeaknessCount ~= nil then
-          for i = 1, card.metadata.basicWeaknessCount do
-            table.insert(basicWeaknessList, cardId)
+    -- If the ID key and the metadata ID don't match this is a duplicate card created by an alternate_id, and we should skip it
+    if cardId == md.id then
+      -- Add card to the basic weakness list, if appropriate. Some weaknesses have multiple copies, and are added multiple times
+      if md.weakness then
+        table_insert(uniqueWeaknessList, cardId)
+
+        if md.basicWeaknessCount ~= nil then
+          for i = 1, md.basicWeaknessCount do
+            table_insert(basicWeaknessList, cardId)
           end
         end
 
-        if card.metadata.evolvedWeakness then
-          table.insert(evolvedWeaknessList, cardId)
+        if md.evolvedWeakness then
+          table_insert(evolvedWeaknessList, cardId)
         end
       end
 
       -- Add bonded cards to bondedList
-      if card.metadata.bonded then
-        for _, bondedData in ipairs(card.metadata.bonded) do
-          table.insert(bondedList, bondedData.id)
+      if md.bonded then
+        for _, bondedData in ipairs(md.bonded) do
+          table_insert(bondedList, bondedData.id)
 
           -- Maybe add tabooed version of bonded card
           if cardIdIndex[bondedData.id .. "-t"] then
-            table.insert(bondedList, bondedData.id .. "-t")
+            table_insert(bondedList, bondedData.id .. "-t")
           end
         end
       end
 
       -- Add upgradesheets to upgradeSheetList
-      if card.metadata.type == "UpgradeSheet" then
-        table.insert(upgradeSheetList, card.metadata.id)
+      if md.type == "UpgradeSheet" then
+        table_insert(upgradeSheetList, md.id)
       end
 
       -- Excludes signature cards and story assets for official cycles (which have no class or level)
-      if card.metadata.class and card.metadata.level then
+      if md.class and md.level then
         local upgradeKey = "-level0"
-        if card.metadata.level > 0 then
+        if md.level > 0 then
           upgradeKey = "-upgrade"
         end
 
-        -- parse classes (separated by "|") and add the card to the appropriate class and level indices
-        for str in card.metadata.class:gmatch("([^|]+)") do
+        -- json_parse classes (separated by "|") and add the card to the appropriate class and level indices
+        for str in md.class:gmatch("([^|]+)") do
           writeToNestedTable(classAndLevelIndex, str .. upgradeKey, cardId)
         end
       end
 
       -- start parsing the cycle data
-      local cycleName = card.metadata.cycle
+      local cycleName = md.cycle
 
       -- if this is a minicard without cycle, check the parent card for cycle data
-      if not cycleName and card.metadata.type == "Minicard" then
+      if not cycleName and md.type == "Minicard" then
         local parentId = getParentId(cardId)
         local parent = cardIdIndex[parentId]
         if parent and parent.metadata.cycle then
@@ -372,7 +380,7 @@ function buildSupplementalIndexes()
       end
 
       if cycleName then
-        cycleName = string.lower(cycleName)
+        cycleName = string_lower(cycleName)
 
         -- remove "return to " from cycle names
         cycleName = cycleName:gsub("return to ", "")
@@ -392,20 +400,20 @@ function buildSupplementalIndexes()
         cycleName = "other"
 
         -- maybe add to special investigator / minicard index
-        if card.metadata.type == "Investigator" then
+        if md.type == "Investigator" then
           writeToNestedTable(customInvestigatorData, "InvestigatorGroup", cardId)
           writeToNestedTable(customInvestigatorData, "InvestigatorSubdata", cardId, "cards", cardId)
 
           -- read the signatures
-          if card.metadata.signatures and type(card.metadata.signatures) == "table" then
-            for sigId, sigCount in pairs(card.metadata.signatures[1] or {}) do
+          if md.signatures and type(md.signatures) == "table" then
+            for sigId, sigCount in pairs(md.signatures[1] or {}) do
               customSignatureDict[sigId] = true
               for i = 1, sigCount do
                 writeToNestedTable(customInvestigatorData, "InvestigatorSubdata", cardId, "signatures", sigId)
               end
             end
           end
-        elseif card.metadata.type == "Minicard" then
+        elseif md.type == "Minicard" then
           local parentId = getParentId(cardId)
           writeToNestedTable(customInvestigatorData, "InvestigatorSubdata", parentId, "minicards", cardId)
         end
@@ -503,13 +511,13 @@ function writeToNestedTable(rootTable, ...)
     end
     currentTable = currentTable[key]
   end
-  table.insert(currentTable, args[#args])
+  table_insert(currentTable, args[#args])
 end
 
 -- inform the player card panel about the presence of other cards (no cycle -> fan-made)
 function updatePlayerCardPanel()
   local panel = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "PlayerCardPanel")
-  panel.call("createXML", otherCardsDetected)
+  if panel then panel.call("createXML", otherCardsDetected) end
 end
 
 ---@return boolean: If true, the bag is currently not indexing and ready to be accessed
@@ -569,7 +577,7 @@ end
 function getCardsByCycle(params)
   if not isIndexReady() then return {} end
 
-  local cycleData = cycleIndex[string.lower(params.cycle)] or {}
+  local cycleData = cycleIndex[string_lower(params.cycle)] or {}
 
   -- create a copy of the data to not change the source
   local cardList = {}
@@ -577,7 +585,7 @@ function getCardsByCycle(params)
     local md = cardIdIndex[id].metadata
     -- only include cards without level if requested (don't include investigators / minicards / signatures though)
     if (md.level or params.includeNoLevelCards) and md.type ~= "Investigator" and md.type ~= "Minicard" and customSignatureDict[id] ~= true then
-      table.insert(cardList, id)
+      table_insert(cardList, id)
     end
   end
 
@@ -622,12 +630,13 @@ function getCustomInvestigatorData()
   }
 end
 
--- Searches the bag for cards which match the given filter criteria and returns a list
+-- Searches the bag for cards which match the given criteria and returns a list.
+-- Parameter array containing these fields to define the search:
+--   name:    String to search for names
+--   exact?:  Whether the name match should be exact
 function getCardsByFilter(params)
   local filters    = params.filters
-  local exact      = params.exact
-  if exact == nil then exact = true end
-
+  local exact      = params.exact ~= false -- true except when it's set to false
   local results    = {}
 
   -- track cards (by ID) that we've added to avoid duplicates that may come from alternate IDs
@@ -638,8 +647,8 @@ function getCardsByFilter(params)
 
     -- compare the name
     if filters.search and cardMatches then
-      local searchname = string.lower(filters.search)
-      local cardname   = string.lower(cardData.data.Nickname)
+      local searchname = string_lower(filters.search)
+      local cardname   = string_lower(cardData.data.Nickname)
       if (exact and cardname ~= searchname) or not string.find(cardname, searchname, 1, true) then
         cardMatches = false
       end
@@ -651,7 +660,7 @@ function getCardsByFilter(params)
         cardMatches = false
       else
         local searchTraits = parseSearchValue(filters.k.value)
-        local cardTraits   = string.lower(cardData.metadata.traits)
+        local cardTraits   = string_lower(cardData.metadata.traits)
         local operator     = filters.k.operator
         for _, searchTrait in ipairs(searchTraits) do
           local containsTrait = string.find(cardTraits, searchTrait, 1, true)
@@ -702,8 +711,8 @@ function getCardsByFilter(params)
       if not cardData.metadata.slot then
         cardMatches = false
       else
-        local searchSlot   = string.lower(filters.z.value)
-        local cardSlot     = string.lower(cardData.metadata.slot)
+        local searchSlot   = string_lower(filters.z.value)
+        local cardSlot     = string_lower(cardData.metadata.slot)
         local operator     = filters.z.operator
         local containsSlot = string.find(cardSlot, searchSlot, 1, true)
         if (operator == ":" and not containsSlot) or (operator == "!" and containsSlot) then
@@ -717,8 +726,8 @@ function getCardsByFilter(params)
       if not cardData.metadata.class then
         cardMatches = false
       else
-        local searchClass   = string.lower(filters.f.value)
-        local cardClass     = string.lower(cardData.metadata.class)
+        local searchClass   = string_lower(filters.f.value)
+        local cardClass     = string_lower(cardData.metadata.class)
         local operator      = filters.f.operator
         local containsClass = string.find(cardClass, searchClass, 1, true)
         if (operator == ":" and not containsClass) or (operator == "!" and containsClass) then
@@ -732,8 +741,8 @@ function getCardsByFilter(params)
       if not cardData.metadata.cycle then
         cardMatches = false
       else
-        local searchCycle  = string.lower(filters.c.value)
-        local cardCycle    = string.lower(cardData.metadata.cycle or "")
+        local searchCycle  = string_lower(filters.c.value)
+        local cardCycle    = string_lower(cardData.metadata.cycle or "")
         local operator     = filters.c.operator
         local cycleMatches = searchCycle == cardCycle
         if (operator == ":" and not cycleMatches) or (operator == "!" and cycleMatches) then
@@ -747,8 +756,8 @@ function getCardsByFilter(params)
       if not cardData.metadata.type then
         cardMatches = false
       else
-        local searchType = string.lower(filters.t.value)
-        local cardType   = string.lower(cardData.metadata.type)
+        local searchType = string_lower(filters.t.value)
+        local cardType   = string_lower(cardData.metadata.type)
         local operator   = filters.t.operator
         if (operator == ":" and cardType ~= searchType) or (operator == "!" and cardType == searchType) then
           cardMatches = false
@@ -758,7 +767,7 @@ function getCardsByFilter(params)
 
     -- card has passed all filters and thus gets added
     if cardMatches then
-      table.insert(results, cardData)
+      table_insert(results, cardData)
       addedCards[cardData.metadata.id] = true
     end
   end
@@ -769,7 +778,7 @@ end
 function parseSearchValue(searchValue)
   local tbl = {}
   for str in searchValue:gmatch("([^|]+)") do
-    table.insert(tbl, string.lower(str))
+    table_insert(tbl, string_lower(str))
   end
   return tbl
 end
@@ -800,7 +809,7 @@ function getRandomWeaknessIds(params)
   local n = #availableWeaknesses
   for i = 1, math.min(params.count, n) do
     local index = math.random(i, n)
-    table.insert(drawnWeaknesses, availableWeaknesses[index])
+    table_insert(drawnWeaknesses, availableWeaknesses[index])
     availableWeaknesses[index], availableWeaknesses[i] = availableWeaknesses[i], availableWeaknesses[index]
   end
 
@@ -817,8 +826,7 @@ end
 function buildAvailableWeaknesses(restrictions)
   restrictions = restrictions or {}
   local weaknessesInPlay = {}
-  local allObjects = getAllObjects()
-  for _, object in ipairs(allObjects) do
+  for _, object in ipairs(getObjects()) do
     if object.type == "Deck" then
       for _, cardData in ipairs(object.getData().ContainedObjects) do
         incrementWeaknessCount(weaknessesInPlay, JSON.decode(cardData.GMNotes))
@@ -863,8 +871,8 @@ function buildAvailableWeaknesses(restrictions)
           str = str:match("^%s*(.-)%s*$")
 
           -- make sure string ends with a dot
-          str = string.lower(str .. ".")
-          table.insert(allowedTraits, str)
+          str = string_lower(str .. ".")
+          table_insert(allowedTraits, str)
         end
 
         local match = false
@@ -872,7 +880,7 @@ function buildAvailableWeaknesses(restrictions)
         -- make sure the trait is present on the weakness
         local card = cardIdIndex[weaknessId]
         for _, allowedTrait in ipairs(allowedTraits) do
-          if string.contains(string.lower(card.metadata.traits), allowedTrait) then
+          if string.contains(string_lower(card.metadata.traits), allowedTrait) then
             match = true
             break
           end
@@ -885,7 +893,7 @@ function buildAvailableWeaknesses(restrictions)
 
       -- add weakness to list if eligible
       if eligible then
-        table.insert(availableWeaknesses, weaknessId)
+        table_insert(availableWeaknesses, weaknessId)
       end
     end
   end
@@ -913,13 +921,10 @@ function getUpgradeSheetList()
 end
 
 -- Helper function that adds one to the table entry for the number of weaknesses in play
-function incrementWeaknessCount(table, cardMetadata)
-  if isBasicWeakness(cardMetadata) then
-    if table[cardMetadata.id] == nil then
-      table[cardMetadata.id] = 1
-    else
-      table[cardMetadata.id] = table[cardMetadata.id] + 1
-    end
+function incrementWeaknessCount(t, cardMetadata)
+  local id = cardMetadata.id
+  if id and isBasicWeakness(cardMetadata) then
+    t[id] = (t[id] or 0) + 1
   end
 end
 
