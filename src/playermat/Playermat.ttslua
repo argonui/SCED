@@ -1081,32 +1081,63 @@ function createXML()
   self.UI.setXmlTable(xml)
 end
 
+function showTooltip(player, value, id)
+  self.UI.setAttribute(id .. "_tooltip", "active", true)
+end
+
+function hideTooltip(player, value, id)
+  self.UI.setAttribute(id .. "_tooltip", "active", false)
+end
+
 function addGameplayButtons(xml)
-  local DEFAULT_BUTTON_POS = { position1 = -182, position3 = -11 }
+  -- Helper to generate the tooltip child structure
+  local function getTooltip(id, i18n, p, w, h)
+    local lookUpKey   = (i18n or id) .. "+tooltiptext"
+    local tooltipText = i18nApi.getStrById(lookUpKey)
+    if tooltipText == lookUpKey then return {} end
+    return { {
+      tag = "Panel",
+      attributes = {
+        id            = id .. "_tooltip",
+        active        = false,
+        raycastTarget = false,
+        position      = p,
+        width         = w,
+        height        = h,
+        color         = "#000000fa"
+      },
+      children = { {
+        tag = "Text",
+        attributes = {
+          text                 = tooltipText,
+          i18n                 = lookUpKey,
+          color                = "White",
+          resizeTextForBestFit = true,
+          resizeTextMaxSize    = 100
+        }
+      } }
+    } }
+  end
 
   local BUTTON_DATA = {
-    { id = "PMB_upkeep_button",   onClick = "doUpkeep",     position2 = -45 },
-    { id = "PMB_draw1_button",    onClick = "doDrawOne",    position2 = -33 },
-    { id = "PMB_discard1_button", onClick = "doDiscardOne", position2 = 92 }
+    { id = "PMB_upkeep_button",   onClick = "doUpkeep",     pos2 = -45, tip = "Upkeep Phase: Ready cards" },
+    { id = "PMB_draw1_button",    onClick = "doDrawOne",    pos2 = -33, tip = "Draw 1 Card" },
+    { id = "PMB_discard1_button", onClick = "doDiscardOne", pos2 = 92,  tip = "Discard 1 Card" }
   }
 
   -- buttons near draw / discard pile
   for _, data in ipairs(BUTTON_DATA) do
-    local posList = {}
-    for i = 1, 3 do
-      table.insert(posList, data["position" .. i] or DEFAULT_BUTTON_POS["position" .. i])
-    end
-
-    -- TODO: implement tooltips
     table.insert(xml, {
       tag = "Button",
       attributes = {
         id                   = data.id,
         onClick              = data.onClick,
+        onMouseEnter         = "showTooltip",
+        onMouseExit          = "hideTooltip",
         text                 = i18nApi.getStrById(data.id),
         active               = data.id ~= "PMB_draw1_button" or isDrawButtonVisible,
         padding              = "10 10 5 5",
-        position             = table.concat(posList, " "),
+        position             = table.concat({ -182, data.pos2, -11 }, " "),
         width                = 260,
         height               = 70,
         resizeTextForBestFit = true,
@@ -1119,17 +1150,22 @@ function addGameplayButtons(xml)
         font                 = "font_amaranth/amaranth-regular",
         scale                = "0.1 0.1 1",
         rotation             = "0 0 180"
-      }
+      },
+      children = getTooltip(data.id, nil, "0 150 -20", 600, 120)
     })
   end
 
   -- special handling for discard buttons
   for i = 1, 6 do
+    local id   = "discardFromThreatArea" .. i
+    local i18n = (i == 1) and "PMB_discardMove_button" or "PMB_discard_button"
     table.insert(xml, {
       tag = "Button",
       attributes = {
-        id                   = "discardFromThreatArea" .. i,
-        i18n                 = (i == 1) and "PMB_discardMove_button" or "PMB_discard_button",
+        id                   = id,
+        i18n                 = i18n,
+        onMouseEnter         = "showTooltip",
+        onMouseExit          = "hideTooltip",
         text                 = (i == 1) and "Discard / ➜" or "Discard",
         width                = (i == 1) and 275 or 220,
         onClick              = "onClick_discardButton",
@@ -1146,7 +1182,8 @@ function addGameplayButtons(xml)
         font                 = "font_amaranth/amaranth-regular",
         position             = table.concat({ 136.5 - 45.5 * (i - 1), -94, -11 }, " "),
         rotation             = "0 0 180"
-      }
+      },
+      children = getTooltip(id, i18n, "0 150 -20", 600, 120)
     })
   end
 
@@ -1156,6 +1193,8 @@ function addGameplayButtons(xml)
     attributes = {
       id             = "shuffleDiscardButton",
       onClick        = "shuffleDiscardIntoDeck",
+      onMouseEnter   = "showTooltip",
+      onMouseExit    = "hideTooltip",
       width          = 7,
       height         = 7,
       color          = "#ffffffdd",
@@ -1166,7 +1205,8 @@ function addGameplayButtons(xml)
       position       = "-182 30.5 -11",
       rotation       = "0 0 180",
       image          = "shuffle"
-    }
+    },
+    children = getTooltip("shuffleDiscardButton", nil, "0 10 -1", 50, 15)
   })
 end
 
@@ -1754,33 +1794,26 @@ function newInvestigatorCallback(newId)
   if newId == "01005-p" or newId == "01005-pf" then -- parallel Wendy Adams
     printToColor("Wendy Adams: There's a Game Key to add sealing options to any card:" ..
       " Top menu bar > Options > Game Keys", messageColor)
-
   elseif newId == "06003" then -- Tony Morgan
     spawnInfiniteTokenBag("bounty")
     printToColor("Tony Morgan: Spawned bounty tokens near your playermat.", messageColor)
-
   elseif newId == "08004" then -- Norman Withers
     printToColor("Norman Withers: At the start of the game flip the top card of your deck manually " ..
       "and then the mod should keep it flipped throughout the game.", messageColor)
-
   elseif newId == "09015" then -- Darrell Simmons
     spawnInfiniteTokenBag("evidence")
     printToColor("Darrell Simmons: Spawned evidence tokens near your playermat.", messageColor)
-
   elseif string.sub(newId, 1, 5) == "03006" then -- Lola Hayes (including taboo and parallel)
     local pos = zones.getZonePosition(matColor, "AboveSetAside"):setAt("y", 2.2)
     local rot = Vector(90, self.getRotation().y + 180, 0)
     spawnObjectForInvestigator("loladie", nil, pos, rot)
     printToColor("Lola Hayes: Spawned die for role tracking near your playermat.", messageColor)
-
   elseif newId == "02004-p" or newId == "02004-pb" then -- Parallel Jim
     spawnObjectForInvestigator(nil, "Spirit Deck Helper")
     printToColor("Parallel Jim: Spawned a helper for the Spirit Deck near your playermat.", messageColor)
-
   elseif newId == "05002" then -- Joe Diamond
     spawnObjectForInvestigator(nil, "Hunch Deck Helper")
     printToColor("joe Diamond: Spawned a helper for the Hunch Deck near your playermat.", messageColor)
-
   elseif newId == "89001" then -- Subject 5U-21
     spawnObjectForInvestigator(nil, "Subject 5U-21 Helper")
     printToColor("Subject 5U-21: Spawned a helper to track the classes of devoured cards near your playermat. " ..
