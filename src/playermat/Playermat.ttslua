@@ -133,7 +133,9 @@ local optionPanelVisibility       = ""
 
 -- table of type-object reference pairs of all owned objects
 local ownedObjects                = {}
+
 local matColor                    = self.getMemo()
+local tooltipTimers               = {}
 
 -- continuously updated
 local clueCount                   = 0
@@ -1081,32 +1083,58 @@ function createXML()
   self.UI.setXmlTable(xml)
 end
 
-function showTooltip(_, _, id)
-  self.UI.setAttribute(id .. "_tooltip", "active", true)
+function showTooltip(player, _, id)
+  local timerKey = player.color .. id
+
+  -- Cancel any existing timer for this specific player/button combo just in case
+  if tooltipTimers[timerKey] then
+    Wait.stop(tooltipTimers[timerKey])
+  end
+
+  -- Schedule the visibility change
+  tooltipTimers[timerKey] = Wait.time(function()
+    GlobalApi.changeWindowVisibility(player.color, id .. "_tooltip", true, self)
+    tooltipTimers[timerKey] = nil
+  end, 0.4)
 end
 
-function hideTooltip(_, _, id)
-  self.UI.setAttribute(id .. "_tooltip", "active", false)
+function hideTooltip(player, _, id)
+  local timerKey = player.color .. id
+
+  -- If they leave before the tooltip is shown, stop the timer so it never shows
+  if tooltipTimers[timerKey] then
+    Wait.stop(tooltipTimers[timerKey])
+    tooltipTimers[timerKey] = nil
+  end
+
+  -- Always hide on exit (to close it if it was already visible)
+  GlobalApi.changeWindowVisibility(player.color, id .. "_tooltip", false, self)
 end
 
 function addGameplayButtons(xml)
   -- Helper to generate the tooltip child structure
-  local function getTooltip(id, i18n)
-    local p, w, h     = "0 150 -20", 660, 132
+  local function getTooltip(id, i18n, dir)
+    local w, h        = 550, 125
+    local p           = dir == "above" and "0 250 -11" or "0 -135 -11"
     local lookUpKey   = (i18n or id) .. "+tooltiptext"
     local tooltipText = i18nApi.getStrById(lookUpKey)
     if tooltipText == lookUpKey then return {} end
     return { {
       tag = "Panel",
       attributes = {
-        id            = id .. "_tooltip",
-        active        = false,
-        raycastTarget = false,
-        position      = p,
-        width         = w,
-        height        = h,
-        padding       = "10 10 10 10",
-        color         = "#222222fd"
+        id             = id .. "_tooltip",
+        active         = false,
+        raycastTarget  = false,
+        position       = p,
+        width          = w,
+        height         = h,
+        outline        = "#eeeeeedd",
+        outlineSize    = "2 2",
+        shadow         = "#eeeeeedd",
+        shadowDistance = "4 -4",
+        scale          = "0.1 0.1 1",
+        padding        = "10 10 5 5",
+        color          = "#101010ee"
       },
       children = { {
         tag = "Text",
@@ -1124,9 +1152,9 @@ function addGameplayButtons(xml)
   end
 
   local BUTTON_DATA = {
-    { id = "PMB_upkeep_button",   onClick = "doUpkeep",     pos2 = -45, tip = "Upkeep Phase: Ready cards" },
-    { id = "PMB_draw1_button",    onClick = "doDrawOne",    pos2 = -33, tip = "Draw 1 Card" },
-    { id = "PMB_discard1_button", onClick = "doDiscardOne", pos2 = 92,  tip = "Discard 1 Card" }
+    { id = "PMB_upkeep_button",   onClick = "doUpkeep",     pos2 = -45, dir = "above" },
+    { id = "PMB_draw1_button",    onClick = "doDrawOne",    pos2 = -33 },
+    { id = "PMB_discard1_button", onClick = "doDiscardOne", pos2 = 92 }
   }
 
   -- buttons near draw / discard pile
@@ -1155,7 +1183,7 @@ function addGameplayButtons(xml)
         scale                = "0.1 0.1 1",
         rotation             = "0 0 180"
       },
-      children = getTooltip(data.id)
+      children = getTooltip(data.id, nil, data.dir)
     })
   end
 
@@ -1187,7 +1215,7 @@ function addGameplayButtons(xml)
         position             = table.concat({ 136.5 - 45.5 * (i - 1), -94, -11 }, " "),
         rotation             = "0 0 180"
       },
-      children = getTooltip(id, i18n)
+      children = getTooltip(id, i18n, "above")
     })
   end
 
