@@ -77,9 +77,9 @@ function formatBlurseCount(playerColor, messages)
 end
 
 function resetTables()
-  numInPlay    = { Bless = 0, Curse = 0 }
-  tokensTaken  = { Bless = {}, Curse = {} }
-  sealedTokens = {}
+  numInPlay        = { Bless = 0, Curse = 0 }
+  tokensTaken      = { Bless = {}, Curse = {} }
+  sealedTokenGuids = {}
 end
 
 function initializeState()
@@ -430,7 +430,7 @@ function addMenuOptions(parameters)
   broadcastToColor("Right-click seal options added to " .. hoveredObject.getName(), playerColor)
   hoveredObject.setVar("MENU_ADDED", true)
   hoveredObject.addTag("CardThatSeals")
-  sealedTokens[hoveredObject.getGUID()] = {}
+  sealedTokenGuids[hoveredObject.getGUID()] = {}
 end
 
 function sealToken(type, playerColor, hoveredObject)
@@ -440,12 +440,14 @@ function sealToken(type, playerColor, hoveredObject)
   for i, token in ipairs(chaosBag.getObjects()) do
     if token.name == type then
       return chaosBag.takeObject({
-        position = hoveredObject.getPosition() + Vector(0, 1, 0),
-        rotation = hoveredObject.getRotation(),
-        index = i - 1,
-        smooth = false,
+        position          = hoveredObject.getPosition() + Vector(0, 1, 0),
+        rotation          = hoveredObject.getRotation(),
+        index             = i - 1,
+        smooth            = false,
         callback_function = function(obj)
-          table.insert(sealedTokens[hoveredObject.getGUID()], obj)
+          local parentGuid = hoveredObject.getGUID()
+          sealedTokenGuids[parentGuid] = sealedTokenGuids[parentGuid] or {}
+          table.insert(sealedTokenGuids[parentGuid], obj.getGUID())
           table.insert(tokensTaken[type], obj.getGUID())
           TokenArrangerApi.layout()
           updateDisplayAndBroadcast(type)
@@ -458,19 +460,19 @@ end
 
 function releaseToken(type, playerColor, hoveredObject)
   local chaosBag = ChaosBagApi.findChaosBag()
-  local tokens = sealedTokens[hoveredObject.getGUID()]
-  if tokens == nil or #tokens == 0 then return end
+  local tokenGuids = sealedTokenGuids[hoveredObject.getGUID()]
+  if tokenGuids == nil or #tokenGuids == 0 then return end
 
-  for i, token in ipairs(tokens) do
+  for i, tokenGuid in ipairs(tokenGuids) do
+    local token = getObjectFromGUID(tokenGuid)
     if token ~= nil and token.getName() == type then
-      local guid = token.getGUID()
       chaosBag.putObject(token)
       TokenArrangerApi.layout()
 
       for j, v in ipairs(tokensTaken[type]) do
-        if v == guid then
+        if v == tokenGuid then
           table.remove(tokensTaken[type], j)
-          table.remove(tokens, i)
+          table.remove(tokenGuids, i)
           updateDisplayAndBroadcast(type)
           return
         end
