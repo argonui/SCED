@@ -265,6 +265,13 @@ function searchAroundSelf(filter)
   return objectList
 end
 
+function searchThreatArea(filter)
+  local searchPosition = self.positionToWorld(getLocalThreatAreaPosition(3.5):setAt("y", 1))
+  local searchRotation = self.getRotation()
+  local searchSize     = Vector(14, 2, 3.2)
+  return SearchLib.inArea(searchPosition, searchRotation, searchSize, filter, true)
+end
+
 -- updates the internal "messageColor" which is used for print/broadcast statements if no player is seated
 ---@param clickedByColor? string Colorstring of player who clicked a button
 function updateMessageColor(clickedByColor)
@@ -379,6 +386,18 @@ function doUpkeep(player, clickType)
   local skipUpkeepResource = false
   local rot                = self.getRotation()
 
+  -- check for Wracked by Nightmares
+  local wracked = false
+  for _, obj in ipairs(searchThreatArea("isCard")) do
+    if not obj.is_face_down then
+      local cardMetadata = JSON.decode(obj.getGMNotes()) or {}
+      if cardMetadata.id == "02015" then
+        wracked = true
+        break
+      end
+    end
+  end
+
   for _, obj in ipairs(searchAroundSelf()) do
     if obj.hasTag("Temporary") then
       GlobalApi.discardObjects(obj, matColor)
@@ -394,9 +413,12 @@ function doUpkeep(player, clickType)
     -- look for specific cards in the play area or on extensions (draw / discard excluded)
     if (obj.hasTag("onExtension") or self.positionToLocal(obj.getPosition()).x > -1) then
       if obj.type == "Card" and not obj.hasTag("Investigator") then
-        GlobalApi.maybeReadyCard(obj, rot, false)
-
         local cardMetadata = JSON.decode(obj.getGMNotes()) or {}
+
+        -- don't ready assets if Wracked by Nightmares
+        if not cardMetadata.type == "Asset" or not wracked then
+          GlobalApi.maybeReadyCard(obj, rot, false)
+        end
 
         -- detect Forced Learning to handle card drawing accordingly
         if cardMetadata.id == "08031" then
