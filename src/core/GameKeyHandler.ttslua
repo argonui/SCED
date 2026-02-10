@@ -236,8 +236,23 @@ end
 
 -- helper function to get the player to trigger the discard function for
 function getColorToDiscardFor(hoveredObject, playerColor)
+  -- discard to linked mat if card is on a mat extension
+  for _, object in ipairs(SearchLib.belowObject(hoveredObject)) do
+    if object.hasTag("PlayermatExtension") then
+      return object.getVar("linkedMatColor")
+    end
+  end
+
   local pos                   = hoveredObject.getPosition()
   local closestMatColor       = PlayermatApi.getMatColorByPosition(pos)
+
+  -- discard to closest mat if card is in a hand
+  local handZone = GUIDReferenceApi.getObjectByOwnerAndType(closestMatColor, "HandZone")
+  for _, zone in ipairs(hoveredObject.getZones()) do
+    if zone == handZone then
+      return closestMatColor
+    end
+  end
 
   -- check if actually on the closest playermat
   local closestMat            = GUIDReferenceApi.getObjectByOwnerAndType(closestMatColor, "Playermat")
@@ -254,21 +269,6 @@ function getColorToDiscardFor(hoveredObject, playerColor)
   -- discard to closest mat if near it
   if inArea(pos, areaNearPlayermat) then
     return closestMatColor
-  end
-
-  -- discard to closest mat if card is in a hand
-  local handZone = GUIDReferenceApi.getObjectByOwnerAndType(closestMatColor, "HandZone")
-  for _, zone in ipairs(hoveredObject.getZones()) do
-    if zone == handZone then
-      return closestMatColor
-    end
-  end
-
-  -- discard to linked mat if card is on a mat extension
-  for _, object in ipairs(SearchLib.belowObject(hoveredObject)) do
-    if object.hasTag("PlayermatExtension") then
-      return object.getVar("linkedMatColor")
-    end
   end
 
   -- discard to triggering mat if previous conditions weren't met
