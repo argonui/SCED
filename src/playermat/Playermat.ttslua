@@ -383,11 +383,12 @@ function doUpkeep(player, clickType)
 
   -- unexhaust cards in play zone, flip action tokens and find Forced Learning / cards that skip resource gains
   local forcedLearning     = false
+  local marcusSengstacke   = false
   local skipUpkeepResource = false
   local rot                = self.getRotation()
 
   -- check for Wracked by Nightmares
-  local wracked = false
+  local wracked            = false
   for _, obj in ipairs(searchThreatArea("isCard")) do
     if not obj.is_face_down then
       local cardMetadata = JSON.decode(obj.getGMNotes()) or {}
@@ -421,9 +422,12 @@ function doUpkeep(player, clickType)
           GlobalApi.maybeReadyCard(obj, rot, false)
         end
 
-        -- detect Forced Learning to handle card drawing accordingly
         if cardMetadata.id == "08031" then
+          -- detect Forced Learning to handle card drawing accordingly
           forcedLearning = true
+        elseif cardMetadata.id == "60362" then
+          -- Marcus Sengstacke adds 1 resource
+          marcusSengstacke = true
         end
 
         -- detect Dark Horse
@@ -511,14 +515,23 @@ function doUpkeep(player, clickType)
     drawCardsWithReshuffle(1)
   end
 
-  -- gain a resource (or two if playing non-parallel Jenny Barnes), with potential resource skipping
+  -- handle resource gaining
   if skipUpkeepResource == true then
     printToColor("Skipping Upkeep resource(s)", messageColor)
-  elseif activeInvestigatorData.id == "02003" or activeInvestigatorData.id == "02003-pb" then
-    updateCounter({ type = "ResourceCounter", modifier = 2 })
-    printToColor("Gaining 1 additional resource (Jenny)", messageColor)
   else
-    updateCounter({ type = "ResourceCounter", modifier = 1 })
+    local resourcesToGain = 1
+
+    if activeInvestigatorData.id == "02003" or activeInvestigatorData.id == "02003-pb" then
+      resourcesToGain = resourcesToGain + 1
+      printToColor("Gaining 1 additional resource (Jenny)", messageColor)
+    end
+
+    if marcusSengstacke then
+      resourcesToGain = resourcesToGain + 1
+      printToColor("Gaining 1 additional resource (Marcus Sengstacke)", messageColor)
+    end
+
+    updateCounter({ type = "ResourceCounter", modifier = resourcesToGain })
   end
 end
 
