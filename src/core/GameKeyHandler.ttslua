@@ -236,25 +236,15 @@ end
 
 -- helper function to get the player to trigger the discard function for
 function getColorToDiscardFor(hoveredObject, playerColor)
-  local pos = hoveredObject.getPosition()
-  local closestMatColor = PlayermatApi.getMatColorByPosition(pos)
-
-  -- check if actually on the closest playermat
-  local closestMat = GUIDReferenceApi.getObjectByOwnerAndType(closestMatColor, "Playermat")
-  local bounds = closestMat.getBounds()
-
-  -- define the area "near" the playermat
-  local bufferAroundPlayermat = 2
-  local areaNearPlayermat = {}
-  areaNearPlayermat.minX = bounds.center.x - bounds.size.x / 2 - bufferAroundPlayermat
-  areaNearPlayermat.maxX = bounds.center.x + bounds.size.x / 2 + bufferAroundPlayermat
-  areaNearPlayermat.minZ = bounds.center.z - bounds.size.z / 2 - bufferAroundPlayermat
-  areaNearPlayermat.maxZ = bounds.center.z + bounds.size.z / 2 + bufferAroundPlayermat
-
-  -- discard to closest mat if near it
-  if inArea(pos, areaNearPlayermat) then
-    return closestMatColor
+  -- discard to linked mat if card is on a mat extension
+  for _, object in ipairs(SearchLib.belowObject(hoveredObject)) do
+    if object.hasTag("PlayermatExtension") then
+      return object.getVar("linkedMatColor")
+    end
   end
+
+  local pos                   = hoveredObject.getPosition()
+  local closestMatColor       = PlayermatApi.getMatColorByPosition(pos)
 
   -- discard to closest mat if card is in a hand
   local handZone = GUIDReferenceApi.getObjectByOwnerAndType(closestMatColor, "HandZone")
@@ -262,6 +252,23 @@ function getColorToDiscardFor(hoveredObject, playerColor)
     if zone == handZone then
       return closestMatColor
     end
+  end
+
+  -- check if actually on the closest playermat
+  local closestMat            = GUIDReferenceApi.getObjectByOwnerAndType(closestMatColor, "Playermat")
+  local bounds                = closestMat.getBounds()
+
+  -- define the area "near" the playermat
+  local bufferAroundPlayermat = 2
+  local areaNearPlayermat     = {}
+  areaNearPlayermat.minX      = bounds.center.x - bounds.size.x / 2 - bufferAroundPlayermat
+  areaNearPlayermat.maxX      = bounds.center.x + bounds.size.x / 2 + bufferAroundPlayermat
+  areaNearPlayermat.minZ      = bounds.center.z - bounds.size.z / 2 - bufferAroundPlayermat
+  areaNearPlayermat.maxZ      = bounds.center.z + bounds.size.z / 2 + bufferAroundPlayermat
+
+  -- discard to closest mat if near it
+  if inArea(pos, areaNearPlayermat) then
+    return closestMatColor
   end
 
   -- discard to triggering mat if previous conditions weren't met
