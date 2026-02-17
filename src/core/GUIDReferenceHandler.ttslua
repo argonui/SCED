@@ -179,6 +179,24 @@ function editIndex(params)
   updateMainIndex()
 end
 
+-- Returns the direct owner and type of the provided object (either the matColor or "Mythos")
+---@param object tts__GameObject Object to check
+function getDirectOwnerAndType(object)
+  if object == nil then return end
+
+  -- use GUID to check owners instead of obtaining each as reference
+  local objectGuid = object.getGUID()
+
+  -- check if object is directly owned
+  for owner, subtable in pairs(GuidReferences) do
+    for type, guid in pairs(subtable) do
+      if guid == objectGuid then
+        return owner, type
+      end
+    end
+  end
+end
+
 -- Returns the owner of the provided object (either the matColor or "Mythos")
 ---@param object tts__GameObject Object to check
 function getOwnerOfObject(object)
@@ -209,11 +227,14 @@ function getOwnerOfObject(object)
 
   -- check if it is on an owned object
   local result = SearchLib.belowObject(object, "isTileOrToken")
+  table.sort(result, function(a, b) return a.getPosition().y > b.getPosition().y end)
 
-  for owner, subtable in pairs(GuidReferences) do
-    for type, guid in pairs(subtable) do
-      for _, searchObj in ipairs(result) do
-        if guid == searchObj.getGUID() then
+  -- find the owner for the top-most object and repeat downwards
+  for _, searchObj in ipairs(result) do
+    local searchGUID = searchObj.getGUID()
+    for owner, subtable in pairs(GuidReferences) do
+      for type, guid in pairs(subtable) do
+        if guid == searchGUID then
           return owner
         end
       end

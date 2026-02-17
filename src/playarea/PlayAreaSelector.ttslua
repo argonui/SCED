@@ -1,12 +1,25 @@
 require("playarea/PlayAreaImageData") -- this fills the variable "PLAYAREA_IMAGE_DATA"
-local GlobalApi   = require("Global/GlobalApi")
-local MathLib     = require("util/MathLib")
-local PlayAreaApi = require("playarea/PlayAreaApi")
+local GlobalApi         = require("Global/GlobalApi")
+local MathLib           = require("util/MathLib")
+local PlayAreaApi       = require("playarea/PlayAreaApi")
 local typeIndex, selectionIndex, plainNameCache
+
+-- this maps scenarios to the "main" name for the image pool
+-- e.g. for parallel scenarios this links to the real scenario
+local SHARED_IMAGE_POOL = {
+  ["All or Nothing"]     = "The House Always Wins",
+  ["Bad Blood"]          = "Threads of Fate",
+  ["By the Book"]        = "The Midnight Masks",
+  ["Enthralling Encore"] = "Curtain Call",
+  ["Laid to Rest"]       = "The Wages of Sin",
+  ["Read or Die"]        = "Extracurricular Activity",
+  ["Red Tide Rising"]    = "The Vanishing of Elina Harper",
+  ["Relics of the Past"] = "The Doom of Eztli"
+}
 
 function updateSave()
   self.script_state = JSON.encode({
-    typeIndex = typeIndex,
+    typeIndex      = typeIndex,
     selectionIndex = selectionIndex
   })
 end
@@ -52,7 +65,7 @@ function updatePlayAreaGallery()
   local globalXml = Global.UI.getXmlTable() or {}
 
   -- selectable items
-  local itemSelection = getXmlTableElementById(globalXml, 'itemSelection')
+  local itemSelection = getXmlTableElementById(globalXml, "itemSelection")
   itemSelection.children = {}
 
   local i = 0
@@ -64,14 +77,17 @@ function updatePlayAreaGallery()
         attributes = { class = "itemPanel", id = "typePanel" .. i },
         children = {
           tag = "Text",
-          value = itemName,
-          attributes = { class = "itemText", id = "typeListText" .. i }
+          attributes = {
+            class = "itemText",
+            id    = "typeListText" .. i,
+            text  = itemName
+          }
         }
       })
   end
 
   -- selectable images for that item
-  local playareaList = getXmlTableElementById(globalXml, 'playareaList')
+  local playareaList = getXmlTableElementById(globalXml, "playareaList")
   playareaList.children = {}
 
   for i, v in ipairs(dataForSelection) do
@@ -81,13 +97,12 @@ function updatePlayAreaGallery()
         attributes = { class = "imageBox", id = "image" .. i },
         children = {
           {
-            tag = 'Image',
+            tag = "Image",
             attributes = { class = "playareaImage", image = v.URL }
           },
           {
-            tag = 'Text',
-            value = v.Name,
-            attributes = { class = "imageName" }
+            tag = "Text",
+            attributes = { class = "imageName", text = v.Name }
           }
         }
       })
@@ -179,13 +194,17 @@ function maybeUpdatePlayAreaImage(scenarioName)
   local listOfEligibleImages = {}
   if plainNameCache[scenarioName] then
     listOfEligibleImages = plainNameCache[scenarioName]
+  elseif SHARED_IMAGE_POOL[scenarioName] and plainNameCache[SHARED_IMAGE_POOL[scenarioName]] then
+    listOfEligibleImages = plainNameCache[SHARED_IMAGE_POOL[scenarioName]]
   else
     listOfEligibleImages = plainNameCache["Generic"]
   end
 
   -- get a random entry from the eligible list
   local newImageIndex = math.random(#listOfEligibleImages)
-  PlayAreaApi.updateSurface(listOfEligibleImages[newImageIndex])
+
+  -- wait a short time to avoid double-firing of collision events in rapid succession
+  Wait.time(function() PlayAreaApi.updateSurface(listOfEligibleImages[newImageIndex]) end, 1)
 end
 
 -- attempts to extract the plain scenario name from the playarea image name

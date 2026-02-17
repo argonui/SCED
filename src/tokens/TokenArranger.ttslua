@@ -21,9 +21,9 @@ inputParameters.function_owner  = self
 inputParameters.font_size       = 200
 inputParameters.width           = 500
 inputParameters.height          = inputParameters.font_size + 46
-inputParameters.alignment       = 3
-inputParameters.validation      = 2
-inputParameters.tab             = 2
+inputParameters.alignment       = 3 -- center
+inputParameters.validation      = 2 -- integer
+inputParameters.tab             = 2 -- select next input
 inputParameters.scale           = { 0.17, 0.17, 0.17 }
 
 local percentageLabel           = {}
@@ -35,7 +35,6 @@ percentageLabel.height          = 0
 
 -- variables with save function
 local tokenPrecedence           = {}
-local percentage                = false
 local includeDrawnTokens        = true
 
 -- variables without save function
@@ -216,9 +215,8 @@ function tokenValueComparator(left, right)
     return left.value > right.value
   elseif left.order ~= right.order then
     return left.order < right.order
-  else
-    return false
   end
+  return false
 end
 
 -- deletes previously placed tokens
@@ -324,7 +322,7 @@ function layout(_, _, isRightClick)
   -- get ChaosBag and stop if not found
   local chaosBag = ChaosBagApi.findChaosBag()
   if not chaosBag then
-    updating = false
+    Wait.time(function() updating = false end, 0.1)
     return
   end
 
@@ -340,13 +338,24 @@ function layout(_, _, isRightClick)
     end
   end
 
+  if #rawData == 0 then
+    Wait.time(function() updating = false end, 0.1)
+    return
+  end
+
   -- generate layout data
+  local yRot = self.getRotation().y
   local data = {}
   for i, objData in ipairs(rawData) do
     objData["Tags"] = { "tempToken" }
 
     -- remove GUID to avoid issues for high latency clients
     objData["GUID"] = nil
+
+    -- set rotation
+    objData["Transform"]["rotX"] = 0
+    objData["Transform"]["rotY"] = yRot
+    objData["Transform"]["rotZ"] = 0
 
     -- store data for each token
     data[i] = { token = objData }
@@ -365,17 +374,12 @@ function layout(_, _, isRightClick)
   end
 
   -- handling for near empty chaos bag
-  if #data == 0 then
-    -- small delay to limit update calls
-    Wait.time(function() updating = false end, 0.1)
-    return
-  elseif #data > 1 then
+  if #data > 1 then
     -- sort table by value (symbols last if same value)
     table.sort(data, tokenValueComparator)
   end
 
   -- laying out the tokens
-  local rotation = self.getRotation()
   local localStartPos = START_POSITION:copy()
   local optionPanelState = GlobalApi.getOptionPanelState()["tokenArrangerOdds"]
 
@@ -384,10 +388,10 @@ function layout(_, _, isRightClick)
     localStartPos = localStartPos - Vector(0.35, 0, 0)
   end
 
-  local location = localStartPos:copy()
+  local location     = localStartPos:copy()
   local currentValue = data[1].value
-  local tokenCount = { row = 0, sum = 0, total = #data }
-  local rowCount = 1
+  local tokenCount   = { row = 0, sum = 0, total = #data }
+  local rowCount     = 1
   local tokenName
 
   for _, item in ipairs(data) do
@@ -396,19 +400,20 @@ function layout(_, _, isRightClick)
       tokenCount.sum = tokenCount.sum + tokenCount.row
       createPercentageButton(tokenCount, rowCount, tokenName, optionPanelState)
 
-      location = Vector(localStartPos.x, location.y, location.z + TOKEN_OFFSET)
-      currentValue = item.value
-      rowCount = rowCount + 1
+      location       = Vector(localStartPos.x, location.y, location.z + TOKEN_OFFSET)
+      currentValue   = item.value
+      rowCount       = rowCount + 1
       tokenCount.row = 0
     end
 
-    spawnObjectData({
-      data = item.token,
-      position = self.positionToWorld(location),
-      rotation = rotation
-    })
-    tokenName = item.token.Nickname
-    location = location - Vector(TOKEN_OFFSET, 0, 0)
+    local globalPos = self.positionToWorld(location)
+    item.token["Transform"]["posX"] = globalPos.x
+    item.token["Transform"]["posY"] = globalPos.y
+    item.token["Transform"]["posZ"] = globalPos.z
+    spawnObjectData({ data = item.token })
+
+    tokenName      = item.token.Nickname
+    location       = location - Vector(TOKEN_OFFSET, 0, 0)
     tokenCount.row = tokenCount.row + 1
   end
 
@@ -422,9 +427,11 @@ end
 
 -- called from outside to set default values for tokens
 function onTokenDataChanged(parameters)
+  if not parameters.tokenData then return end
+
   -- update token precedence
-  for key, table in pairs(parameters.tokenData or {}) do
-    local modifier = table.modifier
+  for key, tbl in pairs(parameters.tokenData) do
+    local modifier = tbl.modifier
     if modifier == -999 then modifier = 0 end
     tokenPrecedence[key][1] = modifier
   end

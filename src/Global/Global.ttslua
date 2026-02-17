@@ -8,6 +8,7 @@ local ColorLib                    = require("util/ColorLib")
 local CoroutineLib                = require("util/CoroutineLib")
 local DeckLib                     = require("util/DeckLib")
 local GUIDReferenceApi            = require("core/GUIDReferenceApi")
+local MessageQueue                = require("util/MessageQueue")
 local MathLib                     = require("util/MathLib")
 local MythosAreaApi               = require("mythos/MythosAreaApi")
 local NavigationOverlayApi        = require("core/NavigationOverlayApi")
@@ -49,12 +50,13 @@ local acknowledgedUpgradeVersions = {}
 local authorList                  = {}
 local contentToShow               = "campaign"
 local currentListItem             = 1
-local TAB_IDS                     = {
+local DW_TAB_IDS                  = {
   DW_tab1 = "campaign",
   DW_tab2 = "scenario",
   DW_tab3 = "fanmade-campaign",
   DW_tab4 = "fanmade-scenario",
-  DW_tab5 = "fanmade-playercards"
+  DW_tab5 = "fanmade-playercards",
+  DW_tab6 = "language-pack"
 }
 
 -- optionPanel data (intentionally not local!)
@@ -115,6 +117,15 @@ local handVisibility              = {}
 -- track cards' tokens
 local cardTokens                  = {}
 local cardSettings                = {}
+
+-- track state of sliders
+local clueSliderValue             = {
+  White  = 0,
+  Orange = 0,
+  Green  = 0,
+  Red    = 0
+}
+local clueSpendingNeed
 
 ---------------------------------------------------------
 -- data for tokens
@@ -196,9 +207,8 @@ function onLoad(savedData)
   TokenManager.initialize()
 
   -- these things update the Global XML and thus need to happen with delays
+  Wait.time(createGlobalXml, getXmlDelay())
   Wait.time(updateBlurseVisibility, getXmlDelay())
-  Wait.time(createActionTrackerUI, getXmlDelay())
-  Wait.time(createChaosTokenSplashXml, getXmlDelay())
   Wait.time(NavigationOverlayApi.createXmlButtons, getXmlDelay())
   Wait.time(NavigationOverlayApi.updateVisibility, getXmlDelay())
   Wait.time(PlayAreaApi.updatePlayAreaGallery, getXmlDelay()) -- also selects the first item after 0.1s
@@ -229,6 +239,64 @@ function onLoad(savedData)
   end
 
   namesToIds = createChaosTokenNameLookupTable()
+
+  -- This one formatter will handle all manual counter changes
+  MessageQueue.registerFormatter("manual_counter_change", formatManualCounterChange)
+end
+
+function formatManualCounterChange(playerColor, messages)
+  if not optionPanel.enableCounterLogging then return end
+
+  -- context stays consistent due to unique message type key
+  local counter   = messages[1].counter
+
+  local netAmount = 0
+  for _, msg in ipairs(messages) do
+    netAmount = netAmount + (msg.amount or 1)
+  end
+  if netAmount == 0 then return end
+
+  -- handle damage, horror, resources and clues
+  if counter == "clickableclue" then
+    counter = "clue"
+  end
+
+  local action
+  if counter == "damage" or counter == "horror" then
+    action = netAmount > 0 and " took " or " removed "
+  elseif counter == "resource" or counter == "clue" then
+    action = netAmount > 0 and " gained " or " spent "
+  else
+    return
+  end
+
+  -- singular / plural handling
+  local amountStr = "a"
+  if math.abs(netAmount) > 1 then
+    if counter == "resource" or counter == "clue" then
+      counter = counter .. "s"
+    end
+    amountStr = math.abs(netAmount)
+  end
+
+  return getColoredName(playerColor) .. action .. amountStr .. " " .. counter:lower() .. "."
+end
+
+function sendManualCounterChange(params)
+  -- work out the owner and counter
+  local owner, type = GUIDReferenceApi.getDirectOwnerAndType(params.object)
+
+  -- ensure it's a mat-owned object
+  if not owner or owner == "Mythos" then return end
+
+  -- ensure it's a counter
+  if type:sub(-7) ~= "Counter" then return end
+
+  local playerColor = PlayermatApi.getPlayerColor(owner)
+  local counter     = type:sub(1, -8):lower()
+
+  -- Create a unique key like "manual_counter_change_resource" to split messages for different counters
+  MessageQueue.queue(playerColor, "manual_counter_change_" .. counter, { counter = counter, amount = params.amount })
 end
 
 -- provides a random seed (from 1 to 999) to be used by "linked" objects like the action tokens
@@ -304,6 +372,66 @@ function maybeAddDecalToChaosToken(object)
   }
 
   object.setDecals(decalData)
+end
+
+function maybeDrawBorderAroundMinicard(object)
+  if not optionPanel["highlightMinicards"] then return end
+  if not object.hasTag("Minicard") then return end
+
+  local md = JSON.decode(object.getGMNotes())
+  if not md or type(md) ~= "table" or not md.id or md.type ~= "Minicard" then return end
+
+  for matColor, _ in pairs(GUIDReferenceApi.getObjectsByType("Playermat")) do
+    local data = PlayermatApi.getActiveInvestigatorData(matColor)
+    if md.id == data.miniId then
+      drawBorderAroundCard({
+        card        = object,
+        borderColor = PlayermatApi.getPlayerColor(matColor),
+        thickness   = 0.15
+      })
+      return
+    end
+  end
+end
+
+function drawBorderAroundCard(params)
+  local card = params.card
+
+  if card == nil then return end
+
+  local bounds = card.getBoundsNormalized()
+  local scale  = card.getScale()
+  local xSize  = bounds.size.x / 2 / scale.x
+  local zSize  = bounds.size.z / 2 / scale.z
+
+  -- special handling for cards from custom decks because it seems like
+  -- the internal model for those is somehow different than custom cards :)
+  local data   = card.getData()
+
+  if data.Name == "CardCustom" or not isSingleCard(card) then
+    xSize = xSize * 1.09
+  else
+    xSize = xSize / 1.035
+  end
+
+  card.setVectorLines({ {
+    points    = {
+      { 0 - xSize, 0, 0 - zSize },
+      { 0 + xSize, 0, 0 - zSize },
+      { 0 + xSize, 0, 0 + zSize },
+      { 0 - xSize, 0, 0 + zSize },
+      { 0 - xSize, 0, 0 - zSize },
+      { 0 + xSize, 0, 0 - zSize }
+    },
+    color     = params.borderColor,
+    thickness = params.thickness
+  } })
+end
+
+-- check the size of the decksheet to know whether this is a single card image
+function isSingleCard(card)
+  local _, customDeckData = next(card.getData()["CustomDeck"])
+  return customDeckData["NumHeight"] == 1 and customDeckData["NumWidth"] == 1
 end
 
 -- moves an object to the new position of the mythos area
@@ -467,7 +595,7 @@ end
 
 -- handle card drawing via number typing for multihanded gameplay
 -- (and additionally allow Norman Withers to draw multiple cards via number)
-function onObjectNumberTyped(hoveredObject, playerColor, number)
+function onObjectNumberTyped(hoveredObject, playerColor, number, alt)
   -- adds cards to appropriate hand for Attachment Helper
   if hoveredObject.getName() == "Attachment Helper" then
     local matColor = PlayermatApi.getMatColorByPosition(hoveredObject.getPosition())
@@ -494,7 +622,7 @@ function onObjectNumberTyped(hoveredObject, playerColor, number)
     local deckAreaObjects = PlayermatApi.getDeckAreaObjects(matColor)
     if deckAreaObjects.topCard == hoveredObject or deckAreaObjects.draw == hoveredObject then
       PlayermatApi.updateMessageColor(matColor, playerColor)
-      PlayermatApi.drawCardsWithReshuffle(matColor, number)
+      PlayermatApi.drawCardsWithReshuffle(matColor, number, alt)
       return true
     end
   end
@@ -603,6 +731,7 @@ function onObjectSpawn(obj)
   end
 
   maybeAddDecalToChaosToken(obj)
+  maybeDrawBorderAroundMinicard(obj)
   maybeMoveObjectToMythosArea(obj)
   maybeUpdateClueDoomStackCount(obj)
   maybeUpdateActionTrackerTokens(obj, 5)
@@ -1152,6 +1281,10 @@ function tokenSplash(matColor)
 
   local leftEdgePositionX = -containerWidth / 2
 
+  -- Load active investigator data
+  local activeInvestigatorData = PlayermatApi.getActiveInvestigatorData(matColor)
+  investigatorTokenData = activeInvestigatorData.elderSignEffect or nil
+
   -- update the XML
   waitIds["updateChaosSplash"] = Wait.frames(function()
     for i = 1, 5 do
@@ -1182,7 +1315,19 @@ function tokenSplash(matColor)
 
         -- determine if modifier should be shown (only for symbol tokens)
         if tonumber(tokenName) == nil then
-          local modifier = TokenArrangerApi.getCurrentModifier(tokenName) or TokenArrangerApi.getCurrentModifier("")
+          local modifier
+          if tokenName == "Elder Sign" and investigatorTokenData ~= nil then
+            modifier = investigatorTokenData.modifier
+          elseif tokenName == "Curse" then
+            modifier = -2
+          elseif tokenName == "Bless" then
+            modifier = 2
+          elseif tokenName == "Frost" then
+            modifier = -1
+          else
+            modifier = TokenArrangerApi.getCurrentModifier(tokenName) or TokenArrangerApi.getCurrentModifier("")
+          end
+
           if modifier and math.abs(modifier) < 100 then
             local modifierText = "( "
             if modifier > 0 then
@@ -1211,25 +1356,32 @@ function tokenSplash(matColor)
 
     -- determine if scenario card reference data should be shown
     local descriptionAttributes = { active = false, text = "" }
-    local tokenData = MythosAreaApi.returnTokenData()
-    if tokenData then
-      if tokenData.tokenData[tokenNames[1]] then
-        local tokenDescription = tokenData.tokenData[tokenNames[1]].description
-        if tokenDescription then
-          screenTime                     = 1.5 -- more time due to text
 
-          -- update the attributes
-          descriptionAttributes.active   = true
-          descriptionAttributes.text     = tokenDescription
-          descriptionAttributes.position = (elementWidth - containerWidth) / 2 .. " 130 0"
-
-          -- make sure the color is reset too
-          descriptionAttributes.color    = "#FFFFFFFF"
-        end
+    local tokenDescription
+    if tokenNames[1] == "Elder Sign" and investigatorTokenData ~= nil then
+      tokenDescription = investigatorTokenData.description
+    else
+      local tokenData = MythosAreaApi.returnTokenData()
+      if tokenData and tokenData.tokenData and tokenData.tokenData[tokenNames[1]] then
+        tokenDescription = tokenData.tokenData[tokenNames[1]].description
       end
     end
 
-    UI.setAttributes("CTS_description", descriptionAttributes)
+    if tokenDescription then
+      screenTime                     = 1.75 -- more time due to text
+
+      -- update the attributes
+      descriptionAttributes.active   = true
+
+      -- clean up SE tags from text (< followed by any characters until the next >)
+      descriptionAttributes.text     = string.gsub(tokenDescription, "<[^>]->", "")
+      descriptionAttributes.position = (elementWidth - containerWidth) / 2 .. " 0 0"
+
+      -- make sure the color is reset too
+      descriptionAttributes.color    = "#FFFFFFFF"
+    end
+
+    XmlLib.setAttributes("CTS_description", descriptionAttributes)
 
     -- fade it in after changes have been applied
     waitIds["showChaosSplash"] = Wait.time(function()
@@ -1687,12 +1839,12 @@ end
 -- forwards the requested content type to the update function and sets highlight to clicked tab
 ---@param tabId string Id of the clicked tab
 function onClick_tab(_, _, tabId)
-  for listId, listContent in pairs(TAB_IDS) do
+  for listId, listContent in pairs(DW_TAB_IDS) do
     if listId == tabId then
-      UI.setClass(listId, 'downloadTab activeTab')
+      UI.setClass(listId, "downloadTab activeTab")
       contentToShow = listContent
     else
-      UI.setClass(listId, 'downloadTab')
+      UI.setClass(listId, "downloadTab")
     end
   end
   currentListItem = 1
@@ -1776,7 +1928,7 @@ function placeholder_download(params)
   end
 
   -- make sure that language pack spawn in the correct spot
-  if string.startsWith(params.filename, "language_pack_") then
+  if params.type == "language-pack" then
     if string.endsWith(params.filename, "playercards") then
       params.addToPlayerCards = true
     elseif string.endsWith(params.filename, "campaigns") then
@@ -1962,6 +2114,16 @@ function onClick_toggleOptionPanel(player, clickType)
   end
 end
 
+function onClick_showUi(_, windowId)
+  UI.show(windowId)
+  --UI.setAttribute(windowId, "active", true)
+end
+
+function onClick_hideUi(_, windowId)
+  UI.hide(windowId)
+  --UI.setAttribute(windowId, "active", false)
+end
+
 -- toggles the visibility of the respective UI
 ---@param player tts__Player Player that triggered this
 ---@param windowId string Name of the UI to toggle
@@ -2035,7 +2197,7 @@ function changeWindowVisibilityForColor(color, windowId, overrideState, owner)
 
   -- add / remove the color as viewer
   if visible == true then
-    removeValueFromTable(viewers, color)
+    TableLib.removeValue(viewers, color)
   elseif visible == false then
     table.insert(viewers, color)
   end
@@ -2046,18 +2208,12 @@ function changeWindowVisibilityForColor(color, windowId, overrideState, owner)
     table.insert(viewers, color)
     visible = true
   elseif overrideState == false and visible == true then
-    removeValueFromTable(viewers, color)
+    TableLib.removeValue(viewers, color)
     visible = false
   end
 
   -- construct new string
-  local newColorString = ""
-  for _, viewer in ipairs(viewers) do
-    newColorString = newColorString .. viewer .. "|"
-  end
-
-  -- remove last delimiter
-  newColorString = newColorString:sub(1, -2)
+  local newColorString = table.concat(viewers, "|")
 
   -- update the visibility of the XML
   targetUi.setAttribute(windowId, "visibility", newColorString)
@@ -2459,10 +2615,8 @@ function createActionTrackerUI()
     table.insert(actionTrackerXml.children, playerRow)
   end
 
-  local xml = Global.UI.getXmlTable() or {}
-  table.insert(xml, actionTrackerXml)
-  updateGlobalXml(xml)
   Wait.frames(updateActionTrackerWidth, 3)
+  return actionTrackerXml
 end
 
 -- updates the layout of the action tracker
@@ -2638,40 +2792,22 @@ function getDisplayName(matColor)
   return playerColor
 end
 
-function createChaosTokenSplashXml()
+function createGlobalXml()
+  -- retrieve the existing XML
+  local globalXml = Global.UI.getXmlTable() or {}
+
+  -- add additional XML to it
+  table.insert(globalXml, createActionTrackerUI())
+  table.insert(globalXml, createChaosTokenSplashUI())
+  table.insert(globalXml, createClueSpendingUI())
+
+  -- finally, apply the updated XML
+  updateGlobalXml(globalXml)
+end
+
+function createChaosTokenSplashUI()
   local CROSS_URL =
   "https://steamusercontent-a.akamaihd.net/ugc/16527220566318339270/4533B90A1CDA9AC23D480DC0F520E1FC24DC087E/"
-
-  -- create defaults for text elements
-  local defaultsXml = {
-    tag = "Defaults",
-    children = {
-      {
-        tag = "Text",
-        attributes = {
-          class       = "CTS",
-          scale       = "0.4 0.4 1",
-          font        = "font_teutonic-arkham",
-          alignment   = "MiddleCenter",
-          outline     = "black",
-          outlineSize = "3 -3"
-        }
-      },
-      {
-        tag = "Text",
-        attributes = {
-          class              = "modifier",
-          fontSize           = 150,
-          horizontalOverflow = "Overflow",
-          height             = 150,
-          width              = 1000,
-          position           = "0 420 0",
-          ignoreLayout       = true,
-          active             = false
-        }
-      }
-    }
-  }
 
   -- create the main panel that holds the splash screen elements
   local mainPanelXml = {
@@ -2683,7 +2819,21 @@ function createChaosTokenSplashXml()
   for i = 1, 5 do
     table.insert(mainPanelXml.children, {
       tag        = "Text",
-      attributes = { id = "CTS_modifier" .. i, class = "CTS modifier" }
+      attributes = {
+        id                 = "CTS_modifier" .. i,
+        scale              = "0.4 0.4 1",
+        font               = "font_teutonic-arkham",
+        alignment          = "MiddleCenter",
+        outline            = "black",
+        outlineSize        = "3 -3",
+        fontSize           = 150,
+        horizontalOverflow = "Overflow",
+        height             = 150,
+        width              = 1000,
+        position           = "0 20 0",
+        ignoreLayout       = true,
+        active             = false
+      }
     })
   end
 
@@ -2729,23 +2879,373 @@ function createChaosTokenSplashXml()
     tag = "Text",
     attributes = {
       id                   = "CTS_description",
-      class                = "CTS",
-      height               = 1250,
-      width                = 1250,
+      scale                = "0.4 0.4 1",
+      font                 = "font_teutonic-arkham",
+      outline              = "black",
+      outlineSize          = "3 -3",
+      height               = 800,
+      width                = 1000,
       position             = "0 130 0",
       ignoreLayout         = true,
       resizeTextForBestFit = true,
-      resizeTextMinSize    = 85,
+      resizeTextMinSize    = 45,
+      resizeTextMaxSize    = 85,
       horizontalOverflow   = "Wrap",
-      verticalOverflow     = "Overflow"
+      verticalOverflow     = "Overflow",
+      alignment            = "UpperCenter"
     }
   }
   table.insert(mainPanelXml.children, descriptionXml)
+  return mainPanelXml
+end
 
-  local xml = Global.UI.getXmlTable() or {}
-  table.insert(xml, defaultsXml)
-  table.insert(xml, mainPanelXml)
-  updateGlobalXml(xml)
+function createClueSpendingUI()
+  local fontName = i18n.getFont()
+  local clueXml = {
+    tag = "VerticalLayout",
+    attributes = {
+      id                                   = "clueSpendingWindow",
+      active                               = false,
+      color                                = "Black",
+      width                                = 600,
+      padding                              = "20 20 10 10",
+      spacing                              = 10,
+      outlineSize                          = "2 2",
+      outline                              = "#303030",
+      allowDragging                        = true,
+      returnToOriginalPositionWhenReleased = false,
+      showAnimation                        = "Grow",
+      hideAnimation                        = "Shrink",
+      showAnimationDelay                   = 0.25,
+      hideAnimationDelay                   = 0,
+      animationDuration                    = 0.5
+    },
+    children = {
+      -- header
+      {
+        tag = "Text",
+        attributes = {
+          id                   = "clueSpendingNeedTitle",
+          resizeTextForBestFit = true,
+          resizeTextMaxSize    = 30,
+          font                 = fontName,
+          color                = "White",
+          preferredHeight      = 40
+        }
+      },
+      -- Header Row
+      {
+        tag = "HorizontalLayout",
+        attributes = {
+          preferredHeight = 30,
+          width           = 500,
+          spacing         = 10
+        },
+        children = {
+          {
+            tag = "Text",
+            attributes = {
+              id                   = "CS_column_player",
+              preferredWidth       = 175,
+              text                 = i18n.getStrById("CS_column_player"),
+              resizeTextForBestFit = true,
+              resizeTextMaxSize    = 16,
+              color                = "#AAAAAA",
+              alignment            = "MiddleLeft"
+            }
+          },
+          { tag = "Panel", attributes = { flexibleWidth = 1000 } },
+          {
+            tag = "Text",
+            attributes = {
+              id                   = "CS_column_selected",
+              preferredWidth       = 70,
+              text                 = i18n.getStrById("CS_column_selected"),
+              resizeTextForBestFit = true,
+              resizeTextMaxSize    = 16,
+              color                = "#AAAAAA",
+              alignment            = "MiddleLeft"
+            }
+          },
+          {
+            tag = "Text",
+            attributes = {
+              id                   = "CS_column_max",
+              preferredWidth       = 35,
+              text                 = i18n.getStrById("CS_column_max"),
+              resizeTextForBestFit = true,
+              resizeTextMaxSize    = 16,
+              color                = "#AAAAAA",
+              alignment            = "MiddleCenter"
+            }
+          },
+        }
+      },
+      createSliderRow("White"),
+      createSliderRow("Orange"),
+      createSliderRow("Green"),
+      createSliderRow("Red"),
+      -- footer
+      {
+        tag = "VerticalLayout",
+        attributes = { preferredHeight = 90, spacing = 15 },
+        children = {
+          {
+            tag = "Text",
+            attributes = {
+              id                   = "TotalClues",
+              resizeTextForBestFit = true,
+              resizeTextMaxSize    = 30,
+              font                 = fontName,
+              color                = "White"
+            }
+          },
+          {
+            tag = "HorizontalLayout",
+            children = {
+              {
+                tag = "Button",
+                attributes = {
+                  id                   = "CS_button_skip",
+                  text                 = i18n.getStrById("CS_button_skip"),
+                  resizeTextForBestFit = true,
+                  resizeTextMaxSize    = 25,
+                  onClick              = "onClick_hideUi(clueSpendingWindow)",
+                  font                 = fontName,
+                  color                = "#888888"
+                }
+              },
+              { tag = "Panel" },
+              {
+                tag = "Button",
+                attributes = {
+                  id                   = "CS_button_spend",
+                  text                 = i18n.getStrById("CS_button_spend"),
+                  onClick              = "onClick_spendClues",
+                  resizeTextForBestFit = true,
+                  resizeTextMaxSize    = 25,
+                  font                 = fontName,
+                  color                = "#88FF88"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  return clueXml
+end
+
+function createSliderRow(matColor)
+  local id = "ClueSlider" .. matColor
+  return {
+    tag = "HorizontalLayout",
+    attributes = { id = "Row" .. id, spacing = 10, width = 500, preferredHeight = 55 },
+    children = {
+      {
+        tag = "Text",
+        attributes = {
+          id                   = id .. "-name",
+          resizeTextForBestFit = true,
+          resizeTextMaxSize    = 25,
+          color                = matColor,
+          preferredWidth       = 175
+        }
+      },
+      {
+        tag = "Slider",
+        attributes = {
+          id              = id,
+          backgroundColor = "#1a1a1a",
+          fillColor       = "#AAAAAA",
+          handleColor     = matColor,
+          minValue        = 0,
+          maxValue        = 100,
+          wholeNumbers    = true,
+          flexibleWidth   = 1000,
+          handleImage     = "", -- this forces a rectangular handle
+          onValueChanged  = "onClueSliderChanged"
+        }
+      },
+      {
+        tag = "Text",
+        attributes = {
+          id                   = id .. "-current",
+          resizeTextForBestFit = true,
+          resizeTextMaxSize    = 25,
+          color                = "White",
+          alignment            = "MiddleCenter",
+          preferredWidth       = 35
+        }
+      },
+      {
+        tag = "Text",
+        attributes = {
+          text                 = "/",
+          resizeTextForBestFit = true,
+          resizeTextMaxSize    = 25,
+          color                = "White",
+          alignment            = "MiddleCenter",
+          preferredWidth       = 35
+        }
+      },
+      {
+        tag = "Text",
+        attributes = {
+          id                   = id .. "-max",
+          resizeTextForBestFit = true,
+          resizeTextMaxSize    = 25,
+          color                = "White",
+          alignment            = "MiddleCenter",
+          preferredWidth       = 35
+        }
+      }
+    }
+  }
+end
+
+function showClueSpendingUi(totalNeededClues)
+  if not totalNeededClues then return end
+
+  local totalPlayerClues, playerClueTable = PlayermatApi.getClueCount("All")
+
+  if totalPlayerClues < totalNeededClues then
+    broadcastToAll("The group does not control enough clues.", "Orange")
+    return
+  elseif totalPlayerClues == totalNeededClues then
+    broadcastToAll("All controlled clues (" .. totalNeededClues .. ") spent.", "White")
+    PlayermatApi.removeClues("All")
+    return
+  end
+
+  -- check if only one player has clues
+  local playerCountWithClues  = 0
+  local lastMatColorWithClues = nil
+
+  for matColor, clueCount in pairs(playerClueTable) do
+    if clueCount > 0 then
+      playerCountWithClues  = playerCountWithClues + 1
+      lastMatColorWithClues = matColor
+    end
+  end
+
+  if playerCountWithClues == 0 then
+    broadcastToAll("Couldn't detect players with clues!", "Red")
+    return
+  elseif playerCountWithClues == 1 then
+    local playerColor = PlayermatApi.getPlayerColor(lastMatColorWithClues)
+    local playerName  = getColoredName(playerColor)
+    PlayermatApi.removeClues(lastMatColorWithClues, totalNeededClues)
+    broadcastToAll(playerName .. " is the only player with clues and spends " .. totalNeededClues .. " clues.", "White")
+    return
+  end
+
+  -- figure out contribution for each player (1 by 1 for each player that can fulfill it)
+  local sliderValues = {}
+  local remainder    = totalNeededClues
+
+  while remainder > 0 do
+    local emptyLoop = true
+
+    for matColor, playerClues in pairs(playerClueTable) do
+      local currentAssigned = sliderValues[matColor] or 0
+
+      -- can this player afford to give one more?
+      if remainder > 0 and currentAssigned < playerClues then
+        sliderValues[matColor] = currentAssigned + 1
+        remainder              = remainder - 1
+        emptyLoop              = false
+      end
+    end
+
+    -- safety break to avoid infinite loop
+    if emptyLoop then break end
+  end
+
+  -- apply slider settings
+  for _, matColor in ipairs(MAT_COLORS) do
+    local id     = "ClueSlider" .. matColor
+
+    -- apply values to slider
+    local att    = UI.getAttributes(id)
+    att.value    = sliderValues[matColor] or 0
+
+    -- limit the max value to what the player has or the totalNeededClues (if it's larger than 0, otherwise to 20)
+    att.maxValue = math.min(playerClueTable[matColor] or 10, (totalNeededClues > 0) and totalNeededClues or 20)
+    UI.setAttributes(id, att)
+
+    -- set value for labels
+    clueSliderValue[matColor] = att.value
+    UI.setAttribute(id .. "-current", "text", att.value)
+    UI.setAttribute(id .. "-max", "text", att.maxValue)
+
+    -- set player name
+    local playerColor = PlayermatApi.getPlayerColor(matColor)
+    UI.setAttribute(id .. "-name", "text", getColoredName(playerColor, true))
+
+    -- hide unused rows
+    local showThisRow = playerClueTable[matColor] ~= nil and playerClueTable[matColor] > 0
+    UI.setAttribute("Row" .. id, "active", showThisRow)
+  end
+
+  -- update main UI (height includes spacing)
+  UI.setAttribute("clueSpendingWindow", "height", 50 + 40 + playerCountWithClues * 65 + 100 + 20)
+  UI.setAttribute("TotalClues", "text", i18n.getStrById("CS_total") .. ": " .. (totalNeededClues - remainder))
+
+  setClueSpendingNeed(totalNeededClues)
+  onClick_showUi(nil, "clueSpendingWindow")
+end
+
+function setClueSpendingNeed(totalNeededClues)
+  if totalNeededClues == 0 then
+    clueSpendingNeed = nil
+  else
+    clueSpendingNeed = totalNeededClues
+  end
+  UI.setAttribute("clueSpendingNeedTitle", "text", i18n.getStrById("CS_title") .. ": " .. (clueSpendingNeed or "?"))
+end
+
+function onClueSliderChanged(_, value, id)
+  UI.setAttribute(id .. "-current", "text", value)
+
+  -- remove 'ClueSlider' from the string
+  local matColor = string.sub(id, 11)
+  clueSliderValue[matColor] = tonumber(value)
+
+  updateClueSpendingTotal()
+end
+
+function updateClueSpendingTotal()
+  local count = 0
+
+  for matColor, cluesToRemove in pairs(clueSliderValue) do
+    count = count + cluesToRemove
+  end
+
+  UI.setAttribute("TotalClues", "text", i18n.getStrById("CS_total") .. ": " .. count)
+
+  local inSufficient = clueSpendingNeed and count ~= clueSpendingNeed
+
+  XmlLib.setAttributes("CS_button_spend", {
+    color         = inSufficient and "#FF8888" or "#88FF88",
+    raycastTarget = not inSufficient
+  })
+end
+
+function onClick_spendClues(player)
+  for matColor, cluesToRemove in pairs(clueSliderValue) do
+    if cluesToRemove > 0 then
+      PlayermatApi.removeClues(matColor, cluesToRemove)
+      local playerColor = PlayermatApi.getPlayerColor(matColor)
+      local str = (cluesToRemove == 1) and " clue." or " clues."
+      printToAll(getColoredName(playerColor) .. " has spent " .. cluesToRemove .. str, "White")
+      clueSliderValue[matColor] = 0
+    end
+  end
+
+  clueSpendingNeed = nil
+  onClick_hideUi(player, "clueSpendingWindow")
 end
 
 -- this helper function updates the global XML while preserving the visibility of windows
@@ -3503,6 +4003,16 @@ function applyOptionPanelChange(id, state)
   elseif id == "enableCardHelpers" then
     toggleCardHelpers(state)
 
+    -- option: Highlight mini cards
+  elseif id == "highlightMinicards" then
+    for _, minicard in ipairs(getObjectsWithTag("Minicard")) do
+      if state then
+        maybeDrawBorderAroundMinicard(minicard)
+      else
+        minicard.setVectorLines({})
+      end
+    end
+
     -- option: Make damage / horror clickable // Show '1' on damage / horror
   elseif id == "makeDamageHorrorClickable" or id == "showOneDamageHorror" then
     for _, obj in ipairs(getObjects()) do
@@ -3535,19 +4045,19 @@ function applyOptionPanelChange(id, state)
 
     -- option: Show attachment helper
   elseif id == "showAttachmentHelper" then
-    spawnOrRemoveHelper(state, "Attachment Helper", { -62, 1.4, 0 })
+    spawnOrRemoveHelper(state, "Attachment Helper", Vector(-62, 1.4, 0))
 
     -- option: Show CYOA campaign guides
   elseif id == "showCYOA" then
-    spawnOrRemoveHelper(state, "CYOA Campaign Guides", { 39, 1.3, -20 })
+    spawnOrRemoveHelper(state, "CYOA Campaign Guides", Vector(39, 1.3, -20))
 
     -- option: Show displacement tool
   elseif id == "showDisplacementTool" then
-    spawnOrRemoveHelper(state, "Displacement Tool", { -68, 1.53, 57 })
+    spawnOrRemoveHelper(state, "Displacement Tool", Vector(-68, 1.53, 57))
 
     -- option: Show playermat extension
   elseif id == "showPlayermatExtension" then
-    spawnOrRemoveHelper(state, "Playermat Extensions", { -65, 1.4, 0 })
+    spawnOrRemoveHelper(state, "Playermat Extensions", Vector(-65, 1.4, 0))
 
     -- shortcut: Remove the tour
   elseif id == "skipTour" then
@@ -3633,20 +4143,31 @@ function spawnHelperObject(name, position, rotation)
     return
   end
 
-  local spawnTable = { position = position }
+  -- get the data from the source bag
+  local data
+  for _, objData in ipairs(sourceBag.getData().ContainedObjects) do
+    if objData["Nickname"] == name then
+      data = objData
+      break
+    end
+  end
+
+  if not data then return end
+
+  -- update the data
+  data["Locked"] = true
+  data["Transform"]["posX"] = position.x
+  data["Transform"]["posY"] = position.y
+  data["Transform"]["posZ"] = position.z
 
   -- only overrride rotation if there is one provided (object's rotation used instead)
   if rotation then
-    spawnTable.rotation = rotation
+    data["Transform"]["rotX"] = rotation.x
+    data["Transform"]["rotY"] = rotation.y
+    data["Transform"]["rotZ"] = rotation.z
   end
 
-  for _, objData in ipairs(sourceBag.getData().ContainedObjects) do
-    if objData["Nickname"] == name then
-      objData["Locked"] = true
-      spawnTable.data = objData
-      return spawnObjectData(spawnTable)
-    end
-  end
+  return spawnObjectData({ data = data })
 end
 
 -- removes the specified tool (by name)
@@ -3696,6 +4217,8 @@ function onClick_defaultSettings()
     uiLanguage                = "en",
     changePlayAreaImage       = false,
     enableCardHelpers         = true,
+    enableCounterLogging      = true,
+    highlightMinicards        = false,
     makeDamageHorrorClickable = true,
     playAreaConnectionColor   = { a = 1, b = 0.4, g = 0.4, r = 0.4 },
     playAreaConnections       = true,
@@ -3726,6 +4249,12 @@ function onClick_defaultSettings()
 
   -- update UI
   updateOptionPanelState()
+
+  -- ensure correct language for UIs
+  Wait.frames(function()
+    i18n.updateGlobalUiLanguage()
+    i18n.updateAllObjectsUiLanguage()
+  end, 10)
 end
 
 -- splash scenario title on setup
@@ -3782,7 +4311,7 @@ end
 -- toggles the hand visibility of a hand for a specific player
 function handVisibilityToggle(params)
   local playerColor = params.playerColor
-  local handColor = params.handColor
+  local handColor   = params.handColor
 
   -- collect data for message
   local state, preposition
@@ -3791,7 +4320,7 @@ function handVisibilityToggle(params)
   if not handVisibility[handColor] then
     handVisibility[handColor] = { playerColor, handColor }
     state, preposition = "Showing", "to"
-  elseif removeValueFromTable(handVisibility[handColor], playerColor) then
+  elseif TableLib.removeValue(handVisibility[handColor], playerColor) then
     -- something was removed, maybe clear the table
     if #handVisibility[handColor] == 1 and handVisibility[handColor][1] == handColor then
       handVisibility[handColor] = nil
@@ -3839,7 +4368,7 @@ function applyHidingToCard(card, handColor)
 
     local hiddenFrom = Player.getColors()
     for _, viewer in ipairs(viewers) do
-      removeValueFromTable(hiddenFrom, viewer)
+      TableLib.removeValue(hiddenFrom, viewer)
     end
     card.setHiddenFrom(hiddenFrom)
   else
@@ -4616,6 +5145,12 @@ function discardObjects(params)
   for _, obj in ipairs(objectList) do
     if obj.hasTag("TrashMe") then
       trash.putObject(obj)
+      -- put Jim's spirits back into the helper, if present
+    elseif obj.hasTag("Spirit") then
+      local spiritHelper = getObjectsWithTag("SpiritDeckHelper")
+      if #spiritHelper > 0 then
+        spiritHelper[1].putObject(obj)
+      end
       -- don't touch locked objects (like the table etc.) or specific objects (like key tokens)
     elseif not obj.getLock() and not obj.hasTag("DontDiscard") and obj.interactable == true then
       if obj.type == "Card" or obj.type == "Deck" then
@@ -4670,18 +5205,6 @@ function callTable(params)
   return var(arg)
 end
 
--- removes a value from a table
----@return boolean: True if something was removed
-function removeValueFromTable(t, val)
-  for i, v in ipairs(t) do
-    if v == val then
-      table.remove(t, i)
-      return true
-    end
-  end
-  return false
-end
-
 -- calls a function on an object if it exists
 function callFunctionIfItExists(object, functionName, params)
   if object ~= nil and object.getVar(functionName) then
@@ -4691,7 +5214,9 @@ end
 
 -- returns the colored steam name, investigator name or color
 ---@param playerColor string Color of the player
-function getColoredName(playerColor)
+function getColoredName(playerColor, uncolored)
+  if not playerColor then return "" end
+
   local displayName = playerColor
   if playerColor ~= "Grey" and Player[playerColor].steam_name then
     displayName = Player[playerColor].steam_name
@@ -4703,13 +5228,18 @@ function getColoredName(playerColor)
     end
   end
 
+  if uncolored then return displayName end
+
   -- add bb-code
   return "[" .. Color.fromString(playerColor):toHex() .. "]" .. displayName .. "[-]"
 end
 
 -- constructs the mini id for a given investigator id
 function getMiniId(baseId)
-  if #baseId < 16 then
+  if not string.contains(baseId, "-") then
+    -- no suffix -> use the full ID (for example medium length ID from Arkham Card Maker)
+    return baseId .. "-m"
+  elseif #baseId < 16 then
     -- use the first 5 characters to exclude suffixes
     return string.match(baseId, ".....") .. "-m"
   else
@@ -4892,7 +5422,7 @@ function maybeReadyCard(params)
   end
 
   local cardRotation = card.getRotation()
-  local roundedRotY  = MathLib.round(cardRotation.y)
+  local roundedRotY  = MathLib.roundAngleToMultiple(cardRotation.y, 5)
   local yRotDiff     = roundedRotY - ownerRotation.y
 
   if yRotDiff < 0 then

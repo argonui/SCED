@@ -29,6 +29,18 @@ do
     return str:gsub("\\u(%w%w%w%w)", function(match) return string.char(tonumber(match, 16)) end)
   end
 
+  local function determineInvestigatorType(id)
+    if not id or type(id) ~= "number" then return "normal" end
+    if id > 90000 and id < 90100 then
+      return "parallel"
+    elseif id > 01500 and id < 01506 then
+      return "revised"
+    elseif id > 98000 then
+      return "promo"
+    end
+    return "normal"
+  end
+
   -- If the slot list contains the RANDOM_WEAKNESS_ID, this replaces it with the ID of a RBW provided by the AllCardsBag
   ---@param restrictions table Additional restrictions:
   ---  class string Class to restrict weakness to
@@ -60,27 +72,14 @@ do
     -- handling alternative investigator art and parallel investigators
     local loadAltInvestigator = "normal"
     if deckMeta ~= nil then
-      local altFrontId = tonumber(deckMeta.alternate_front) or 0
-      local altBackId  = tonumber(deckMeta.alternate_back) or 0
-      local altArt     = { front = "normal", back = "normal" }
+      local altFrontId = tonumber(deckMeta.alternate_front) or tonumber(deck.investigator_code)
+      local altBackId  = tonumber(deckMeta.alternate_back) or tonumber(deck.investigator_code)
 
-      -- translating front ID
-      if altFrontId > 90000 and altFrontId < 90100 then
-        altArt.front = "parallel"
-      elseif altFrontId > 01500 and altFrontId < 01506 then
-        altArt.front = "revised"
-      elseif altFrontId > 98000 then
-        altArt.front = "promo"
-      end
-
-      -- translating back ID
-      if altBackId > 90000 and altBackId < 90100 then
-        altArt.back = "parallel"
-      elseif altBackId > 01500 and altBackId < 01506 then
-        altArt.back = "revised"
-      elseif altBackId > 98000 then
-        altArt.back = "promo"
-      end
+      -- translate IDs
+      local altArt     = {
+        front = determineInvestigatorType(altFrontId),
+        back = determineInvestigatorType(altBackId)
+      }
 
       -- updating investigatorID based on alt investigator selection (parallel > promo > revised)
       if altArt.front == "parallel" then
@@ -242,23 +241,43 @@ do
 
   -- Check the deck for cards on its taboo list. If they're found, replace the entry in the slot with the Taboo id (i.e. "XXXX" becomes "XXXX-t")
   ---@param tabooId string The deck's taboo ID, taken from the deck response taboo_id field. May be nil, indicating that no taboo list should be used
-  local function checkTaboos(tabooId, slots, playerColor)
-    if tabooId and tabooList[tabooId] then
-      for cardId, _ in pairs(tabooList[tabooId].cards) do
-        if slots[cardId] ~= nil then
-          -- Make sure there's a taboo version of the card before we replace it
-          -- SCED only maintains the most recent taboo cards. If a deck is using
-          -- an older taboo list it's possible the card isn't a taboo any more
-          local tabooCard = AllCardsBagApi.getCardById(cardId .. "-t")
-          if tabooCard == nil then
-            local cardName = AllCardsBagApi.getCardById(cardId).data.Nickname
-            maybePrint("Taboo version for " .. cardName .. " is not available. Using standard version",
-              playerColor)
-          else
-            slots[cardId .. "-t"] = slots[cardId]
-            slots[cardId] = nil
-          end
+  local function checkTaboos(tabooId, slots, deckMeta, playerColor)
+    if not tabooId or not tabooList[tabooId] then return end
+
+    -- handle regular deck
+    for cardId, _ in pairs(tabooList[tabooId].cards) do
+      if slots[cardId] ~= nil then
+        -- Make sure there's a taboo version of the card before we replace it
+        -- SCED only maintains the most recent taboo cards. If a deck is using
+        -- an older taboo list it's possible the card isn't a taboo any more
+        local tabooCard = AllCardsBagApi.getCardById(cardId .. "-t")
+        if tabooCard == nil then
+          local cardName = AllCardsBagApi.getCardById(cardId).data.Nickname
+          maybePrint("Taboo version for " .. cardName .. " is not available. Using standard version", playerColor)
+        else
+          slots[cardId .. "-t"] = slots[cardId]
+          slots[cardId] = nil
         end
+      end
+    end
+
+    -- handle extraDeck (parallel Jim) // hunch deck (Joe)
+    if deckMeta.extra_deck or deckMeta.attachments_05002 then
+      local cardList = {}
+      for cardId in string.gmatch(deckMeta.extra_deck or deckMeta.attachments_05002, "([^,]+)") do -- split by ","
+        local tabooCard = AllCardsBagApi.getCardById(cardId .. "-t")
+        if tabooCard ~= nil then
+          table.insert(cardList, cardId .. "-t")
+        else
+          table.insert(cardList, cardId)
+        end
+      end
+
+      -- write the card list back to the deckMeta field
+      if deckMeta.extra_deck then
+        deckMeta.extra_deck = table.concat(cardList, ",")
+      elseif deckMeta.attachments_05002 then
+        deckMeta.attachments_05002 = table.concat(cardList, ",")
       end
     end
   end
@@ -306,7 +325,7 @@ do
       for cardId, count in pairs(deckMeta.hidden_slots.slots or {}) do
         slots[cardId] = (slots[cardId] or 0) + count
       end
-      deck.investigator_code = deckMeta.hidden_slots.investigatorCode or deck.investigator_code
+      deck.investigator_code = deckMeta.hidden_slots.investigator_code or deck.investigator_code
     end
 
     -- make sure the necessary custom content is loaded
@@ -371,7 +390,7 @@ do
     maybeAddOnTheMend(slots, playerColor)
     maybeAddRealityAcidReference(slots)
     local bondList = extractBondedCards(slots)
-    checkTaboos(deck.taboo_id, slots, playerColor)
+    checkTaboos(deck.taboo_id, slots, deckMeta, playerColor)
     maybeAddUpgradeSheets(slots)
 
     callback(slots, deck.investigator_code, bondList, deckMeta, playerColor, loadAltInvestigator)
@@ -431,6 +450,15 @@ do
     -- add parameter for published decks
     if not isPrivate then
       table.insert(deckUri, configuration.arkhambuild_published_deck)
+    end
+
+    -- special handling for Whimsical
+    if configuration.maybe_enforce_ArkhamDB and string.sub(deckId, 1, 1) == "0" and #deckId ~= 15 then
+      deckUri = {
+        configuration.ArkhamDB_api_uri,
+        configuration.ArkhamDB_private_deck,
+        deckId
+      }
     end
 
     WebRequestLib.get(deckUri, function(responseText)

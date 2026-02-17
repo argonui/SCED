@@ -1,9 +1,16 @@
 do
   local TableLib = {}
 
+  -- Concatenates the array parts of t1 and t2 into a new table
+  function TableLib.concat(t1, t2)
+    local result = {}
+    if type(t1) ~= "table" or type(t2) ~= "table" then return result end
+    for _, v in ipairs(t1) do table.insert(result, v) end
+    for _, v in ipairs(t2) do table.insert(result, v) end
+    return result
+  end
+
   -- Checks if a list contains an element
-  ---@param t table
-  ---@param ele any
   function TableLib.contains(t, ele)
     if t == nil then return false end
     for k, v in ipairs(t) do
@@ -13,7 +20,6 @@ do
   end
 
   -- Copies a table (or returns the original if not a table)
-  ---@param t table
   function TableLib.copy(t)
     if type(t) ~= "table" then return t end
     local copy = {}
@@ -24,9 +30,19 @@ do
     return copy
   end
 
+  -- Returns a new list containing only elements that satisfy the filter function.
+  function TableLib.filter(t, func)
+    local result = {}
+    if type(t) ~= "table" or type(func) ~= "function" then return result end
+    for k, v in ipairs(t) do
+      if func(v, k) then
+        table.insert(result, v)
+      end
+    end
+    return result
+  end
+
   -- Returns the index of an element
-  ---@param t table
-  ---@param ele any
   function TableLib.getElementIndex(t, ele)
     if t == nil then return nil end
     for k, v in ipairs(t) do
@@ -35,9 +51,7 @@ do
     return nil
   end
 
-  -- Returns the keys of a table as new table
-  ---@param t table
-  ---@param filterValue? any Only keys with this value will be extracted
+  -- Returns the keys of a table that match filterValue as new table
   function TableLib.getKeys(t, filterValue)
     local keys = {}
     for k, v in pairs(t) do
@@ -49,13 +63,11 @@ do
   end
 
   -- Checks if a table is empty
-  ---@param t table
   function TableLib.isEmpty(t)
     return next(t) == nil
   end
 
   -- Returns a map from a list (value = true)
-  ---@param t table
   function TableLib.makeMap(t)
     local m = {}
     for _, v in ipairs(t) do
@@ -64,38 +76,25 @@ do
     return m
   end
 
+  -- Merges the contents of t2 into t1 (in place).
+  -- If a key exists in both tables, the value from t2 is used.
+  function TableLib.merge(t1, t2)
+    if type(t1) ~= "table" or type(t2) ~= "table" then return t1 end
+    for k, v in pairs(t2) do
+      t1[k] = v
+    end
+    return t1
+  end
+
   -- Returns a random list element
-  ---@param t table
   function TableLib.pickRandom(t)
+    if TableLib.isEmpty(t) then return nil end
     return t[math.random(#t)]
   end
 
-  -- Returns a reversed list
-  ---@param t table
-  function TableLib.reverse(t)
-    local r = {}
-    for i = #t, 1, -1 do
-      table.insert(r, t[i])
-    end
-    return r
-  end
-
-  -- Shuffles a list in place (Fisher-Yates-Shuffle)
-  ---@param t table
-  function TableLib.shuffle(t)
-    local n = #t
-    while n > 1 do
-      local k = math.random(n)
-      t[n], t[k] = t[k], t[n]
-      n = n - 1
-    end
-    return t
-  end
-
   -- Returns a copy of a list without duplicates
-  ---@param t table
   function TableLib.removeDuplicates(t)
-    local seen = {}
+    local seen   = {}
     local result = {}
     for _, value in ipairs(t) do
       if not seen[value] then
@@ -104,6 +103,47 @@ do
       end
     end
     return result
+  end
+
+  -- Removes a value from a list (first occurence)
+  ---@return boolean: True if something was removed
+  function TableLib.removeValue(t, val)
+    for i, v in ipairs(t) do
+      if v == val then
+        table.remove(t, i)
+        return true
+      end
+    end
+    return false
+  end
+
+  -- Reverses a list in place
+  function TableLib.reverse(t)
+    local n = #t
+    local i = 1
+    local j = n
+
+    -- Iterate from the start (i) and the end (j) until they meet in the middle
+    while i < j do
+      t[i], t[j] = t[j], t[i]
+      i = i + 1
+      j = j - 1
+    end
+    return t
+  end
+
+  -- Shuffles a list in place (Fisher-Yates-Shuffle)
+  -- optionally, only shuffles a specific part of the list
+  function TableLib.shuffle(t, startIndex, endIndex)
+    if not t or type(t) ~= "table" then return end
+    startIndex = math.max(1, startIndex or 1)
+    endIndex = math.min(#t, endIndex or #t)
+    if startIndex >= endIndex then return end
+
+    for i = endIndex, startIndex + 1, -1 do
+      local j = math.random(startIndex, i)
+      t[i], t[j] = t[j], t[i]
+    end
   end
 
   return TableLib

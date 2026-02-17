@@ -280,13 +280,13 @@ end
 ---@param playerColor string Color name of the player mat to place this deck on (e.g. "Red")
 ---@param loadAltInvestigator string Contains the name of alternative art for the investigator ("normal", "revised" or "promo")
 function loadCards(slots, investigatorId, bondedList, deckMeta, playerColor, loadAltInvestigator)
-  local slotsCopy = TableLib.copy(slots)
-  local cardsToSpawn = {}
-  local resourceModifier = 0
+  local slotsCopy           = TableLib.copy(slots)
+  local cardsToSpawn        = {}
+  local resourceModifier    = 0
   local zoneWithAttachments = {}
 
   -- this table is initialized with the state of the respective zones, will be updated during this function
-  cardsWithAttachments = {
+  cardsWithAttachments      = {
     ["03264"] = "reserve", -- Stick to the Plan
     ["05002"] = true,      -- Joe Diamond
     ["07303"] = "reserve", -- Ancestral Knowledge
@@ -297,7 +297,7 @@ function loadCards(slots, investigatorId, bondedList, deckMeta, playerColor, loa
   }
 
   -- reset the startsInPlayCount
-  startsInPlayCount = 0
+  startsInPlayCount         = 0
 
   -- look for cards with attachments not in the above list (fan-made for example)
   for cardId, _ in pairs(slots) do
@@ -437,11 +437,11 @@ function loadCards(slots, investigatorId, bondedList, deckMeta, playerColor, loa
 end
 
 function getStartingResourceModifier(cardId)
-  if cardId == "02037" then      -- Indebted
+  if cardId == "02037" then                          -- Indebted
     return -2
-  elseif cardId == "05278" then  -- Another Day, Another Dollar
+  elseif cardId == "05278" or cardId == "12056" then -- Another Day, Another Dollar
     return 2
-  elseif cardId == "11756b" then -- completed Good Money
+  elseif cardId == "11756b" then                     -- completed Good Money
     return 5
   end
   return 0
@@ -636,9 +636,9 @@ function handleAncestralKnowledge(cardsToSpawn)
   -- move 5 random skills
   local zone = "Blank" .. (cardsWithAttachments["07303"] + 1)
   for i = 1, 5 do
-    local skillListIndex = math.random(#skillList)
-    local skillCardId = table.remove(skillList, skillListIndex)
-    cardsToSpawn[skillCardId].zone = zone
+    local skillListIndex  = math.random(#skillList)
+    local id              = table.remove(skillList, skillListIndex)
+    cardsToSpawn[id].zone = zone
   end
 end
 
@@ -665,17 +665,9 @@ function handleHunchDeck(cardsToSpawn, deckMeta, bondedList, playerColor)
     end
   end
 
-  local count = #attachmentList
+  moveListOfCardsFromDeck(cardsToSpawn, attachmentList, "SetAside5")
 
-  -- change zone for cards
-  for i = count, 1, -1 do
-    for j = #cardsToSpawn, 1, -1 do
-      if cardsToSpawn[j].metadata.id == attachmentList[i] and cardsToSpawn[j].zone == "Deck" then
-        cardsToSpawn[j].zone = "SetAside5"
-        break
-      end
-    end
-  end
+  local count = #attachmentList
 
   if count < 11 then
     printToAll("Joe's hunch deck must have 11 cards but the deck only has " .. count .. " Insight events.", playerColor)
@@ -697,11 +689,11 @@ function handleSpiritDeck(investigatorId, cardsToSpawn, deckMeta, playerColor)
   local spiritList = {}
   if deckMeta["extra_deck"] then
     -- split by ","
-    for str in string.gmatch(deckMeta["extra_deck"], "([^,]+)") do
-      local card = AllCardsBagApi.getCardById(str)
+    for cardId in string.gmatch(deckMeta["extra_deck"], "([^,]+)") do
+      local card = AllCardsBagApi.getCardById(cardId)
       if card ~= nil then
         table.insert(cardsToSpawn, { data = card.data, metadata = card.metadata, zone = "SetAside5" })
-        table.insert(spiritList, str)
+        table.insert(spiritList, cardId)
       end
     end
   else
@@ -721,16 +713,15 @@ function handleSpiritDeck(investigatorId, cardsToSpawn, deckMeta, playerColor)
     end
   end
 
+  local deckName = "Jim's spirit deck"
+  local assetCount = (#spiritList - 1) .. " Ally assets"
   if #spiritList < 10 then
-    printToAll(
-      "Jim's spirit deck must have 9 Ally assets but the deck only has " .. (#spiritList - 1) .. " Ally assets.",
-      playerColor)
-  elseif #spiritList > 11 then
-    printToAll(
-      "Moved all " .. (#spiritList - 1) .. " Ally assets to the spirit deck, reduce it to 10 (including Vengeful Shade).",
+    printToAll(deckName .. " must have 9 Ally assets but the deck only has " .. assetCount .. ".", playerColor)
+  elseif #spiritList > 10 then
+    printToAll("Moved all " .. assetCount .. " to " .. deckName .. ", reduce it to 10 (including Vengeful Shade).",
       playerColor)
   else
-    printToAll("Built Jim's spirit deck", playerColor)
+    printToAll("Built " .. deckName, playerColor)
   end
 end
 
@@ -748,24 +739,15 @@ function handleUnderworldMarket(cardsToSpawn, deckMeta, playerColor)
   else
     -- regular handling, get all possible Illicit cards
     for i, card in ipairs(cardsToSpawn) do
-      if card.metadata.traits ~= nil and string.match(card.metadata.traits, "Illicit") and card.zone == "Deck" then
+      if card.metadata.traits and string.match(card.metadata.traits, "Illicit.") and card.zone == "Deck" then
         table.insert(attachmentList, card.metadata.id)
       end
     end
   end
 
-  local count = #attachmentList
+  moveListOfCardsFromDeck(cardsToSpawn, attachmentList, "UnderSetAside6")
 
-  -- change zone for cards
-  for i = count, 1, -1 do
-    for j = #cardsToSpawn, 1, -1 do
-      if (cardsToSpawn[j].metadata.id == attachmentList[i] or cardsToSpawn[j].metadata.id == (attachmentList[i] .. "-t"))
-          and cardsToSpawn[j].zone == "Deck" then
-        cardsToSpawn[j].zone = "UnderSetAside6"
-        break
-      end
-    end
-  end
+  local count = #attachmentList
 
   if count < 10 then
     printToAll("Only " .. count .. " Illicit cards in your deck, you can't trigger Underworld Market's ability.",
@@ -774,6 +756,47 @@ function handleUnderworldMarket(cardsToSpawn, deckMeta, playerColor)
     printToAll("Moved all " .. count .. " Illicit cards to the Market deck, reduce it to 10", playerColor)
   else
     printToAll("Built the Market deck", playerColor)
+  end
+end
+
+-- removes common suffixes from IDs
+function getBaseId(id)
+  local baseId = id:gsub("%-[mpct]$", "") -- Matches -m, -p, -c, or -t at the end
+  baseId = baseId:gsub("%-p[fb]$", "")    -- Matches -pb, -pf at the end
+  return baseId
+end
+
+function moveListOfCardsFromDeck(cardsToSpawn, moveList, targetZone)
+  -- Create a frequency map
+  local moveCounts = {}
+  for _, id in ipairs(moveList) do
+    moveCounts[id] = (moveCounts[id] or 0) + 1
+  end
+
+  -- Process Cards
+  for j = #cardsToSpawn, 1, -1 do
+    local card   = cardsToSpawn[j]
+    local md     = card.metadata
+
+    -- We need to check the primary ID and all alternate IDs
+    local idList = { getBaseId(md.id) }
+
+    if md.alternate_ids then
+      for _, altId in ipairs(md.alternate_ids) do
+        table.insert(idList, getBaseId(altId))
+      end
+    end
+
+    -- Check if any of these IDs have a remaining quota
+    for _, id in ipairs(idList) do
+      local remaining = moveCounts[id] or 0
+
+      if remaining > 0 and card.zone == "Deck" then
+        card.zone      = targetZone
+        moveCounts[id] = remaining - 1
+        break
+      end
+    end
   end
 end
 
@@ -879,7 +902,7 @@ function loadAltArt(card, loadAltInvestigator)
     card.setState(2)
   elseif loadAltInvestigator == "promo" then
     local states = card.getStates()
-    card.setState(#states)
+    card.setState(#states + 1)
   end
 end
 
@@ -888,7 +911,7 @@ end
 ---@param resourceModifier number Modifier for the starting resources
 function updateStartingResources(playerColor, resourceModifier)
   if resourceModifier ~= 0 then
-    PlayermatApi.updateCounter(playerColor, "ResourceCounter", _, resourceModifier)
+    PlayermatApi.updateCounter(playerColor, "ResourceCounter", nil, resourceModifier)
     printToAll("Modified starting resources", playerColor)
   end
 end

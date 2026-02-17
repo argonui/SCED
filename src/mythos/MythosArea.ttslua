@@ -95,6 +95,67 @@ function copyScenarioReferenceCard()
   end
 end
 
+function advance(player, deckType)
+  local localPos     = (deckType == "Act") and ACT_POS or AGENDA_POS
+  local searchResult = SearchLib.atPosition(self.positionToWorld(localPos), "isCardOrDeck")
+
+  if #searchResult == 0 then
+    broadcastToColor(deckType .. " deck not found!", player.color, "Orange")
+    return
+  elseif #searchResult > 1 then
+    broadcastToColor("Multiple cards found at the " .. deckType .. " spot!", player.color, "Orange")
+    return
+  end
+
+  local object = searchResult[1]
+  local card
+
+  if object.type == "Card" then
+    object.flip()
+    card = object
+  else
+    local targetRotation = object.getRotation():setAt("z", 180)
+    local targetPosition = self.positionToWorld(localPos + Vector(0, 0.5, -0.6))
+    card = object.takeObject({ position = targetPosition, rotation = targetRotation })
+  end
+
+  -- make sure the alt preview is correct for cards with dynamic preview
+  Wait.frames(function()
+    if card ~= nil and card.getVar("updateAltPreview") then
+      card.call("updateAltPreview", true)
+    end
+  end, 5)
+
+  maybeSpendCluesForAdvancing(card)
+  maybeResetDoomInPlay(card)
+end
+
+-- spend clues and maybe show clue spending UI
+function maybeSpendCluesForAdvancing(card)
+  if card == nil then return end
+
+  local md = JSON.decode(card.getGMNotes()) or {}
+  if md.clueThreshold or md.clueThresholdPerInvestigator then
+    local playerCount      = PlayAreaApi.getInvestigatorCount()
+    local totalNeededClues = (md.clueThreshold or 0) + (md.clueThresholdPerInvestigator or 0) * playerCount
+    if totalNeededClues > 0 and not md.keepClues then -- handling for Dealings in the Dark
+      GlobalApi.showClueSpendingUi(totalNeededClues)
+    end
+  end
+end
+
+function maybeResetDoomInPlay(card)
+  if card == nil then return end
+
+  local md = JSON.decode(card.getGMNotes()) or {}
+  if md.type == "Agenda" then
+    local DoomCounter = GUIDReferenceApi.getObjectByOwnerAndType("Mythos", "DoomCounter")
+    if DoomCounter then
+      DoomCounter.call("startReset")
+    end
+  end
+end
+
 ---------------------------------------------------------
 -- collison and container event handling
 ---------------------------------------------------------

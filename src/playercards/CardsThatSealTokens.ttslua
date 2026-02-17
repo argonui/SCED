@@ -5,7 +5,7 @@ local ChaosBagApi          = require("chaosbag/ChaosBagApi")
 local PlayermatApi         = require("playermat/PlayermatApi")
 local TokenArrangerApi     = require("tokens/TokenArrangerApi")
 
-local sealedTokens         = {}
+sealedTokens               = {}
 local ID_URL_MAP           = {}
 local tokensInBag          = {}
 
@@ -39,10 +39,12 @@ function onLoad(savedData)
   MAX_SEALED = MAX_SEALED or 99
 
   -- verify GUIDs of sealed tokens
-  local loadedData = JSON.decode(savedData) or {}
-  for _, guid in ipairs(loadedData.sealedTokens or {}) do
-    if getObjectFromGUID(guid) ~= nil then
-      table.insert(sealedTokens, guid)
+  if savedData and savedData ~= "" then
+    local loadedData = JSON.decode(savedData) or {}
+    for _, guid in ipairs(loadedData.sealedTokens or {}) do
+      if getObjectFromGUID(guid) ~= nil then
+        table.insert(sealedTokens, guid)
+      end
     end
   end
 
@@ -56,6 +58,9 @@ function onLoad(savedData)
 end
 
 function generateContextMenu()
+  ---@diagnostic disable-next-line: undefined-global
+  if hideSealingContextMenu then return end
+
   self.addContextMenuItem("Release one token", releaseOneToken)
 
   -- conditional release options
@@ -90,7 +95,7 @@ function generateContextMenu()
 
   -- main context menu options to seal tokens
   for _, map in pairs(ID_URL_MAP) do
-    if (VALID_TOKENS[map.name] ~= nil) or (UPDATE_ON_HOVER and tokensInBag[map.name] and INVALID_TOKENS and not INVALID_TOKENS[map.name]) then
+    if (VALID_TOKENS and VALID_TOKENS[map.name] ~= nil) or (UPDATE_ON_HOVER and tokensInBag[map.name] and INVALID_TOKENS and not INVALID_TOKENS[map.name]) then
       if not SHOW_MULTI_SEAL then
         self.addContextMenuItem("Seal " .. map.name, function(playerColor)
           self.removeFromPlayerSelection(playerColor)
@@ -166,16 +171,42 @@ function sealToken(name, playerColor)
   for i, obj in ipairs(chaosbag.getObjects()) do
     if obj.name == name then
       local token = chaosbag.takeObject({
-        position          = self.getPosition() + Vector(0, 0.5 + 0.1 * #sealedTokens, 0),
-        rotation          = self.getRotation(),
-        index             = i - 1,
-        smooth            = false
+        position = self.getPosition() + Vector(0, 0.5 + 0.1 * #sealedTokens, 0),
+        rotation = self.getRotation(),
+        index    = i - 1,
+        smooth   = false
       })
       tokenSealingCallback(token)
       return token
     end
   end
   printToColor(name .. " token not found in chaos bag", playerColor)
+end
+
+-- seals the named token on this card
+function sealRandomToken(playerColor)
+  if #sealedTokens >= MAX_SEALED then
+    printToColor("Cannot seal any more tokens on this card", playerColor, "Red")
+    return
+  end
+
+  if not ChaosBagApi.canTouchChaosTokens() then return end
+
+  local chaosbag = ChaosBagApi.findChaosBag()
+  if chaosbag.getQuantity() == 0 then
+    printToColor("Chaos bag is empty!", playerColor)
+    return
+  end
+
+  chaosbag.shuffle()
+  local token = chaosbag.takeObject({
+    position = self.getPosition() + Vector(0, 0.5 + 0.1 * #sealedTokens, 0),
+    rotation = self.getRotation(),
+    smooth   = false
+  })
+  tokenSealingCallback(token)
+  printToColor("Sealed " .. token.getName(), playerColor)
+  return token
 end
 
 function tokenSealingCallback(token)
@@ -186,6 +217,7 @@ function tokenSealingCallback(token)
   if name == "Bless" or name == "Curse" then
     BlessCurseManagerApi.sealedToken(name, guid)
   end
+
   -- destroy XML on just covered token
   if #sealedTokens > 1 then
     local coveredToken = getObjectFromGUID(sealedTokens[#sealedTokens - 1])
@@ -365,7 +397,7 @@ end
 function resolveSealed(playerColor)
   self.removeFromPlayerSelection(playerColor)
   if #sealedTokens == 0 then
-    broadcastToAll("No tokens sealed.", "Red")
+    broadcastToColor("No tokens sealed.", playerColor, "Red")
     return
   end
 
@@ -382,6 +414,8 @@ function resolveSealed(playerColor)
       tokenNames[name] = guid
     end
   end
+  -- any callback functions such as exhaust and resource generation on Favor of the Moon
+  if resolveCallback then resolveCallback() end
 
   -- if there are multiple tokens, ask the player to choose
   if differentNames < 2 then
@@ -416,6 +450,25 @@ function resolveTokenByGuid(playerColor, guidToBeResolved)
   Player[playerColor].clearSelectedObjects()
 end
 
+function resolveAllSealedTokens(playerColor)
+  if #sealedTokens == 0 then
+    broadcastToColor("No tokens sealed.", playerColor, "Red")
+    return
+  end
+
+  local closestMatColor = PlayermatApi.getMatColorByPosition(self.getPosition())
+  for i, guid in ipairs(sealedTokens) do
+    local token = getObjectFromGUID(guid)
+    if token ~= nil then
+      token.UI.setXml("")
+      Wait.time(function() ChaosBagApi.drawChaosToken(closestMatColor, true, nil, guid) end, i * 0.1)
+    end
+  end
+
+  sealedTokens = {}
+  updateSave()
+end
+
 function updateStackSize()
   if waitId then
     Wait.stop(waitId)
@@ -425,7 +478,7 @@ end
 
 function actualUpdateStackSize()
   if MAX_SEALED == 1 then return end
-  if #sealedTokens == 0 then return end
+  if #sealedTokens <= 1 then return end
 
   -- get topmost sealed token
   local topToken = getObjectFromGUID(sealedTokens[#sealedTokens])

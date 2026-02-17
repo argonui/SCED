@@ -2,6 +2,7 @@ local BlessCurseManagerApi = require("chaosbag/BlessCurseManagerApi")
 local GlobalApi            = require("Global/GlobalApi")
 local GUIDReferenceApi     = require("core/GUIDReferenceApi")
 local MathLib              = require("util/MathLib")
+local MessageQueue         = require("util/MessageQueue")
 local MythosAreaApi        = require("mythos/MythosAreaApi")
 local NavigationOverlayApi = require("core/NavigationOverlayApi")
 local PlayAreaApi          = require("playarea/PlayAreaApi")
@@ -17,11 +18,32 @@ local sentUpkeepAsBlackMsg = false
 -- Table to track last press time for each player and hotkey
 local hotkeyTimers         = {}
 
--- Tabel to track the virtual color for the next hotkey press for each player
+-- Table to track the virtual color for the next hotkey press for each player
 local virtualColor         = {}
 
 function onLoad()
   createHotkeys()
+
+  MessageQueue.registerFormatter("hotkey_clue_taking", formatClueTaking)
+end
+
+function formatClueTaking(playerColor, messages)
+  -- Use the first message to determine the source info
+  local msgData    = messages[1]
+  local count      = #messages
+
+  -- Construct the feedback message
+  local playerName = GlobalApi.getColoredName(playerColor)
+  local clueText   = count == 1 and "a clue" or count .. " clues"
+
+  -- Only show the card name if it exists and isn't hidden by face-down settings
+  local cardName   = msgData.cardName
+  local cardInfo   = ""
+  if cardName and cardName ~= "" and not (card and card.is_face_down and card.hide_when_face_down) then
+    cardInfo = " from " .. cardName
+  end
+
+  return playerName .. " took " .. clueText .. cardInfo .. "."
 end
 
 function doesMatExist(matColor)
@@ -92,7 +114,7 @@ function placeCardIntoThreatArea(playerColor, hoveredObject)
   local newCardRot = cardRot:setAt("y", MathLib.roundToMultiple(matRotation.y + cardRot.y - ownerRotation.y, 45))
 
   -- move the main card to threat area
-  GlobalApi.moveCardWithTokens(hoveredObject, threatAreaPos, newCardRot)
+  GlobalApi.moveCardWithTokens(hoveredObject, threatAreaPos:setAt("y", 1.6), newCardRot)
 
   -- contruct feedback message (hide name when face-down + enabled setting)
   local cardName = hoveredObject.getName()
@@ -214,25 +236,15 @@ end
 
 -- helper function to get the player to trigger the discard function for
 function getColorToDiscardFor(hoveredObject, playerColor)
-  local pos = hoveredObject.getPosition()
-  local closestMatColor = PlayermatApi.getMatColorByPosition(pos)
-
-  -- check if actually on the closest playermat
-  local closestMat = GUIDReferenceApi.getObjectByOwnerAndType(closestMatColor, "Playermat")
-  local bounds = closestMat.getBounds()
-
-  -- define the area "near" the playermat
-  local bufferAroundPlayermat = 2
-  local areaNearPlayermat = {}
-  areaNearPlayermat.minX = bounds.center.x - bounds.size.x / 2 - bufferAroundPlayermat
-  areaNearPlayermat.maxX = bounds.center.x + bounds.size.x / 2 + bufferAroundPlayermat
-  areaNearPlayermat.minZ = bounds.center.z - bounds.size.z / 2 - bufferAroundPlayermat
-  areaNearPlayermat.maxZ = bounds.center.z + bounds.size.z / 2 + bufferAroundPlayermat
-
-  -- discard to closest mat if near it
-  if inArea(pos, areaNearPlayermat) then
-    return closestMatColor
+  -- discard to linked mat if card is on a mat extension
+  for _, object in ipairs(SearchLib.belowObject(hoveredObject)) do
+    if object.hasTag("PlayermatExtension") then
+      return object.getVar("linkedMatColor")
+    end
   end
+
+  local pos                   = hoveredObject.getPosition()
+  local closestMatColor       = PlayermatApi.getMatColorByPosition(pos)
 
   -- discard to closest mat if card is in a hand
   local handZone = GUIDReferenceApi.getObjectByOwnerAndType(closestMatColor, "HandZone")
@@ -240,6 +252,23 @@ function getColorToDiscardFor(hoveredObject, playerColor)
     if zone == handZone then
       return closestMatColor
     end
+  end
+
+  -- check if actually on the closest playermat
+  local closestMat            = GUIDReferenceApi.getObjectByOwnerAndType(closestMatColor, "Playermat")
+  local bounds                = closestMat.getBounds()
+
+  -- define the area "near" the playermat
+  local bufferAroundPlayermat = 2
+  local areaNearPlayermat     = {}
+  areaNearPlayermat.minX      = bounds.center.x - bounds.size.x / 2 - bufferAroundPlayermat
+  areaNearPlayermat.maxX      = bounds.center.x + bounds.size.x / 2 + bufferAroundPlayermat
+  areaNearPlayermat.minZ      = bounds.center.z - bounds.size.z / 2 - bufferAroundPlayermat
+  areaNearPlayermat.maxZ      = bounds.center.z + bounds.size.z / 2 + bufferAroundPlayermat
+
+  -- discard to closest mat if near it
+  if inArea(pos, areaNearPlayermat) then
+    return closestMatColor
   end
 
   -- discard to triggering mat if previous conditions weren't met
@@ -280,12 +309,12 @@ function removeAUse(playerColor, hoveredObject)
   if hoveredObject.type == "Tile" then
     targetObject = hoveredObject
   elseif hoveredObject.type == "Card" then
-    local cardPos = hoveredObject.getPosition()
-    local searchRot = hoveredObject.getRotation()
+    local cardPos    = hoveredObject.getPosition()
+    local searchRot  = hoveredObject.getRotation()
     local searchSize = hoveredObject.getBounds().size:scale(0.8):setAt("y", 1)
+    local owner      = GUIDReferenceApi.getOwnerOfObject(hoveredObject)
 
     -- if this card is on a playermat, search an upright box
-    local owner = GUIDReferenceApi.getOwnerOfObject(hoveredObject)
     if owner ~= "Mythos" then
       searchRot = PlayermatApi.returnRotation(owner)
 
@@ -301,15 +330,14 @@ function removeAUse(playerColor, hoveredObject)
     end
 
     -- index the found tokens by memo (store the token furthest to the card for each memo)
-    local indexByMemo = {}
+    local indexByMemo    = {}
     local distanceByMemo = {}
     for _, obj in ipairs(searchResult) do
       if not obj.locked then
-        local objPos = obj.getPosition()
-        local distance = Vector.between(cardPos, objPos):magnitude()
-        local memo = obj.memo or "NO_MEMO"
+        local distance = Vector.between(cardPos, obj.getPosition()):magnitude()
+        local memo     = obj.memo or "NO_MEMO"
         if distanceByMemo[memo] == nil or distanceByMemo[memo] < distance then
-          indexByMemo[memo] = obj
+          indexByMemo[memo]    = obj
           distanceByMemo[memo] = distance
         end
       end
@@ -577,7 +605,7 @@ function takeClueFromLocation(playerColor, hoveredObject)
   if clickableClues then
     local trash = GUIDReferenceApi.getObjectByOwnerAndType(matColor, "Trash")
     pos = trash.getPosition():setAt("y", 2)
-    PlayermatApi.updateCounter(matColor, "ClickableClueCounter", _, 1)
+    PlayermatApi.updateCounter(matColor, "ClickableClueCounter", nil, 1)
   else
     pos = PlayermatApi.transformLocalPosition({ x = -1.12, y = 0.2, z = 0.7 }, matColor)
   end
@@ -596,12 +624,13 @@ function takeClueFromLocation(playerColor, hoveredObject)
   clue.setRotation(rot)
 
   -- construct feedback message
-  local playerName = GlobalApi.getColoredName(vColor)
-  local cardInfo = ""
-  if cardName and cardName ~= "" and not (card and card.is_face_down and card.hide_when_face_down) then
-    cardInfo = " from " .. cardName
-  end
-  broadcastToAll(playerName .. " took one clue" .. cardInfo .. ".", "White")
+  local cardInfoKey = (cardName and cardName ~= "") and cardName or "UnknownSource"
+  local queueKey = "hotkey_clue_taking_" .. cardInfoKey
+  MessageQueue.queue(vColor, queueKey, {
+    cardName     = cardName,
+    isFaceDown   = card and card.is_face_down,
+    hideFaceDown = card and card.hide_when_face_down
+  })
 
   VictoryDisplayApi.update()
 end
@@ -721,7 +750,7 @@ HOTKEYS = {
     callback = triggerUpkeep
   },
   { label = "View Mythos Area" },
-  { label = "View Playermat" },
+  { label = "View Playermat" }
 }
 
 -- Adds hotkeys based on the data in HOTKEYS
@@ -757,8 +786,8 @@ function hotkeyHandler(playerColor, object, pointerPosition, hotkeyName)
     return
   end
 
-  local currentTime = Time.time
-  local timeTableKey = playerColor .. "_" .. hotkeyName
+  local currentTime   = Time.time
+  local timeTableKey  = playerColor .. "_" .. hotkeyName
   local lastPressTime = hotkeyTimers[timeTableKey]
 
   if lastPressTime and (currentTime - lastPressTime) <= DOUBLE_CLICK_DELAY then

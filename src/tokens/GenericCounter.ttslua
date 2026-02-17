@@ -1,6 +1,7 @@
-local MathLib = require("util/MathLib")
+local GlobalApi = require("Global/GlobalApi")
+local MathLib   = require("util/MathLib")
 
-local DATA    = {
+local DATA      = {
   ["default"] = {
     MIN_VALUE  = 0,
     MAX_VALUE  = 99,
@@ -15,20 +16,26 @@ local DATA    = {
   },
   ["damage"] = {
     POSITION = Vector(0.1, -0.07, 0.1),
-    ROTATION = Vector(180, 180, 0)
+    ROTATION = Vector(180, 180, 0),
+    MESSAGE  = true
   },
   ["horror"] = {
     POSITION = Vector(-0.025, -0.07, 0.025),
-    ROTATION = Vector(180, 180, 0)
+    ROTATION = Vector(180, 180, 0),
+    MESSAGE  = true
   },
   ["resourceCounter"] = {
-    POSITION = Vector(0, 0.06, 0.1)
+    POSITION = Vector(0, 0.06, 0.1),
+    MESSAGE  = true
+  },
+  ["clueCounter"] = {
+    MESSAGE = true
   },
   ["DoomCounter"] = {
     SIZE       = 800,
     FONT_SIZE  = 650,
     FONT_COLOR = { 1, 1, 1, 95 },
-    POSITION   = Vector(0.00, -0.03, 2.40)
+    POSITION   = Vector(0, 0.06, 0),
   }
 }
 
@@ -64,41 +71,46 @@ function onLoad(savedData)
   })
 
   -- add context menu entries
-  self.addContextMenuItem("Add 5", function() updateVal(val + 5) end)
-  self.addContextMenuItem("Subtract 5", function() updateVal(val - 5) end)
-  self.addContextMenuItem("Add 10", function() updateVal(val + 10) end)
-  self.addContextMenuItem("Subtract 10", function() updateVal(val - 10) end)
+  self.addContextMenuItem("Add 5", function() modifyValue(5, true) end)
+  self.addContextMenuItem("Subtract 5", function() modifyValue(-5, true) end)
+  self.addContextMenuItem("Add 10", function() modifyValue(10, true) end)
+  self.addContextMenuItem("Subtract 10", function() modifyValue(-10, true) end)
+end
+
+function onNumberTyped(_, number)
+  updateVal(number, true)
+end
+
+function addOrSubtract(_, _, isRightClick)
+  modifyValue(isRightClick and -1 or 1, true)
 end
 
 function getFontSize(val)
   local fontSize = getDataValue("FONT_SIZE")
-  if val > 9 then
-    fontSize = fontSize * 0.9
-  end
-  if val > 99 then
-    fontSize = fontSize * 0.9
-  end
+  if val > 99 then return fontSize * 0.81 end
+  if val > 9 then return fontSize * 0.9 end
   return fontSize
 end
 
-function updateVal(newVal)
-  if tonumber(newVal) then
-    val = MathLib.clamp(newVal, getDataValue("MIN_VALUE"), getDataValue("MAX_VALUE"))
-    self.editButton({ index = 0, label = tostring(val), font_size = getFontSize(val) })
-    updateSave()
+function updateVal(newVal, logChange)
+  if not tonumber(newVal) then return end
+  newVal = MathLib.clamp(newVal, getDataValue("MIN_VALUE"), getDataValue("MAX_VALUE"))
+  actualUpdate(newVal, logChange)
+end
+
+function actualUpdate(newVal, logChange)
+  -- register for message
+  if getDataValue("MESSAGE") and logChange then
+    GlobalApi.sendManualCounterChange(self, newVal - val)
   end
-end
 
-function addOrSubtract(_, _, isRightClick)
-  modifyValue(isRightClick and -1 or 1)
-end
-
-function modifyValue(mod)
-  val = MathLib.clamp(val + tonumber(mod), getDataValue("MIN_VALUE"), getDataValue("MAX_VALUE"))
+  -- perform the variable and label update
+  val = newVal
   self.editButton({ index = 0, label = tostring(val), font_size = getFontSize(val) })
   updateSave()
 end
 
-function onNumberTyped(_, number)
-  updateVal(number)
+function modifyValue(mod, logChange)
+  local newVal = MathLib.clamp(val + tonumber(mod), getDataValue("MIN_VALUE"), getDataValue("MAX_VALUE"))
+  actualUpdate(newVal, logChange)
 end
