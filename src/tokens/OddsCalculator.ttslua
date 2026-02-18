@@ -1,0 +1,379 @@
+local ChaosBagApi          = require("chaosbag/ChaosBagApi")
+
+-- Modifier value and secondary sort order for non-numeric tokens.
+-- Updated by onTokenDataChanged when a scenario is loaded.
+local TOKEN_PRECEDENCE     = {
+  ["Elder Sign"]  = { 100, 1 },
+  ["Bless"]       = { 2, 2 },
+  ["Skull"]       = { -1, 3 },
+  ["Cultist"]     = { -2, 4 },
+  ["Tablet"]      = { -3, 5 },
+  ["Elder Thing"] = { -4, 6 },
+  ["Frost"]       = { -1, 7 },
+  ["Curse"]       = { -2, 8 },
+  [""]            = { 0, 9 },
+}
+
+-- These tokens always have fixed values regardless of scenario data.
+local FIXED_VALUE_TOKENS   = {
+  ["Bless"] = true,
+  ["Curse"] = true,
+  ["Frost"] = true,
+}
+
+-- Persisted settings: Elder Sign value and per-token redraw toggles.
+local settings             = {
+  elderSignValue = 1,
+  redraws = {
+    ["Bless"]       = true,
+    ["Curse"]       = true,
+    ["Frost"]       = true,
+    ["Skull"]       = false,
+    ["Cultist"]     = false,
+    ["Tablet"]      = false,
+    ["Elder Thing"] = false,
+  }
+}
+
+-- Ordered setting rows (determines display order and click routing).
+local SETTING_DEFS         = {
+  { label = "ES", key = "ElderSign" },
+  { label = "Bl", key = "Bless" },
+  { label = "Cu", key = "Curse" },
+  { label = "Fr", key = "Frost" },
+  { label = "Sk", key = "Skull" },
+  { label = "Co", key = "Cultist" },
+  { label = "Tb", key = "Tablet" },
+  { label = "ET", key = "Elder Thing" },
+}
+
+local ES_VALUES            = { 0, 1, 2, 3 }
+
+-- Column x-positions (local space)
+local COL_VALUE            = -0.55
+local COL_PCT              = 0.75
+
+local SETTINGS_FIRST_ROW_Z = -0.85
+local SETTINGS_ROW_HEIGHT  = 0.40
+local ODDS_GAP             = 0.30
+local ROW_HEIGHT           = 0.50
+
+local ODDS_FIRST_ROW_Z     = SETTINGS_FIRST_ROW_Z
+    + #SETTING_DEFS * SETTINGS_ROW_HEIGHT
+    + ODDS_GAP
+
+-- ---- lifecycle ---------------------------------------------------------------
+
+function none() end
+
+function onSave()
+  return JSON.encode(settings)
+end
+
+function onLoad(savedData)
+  if savedData and savedData ~= "" then
+    local loaded = JSON.decode(savedData)
+    if loaded then settings = loaded end
+  end
+  Wait.time(calculateAndDisplay, 0.5)
+  self.addContextMenuItem("Refresh Odds", calculateAndDisplay)
+end
+
+-- Called by MythosArea when a new scenario card is placed.
+function onTokenDataChanged(parameters)
+  if not parameters.tokenData then return end
+  for name, data in pairs(parameters.tokenData) do
+    if TOKEN_PRECEDENCE[name] and not FIXED_VALUE_TOKENS[name] then
+      local modifier = data.modifier
+      if modifier == -999 then modifier = 0 end
+      TOKEN_PRECEDENCE[name][1] = modifier
+    end
+  end
+  calculateAndDisplay()
+end
+
+-- ---- setting click functions -------------------------------------------------
+-- TTS requires named top-level functions; one per interactive button.
+
+function clickSetting_ElderSign()
+  local current = settings.elderSignValue
+  local nextIdx = 1
+  for i, v in ipairs(ES_VALUES) do
+    if v == current then
+      nextIdx = (i % #ES_VALUES) + 1; break
+    end
+  end
+  settings.elderSignValue = ES_VALUES[nextIdx]
+  calculateAndDisplay()
+end
+
+function clickSetting_Bless()
+  settings.redraws["Bless"] = not settings.redraws["Bless"]; calculateAndDisplay()
+end
+
+function clickSetting_Curse()
+  settings.redraws["Curse"] = not settings.redraws["Curse"]; calculateAndDisplay()
+end
+
+function clickSetting_Frost()
+  settings.redraws["Frost"] = not settings.redraws["Frost"]; calculateAndDisplay()
+end
+
+function clickSetting_Skull()
+  settings.redraws["Skull"] = not settings.redraws["Skull"]; calculateAndDisplay()
+end
+
+function clickSetting_Cultist()
+  settings.redraws["Cultist"] = not settings.redraws["Cultist"]; calculateAndDisplay()
+end
+
+function clickSetting_Tablet()
+  settings.redraws["Tablet"] = not settings.redraws["Tablet"]; calculateAndDisplay()
+end
+
+function clickSetting_ElderThing()
+  settings.redraws["Elder Thing"] = not settings.redraws["Elder Thing"]; calculateAndDisplay()
+end
+
+local CLICK_FNS = {
+  ElderSign       = "clickSetting_ElderSign",
+  Bless           = "clickSetting_Bless",
+  Curse           = "clickSetting_Curse",
+  Frost           = "clickSetting_Frost",
+  Skull           = "clickSetting_Skull",
+  Cultist         = "clickSetting_Cultist",
+  Tablet          = "clickSetting_Tablet",
+  ["Elder Thing"] = "clickSetting_ElderThing",
+}
+
+-- ---- probability calculation -------------------------------------------------
+
+local function getTokenValue(name)
+  local num = tonumber(name)
+  if num then return num end
+  return (TOKEN_PRECEDENCE[name] or TOKEN_PRECEDENCE[""])[1]
+end
+
+-- Memoization cache, cleared before each call to calculateAndDisplay.
+local distCache = {}
+
+-- Recursively computes the probability distribution of total draw-chain modifiers.
+--
+-- redrawnPool  {tokenName -> count}  redraw tokens still in bag at this step
+-- frostDrawn   number of Frost tokens drawn so far in this chain
+-- regularTokens  list of {value, isAutoFail} — never removed during recursion
+-- tokenValues  {tokenName -> modifier}  for each redraw token
+--
+-- Returns {modDist = {modifier -> probability}, autoFail = probability}
+local function computeDist(redrawnPool, frostDrawn, regularTokens, tokenValues)
+  -- Build memoization key from sorted pool counts + frostDrawn
+  local parts = {}
+  for name, cnt in pairs(redrawnPool) do
+    if cnt > 0 then table.insert(parts, name .. "=" .. cnt) end
+  end
+  table.sort(parts)
+  local key = table.concat(parts, ",") .. ";fd=" .. frostDrawn
+  if distCache[key] then return distCache[key] end
+
+  local totalRedraw = 0
+  for _, cnt in pairs(redrawnPool) do totalRedraw = totalRedraw + cnt end
+  local n = totalRedraw + #regularTokens
+
+  -- Empty bag edge case (shouldn't occur in normal play)
+  if n == 0 then
+    local r = { modDist = { [0] = 1 }, autoFail = 0 }
+    distCache[key] = r
+    return r
+  end
+
+  local modDist  = {}
+  local autoFail = 0
+
+  -- Branch: draw a redraw token
+  for name, cnt in pairs(redrawnPool) do
+    if cnt > 0 then
+      local p       = cnt / n
+      local isFrost = (name == "Frost")
+      local newFD   = frostDrawn + (isFrost and 1 or 0)
+
+      if isFrost and newFD >= 2 then
+        -- Second Frost drawn in the same chain → auto-fail
+        autoFail = autoFail + p
+      else
+        local newPool = {}
+        for k, v in pairs(redrawnPool) do newPool[k] = v end
+        newPool[name] = cnt - 1
+
+        local delta   = tokenValues[name]
+        local sub     = computeDist(newPool, newFD, regularTokens, tokenValues)
+
+        for mod, prob in pairs(sub.modDist) do
+          local m = mod + delta
+          modDist[m] = (modDist[m] or 0) + p * prob
+        end
+        autoFail = autoFail + p * sub.autoFail
+      end
+    end
+  end
+
+  -- Branch: draw a regular token (chain terminates)
+  for _, tok in ipairs(regularTokens) do
+    local p = 1 / n
+    if tok.isAutoFail then
+      autoFail = autoFail + p
+    else
+      modDist[tok.value] = (modDist[tok.value] or 0) + p
+    end
+  end
+
+  local result = { modDist = modDist, autoFail = autoFail }
+  distCache[key] = result
+  return result
+end
+
+function calculateAndDisplay()
+  local chaosBag = ChaosBagApi.findChaosBag()
+  if not chaosBag then
+    printToAll("Odds Calculator: chaos bag not found. Right-click > Refresh Odds after the bag loads.", "Orange")
+    return
+  end
+
+  local bagContents   = chaosBag.getData().ContainedObjects or {}
+  local redrawnPool   = {}
+  local tokenValues   = {}
+  local regularTokens = {}
+
+  for _, obj in ipairs(bagContents) do
+    local name = obj.Nickname
+    if settings.redraws[name] then
+      redrawnPool[name] = (redrawnPool[name] or 0) + 1
+      if not tokenValues[name] then
+        tokenValues[name] = getTokenValue(name)
+      end
+    elseif name == "Auto-fail" then
+      table.insert(regularTokens, { value = 0, isAutoFail = true })
+    else
+      local value = (name == "Elder Sign") and settings.elderSignValue or getTokenValue(name)
+      table.insert(regularTokens, { value = value, isAutoFail = false })
+    end
+  end
+
+  distCache = {}
+  local result = computeDist(redrawnPool, 0, regularTokens, tokenValues)
+
+  -- Collect non-zero modifier values, then fill in integer gaps in [-8, +2].
+  local valSet = {}
+  for v in pairs(result.modDist) do valSet[v] = true end
+
+  if next(valSet) then
+    local minV, maxV = math.huge, -math.huge
+    for v in pairs(valSet) do
+      if v < minV then minV = v end
+      if v > maxV then maxV = v end
+    end
+    for v = math.max(minV, -8), math.min(maxV, 2) do
+      valSet[v] = true
+    end
+  end
+
+  local sortedValues = {}
+  for v in pairs(valSet) do table.insert(sortedValues, v) end
+  table.sort(sortedValues, function(a, b) return a > b end)
+
+  -- Compute cumulative probabilities (best → worst).
+  local rows       = {}
+  local cumulative = 0
+  for _, value in ipairs(sortedValues) do
+    cumulative  = cumulative + (result.modDist[value] or 0)
+    local pct   = math.min(math.floor(cumulative * 10000) / 100, 100)
+    local label = value > 0 and ("+" .. value) or tostring(value)
+    table.insert(rows, { label = label, pct = pct })
+  end
+
+  -- Auto-fail at bottom; doesn't add to success cumulative.
+  -- Label reuses the worst modifier value already in the table (the last value
+  -- that actually changed the cumulative), so e.g. "-5" instead of "AF".
+  if result.autoFail > 0 then
+    local pct       = math.min(math.floor(cumulative * 10000) / 100, 100)
+    local lastLabel = #rows > 0 and rows[#rows].label or "?"
+    table.insert(rows, { label = lastLabel, pct = pct, isAutoFail = true })
+  end
+
+  render(rows)
+end
+
+-- ---- rendering ---------------------------------------------------------------
+
+local function formatPct(pct)
+  if pct == 100 then return "100%" end
+  return string.format("%.1f%%", pct)
+end
+
+local function formatNum(v)
+  return v > 0 and ("+" .. v) or tostring(v)
+end
+
+local RED   = { 0.86, 0.1, 0.1 }
+local WHITE = { 1, 1, 1 }
+local DIM   = { 0.55, 0.55, 0.55 }
+local GREEN = { 0.3, 0.8, 0.3 }
+
+local function addLabel(text, x, z, color)
+  self.createButton({
+    function_owner = self,
+    click_function = "none",
+    color          = { 0.2, 0.2, 0.2 },
+    font_color     = color,
+    font_size      = 300,
+    height         = 100,
+    width          = 500,
+    label          = text,
+    position       = { x, 0.1, z },
+  })
+end
+
+local function addClickable(text, x, z, color, clickFn)
+  self.createButton({
+    function_owner = self,
+    click_function = clickFn,
+    color          = { 0.15, 0.15, 0.15 },
+    font_color     = color,
+    font_size      = 300,
+    height         = 100,
+    width          = 500,
+    label          = text,
+    position       = { x, 0.1, z },
+  })
+end
+
+function render(oddsRows)
+  local buttons = self.getButtons() or {}
+  for i = #buttons - 1, 0, -1 do
+    self.removeButton(i)
+  end
+
+  -- Settings rows
+  for i, def in ipairs(SETTING_DEFS) do
+    local z = SETTINGS_FIRST_ROW_Z + (i - 1) * SETTINGS_ROW_HEIGHT
+    addLabel(def.label, COL_VALUE, z, DIM)
+
+    local valueText, valueColor
+    if def.key == "ElderSign" then
+      valueText  = formatNum(settings.elderSignValue)
+      valueColor = WHITE
+    else
+      local isOn = settings.redraws[def.key]
+      valueText  = isOn and "on" or "off"
+      valueColor = isOn and GREEN or DIM
+    end
+    addClickable(valueText, COL_PCT, z, valueColor, CLICK_FNS[def.key])
+  end
+
+  -- Odds rows
+  for i, row in ipairs(oddsRows) do
+    local z     = ODDS_FIRST_ROW_Z + (i - 1) * ROW_HEIGHT
+    local color = row.isAutoFail and RED or WHITE
+    addLabel(row.label, COL_VALUE, z, color)
+    addLabel(formatPct(row.pct), COL_PCT, z, color)
+  end
+end
