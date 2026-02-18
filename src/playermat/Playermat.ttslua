@@ -1748,23 +1748,25 @@ function maybeUpdateActiveInvestigator(card, md)
   if md.id == activeInvestigatorData.id then return end
 
   -- extract relevant data from the metadata
-  activeInvestigatorData.class = md.class
-  activeInvestigatorData.id = md.id
-  activeInvestigatorData.miniId = GlobalApi.getMiniId(md.id)
+  activeInvestigatorData.class           = md.class
+  activeInvestigatorData.id              = md.id
+  activeInvestigatorData.elderSignEffect = md.elderSignEffect
+  activeInvestigatorData.miniId          = GlobalApi.getMiniId(md.id)
+
+  -- update skill tracker
   ownedObjects.InvestigatorSkillTracker.call("updateStats", {
     md.willpowerIcons,
     md.intellectIcons,
     md.combatIcons,
     md.agilityIcons
   })
-  activeInvestigatorData.elderSignEffect = md.elderSignEffect
 
   maybeDrawBorderAroundMinicard()
 
   -- small delay to allow other objects to finish colliding
   Wait.time(updateTexture, 0.3)
 
-  newInvestigatorCallback(md.id)
+  newInvestigatorCallback(card, md.id)
 
   -- set proper scale for investigators
   local cardData = card.getData()
@@ -1846,7 +1848,7 @@ function spawnActionTokens()
 end
 
 -- does something for specific investigators when they are loaded
-function newInvestigatorCallback(newId)
+function newInvestigatorCallback(card, newId)
   updateMessageColor()
   Wait.frames(function() GlobalApi.updateActionTrackerName(matColor) end, 3)
   Wait.frames(function() GlobalApi.updateActionTrackerTokens(matColor) end, 5)
@@ -1885,6 +1887,20 @@ function newInvestigatorCallback(newId)
     spawnObjectForInvestigator(nil, "Subject 5U-21 Helper")
     printToColor("Subject 5U-21: Spawned a helper to track the classes of devoured cards near your playermat. " ..
       "Note that this and 'Ravenous' will work with the Attachment Helper from the option panel.", messageColor)
+  end
+
+  -- maybe spawn small attachment helper for investigator
+  if card.hasTag("CardWithAttachmentHelper") and GlobalApi.getOptionPanelState()["showAttachmentHelper"] then
+    local objs = getObjectsWithTag("AttachmentHelperBag")
+    if #objs > 0 then
+      local helper = objs[1].takeObject({
+        position = self.positionToWorld(Vector(-1.051, 0.11, 0.034)):setAt("y", 1.8),
+        rotation = self.getRotation(),
+        smooth   = false
+      })
+      helper.setScale({ 0.57, 0.65, 0.57 })
+      Wait.frames(function() helper.call("loadDataFromMetadata", { md = { id = newId } }) end, 3)
+    end
   end
 end
 
