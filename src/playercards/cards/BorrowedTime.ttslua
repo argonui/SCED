@@ -1,0 +1,68 @@
+require("playercards/CardsWithHelper")
+local SearchLib       = require("util/SearchLib")
+local TokenManagerApi = require("tokens/TokenManagerApi")
+
+-- intentionally global
+hasXML                = true
+isHelperEnabled       = false
+
+function updateSave()
+  self.script_state = JSON.encode({ isHelperEnabled = isHelperEnabled })
+end
+
+function onLoad(savedData)
+  if savedData and savedData ~= "" then
+    local loadedData = JSON.decode(savedData)
+    isHelperEnabled = loadedData.isHelperEnabled
+    if isHelperEnabled then updateDisplay() end
+  end
+end
+
+function searchSelfForTokens()
+  clickableResourceCounter = nil
+  local foundTokens = 0
+
+  for _, obj in ipairs(SearchLib.onObject(self, "isTileOrToken", 0.8)) do
+    local memo = obj.getMemo()
+    if memo == "click" or memo == "resource" then
+      foundTokens = foundTokens + math.abs(obj.getQuantity())
+    elseif memo == "resourceCounter" then
+      foundTokens = obj.getVar("val")
+      clickableResourceCounter = obj
+      break
+    end
+  end
+  return foundTokens
+end
+
+function removeClicks(player)
+  local foundTokens = searchSelfForTokens()
+
+  if clickableResourceCounter then
+    clickableResourceCounter.call("updateVal", 0)
+  else
+    for _, obj in ipairs(SearchLib.onObject(self, "isTileOrToken", 0.8)) do
+      local memo = obj.getMemo()
+      if memo == "click" or memo == "resource" then
+        obj.destruct()
+      end
+    end
+  end
+  if foundTokens > 0 then
+    addAction(player, foundTokens)
+  else
+    broadcastToColor("No clicks found!", player.color)
+  end
+end
+
+function addAction(player, foundTokens)
+  -- only spawn a maximum of 3 action tokens
+  if foundTokens > 3 then
+    numTokens = 3
+  else
+    numTokens = foundTokens
+  end
+
+  TokenManagerApi.spawnTokenGroup(self, "universalActionAbility", numTokens, 1.3, nil, true)
+  broadcastToColor("Spawning " .. numTokens.." temporary action token(s).", player.color)
+end
