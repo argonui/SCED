@@ -102,36 +102,30 @@ function processContainedObjects(containedObjects, customDeck)
 end
 
 function addCardToIndex(cardData)
-  local cardMetadata
-
   if cardData.GMNotes and cardData.GMNotes ~= "" then
-    cardMetadata = parseObjectMetadata(cardData)
-  end
-
-  if cardMetadata then
-    -- use the ZoopGuid as fallback if no id present
-    cardMetadata.id = cardMetadata.id or cardMetadata.TtsZoopGuid
-    cardIdIndex[cardMetadata.id] = { data = cardData, metadata = cardMetadata }
-  else
-    -- assume name is the ID as fallback
-    local length = string.len(cardData["Nickname"])
-    if length == 5 or length == 6 then
-      local cardId = cardData["Nickname"]
-      cardData["Nickname"] = nil
-      cardIdIndex[cardId] = { data = cardData, metadata = { id = cardId } }
+    local md = parseObjectMetadata(cardData) or {}
+    local id = md.id or md.TtsZoopGuid
+    if id then
+      cardIdIndex[id] = { data = cardData, metadata = md }
+    else
+      -- assume name is the ID as fallback
+      local length = string.len(cardData["Nickname"])
+      if length == 5 or length == 6 then
+        local cardId = cardData["Nickname"]
+        cardData["Nickname"] = nil
+        cardIdIndex[cardId] = { data = cardData, metadata = { id = cardId } }
+      end
     end
   end
 end
 
 function addObjectToIndex(objectData)
-  local objectMetadata
-
   if objectData.GMNotes and objectData.GMNotes ~= "" then
-    objectMetadata = parseObjectMetadata(objectData)
-  end
-
-  if objectMetadata and objectMetadata.id then
-    objectIdIndex[objectMetadata.id] = { data = objectData, metadata = objectMetadata }
+    local md = parseObjectMetadata(objectData) or {}
+    local id = md.id or md.TtsZoopGuid
+    if id then
+      objectIdIndex[id] = { data = objectData, metadata = md }
+    end
   end
 end
 
@@ -234,10 +228,11 @@ end
 function handleSpawnedCard(card)
   -- check if the card has metadata
   local md = JSON.decode(card.getGMNotes()) or {}
-  if not md.id then return end
+  local id = md.id or md.TtsZoopGuid
+  if not id then return end
 
   -- check if it's in the index
-  local cardData = getCardById({ id = md.id })
+  local cardData = getCardById({ id = id })
   if cardData == nil then return end
 
   Wait.time(function()
@@ -257,10 +252,11 @@ end
 function handleSpawnedObject(object)
   -- check if the object has metadata
   local md = JSON.decode(object.getGMNotes()) or {}
-  if not md.id then return end
+  local id = md.id or md.TtsZoopGuid
+  if not id then return end
 
   -- check if it's in the index
-  local objectData = getObjectById({ id = md.id })
+  local objectData = getObjectById({ id = id })
   if objectData == nil then return end
 
   Wait.time(function()
@@ -271,10 +267,9 @@ function handleSpawnedObject(object)
         local rot = object.getRotation()
         object.destruct()
         spawnObjectData({
-          data = objData,
+          data     = objData,
           position = pos,
-          rotation = rot,
-          callback_function = nil
+          rotation = rot
         })
       end
     end
@@ -286,9 +281,10 @@ function updateBagData(bagData)
 
   -- check if the bag has metadata
   local bagMd = JSON.decode(bagData.GMNotes) or {}
+  local bagId = bagMd.id or bagMd.TtsZoopGuid
 
   -- replace fields if bag is in the index
-  local objectIndexData = getObjectById({ id = bagMd.id })
+  local objectIndexData = getObjectById({ id = bagId })
   if objectIndexData ~= nil then
     if updateOriginalItemData(bagData, objectIndexData.data) then
       changedSomething = true
@@ -302,8 +298,9 @@ function updateBagData(bagData)
       end
     elseif objData.Name == "Card" then
       local md = JSON.decode(objData.GMNotes) or {}
-      if md.id then
-        local cardData = getCardById({ id = md.id })
+      local id = md.id or md.TtsZoopGuid
+      if id then
+        local cardData = getCardById({ id = id })
         if cardData then
           if updateOriginalItemData(objData, cardData.data) then
             changedSomething = true
@@ -318,8 +315,9 @@ function updateBagData(bagData)
       end
     else
       local md = JSON.decode(objData.GMNotes) or {}
-      if md.id then
-        local objectData = getObjectById({ id = md.id })
+      local id = md.id or md.TtsZoopGuid
+      if id then
+        local objectData = getObjectById({ id = id })
         if objectData then
           if updateOriginalItemData(objData, objectData.data) then
             changedSomething = true
@@ -337,8 +335,9 @@ function updateDeckData(deckData)
   local newDeckData      = {}
   for _, objData in ipairs(deckData.ContainedObjects) do
     local md = JSON.decode(objData["GMNotes"]) or {}
-    if md.id then
-      local cardData = getCardById({ id = md.id })
+    local id = md.id or md.TtsZoopGuid
+    if id then
+      local cardData = getCardById({ id = id })
       if cardData then
         local originalId = objData["CardID"]
         local state = updateOriginalItemData(objData, cardData.data)
