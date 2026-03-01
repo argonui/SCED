@@ -41,6 +41,7 @@ local SHIFT_OFFSETS        = {
 
 local locations            = {}
 local locationConnections  = {}
+local manualConnections    = {}
 local draggingGuids        = {}
 local missingData          = {}
 local collisionEnabled     = false
@@ -55,7 +56,8 @@ function updateSave()
     trackedLocations   = locations,
     connectionColor    = connectionColor,
     connectionsEnabled = connectionsEnabled,
-    excludedScenario   = excludedScenario
+    excludedScenario   = excludedScenario,
+    manualConnections  = manualConnections
   })
 end
 
@@ -66,6 +68,7 @@ function onLoad(savedData)
     connectionColor    = loadedData.connectionColor or { 0.4, 0.4, 0.4, 1 }
     connectionsEnabled = loadedData.connectionsEnabled
     excludedScenario   = loadedData.excludedScenario
+    manualConnections  = loadedData.manualConnections or {}
   end
 
   Wait.time(function() collisionEnabled = true end, 0.1)
@@ -74,6 +77,72 @@ end
 ---------------------------------------------------------
 -- TTS event handling
 ---------------------------------------------------------
+
+-- use scripting button 10 (numpad 0) to add manual connections
+function onScriptingButtonDown(index, playerColor)
+  if index ~= 10 then return end
+
+  -- filter hovered and selected objects for valid locations (card with tag)
+  local targetCards = {}
+
+  for _, obj in ipairs(Player[playerColor].getSelectedObjects()) do
+    if isValidLocation(obj) then
+      table.insert(targetCards, obj)
+    end
+  end
+
+  -- if nothing or 1 card is selected, toggle its connections
+  if #targetCards <= 1 then
+    local targetObj = targetCards[1] or Player[playerColor].getHoverObject()
+
+    if targetObj and isValidLocation(targetObj) then
+      local guid = targetObj.getGUID()
+
+      -- look at locationConnections because it contains the final result of Auto + Manual logic
+      local currentLinks = locationConnections[guid] or {}
+
+      for otherGuid, _ in pairs(currentLinks) do
+        -- We only need to store the manual toggle once.
+        -- Our XOR rebuild logic handles the rest.
+        local low = guid < otherGuid and guid or otherGuid
+        local high = guid < otherGuid and otherGuid or guid
+
+        manualConnections[low] = manualConnections[low] or {}
+        manualConnections[low][high] = not manualConnections[low][high]
+      end
+      broadcastToColor("Toggled all connections for " .. targetObj.getName(), playerColor, "Green")
+
+      rebuildConnectionList()
+      drawBaseConnections()
+    else
+      -- still nothing?
+      broadcastToColor("It seems like there is no valid card among your selection / hover.", playerColor, "Orange")
+    end
+  elseif #targetCards > 10 then
+    broadcastToColor("This only supports up to 10 cards for performance reasons.", playerColor, "Orange")
+  else
+    broadcastToColor("Toggled connections for " .. #targetCards .. " cards.", playerColor, "Green")
+
+    -- toggle connections for each target card (to each other target card)
+    for i, card in ipairs(targetCards) do
+      local cardGuid = card.getGUID()
+      for j, otherCard in ipairs(targetCards) do
+        if i < j then -- Only process each pair once
+          local otherGuid = otherCard.getGUID()
+          manualConnections[cardGuid] = manualConnections[cardGuid] or {}
+          manualConnections[cardGuid][otherGuid] = not manualConnections[cardGuid][otherGuid]
+        end
+      end
+    end
+
+    rebuildConnectionList()
+    drawBaseConnections()
+  end
+end
+
+function isValidLocation(obj)
+  return obj.type == "Card" and obj.hasTag("Location")
+end
 
 function onCollisionEnter(collisionInfo)
   if not collisionEnabled then return end
@@ -122,6 +191,8 @@ end
 function onObjectPickUp(_, object)
   if object.type ~= "Card" then return end
 
+  object.setVectorLines({})
+
   -- onCollisionExit USUALLY fires first, so we have to check the card to see if it's a location we should be tracking
   if showLocationLinks() and isInPlayArea(object) then
     local metadata = JSON.decode(object.getGMNotes()) or {}
@@ -146,7 +217,7 @@ end
 -- Due to the frequence of onUpdate calls, ensure that we only process any changes once
 function onUpdate()
   local needsConnectionRebuild = false
-  local needsConnectionDraw = false
+  local needsConnectionDraw    = false
   for guid, _ in pairs(draggingGuids) do
     local obj = getObjectFromGUID(guid)
     if obj == nil or not isInPlayArea(obj) then
@@ -282,6 +353,27 @@ function rebuildConnectionList()
       buildConnection(cardId, iconCardList, metadata)
     end
   end
+
+  -- Handle manual connections (XOR logic to be able to cancel existing connections)
+  for originGuid, targets in pairs(manualConnections) do
+    for targetGuid, isEnabled in pairs(targets) do
+      if isEnabled then
+        locationConnections[originGuid] = locationConnections[originGuid] or {}
+        locationConnections[targetGuid] = locationConnections[targetGuid] or {}
+
+        -- If a connection already exists, REMOVE it
+        if locationConnections[originGuid][targetGuid] ~= nil or
+            locationConnections[targetGuid][originGuid] ~= nil then
+          locationConnections[originGuid][targetGuid] = nil
+          locationConnections[targetGuid][originGuid] = nil
+        else
+          -- If no connection exists, ADD it
+          locationConnections[originGuid][targetGuid] = BIDIRECTIONAL
+          locationConnections[targetGuid][originGuid] = BIDIRECTIONAL
+        end
+      end
+    end
+  end
 end
 
 -- Extracts the card's icon string into a list of individual location icons
@@ -341,10 +433,14 @@ function drawBaseConnections()
     -- Objects should reliably exist at this point, but since this can be called during onUpdate the
     -- object checks are conservative just to make sure.
     local origin = getObjectFromGUID(originGuid)
-    if draggingGuids[originGuid] == nil and origin ~= nil then
+
+    -- Check if origin is being held by a player
+    if origin ~= nil and draggingGuids[originGuid] == nil and origin.held_by_color == nil then
       for targetGuid, direction in pairs(targetGuids) do
         local target = getObjectFromGUID(targetGuid)
-        if draggingGuids[targetGuid] == nil and target ~= nil then
+
+        -- Check if target is being held by a player
+        if target ~= nil and draggingGuids[targetGuid] == nil and target.held_by_color == nil then
           -- Since we process the full list, we're guaranteed to hit any ONE_WAY connections later
           -- so we can ignore INCOMING_ONE_WAY
           if direction == BIDIRECTIONAL then
@@ -742,8 +838,8 @@ end
 
 -- Converts grid coordinates (e.g., {x=1.5, y=-2}) back to world position
 function gridToWorld(grid)
-  local localX = CENTER_X + (grid.x or grid[1])* STEP_X * 2
-  local localZ = CENTER_Z - (grid.y or grid[2])* STEP_Z * 2
+  local localX = CENTER_X + (grid.x or grid[1]) * STEP_X * 2
+  local localZ = CENTER_Z - (grid.y or grid[2]) * STEP_Z * 2
   local pos = self.positionToWorld({ x = localX, y = 0.1, z = localZ })
   return MathLib.roundVector(pos, 3)
 end
