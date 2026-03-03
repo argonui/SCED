@@ -1,50 +1,52 @@
-local GlobalApi            = require("Global/GlobalApi")
-local GUIDReferenceApi     = require("core/GUIDReferenceApi")
-local MathLib              = require("util/MathLib")
-local SearchLib            = require("util/SearchLib")
-local TokenManagerApi      = require("tokens/TokenManagerApi")
+local GlobalApi               = require("Global/GlobalApi")
+local GUIDReferenceApi        = require("core/GUIDReferenceApi")
+local MathLib                 = require("util/MathLib")
+local SearchLib               = require("util/SearchLib")
+local TokenManagerApi         = require("tokens/TokenManagerApi")
 
 -- Location connection directional options
-local BIDIRECTIONAL        = 0
-local ONE_WAY              = 1
-local INCOMING_ONE_WAY     = 2
+local BIDIRECTIONAL           = 0
+local ONE_WAY                 = 1
+local INCOMING_ONE_WAY        = 2
+
+local CYCLE_STATES            = { BIDI = 0, FORWARD = 1, BACKWARD = 2, OFF = 3 }
 
 -- Connector draw parameters
-local CONNECTION_THICKNESS = 0.015
-local DRAGGING_THICKNESS   = 0.15
-local DRAGGING_COLOR       = { 0.8, 0.8, 0.8, 1 }
-local ARROW_DISTANCE       = 3.5
-local ARROW_ARM_LENGTH     = 0.9
-local ARROW_ANGLE          = 25
+local CONNECTION_THICKNESS    = 0.015
+local DRAGGING_THICKNESS      = 0.15
+local DRAGGING_COLOR          = { 0.8, 0.8, 0.8, 1 }
+local ARROW_DISTANCE          = 3.5
+local ARROW_ARM_LENGTH        = 0.9
+local ARROW_ANGLE             = 25
 
 -- Height to draw the connector lines, places them just above the table and always below cards
-local CONNECTION_LINE_Y    = 1.529
+local CONNECTION_LINE_Y       = 1.529
 
 -- Data for grid coordinates / snap points
-local UPPER_LEFT_SNAP      = { x = 1.53, z = -1.09 }
-local LOWER_RIGHT_SNAP     = { x = -1.53, z = 1.55 }
+local UPPER_LEFT_SNAP         = { x = 1.53, z = -1.09 }
+local LOWER_RIGHT_SNAP        = { x = -1.53, z = 1.55 }
 
-local STEP_X               = (LOWER_RIGHT_SNAP.x - UPPER_LEFT_SNAP.x) / 8 -- = -0.765
-local STEP_Z               = (LOWER_RIGHT_SNAP.z - UPPER_LEFT_SNAP.z) / 8 -- = 0.82
+local STEP_X                  = (LOWER_RIGHT_SNAP.x - UPPER_LEFT_SNAP.x) / 8 -- = -0.765
+local STEP_Z                  = (LOWER_RIGHT_SNAP.z - UPPER_LEFT_SNAP.z) / 8 -- = 0.82
 
-local CENTER_X             = (UPPER_LEFT_SNAP.x + LOWER_RIGHT_SNAP.x) / 2 -- = 0
-local CENTER_Z             = (UPPER_LEFT_SNAP.z + LOWER_RIGHT_SNAP.z) / 2 -- = 0.23
+local CENTER_X                = (UPPER_LEFT_SNAP.x + LOWER_RIGHT_SNAP.x) / 2 -- = 0
+local CENTER_Z                = (UPPER_LEFT_SNAP.z + LOWER_RIGHT_SNAP.z) / 2 -- = 0.23
 
-local DEFAULT_URL          = "https://steamusercontent-a.akamaihd.net/ugc/998015670465071049/FFAE162920D67CF38045EFBD3B85AD0F916147B2/"
+local DEFAULT_URL             = "https://steamusercontent-a.akamaihd.net/ugc/998015670465071049/FFAE162920D67CF38045EFBD3B85AD0F916147B2/"
 
-local SHIFT_OFFSETS        = {
+local SHIFT_OFFSETS           = {
   left  = { x = 0.00, y = 0, z = 7.67 },
   right = { x = 0.00, y = 0, z = -7.67 },
   up    = { x = 6.54, y = 0, z = 0.00 },
   down  = { x = -6.54, y = 0, z = 0.00 }
 }
 
-local locations            = {}
-local locationConnections  = {}
-local manualConnections    = {}
-local draggingGuids        = {}
-local missingData          = {}
-local collisionEnabled     = false
+local locations               = {}
+local locationConnections     = {}
+local connectionModifications = {}
+local draggingGuids           = {}
+local missingData             = {}
+local collisionEnabled        = false
 local connectionsEnabled, excludedScenario
 
 ---------------------------------------------------------
@@ -53,22 +55,22 @@ local connectionsEnabled, excludedScenario
 
 function updateSave()
   self.script_state = JSON.encode({
-    trackedLocations   = locations,
-    connectionColor    = connectionColor,
-    connectionsEnabled = connectionsEnabled,
-    excludedScenario   = excludedScenario,
-    manualConnections  = manualConnections
+    trackedLocations        = locations,
+    connectionColor         = connectionColor,
+    connectionsEnabled      = connectionsEnabled,
+    excludedScenario        = excludedScenario,
+    connectionModifications = connectionModifications
   })
 end
 
 function onLoad(savedData)
   if savedData and savedData ~= "" then
-    local loadedData   = JSON.decode(savedData) or {}
-    locations          = loadedData.trackedLocations or {}
-    connectionColor    = loadedData.connectionColor or { 0.4, 0.4, 0.4, 1 }
-    connectionsEnabled = loadedData.connectionsEnabled
-    excludedScenario   = loadedData.excludedScenario
-    manualConnections  = loadedData.manualConnections or {}
+    local loadedData        = JSON.decode(savedData) or {}
+    locations               = loadedData.trackedLocations or {}
+    connectionColor         = loadedData.connectionColor or { 0.4, 0.4, 0.4, 1 }
+    connectionsEnabled      = loadedData.connectionsEnabled
+    excludedScenario        = loadedData.excludedScenario
+    connectionModifications = loadedData.connectionModifications or {}
   end
 
   Wait.time(function() collisionEnabled = true end, 0.1)
@@ -78,66 +80,116 @@ end
 -- TTS event handling
 ---------------------------------------------------------
 
--- use scripting button 10 (numpad 0) to add manual connections
+-- Use scripting button 10 (numpad 0) to add manual connections
 function onScriptingButtonDown(index, playerColor)
   if index ~= 10 then return end
 
-  -- filter hovered and selected objects for valid locations (card with tag)
-  local targetCards = {}
-
+  -- Determine target cards (selection first, then hovered card)
+  local targets = {}
   for _, obj in ipairs(Player[playerColor].getSelectedObjects()) do
-    if isValidLocation(obj) then
-      table.insert(targetCards, obj)
+    if isValidLocation(obj) then table.insert(targets, obj) end
+  end
+
+  -- Nothing selected, get the hovered card
+  if #targets == 0 then
+    local hover = Player[playerColor].getHoverObject()
+    if hover and isValidLocation(hover) then
+      table.insert(targets, hover)
+    else
+      broadcastToColor("Select / hover one or two locations and try again.", playerColor, "Orange")
+      return
     end
   end
 
-  -- if nothing or 1 card is selected, toggle its connections
-  if #targetCards <= 1 then
-    local targetObj = targetCards[1] or Player[playerColor].getHoverObject()
+  if #targets == 1 then
+    -- Only one target card, toggle each RELEVANT connection
+    local guid     = targets[1].getGUID()
+    local foundAny = false
 
-    if targetObj and isValidLocation(targetObj) then
-      local guid = targetObj.getGUID()
+    for otherGuid, _ in pairs(locations) do
+      if guid ~= otherGuid then
+        local hasAuto = (locationConnections[guid] and locationConnections[guid][otherGuid])
+            or (locationConnections[otherGuid] and locationConnections[otherGuid][guid])
+        local hasManual = (connectionModifications[guid < otherGuid and guid or otherGuid] ~= nil)
 
-      -- look at locationConnections because it contains the final result of Auto + Manual logic
-      local currentLinks = locationConnections[guid] or {}
-
-      for otherGuid, _ in pairs(currentLinks) do
-        -- We only need to store the manual toggle once.
-        -- Our XOR rebuild logic handles the rest.
-        local low = guid < otherGuid and guid or otherGuid
-        local high = guid < otherGuid and otherGuid or guid
-
-        manualConnections[low] = manualConnections[low] or {}
-        manualConnections[low][high] = not manualConnections[low][high]
-      end
-      broadcastToColor("Toggled all connections for " .. targetObj.getName(), playerColor, "Green")
-
-      rebuildConnectionList()
-      drawBaseConnections()
-    else
-      -- still nothing?
-      broadcastToColor("It seems like there is no valid card among your selection / hover.", playerColor, "Orange")
-    end
-  elseif #targetCards > 10 then
-    broadcastToColor("This only supports up to 10 cards for performance reasons.", playerColor, "Orange")
-  else
-    broadcastToColor("Toggled connections for " .. #targetCards .. " cards.", playerColor, "Green")
-
-    -- toggle connections for each target card (to each other target card)
-    for i, card in ipairs(targetCards) do
-      local cardGuid = card.getGUID()
-      for j, otherCard in ipairs(targetCards) do
-        if i < j then -- Only process each pair once
-          local otherGuid = otherCard.getGUID()
-          manualConnections[cardGuid] = manualConnections[cardGuid] or {}
-          manualConnections[cardGuid][otherGuid] = not manualConnections[cardGuid][otherGuid]
+        if hasAuto or hasManual then
+          foundAny = true
+          cyclePair(guid, otherGuid)
         end
       end
     end
 
-    rebuildConnectionList()
-    drawBaseConnections()
+    if foundAny then
+      broadcastToColor("Toggled all relevant connections for " .. getCardName(guid), playerColor, "Green")
+    else
+      broadcastToColor("No relevant connections to toggle found for " .. getCardName(guid), playerColor, "Orange")
+      return
+    end
+  elseif #targets == 2 then
+    cyclePair(targets[1].getGUID(), targets[2].getGUID(), playerColor)
   end
+
+  rebuildConnectionList()
+  drawBaseConnections()
+end
+
+function cyclePair(guidA, guidB, playerColor)
+  local low          = guidA < guidB and guidA or guidB
+  local high         = guidA < guidB and guidB or guidA
+
+  -- Determine current state from the modifications table first
+  -- If no modification exists, derive it from the current active connections
+  local currentState = CYCLE_STATES.OFF
+  if connectionModifications[low] and connectionModifications[low][high] then
+    currentState = connectionModifications[low][high]
+  else
+    local connection        = locationConnections[guidA] and locationConnections[guidA][guidB]
+    local connectionReverse = locationConnections[guidB] and locationConnections[guidB][guidA]
+    if connection == BIDIRECTIONAL or connectionReverse == BIDIRECTIONAL then
+      currentState = CYCLE_STATES.BIDI
+    elseif connection == ONE_WAY then
+      -- If guidA is the origin, it's FORWARD relative to A->B
+      currentState = (guidA < guidB) and CYCLE_STATES.FORWARD or CYCLE_STATES.BACKWARD
+    elseif connectionReverse == ONE_WAY then
+      -- If guidB is the origin, it's BACKWARD relative to A->B
+      currentState = (guidA < guidB) and CYCLE_STATES.BACKWARD or CYCLE_STATES.FORWARD
+    end
+  end
+
+  -- Increment State
+  local nextState = (currentState + 1) % 4
+  connectionModifications[low] = connectionModifications[low] or {}
+  connectionModifications[low][high] = nextState
+
+  -- Maybe give Feedback
+  if playerColor then
+    local nameA      = getCardName(guidA)
+    local nameB      = getCardName(guidB)
+    local middlePart = " -/- " -- Default to OFF
+
+    if nextState == CYCLE_STATES.BIDI then
+      middlePart = " <-> "
+    elseif nextState == CYCLE_STATES.FORWARD or nextState == CYCLE_STATES.BACKWARD then
+      local isForward  = (nextState == CYCLE_STATES.FORWARD)
+      local aLessThanB = (guidA < guidB)
+
+      -- If FORWARD and A < B, or BACKWARD and A > B, use " -> "
+      middlePart       = (isForward == aLessThanB) and " -> " or " <- "
+    end
+
+    broadcastToColor("Connection: " .. nameA .. middlePart .. nameB, playerColor, "White")
+  end
+end
+
+function getCardName(guid)
+  local card = getObjectFromGUID(guid)
+  if card ~= nil then
+    local name = card.getName()
+    if name and name ~= "" and not (card and card.is_face_down and card.hide_when_face_down) then
+      return name
+    end
+  end
+  return "Hidden"
 end
 
 function isValidLocation(obj)
@@ -355,22 +407,23 @@ function rebuildConnectionList()
   end
 
   -- Handle manual connections (XOR logic to be able to cancel existing connections)
-  for originGuid, targets in pairs(manualConnections) do
-    for targetGuid, isEnabled in pairs(targets) do
-      if isEnabled then
-        locationConnections[originGuid] = locationConnections[originGuid] or {}
-        locationConnections[targetGuid] = locationConnections[targetGuid] or {}
+  for low, targets in pairs(connectionModifications) do
+    for high, state in pairs(targets) do
+      locationConnections[low] = locationConnections[low] or {}
+      locationConnections[high] = locationConnections[high] or {}
 
-        -- If a connection already exists, REMOVE it
-        if locationConnections[originGuid][targetGuid] ~= nil or
-            locationConnections[targetGuid][originGuid] ~= nil then
-          locationConnections[originGuid][targetGuid] = nil
-          locationConnections[targetGuid][originGuid] = nil
-        else
-          -- If no connection exists, ADD it
-          locationConnections[originGuid][targetGuid] = BIDIRECTIONAL
-          locationConnections[targetGuid][originGuid] = BIDIRECTIONAL
-        end
+      if state == CYCLE_STATES.BIDI then
+        locationConnections[low][high] = BIDIRECTIONAL
+        locationConnections[high][low] = BIDIRECTIONAL
+      elseif state == CYCLE_STATES.FORWARD then
+        locationConnections[low][high] = ONE_WAY
+        locationConnections[high][low] = INCOMING_ONE_WAY
+      elseif state == CYCLE_STATES.BACKWARD then
+        locationConnections[high][low] = ONE_WAY
+        locationConnections[low][high] = INCOMING_ONE_WAY
+      elseif state == CYCLE_STATES.OFF then
+        locationConnections[low][high] = nil
+        locationConnections[high][low] = nil
       end
     end
   end
