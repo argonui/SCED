@@ -78,7 +78,7 @@ do
       -- translate IDs
       local altArt     = {
         front = determineInvestigatorType(altFrontId),
-        back = determineInvestigatorType(altBackId)
+        back  = determineInvestigatorType(altBackId)
       }
 
       -- updating investigatorID based on alt investigator selection (parallel > promo > revised)
@@ -127,15 +127,9 @@ do
   end
 
   -- Ensure that On the Mend has 1-per-investigator copies set aside
-  local function maybeAddOnTheMend(slots, playerColor)
+  local function maybeAddOnTheMend(slots)
     if slots["09006"] ~= nil then
-      local investigatorCount = PlayAreaApi.getInvestigatorCount()
-      if investigatorCount ~= nil then
-        slots["09006"] = investigatorCount
-      else
-        maybePrint("Something went wrong with the load, adding 4 copies of On the Mend", playerColor)
-        slots["09006"] = 4
-      end
+      slots["09006"] = PlayAreaApi.getInvestigatorCount()
     end
   end
 
@@ -387,7 +381,7 @@ do
 
     maybeModifyDeckFromDescription(slots, deck.description_md, playerColor)
     maybeAddSummonedServitor(slots)
-    maybeAddOnTheMend(slots, playerColor)
+    maybeAddOnTheMend(slots)
     maybeAddRealityAcidReference(slots)
     local bondList = extractBondedCards(slots)
     checkTaboos(deck.taboo_id, slots, deckMeta, playerColor)
@@ -475,6 +469,13 @@ do
       end
 
       onDeckResult(json, playerColor, loadNewest, standalone, callback)
+    end, function(errorMessage, responseCode)
+      local responseText = errorMessage.message
+      if string.find(responseText, "<!DOCTYPE html>") or string.find(responseText, "No share was found for this deck") then
+        maybePrint("Private deck ID " .. deckId .. " is not shared.", playerColor)
+      else
+        maybePrint("Error: " .. responseText .. "(" .. responseCode .. ")", playerColor)
+      end
     end)
   end
 
